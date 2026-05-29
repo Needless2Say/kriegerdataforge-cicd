@@ -1,0 +1,43 @@
+# kriegerdataforge-cicd — Cursor Rules
+
+## Purpose
+
+This is a **shared reusable GitHub Actions workflow library**. Every workflow with
+`on: workflow_call:` is a public API consumed by other KriegerDataForge repos:
+`fitness-app-frontend`, `tiffanys-space`, `kriegerdataforge`, `arthurs-portfolio`,
+`kriegerdataforge-terraform`. Treat all changes as potentially breaking for downstream
+consumers.
+
+## GitHub Actions
+
+- Every externally-callable workflow MUST have `on: workflow_call:` as its trigger
+  (add `on: workflow_dispatch:` alongside for manual testing only)
+- Pin all third-party action versions to a commit SHA — never `@main` or `@latest`
+- Never log secrets — even masked secrets should not appear in `echo` or debug steps
+- Keep steps atomic — each step does one thing
+- Prefer composite actions (`.github/actions/`) for logic reused across multiple workflows
+- All production deployment jobs must use `environment:` for GitHub Environment protection gates
+
+## Security
+
+- Use `${{ secrets.NAME }}` for all credentials — never hardcode
+- Set minimum required permissions on every workflow using the `permissions:` block
+- Never use `pull_request_target` with an untrusted code checkout
+- Use GitHub Environments for all production gates
+
+## Backward Compatibility
+
+- Adding a `required: true` input is a **breaking change** for all consumers —
+  use `required: false` with a sensible `default:`, or coordinate with all consuming repos first
+- Removing or renaming `outputs:` is a breaking change
+- Changing `secrets:` requirements without updating all callers will silently break pipelines
+- When in doubt, add a new workflow rather than modifying an existing one
+
+## Repo Structure
+
+- `.github/workflows/` — reusable workflows (all have `workflow_call:` trigger)
+- `.github/actions/` — composite actions
+- `scripts/` — shell helpers called by workflows
+- `docs/` — workflow catalog and consumer integration guides
+
+See `CLAUDE.md` for full project context and critical rules.
