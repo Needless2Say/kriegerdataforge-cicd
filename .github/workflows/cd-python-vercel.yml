@@ -39,8 +39,8 @@ on:
       run_migrations:
         description: 'Run "alembic upgrade head" after deployment'
         required: false
-        type: boolean
-        default: true
+        type: string
+        default: 'true'
 
 jobs:
   deploy:
@@ -88,7 +88,7 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
       - name: Run Alembic migrations
-        if: inputs.run_migrations
+        if: inputs.run_migrations == 'true'
         run: alembic upgrade head
         env:
           DB_DATABASE_URL: ${{ secrets.DB_DATABASE_URL }}
