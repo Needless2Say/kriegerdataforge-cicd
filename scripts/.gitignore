@@ -1,0 +1,5 @@
+# Real env files — never commit these
+.env.backup
+
+# pg_dump output
+backups/
