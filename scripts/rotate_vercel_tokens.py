@@ -111,7 +111,7 @@ def create_vercel_token(master_token: str, name: str) -> tuple[str, str]:
     )
     resp.raise_for_status()
     data = resp.json()
-    return data["token"]["id"], data["token"]["token"]
+    return data["token"]["id"], data["bearerToken"]
 
 
 def list_vercel_tokens(master_token: str) -> list[dict]:
