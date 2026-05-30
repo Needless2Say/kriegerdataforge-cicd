@@ -31,15 +31,15 @@ Before starting, make sure you have:
 
 Go to **Vercel Dashboard → Settings → Tokens → Create Token** and create the following tokens.
 
-For **every token** (including `kdf-master-rotation` in Phase 6.1), use these settings:
+For the **per-app deployment tokens** in the table below, use these settings:
 
 | Field | Value |
 |---|---|
 | **Token Name** | see table below |
-| **Scope** | **Arthur's projects** — NOT "Full Account". This restricts the token to your Vercel team's projects only, following least-privilege. |
-| **Expiration** | Custom — set ~35 days out. The monthly rotation workflow (Phase 6) will renew them automatically after initial setup. For `kdf-master-rotation` set to 1 year (it rotates the others, not itself). |
+| **Scope** | **Arthur's projects** — this restricts the token to your Vercel team's projects only, following least-privilege. |
+| **Expiration** | Custom — set ~35 days out. The monthly rotation workflow (Phase 6) will renew them automatically after initial setup. |
 
-> **Why not "Full Account"?** Full Account scope grants access to personal projects outside your team. "Arthur's projects" is the most restrictive option available and is sufficient since all your deployed apps live under that team.
+> **`kdf-master-rotation` is the exception — see Phase 6.1.** That token must use **Full Account** scope because the Vercel API endpoint for creating/deleting tokens (`/v3/user/tokens`) is a personal account API, not a team API. Tokens scoped to "Arthur's projects" receive a 403 Forbidden when calling it. The per-app tokens here never call that endpoint — they only make deployment calls, so team scope is sufficient and correct.
 
 | Token name to enter in Vercel | Used by |
 |---|---|
@@ -305,8 +305,8 @@ This is a long-lived "meta-token" whose only job is to create and delete the per
 
 1. Go to **Vercel Dashboard → Settings → Tokens → Create Token**
 2. Token name: `kdf-master-rotation`
-3. **Scope: Arthur's projects** — same rule as Phase 0, never "Full Account"
-4. Expiration: 1 year (or No Expiration — rotate manually on a calendar reminder)
+3. **Scope: Full Account** — this is the required exception. The Vercel API endpoint for creating and deleting tokens (`/v3/user/tokens`) is a personal account API; team-scoped tokens receive a 403 Forbidden. This token is never used for deployments, only for token lifecycle management.
+4. Expiration: 1 year (rotate manually on a calendar reminder — set one now)
 5. Copy the token value immediately
 
 ### 6.2 — Add `VERCEL_MASTER_TOKEN` to `kriegerdataforge-cicd`
