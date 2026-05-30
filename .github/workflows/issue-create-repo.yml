@@ -107,7 +107,7 @@ jobs:
           gh api \
             --method PUT \
             -H "Accept: application/vnd.github+json" \
-            /repos/Needless2Say/${REPO_NAME}/environments/production \
+            /repos/Needless2Say/${REPO_NAME}/environments/prod \
             -F "wait_timer=0" \
             --input - <<EOF
           {
@@ -122,7 +122,7 @@ jobs:
           gh api \
             --method POST \
             -H "Accept: application/vnd.github+json" \
-            /repos/Needless2Say/${REPO_NAME}/environments/production/deployment-branch-policies \
+            /repos/Needless2Say/${REPO_NAME}/environments/prod/deployment-branch-policies \
             -f name="main" \
             -f type="branch"
 
@@ -135,7 +135,7 @@ jobs:
           gh api \
             --method PUT \
             -H "Accept: application/vnd.github+json" \
-            /repos/Needless2Say/${REPO_NAME}/environments/development \
+            /repos/Needless2Say/${REPO_NAME}/environments/dev \
             -F "wait_timer=0" \
             --input - <<EOF
           {
@@ -149,11 +149,12 @@ jobs:
           gh api \
             --method POST \
             -H "Accept: application/vnd.github+json" \
-            /repos/Needless2Say/${REPO_NAME}/environments/development/deployment-branch-policies \
+            /repos/Needless2Say/${REPO_NAME}/environments/dev/deployment-branch-policies \
             -f name="main" \
             -f type="branch"
 
-      - name: Enable branch protection on main
+      - name: Enable branch protection on main (skipped on free-tier private repos)
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.CICD_PAT }}
           REPO_NAME: ${{ steps.fields.outputs.repo_name }}
@@ -196,25 +197,25 @@ jobs:
 
           ### Automated setup complete
           - [x] Repository created from \`kriegerdataforge-template-${REPO_TYPE}\`
-          - [x] \`production\` environment created (owner-only approval gate, main branch only)
-          - [x] \`development\` environment created (owner approval gate, main branch only)
-          - [x] Branch protection enabled on \`main\` (require PR, dismiss stale reviews, no force push)
+          - [x] \`prod\` environment created (owner-only approval gate, main branch only)
+          - [x] \`dev\` environment created (owner approval gate, main branch only)
+          - [~] Branch protection on \`main\` — skipped on free-tier private repos (enable manually after upgrading to GitHub Organization)
 
           ### Manual steps required
 
           **Collaborator access** (after friend accepts the org invite):
           - [ ] Settings → Collaborators → add friend with Write role
-          - [ ] Settings → Environments → \`development\` → Required reviewers → add friend
+          - [ ] Settings → Environments → \`dev\` → Required reviewers → add friend
 
           **Environment secrets** (Settings → Environments → [env] → Add secret):
 
-          \`production\` environment:
+          \`prod\` environment:
           - [ ] \`VERCEL_TOKEN\` — your Vercel API token
           - [ ] \`VERCEL_ORG_ID\` — your Vercel team ID
           - [ ] \`VERCEL_PROJECT_ID\` — Vercel project ID for the **prod** deployment
           $([ "$REPO_TYPE" = "fastapi" ] && echo "- [ ] \`DB_DATABASE_URL\` — prod Neon connection string")
 
-          \`development\` environment:
+          \`dev\` environment:
           - [ ] \`VERCEL_TOKEN\` — your Vercel API token
           - [ ] \`VERCEL_ORG_ID\` — your Vercel team ID
           - [ ] \`VERCEL_PROJECT_ID\` — Vercel project ID for the **dev** deployment

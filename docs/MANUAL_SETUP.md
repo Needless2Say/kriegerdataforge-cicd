@@ -74,40 +74,9 @@ Save these — you'll need them in Phase 3.
 
 ---
 
-## Phase 2 — Set Up Terraform Cloud Remote State (Recommended)
+## Phase 2 — Set Up Terraform Cloud Remote State
 
-> **ONCE** — Without this, the Terraform CD workflow has no state file to work with. Free tier is sufficient.
-
-1. Go to [app.terraform.io](https://app.terraform.io) → Create account (or sign in)
-2. Create an organization (e.g. `kriegerdataforge`)
-3. Create a workspace:
-   - Name: `kriegerdataforge-infrastructure`
-   - Execution mode: **CLI-driven** (NOT VCS-driven)
-4. Open `kriegerdataforge-terraform/providers.tf` and uncomment the `backend "remote"` block (Option A):
-
-   ```hcl
-   backend "remote" {
-     hostname     = "app.terraform.io"
-     organization = "kriegerdataforge"   # your org name
-     workspaces {
-       name = "kriegerdataforge-infrastructure"
-     }
-   }
-   ```
-
-5. Create a Terraform Cloud API token:
-   - In Terraform Cloud: User icon → User Settings → Tokens → Create an API token
-   - Name: `github-actions-cd`
-   - Copy the token value
-6. Migrate local state to Terraform Cloud:
-
-   ```bash
-   cd kriegerdataforge-terraform
-   terraform login   # paste the token when prompted
-   terraform init -migrate-state  # confirm "yes" when asked to copy state
-   ```
-
-7. Verify the state was migrated: go to Terraform Cloud → your workspace → States — you should see a state version.
+> **⏸ DEFERRED** — Terraform runs locally for now. Remote state will be configured when the business justifies the cost. Do not complete this phase yet — skip directly to Phase 3.
 
 ---
 
@@ -128,26 +97,26 @@ For each repo, go to **Settings → Environments** and create the environments b
 
 ### For repos 1–5 (app repos): Create TWO environments
 
-**Environment: `production`**
+**Environment: `prod`**
 
-1. Click **New environment** → name: `production` → **Configure environment**
+1. Click **New environment** → name: `prod` → **Configure environment**
 2. Check **Required reviewers** → Add yourself (the account owner)
 3. Under **Deployment branches and tags** → select **Selected branches and tags** → Add rule → Branch name pattern: `main`
 4. Click **Save protection rules**
 
-**Environment: `development`**
+**Environment: `dev`**
 
-1. Click **New environment** → name: `development` → **Configure environment**
+1. Click **New environment** → name: `dev` → **Configure environment**
 2. Check **Required reviewers** → Add yourself
-   - After your friend accepts the collaborator invite (Phase 7), come back and add them here too
+   - After your friend accepts the collaborator invite (Phase 10), come back and add them here too (fitness-app-frontend and fitness-app-backend only)
 3. Under **Deployment branches and tags** → **Selected branches and tags** → Add rule → Branch name: `main`
 4. Click **Save protection rules**
 
 ### For repo 6 (kriegerdataforge-terraform): Create ONE environment
 
-**Environment: `infrastructure`**
+**Environment: `infra`**
 
-1. Click **New environment** → name: `infrastructure` → **Configure environment**
+1. Click **New environment** → name: `infra` → **Configure environment**
 2. Required reviewers: yourself only
 3. Deployment branches: `main` only
 4. Click **Save protection rules**
@@ -166,7 +135,7 @@ For each repo, go to **Settings → Environments** and create the environments b
 
 ### kriegerdataforge
 
-**`production` environment secrets:**
+**`prod` environment secrets:**
 | Secret Name | Value |
 |---|---|
 | `VERCEL_TOKEN` | Your Vercel API token |
@@ -174,7 +143,7 @@ For each repo, go to **Settings → Environments** and create the environments b
 | `VERCEL_PROJECT_ID` | `prj_3kiJpapxo5G4Syd4j6i6LkeWXS9s` (prod backend) |
 | `DB_DATABASE_URL` | Your production Neon psycopg2 connection string |
 
-**`development` environment secrets:**
+**`dev` environment secrets:**
 | Secret Name | Value |
 |---|---|
 | `VERCEL_TOKEN` | Your Vercel API token |
@@ -184,14 +153,14 @@ For each repo, go to **Settings → Environments** and create the environments b
 
 ### fitness-app-frontend
 
-**`production` environment secrets:**
+**`prod` environment secrets:**
 | Secret Name | Value |
 |---|---|
 | `VERCEL_TOKEN` | Your Vercel API token |
 | `VERCEL_ORG_ID` | Your Vercel Team ID |
 | `VERCEL_PROJECT_ID` | `prj_cqvUqHUTI2peopP8ZQalqPE3um7u` (prod fitness app) |
 
-**`development` environment secrets:**
+**`dev` environment secrets:**
 | Secret Name | Value |
 |---|---|
 | `VERCEL_TOKEN` | Your Vercel API token |
@@ -200,21 +169,21 @@ For each repo, go to **Settings → Environments** and create the environments b
 
 ### tiffanys_space
 
-**`production` environment secrets:**
+**`prod` environment secrets:**
 | Secret Name | Value |
 |---|---|
 | `VERCEL_TOKEN` | Your Vercel API token |
 | `VERCEL_ORG_ID` | Your Vercel Team ID |
 | `VERCEL_PROJECT_ID` | `prj_Vwlw8Nts7rFo2Apq25ZhXN3K6fw9` (prod tiffanys) |
 
-**`development` environment secrets:**
+**`dev` environment secrets:**
 | Secret Name | Value |
 |---|---|
 | `VERCEL_TOKEN` | Your Vercel API token |
 | `VERCEL_ORG_ID` | Your Vercel Team ID |
 | `VERCEL_PROJECT_ID` | *(No dev project for tiffanys yet — skip until one is created in Terraform)* |
 
-### kriegerdataforge-terraform (`infrastructure` environment)
+### kriegerdataforge-terraform (`infra` environment)
 
 **Secrets:**
 | Secret Name | Value |
@@ -231,7 +200,7 @@ For each repo, go to **Settings → Environments** and create the environments b
 | `BACKEND_STRIPE_WEBHOOK_SECRET` | Value from `terraform.tfvars` (or leave empty if not set) |
 | `FITNESS_APP_SENTRY_AUTH_TOKEN` | Value from `terraform.tfvars` (or leave empty) |
 | `TIFFANYS_SPACE_SENTRY_AUTH_TOKEN` | Value from `terraform.tfvars` (or leave empty) |
-| `TF_TOKEN_APP_TERRAFORM_IO` | Terraform Cloud API token (from Phase 2 step 5) |
+| ~~`TF_TOKEN_APP_TERRAFORM_IO`~~ | ~~Terraform Cloud API token~~ — **DEFERRED** (Terraform Cloud not configured yet; see Phase 2) |
 
 **Variables** (non-secret — use "Add variable" not "Add secret"):
 | Variable Name | Value |
@@ -257,7 +226,7 @@ For each repo, go to **Settings → Environments** and create the environments b
 ### 5.1 — Deploy dev backend
 
 1. Go to `kriegerdataforge` repo → **Actions** → **CD** workflow
-2. Click **Run workflow** → Environment: `development`, Run migrations: ✅ → **Run workflow**
+2. Click **Run workflow** → Environment: `dev`, Run migrations: ✅ → **Run workflow**
 3. Wait for approval notification (you'll get one since you're the reviewer)
 4. Click **Review deployments** → **Approve**
 5. Wait for the deploy to complete → note the Vercel deployment URL from the logs
@@ -271,12 +240,12 @@ For each repo, go to **Settings → Environments** and create the environments b
    dev_backend_cors_origins = "http://localhost:3000,http://localhost:3001,https://fitness-app-frontend-dev.vercel.app"
    ```
 
-2. Update the `DEV_BACKEND_URL` GitHub variable in `kriegerdataforge-terraform` → `infrastructure` environment (Phase 4)
+2. Update the `DEV_BACKEND_URL` GitHub variable in `kriegerdataforge-terraform` → `infra` environment (Phase 4)
 3. Run `terraform apply` locally (or trigger the Terraform CD workflow)
 
 ### 5.3 — Deploy dev frontend
 
-1. Go to `fitness-app-frontend` → **Actions** → **CD** → Run workflow → `development` → approve → wait
+1. Go to `fitness-app-frontend` → **Actions** → **CD** → Run workflow → `dev` → approve → wait
 
 ---
 
@@ -309,25 +278,9 @@ For each repo, go to **Settings → Environments** and create the environments b
 
 ---
 
-## Phase 7 — Branch Protection (PER REPO × 7)
+## Phase 7 — Branch Protection
 
-> **MANUAL** — Enable on `main` for every repo.
-
-For each repo in the list, go to **Settings → Branches → Add branch protection rule**:
-
-**Branch name pattern:** `main`
-
-Checkboxes to enable:
-
-- [x] **Require a pull request before merging**
-  - Required number of approvals: `1`
-  - [x] Dismiss stale pull request approvals when new commits are pushed
-- [x] **Require status checks to pass before merging**
-  - Click "Search for status checks" after the first CI run completes — add all job names (e.g. `lint`, `type-check`, `unit-tests`, `build`)
-- [x] **Do not allow bypassing the above settings**
-- [x] **Restrict who can push to matching branches** → leave empty (no direct pushes from anyone)
-
-> **Note:** The status check names won't appear until the first CI run has completed on a PR. Set up the rule without status checks first, then edit it and add them after.
+> **⏸ DEFERRED** — Free tier private repositories on GitHub do not support branch protection rules. This phase will be revisited when upgrading to a GitHub Organization (~$4/member/month). Skip to Phase 8.
 
 ---
 
@@ -375,18 +328,21 @@ After creating each template repo, add the baseline files (CI workflow, Makefile
 
 > **MANUAL** — After your friend accepts GitHub invite.
 
-### 10.1 — Add collaborator to all repos
+### 10.1 — Add friend as collaborator (fitness repos only)
 
-For each of the 7 repos, go to **Settings → Collaborators and teams → Add people**:
+Friend gets **Write** access to exactly two repos — no other repos:
 
-- Add friend's GitHub username with **Write** role
+1. `fitness-app-frontend` → Settings → Collaborators → Add people → Write role
+2. `fitness-app-backend` → Settings → Collaborators → Add people → Write role
 
-### 10.2 — Add friend as development environment reviewer
+> **Note:** Do NOT add the friend to `kriegerdataforge`, `tiffanys-closet-backend`, `kriegerdataforge-terraform`, `kriegerdataforge-cicd`, or any other repo. Fine-grained per-repo access is intentional.
+
+### 10.2 — Add friend as `dev` environment reviewer (fitness repos only)
 
 After friend accepts the collaborator invite, for each of these repos:
-`kriegerdataforge`, `fitness-app-frontend`, `tiffanys_space`, `arthurs-portfolio`, `kriegerdataforge-cicd`
+`fitness-app-frontend`, `fitness-app-backend`
 
-1. Go to **Settings → Environments → development → Required reviewers**
+1. Go to **Settings → Environments → `dev` → Required reviewers**
 2. Add friend's GitHub username
 3. Click **Save protection rules**
 
@@ -419,21 +375,20 @@ Run through this checklist to confirm the setup is working end-to-end:
 
 ### Branch protection
 
-- [ ] Attempt `git push origin main` directly → rejected ✅
-- [ ] Open a PR with a lint error → merge button stays greyed out until CI passes ✅
+> Branch protection is **DEFERRED** (free tier private repos). Skip this section.
 
 ### Dev deploy gate
 
-- [ ] Go to `fitness-app-frontend` → Actions → CD → Run workflow → `development`
+- [ ] Go to `fitness-app-frontend` → Actions → CD → Run workflow → `dev`
 - [ ] GitHub shows "Waiting for review" notification ✅
 - [ ] Click Review → Approve → workflow runs → deploys to dev URL ✅
 - [ ] Dev Vercel URL (`https://fitness-app-frontend-dev.vercel.app`) is accessible ✅
 
 ### Prod deploy gate
 
-- [ ] Run the same workflow with `production`
+- [ ] Run the same workflow with `prod`
 - [ ] Only you (owner) can approve ✅
-- [ ] Friend's account has no "Approve" button for the `production` environment ✅
+- [ ] Friend's account has no "Approve" button for the `prod` environment ✅
 
 ### No local deploy
 
@@ -442,7 +397,7 @@ Run through this checklist to confirm the setup is working end-to-end:
 ### Terraform CD
 
 - [ ] Go to `kriegerdataforge-terraform` → Actions → CD — Terraform → Run workflow
-- [ ] `infrastructure` environment gate appears → you approve → `terraform plan` + `apply` runs ✅
+- [ ] `infra` environment gate appears → you approve → `terraform plan` + `apply` runs ✅
 
 ---
 
