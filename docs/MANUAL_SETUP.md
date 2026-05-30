@@ -381,26 +381,26 @@ Run through this checklist to confirm the setup is working end-to-end.
 
 ### Dev deploy gate
 
-- [ ] Go to `fitness-app-frontend` → Actions → CD → Run workflow → `dev`
-- [ ] GitHub shows "Waiting for review" notification ✅
-- [ ] Click Review → Approve → workflow runs → deploys to dev URL ✅
-- [ ] Dev Vercel URL (`https://fitness-app-frontend-dev.vercel.app`) is accessible ✅
+- [X] Go to `fitness-app-frontend` → Actions → CD → Run workflow → `dev`
+- [X] GitHub shows "Waiting for review" notification ✅
+- [X] Click Review → Approve → workflow runs → deploys to dev URL ✅
+- [X] Dev Vercel URL (`https://fitness-app-frontend-dev.vercel.app`) is accessible ✅
 
 ### Prod deploy gate
 
-- [ ] Run the same workflow with `prod`
-- [ ] Only you (owner) can approve ✅
+- [X] Run the same workflow with `prod`
+- [X] Only you (owner) can approve ✅
 
 ### Token rotation
 
-- [ ] Go to `kriegerdataforge-cicd` → Actions → Rotate Vercel Tokens → Run workflow
-- [ ] Workflow completes without errors ✅
-- [ ] Vercel Dashboard shows fresh token expiry dates on all `kdf-*` tokens ✅
+- [X] Go to `kriegerdataforge-cicd` → Actions → Rotate Vercel Tokens → Run workflow
+- [X] Workflow completes without errors ✅
+- [X] Vercel Dashboard shows fresh token expiry dates on all `kdf-*` tokens ✅
 
 ### Terraform CD
 
-- [ ] Go to `kriegerdataforge-terraform` → Actions → CD — Terraform → Run workflow
-- [ ] `infra` environment gate appears → you approve → `terraform plan` + `apply` runs ✅
+- [X] Go to `kriegerdataforge-terraform` → Actions → CD — Terraform → Run workflow
+- [X] `infra` environment gate appears → you approve → `terraform plan` + `apply` runs ✅
 
 ### Branch protection
 
