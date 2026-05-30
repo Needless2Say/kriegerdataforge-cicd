@@ -5,7 +5,7 @@ This document covers every step that cannot be automated by code. Complete these
 - Steps marked **ONCE** only need to be done once total.
 - Steps marked **PER REPO** need to be repeated for each listed repository.
 - **Part 1** (Phases 0–9) is what you need to complete right now (Stage 3 of the overall plan).
-- **Part 2** (Phases 10–12) comes later, after Stage 6 (FastAPI separation) is done.
+- **Part 2** (Phases 10–13) comes later, after Stage 6 (FastAPI separation) is done.
 
 ---
 
@@ -404,13 +404,15 @@ Run through this checklist to confirm the setup is working end-to-end.
 
 ### Branch protection
 
-> **⏸ DEFERRED** — Free tier private repos do not support branch protection rules. Revisit when upgrading to a GitHub Organization (~$4/member/month).
+> **⏸ DEFERRED** — Free tier private repos do not support branch protection rules. Revisit after Phase 13 (GitHub Organization migration).
 
 ---
 
 ## Part 2 — Do Later (Stage 9 of overall plan)
 
 Complete Part 2 **after** Stage 6 (FastAPI separation) is done and the `fitness-app-backend` repo exists. These phases depend on that repo being in place.
+
+> **Note on private repos + reusable workflows:** Currently `kriegerdataforge-cicd` must be **public** so that other repos can call its reusable workflows. If you want all repos private, you need to migrate to a GitHub Organization first (Phase 13). Do Phase 13 before Phase 11 if you want both branch protection and private repos simultaneously.
 
 ---
 
@@ -442,7 +444,7 @@ After creating each template repo, add the baseline files (CI workflow, Makefile
 
 ## Phase 11 — Branch Protection
 
-> **⏸ DEFERRED** — Free tier private repositories on GitHub do not support branch protection rules. This phase will be revisited when upgrading to a GitHub Organization (~$4/member/month).
+> **⏸ DEFERRED** — Free tier private repositories on GitHub do not support branch protection rules. Complete Phase 13 (GitHub Organization migration) first, then come back here.
 
 ---
 
@@ -502,4 +504,84 @@ Key things to communicate:
 | Dev project IDs | `terraform output` after Phase 1.3 |
 | Neon connection strings | Neon Console → Project → Branches → Connection Details → psycopg2 format |
 | `AUTH_SECRET_KEY` etc. | Your local `terraform.tfvars` |
+
+---
+
+## Phase 13 — GitHub Organization Migration
+
+> **⏸ DEFERRED** — Do this when you want to keep all repos **private** while still sharing reusable workflows across them, AND to unlock branch protection rules on private repos. **No payment required** — GitHub Organizations are free for public and private repos at the personal/hobby scale (you pay per seat only if you add members who need private repo access beyond collaborator level).
+
+### Why this is needed
+
+GitHub has two separate limitations on personal accounts that go away with an Organization:
+
+| Feature | Personal account (Free/Pro) | GitHub Organization (Free tier) |
+|---|---|---|
+| Reusable workflows across private repos | ❌ Not allowed | ✅ Allowed (org setting) |
+| Branch protection on private repos | ❌ Not allowed | ✅ Allowed |
+| Cross-repo workflow calls stay private | ❌ Must make cicd repo public | ✅ All repos stay private |
+
+**GitHub Pro** (paid personal account) does **not** unlock either of these features — they are architectural restrictions on personal accounts, not a paid tier gate.
+
+### Steps
+
+#### 13.1 — Create a GitHub Organization
+
+1. Go to [github.com/organizations/new](https://github.com/organizations/new)
+2. Choose **Free** plan
+3. Organization name: `KriegerDataForge` (or similar — this becomes part of repo URLs)
+4. Contact email: your email
+5. Finish setup
+
+#### 13.2 — Enable reusable workflows org-wide
+
+1. Go to `github.com/organizations/KriegerDataForge/settings/actions`
+2. Under **Policies** → **Fork pull request workflows** — leave default
+3. Under **Workflow permissions** → ensure **Read and write permissions** is selected
+4. Look for **Allow reusable workflows from this organization** → enable it ✅
+5. Save
+
+#### 13.3 — Transfer repos to the organization
+
+For each repo, go to **Settings → Danger Zone → Transfer ownership** → transfer to `KriegerDataForge` org.
+
+Transfer in this order (dependencies first):
+
+1. `kriegerdataforge-cicd` — must be transferred first; other repos depend on it
+2. `kriegerdataforge-terraform`
+3. `kriegerdataforge`
+4. `fitness-app-frontend`
+5. `tiffanys_space`
+6. `arthurs-portfolio`
+7. `kriegerdataforge-portfolio`
+
+> After transfer, GitHub automatically creates redirects from the old personal URLs to the org URLs. Existing `git remote` URLs in local clones will continue to work.
+
+#### 13.4 — Update workflow `uses:` references
+
+After transfer, the reusable workflow path changes from:
+```
+Needless2Say/kriegerdataforge-cicd/.github/workflows/cd-python-vercel.yml@main
+```
+to:
+```
+KriegerDataForge/kriegerdataforge-cicd/.github/workflows/cd-python-vercel.yml@main
+```
+
+Update all `uses:` lines in:
+- `kriegerdataforge/.github/workflows/cd.yml`
+- `fitness-app-frontend/.github/workflows/cd.yml`
+- `tiffanys_space/.github/workflows/cd.yml`
+- Any other consumer workflows
+
+#### 13.5 — Make `kriegerdataforge-cicd` private again
+
+Once the org setting is enabled and all consumer repos are in the org:
+
+1. `kriegerdataforge-cicd` → Settings → Danger Zone → Change visibility → **Make private**
+2. Re-run a CD workflow in any consumer repo to confirm cross-repo calls still work
+
+#### 13.6 — Re-apply branch protection (Phase 11)
+
+Now that repos are in an org, go back and complete Phase 11.
 
