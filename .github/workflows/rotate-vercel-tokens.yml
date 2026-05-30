@@ -1,0 +1,54 @@
+name: Rotate Vercel Tokens
+
+on:
+  # first of every month at 09:00 UTC
+  # schedule:
+  #   - cron: "0 9 1 * *"
+
+  # allow manual trigger — optionally scope to specific apps and/or environments
+  workflow_dispatch:
+    inputs:
+      apps:
+        description: >
+          Comma-separated app names to rotate, or "all" to rotate everything.
+          Options: auth-backend, fitness-frontend, tiffanys-frontend, infra
+        required: false
+        default: "all"
+        type: string
+      envs:
+        description: >
+          Comma-separated environment names to rotate, or "all".
+          Options: prod, dev, infra
+        required: false
+        default: "all"
+        type: string
+
+jobs:
+  rotate:
+    name: Rotate Vercel tokens
+    runs-on: ubuntu-latest
+
+    # No GitHub Environment — uses repo-level secrets only
+    # VERCEL_MASTER_TOKEN and CICD_PAT are stored as repo-level secrets
+    # on kriegerdataforge-cicd (Settings → Secrets and variables → Actions)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install rotation dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Rotate tokens
+        env:
+          VERCEL_MASTER_TOKEN: ${{ secrets.VERCEL_MASTER_TOKEN }}
+          GH_TOKEN: ${{ secrets.CICD_PAT }}
+        run: |
+          python scripts/rotate_vercel_tokens.py \
+            --apps "${{ inputs.apps || 'all' }}" \
+            --envs "${{ inputs.envs || 'all' }}"
