@@ -9,19 +9,26 @@ on:
   workflow_dispatch:
     inputs:
       apps:
-        description: >
-          Comma-separated app names to rotate, or "all" to rotate everything.
-          Options: auth-backend, fitness-frontend, tiffanys-frontend, infra
+        description: "App to rotate, or 'all' to rotate everything."
         required: false
         default: "all"
-        type: string
+        type: choice
+        options:
+          - all
+          - auth-backend
+          - fitness-frontend
+          - tiffanys-frontend
+          - infra
       envs:
-        description: >
-          Comma-separated environment names to rotate, or "all".
-          Options: prod, dev, infra
+        description: "Environment to rotate, or 'all'."
         required: false
         default: "all"
-        type: string
+        type: choice
+        options:
+          - all
+          - prod
+          - dev
+          - infra
 
 jobs:
   rotate:
