@@ -1,0 +1,237 @@
+# Issue Assistant — Create New Repository
+#
+# Triggered when the `new-repo` label is added to an issue that was opened
+# using the new-repo issue form. Parses the form fields, creates a repo from
+# the appropriate template, configures GitHub Environments, enables branch
+# protection, and comments with the remaining manual checklist.
+#
+# Required repo-level secret (not environment-scoped):
+#   CICD_PAT — fine-grained GitHub PAT with the following permissions:
+#     Repository: Administration (R/W), Contents (R/W), Environments (R/W),
+#                 Secrets (R/W), Variables (R/W), Actions (R/W)
+#     Account:    Members (Read)
+#
+# Template repos that must exist before this workflow is useful:
+#   Needless2Say/kriegerdataforge-template-nextjs
+#   Needless2Say/kriegerdataforge-template-fastapi
+#   Needless2Say/kriegerdataforge-template-npm-package
+#   Needless2Say/kriegerdataforge-template-python-package
+#
+# See docs/MANUAL_SETUP.md — Phase 10 & 11 for setup instructions.
+
+name: Issue Assistant — Create Repo
+
+on:
+  issues:
+    types:
+      - labeled
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  create-repo:
+    name: Create repository from template
+    runs-on: ubuntu-latest
+
+    # only run when the new repo label is added
+    if: github.event.label.name == 'new-repo'
+
+    steps:
+      - name: Parse issue form body
+        id: parse
+        uses: peter-murray/issue-forms-body-parser@v4
+        with:
+          issue_id: ${{ github.event.issue.number }}
+          separator: "###"
+          label_marker_start: ">>"
+          label_marker_end: "<<"
+
+      - name: Extract fields
+        id: fields
+        run: |
+          echo "repo_name=$(echo '${{ steps.parse.outputs.payload }}' | jq -r '."Repository Name"')" >> $GITHUB_OUTPUT
+          echo "repo_type=$(echo '${{ steps.parse.outputs.payload }}' | jq -r '."Repository Type"')" >> $GITHUB_OUTPUT
+          echo "visibility=$(echo '${{ steps.parse.outputs.payload }}' | jq -r '.Visibility')" >> $GITHUB_OUTPUT
+          echo "description=$(echo '${{ steps.parse.outputs.payload }}' | jq -r '.Description')" >> $GITHUB_OUTPUT
+
+      - name: Validate fields
+        run: |
+          REPO_NAME="${{ steps.fields.outputs.repo_name }}"
+          REPO_TYPE="${{ steps.fields.outputs.repo_type }}"
+          if [[ -z "$REPO_NAME" || "$REPO_NAME" == "null" ]]; then
+            echo "::error::repo_name is required"
+            exit 1
+          fi
+          if [[ ! "$REPO_NAME" =~ ^[a-z0-9-]+$ ]]; then
+            echo "::error::repo_name must contain only lowercase letters, numbers, and hyphens"
+            exit 1
+          fi
+          VALID_TYPES=("nextjs" "fastapi" "npm-package" "python-package")
+          if [[ ! " ${VALID_TYPES[*]} " =~ " ${REPO_TYPE} " ]]; then
+            echo "::error::repo_type must be one of: nextjs, fastapi, npm-package, python-package"
+            exit 1
+          fi
+
+      - name: Create repository from template
+        env:
+          GH_TOKEN: ${{ secrets.CICD_PAT }}
+          REPO_NAME: ${{ steps.fields.outputs.repo_name }}
+          REPO_TYPE: ${{ steps.fields.outputs.repo_type }}
+          VISIBILITY: ${{ steps.fields.outputs.visibility }}
+          DESCRIPTION: ${{ steps.fields.outputs.description }}
+        run: |
+          TEMPLATE="kriegerdataforge-template-${REPO_TYPE}"
+          echo "Creating Needless2Say/${REPO_NAME} from template Needless2Say/${TEMPLATE}"
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            /repos/Needless2Say/${TEMPLATE}/generate \
+            -f owner="Needless2Say" \
+            -f name="${REPO_NAME}" \
+            -f description="${DESCRIPTION}" \
+            -F private=$([ "$VISIBILITY" = "private" ] && echo "true" || echo "false") \
+            -F include_all_branches=false
+          # Wait for repo to be fully created before configuring it
+          sleep 5
+
+      - name: Configure production environment
+        env:
+          GH_TOKEN: ${{ secrets.CICD_PAT }}
+          REPO_NAME: ${{ steps.fields.outputs.repo_name }}
+        run: |
+          # Get owner user ID for required reviewer
+          OWNER_ID=$(gh api /users/Needless2Say --jq '.id')
+          # Create production environment with owner-only approval gate
+          gh api \
+            --method PUT \
+            -H "Accept: application/vnd.github+json" \
+            /repos/Needless2Say/${REPO_NAME}/environments/production \
+            -F "wait_timer=0" \
+            --input - <<EOF
+          {
+            "reviewers": [{"type": "User", "id": ${OWNER_ID}}],
+            "deployment_branch_policy": {
+              "protected_branches": false,
+              "custom_branch_policies": true
+            }
+          }
+          EOF
+          # Set deployment branch to main only
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            /repos/Needless2Say/${REPO_NAME}/environments/production/deployment-branch-policies \
+            -f name="main" \
+            -f type="branch"
+
+      - name: Configure development environment
+        env:
+          GH_TOKEN: ${{ secrets.CICD_PAT }}
+          REPO_NAME: ${{ steps.fields.outputs.repo_name }}
+        run: |
+          OWNER_ID=$(gh api /users/Needless2Say --jq '.id')
+          gh api \
+            --method PUT \
+            -H "Accept: application/vnd.github+json" \
+            /repos/Needless2Say/${REPO_NAME}/environments/development \
+            -F "wait_timer=0" \
+            --input - <<EOF
+          {
+            "reviewers": [{"type": "User", "id": ${OWNER_ID}}],
+            "deployment_branch_policy": {
+              "protected_branches": false,
+              "custom_branch_policies": true
+            }
+          }
+          EOF
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            /repos/Needless2Say/${REPO_NAME}/environments/development/deployment-branch-policies \
+            -f name="main" \
+            -f type="branch"
+
+      - name: Enable branch protection on main
+        env:
+          GH_TOKEN: ${{ secrets.CICD_PAT }}
+          REPO_NAME: ${{ steps.fields.outputs.repo_name }}
+        run: |
+          gh api \
+            --method PUT \
+            -H "Accept: application/vnd.github+json" \
+            /repos/Needless2Say/${REPO_NAME}/branches/main/protection \
+            --input - <<'EOF'
+          {
+            "required_status_checks": null,
+            "enforce_admins": false,
+            "required_pull_request_reviews": {
+              "dismiss_stale_reviews": true,
+              "require_code_owner_reviews": false,
+              "required_approving_review_count": 1
+            },
+            "restrictions": null,
+            "allow_force_pushes": false,
+            "allow_deletions": false,
+            "block_creations": false
+          }
+          EOF
+
+      - name: Post completion comment
+        env:
+          GH_TOKEN: ${{ secrets.CICD_PAT }}
+          REPO_NAME: ${{ steps.fields.outputs.repo_name }}
+          REPO_TYPE: ${{ steps.fields.outputs.repo_type }}
+          VISIBILITY: ${{ steps.fields.outputs.visibility }}
+        run: |
+          REPO_URL="https://github.com/Needless2Say/${REPO_NAME}"
+          gh issue comment ${{ github.event.issue.number }} \
+            --repo Needless2Say/kriegerdataforge-cicd \
+            --body "## ✅ Repository Created
+
+          **Repository:** [${REPO_NAME}](${REPO_URL})
+          **Type:** \`${REPO_TYPE}\`
+          **Visibility:** \`${VISIBILITY}\`
+
+          ### Automated setup complete
+          - [x] Repository created from \`kriegerdataforge-template-${REPO_TYPE}\`
+          - [x] \`production\` environment created (owner-only approval gate, main branch only)
+          - [x] \`development\` environment created (owner approval gate, main branch only)
+          - [x] Branch protection enabled on \`main\` (require PR, dismiss stale reviews, no force push)
+
+          ### Manual steps required
+
+          **Collaborator access** (after friend accepts the org invite):
+          - [ ] Settings → Collaborators → add friend with Write role
+          - [ ] Settings → Environments → \`development\` → Required reviewers → add friend
+
+          **Environment secrets** (Settings → Environments → [env] → Add secret):
+
+          \`production\` environment:
+          - [ ] \`VERCEL_TOKEN\` — your Vercel API token
+          - [ ] \`VERCEL_ORG_ID\` — your Vercel team ID
+          - [ ] \`VERCEL_PROJECT_ID\` — Vercel project ID for the **prod** deployment
+          $([ "$REPO_TYPE" = "fastapi" ] && echo "- [ ] \`DB_DATABASE_URL\` — prod Neon connection string")
+
+          \`development\` environment:
+          - [ ] \`VERCEL_TOKEN\` — your Vercel API token
+          - [ ] \`VERCEL_ORG_ID\` — your Vercel team ID
+          - [ ] \`VERCEL_PROJECT_ID\` — Vercel project ID for the **dev** deployment
+          $([ "$REPO_TYPE" = "fastapi" ] && echo "- [ ] \`DB_DATABASE_URL\` — dev Neon connection string")
+
+          **CI status checks** (Settings → Branches → \`main\` protection → Edit → Required status checks):
+          - [ ] Add the CI job names from \`.github/workflows/ci.yml\` once the first CI run completes
+
+          **Vercel project** (Vercel dashboard):
+          - [ ] Create the Vercel project and link it to this repo
+          - [ ] Disable git auto-deploy on the Vercel project
+          - [ ] Copy the project ID to the environment secrets above"
+
+      - name: Close issue
+        env:
+          GH_TOKEN: ${{ secrets.CICD_PAT }}
+        run: |
+          gh issue close ${{ github.event.issue.number }} \
+            --repo Needless2Say/kriegerdataforge-cicd \
+            --comment "Closing — automated setup complete. See the checklist above for remaining manual steps."

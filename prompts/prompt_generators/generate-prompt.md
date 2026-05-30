@@ -7,10 +7,12 @@ a well-structured prompt in the standard format used by this repo's `prompts/` d
 
 **Library context to keep in mind:**
 - This repo is the single source of truth for shared CI/CD logic across all KriegerDataForge repos
-- Consumer repos call workflows with `uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/<workflow>.yml@main`
+- Consumer repos call workflows with `uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/<workflow>.yml@main` and `secrets: inherit`
 - Consumers: `fitness-app-frontend`, `tiffanys-space`, `kriegerdataforge`, `arthurs-portfolio`, `kriegerdataforge-terraform`
+- **Implemented workflows:** `cd-nextjs-vercel.yml`, `cd-python-vercel.yml`, `cd-terraform.yml`, `issue-create-repo.yml`
+- **Deployment model:** All deploys are `workflow_dispatch` only — no auto-deploy on push. Every deployment job uses `environment:` for a GitHub Environment gate (approval required before secrets load). `production` and `infrastructure` = owner only; `development` = owner + collaborators
 - Changes to existing workflows may be breaking changes for all consumers
-- All reusable workflows need `on: workflow_call:` and a `permissions:` block
+- All reusable CD workflows need `on: workflow_call:` and a `permissions:` block
 
 ---
 

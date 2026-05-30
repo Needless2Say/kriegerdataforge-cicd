@@ -6,8 +6,17 @@ reusable workflow library. Workflows in this repo are called by `fitness-app-fro
 via `uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/<workflow>.yml@main`.
 
 **Before coding**, read:
-- `CLAUDE.md` — full context, consumer repos, critical rules
-- `docs/` — workflow catalog and existing interface contracts
+- `CLAUDE.md` — full context, deployment model, critical rules
+- `docs/WORKFLOWS.md` — existing workflow catalog, calling syntax, and interface contracts
+- `docs/MANUAL_SETUP.md` — environment and secrets configuration
+
+**Implemented workflows (existing public API):**
+- `cd-nextjs-vercel.yml` — deploy Next.js → Vercel (`fitness-app-frontend`, `tiffanys-space`, `arthurs-portfolio`)
+- `cd-python-vercel.yml` — deploy FastAPI → Vercel + optional Alembic migrations (`kriegerdataforge`)
+- `cd-terraform.yml` — `terraform plan` + `apply` (`kriegerdataforge-terraform`)
+- `issue-create-repo.yml` — auto-provision repos from issue template (internal)
+
+**Deployment model:** All deploys are manual (`workflow_dispatch` only). Every deploy job uses `environment:` to activate a GitHub Environment gate. Caller uses `secrets: inherit`.
 
 ---
 
@@ -76,4 +85,6 @@ via `uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/<workflow>.yml@m
 - [ ] `permissions:` block scoped to minimum required
 - [ ] No breaking changes to existing `inputs:` / `outputs:` / `secrets:` (or all consumers updated)
 - [ ] At least one consumer repo calling syntax documented in `docs/` or inline comments
-- [ ] Production jobs use `environment:` for GitHub Environment gates
+- [ ] Production jobs use `environment:` for GitHub Environment gate (pauses for required reviewer approval)
+- [ ] Caller pattern documented: `secrets: inherit` in consumer workflow
+- [ ] `docs/WORKFLOWS.md` updated with new or changed workflow entry

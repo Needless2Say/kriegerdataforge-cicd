@@ -2,42 +2,64 @@
 
 ## Purpose
 
-This is a **shared reusable GitHub Actions workflow library**. Every workflow with
-`on: workflow_call:` is a public API consumed by other KriegerDataForge repos:
-`fitness-app-frontend`, `tiffanys-space`, `kriegerdataforge`, `arthurs-portfolio`,
-`kriegerdataforge-terraform`. Treat all changes as potentially breaking for downstream
-consumers.
+This is the **shared reusable GitHub Actions workflow library** for the KriegerDataForge
+ecosystem. All deployment logic lives here. Consumer repos call these workflows rather
+than maintaining their own deploy pipelines.
 
-## GitHub Actions
+## Implemented Workflows
 
-- Every externally-callable workflow MUST have `on: workflow_call:` as its trigger
-  (add `on: workflow_dispatch:` alongside for manual testing only)
-- Pin all third-party action versions to a commit SHA — never `@main` or `@latest`
+| File | Purpose | Consumers |
+|---|---|---|
+| `cd-nextjs-vercel.yml` | Deploy Next.js → Vercel | `fitness-app-frontend`, `tiffanys-space`, `arthurs-portfolio` |
+| `cd-python-vercel.yml` | Deploy FastAPI → Vercel + Alembic migrations | `kriegerdataforge` |
+| `cd-terraform.yml` | `terraform plan` + `apply` | `kriegerdataforge-terraform` |
+| `issue-create-repo.yml` | Auto-provision new repos from issue template | internal |
+
+See `docs/WORKFLOWS.md` for full calling syntax, inputs, and secrets for each workflow.
+
+## Deployment Model
+
+- **All deploys are manual** (`workflow_dispatch` only — no auto-deploy on push)
+- **Vercel git auto-deploy is disabled** in Terraform (`git_deployment = false`)
+- Every deploy passes through a **GitHub Environment gate**: workflow pauses for required reviewer approval before secrets are loaded and deploy runs
+- `VERCEL_TOKEN`, `DB_DATABASE_URL`, and all credentials live **only** in GitHub Environment secrets—never in `.env` files, never in code, never in logs
+
+## Environment Approval Model
+
+| Environment | Who can approve | Branch |
+|---|---|---|
+| `development` | Owner + collaborators | `main` only |
+| `production` | Owner only | `main` only |
+| `infrastructure` | Owner only | `main` only |
+
+## GitHub Actions Rules
+
+- Every deployment workflow MUST use `environment:` to activate the GitHub Environment gate
+- Pin all third-party action versions to a tag (e.g. `@v6`) — never `@main` or `@latest`
+- `secrets: inherit` is the standard pattern for passing environment secrets from a caller workflow to a reusable workflow
 - Never log secrets — even masked secrets should not appear in `echo` or debug steps
 - Keep steps atomic — each step does one thing
-- Prefer composite actions (`.github/actions/`) for logic reused across multiple workflows
-- All production deployment jobs must use `environment:` for GitHub Environment protection gates
+- `id-token: write` is required for Vercel OIDC in deploy workflows
 
-## Security
+## Security Rules
 
 - Use `${{ secrets.NAME }}` for all credentials — never hardcode
-- Set minimum required permissions on every workflow using the `permissions:` block
+- Set minimum required `permissions:` on every workflow
 - Never use `pull_request_target` with an untrusted code checkout
-- Use GitHub Environments for all production gates
+- Use `environment:` for all production and deployment jobs
 
-## Backward Compatibility
+## Backward Compatibility Rules
 
-- Adding a `required: true` input is a **breaking change** for all consumers —
-  use `required: false` with a sensible `default:`, or coordinate with all consuming repos first
-- Removing or renaming `outputs:` is a breaking change
-- Changing `secrets:` requirements without updating all callers will silently break pipelines
+- Adding `required: true` to an existing input = **breaking change** for all consumers
+- Removing or renaming `outputs:` = breaking change
+- Adding new required `secrets:` = breaking change
 - When in doubt, add a new workflow rather than modifying an existing one
+- Any change here may affect 5 consumer repos — coordinate or add a new workflow
 
 ## Repo Structure
 
 - `.github/workflows/` — reusable workflows (all have `workflow_call:` trigger)
-- `.github/actions/` — composite actions
-- `scripts/` — shell helpers called by workflows
-- `docs/` — workflow catalog and consumer integration guides
+- `docs/WORKFLOWS.md` — full workflow catalog and consumer integration guide
+- `docs/MANUAL_SETUP.md` — environment setup, secrets, PAT configuration
 
-See `CLAUDE.md` for full project context and critical rules.
+See `CLAUDE.md` for full project context.

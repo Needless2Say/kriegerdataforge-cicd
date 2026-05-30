@@ -3,12 +3,26 @@
 This directory contains ready-to-use prompts for AI agents working on **kriegerdataforge-cicd**
 — the centralized shared GitHub Actions workflow library for the KriegerDataForge ecosystem.
 
-**Context for all prompts in this directory:**
-- Every workflow here is consumed by one or more of: `fitness-app-frontend`, `tiffanys-space`,
-  `kriegerdataforge`, `arthurs-portfolio`, `kriegerdataforge-terraform`
-- Consumer repos call workflows with `uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/<workflow>.yml@main`
-- Changes to existing workflows may be breaking changes for all consumers
-- Adding `required: true` inputs is always a breaking change — default to `required: false` + `default:`
+**Implemented workflows (as of current state):**
+
+| Workflow | Purpose | Consumers |
+|---|---|---|
+| `cd-nextjs-vercel.yml` | Deploy Next.js → Vercel | `fitness-app-frontend`, `tiffanys-space`, `arthurs-portfolio` |
+| `cd-python-vercel.yml` | Deploy FastAPI → Vercel + Alembic migrations | `kriegerdataforge` |
+| `cd-terraform.yml` | `terraform plan` + `apply` for Vercel infra | `kriegerdataforge-terraform` |
+| `issue-create-repo.yml` | Auto-provision repos from issue templates | internal |
+
+**Deployment model context for all prompts:**
+- All deploys are manual (`workflow_dispatch` only) — no auto-deploy on push
+- Every deploy passes through a GitHub Environment gate (pauses for required reviewer approval)
+- `production` environment: owner-only approval, `main` branch only
+- `development` environment: owner + collaborators can approve, `main` branch only
+- `infrastructure` environment (terraform): owner-only, `main` only
+- `VERCEL_TOKEN`, `DB_DATABASE_URL`, and all credentials live only in GitHub Environment secrets
+- `secrets: inherit` is the standard caller pattern in consumer repos
+- Changes to existing workflows may be breaking changes for all 5 consumer repos
+
+Full reference: `docs/WORKFLOWS.md` (calling syntax, inputs, secrets) and `docs/MANUAL_SETUP.md`.
 
 ---
 

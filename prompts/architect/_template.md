@@ -6,8 +6,17 @@ here ripple across all consumers. Think in terms of stable public workflow inter
 versioning strategy, and ecosystem-wide consistency.
 
 **Before designing**, read:
-- `CLAUDE.md` — full context, consumer repos, critical rules
-- `docs/` — existing workflow catalog and interface contracts
+- `CLAUDE.md` — full context, deployment model, critical rules
+- `docs/WORKFLOWS.md` — existing workflow catalog and interface contracts
+- `docs/MANUAL_SETUP.md` — environment and secrets configuration
+
+**Deployment model:** All deploys are `workflow_dispatch` only — no auto-deploy on push. Every deploy passes through a GitHub Environment gate (owner-only approval for `production` and `infrastructure`; owner + collaborators for `development`). Credentials live exclusively in GitHub Environment secrets.
+
+**Implemented workflows (stable public API):**
+- `cd-nextjs-vercel.yml` — `fitness-app-frontend`, `tiffanys-space`, `arthurs-portfolio`
+- `cd-python-vercel.yml` — `kriegerdataforge` (FastAPI + Alembic)
+- `cd-terraform.yml` — `kriegerdataforge-terraform` (Vercel infra)
+- `issue-create-repo.yml` — internal auto-provisioning
 
 ---
 
@@ -35,3 +44,6 @@ versioning strategy, and ecosystem-wide consistency.
 - [ ] Versioning and backward compatibility strategy
 - [ ] Secret management plan (which secrets consumers must configure)
 - [ ] Migration plan if replacing existing patterns in consumer repos
+- [ ] Deployment model compliance: manual `workflow_dispatch` only, no auto-deploy triggers
+- [ ] Environment gate design: which environment, who approves, branch restriction
+- [ ] Secrets architecture: what lives in which GitHub Environment, what callers must configure
