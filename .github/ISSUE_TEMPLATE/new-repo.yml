@@ -1,0 +1,63 @@
+name: New Repository
+
+description: Request creation of a new repository in the KriegerDataForge ecosystem
+title: "[New Repo] "
+
+labels:
+  - new-repo
+
+assignees:
+  - Needless2Say
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## New Repository Request
+        Fill in the fields below. After submitting, add the **`new-repo`** label
+        to trigger the automated setup workflow. The assistant will:
+        - Create the repo from the appropriate template
+        - Create `production` and `development` GitHub Environments
+        - Enable branch protection on `main`
+        - Post a checklist of remaining manual steps (secrets to fill in, etc.)
+
+  - type: input
+    id: repo_name
+    attributes:
+      label: Repository Name
+      description: The GitHub repository name (no spaces, use hyphens). Example — `my-new-service`
+      placeholder: my-new-service
+    validations:
+      required: true
+
+  - type: dropdown
+    id: repo_type
+    attributes:
+      label: Repository Type
+      description: Choose the template to use as the starting point.
+      options:
+        - nextjs
+        - fastapi
+        - npm-package
+        - python-package
+    validations:
+      required: true
+
+  - type: dropdown
+    id: visibility
+    attributes:
+      label: Visibility
+      options:
+        - private
+        - public
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A short description of what this repo is for (used as the GitHub repo description).
+      placeholder: A new Next.js app for ...
+    validations:
+      required: true

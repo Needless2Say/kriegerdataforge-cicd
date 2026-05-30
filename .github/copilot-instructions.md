@@ -1,57 +1,65 @@
 # Copilot Instructions — KriegerDataForge CI/CD
 
 > **Repository:** kriegerdataforge-cicd
-> **Purpose:** Shared reusable GitHub Actions workflow library for the KriegerDataForge ecosystem
-> **Stack:** GitHub Actions · Composite Actions · Shell scripts · Docker
+> **Purpose:** Shared reusable GitHub Actions workflow library — all KriegerDataForge deployment logic lives here
+> **Stack:** GitHub Actions · Vercel CLI · Terraform · Shell scripts
 
-## What This Repo Is
+## Implemented Workflows
 
-This is the **single source of truth for all shared CI/CD logic** across the KriegerDataForge
-ecosystem. Consumer repos call workflows here rather than maintaining their own copies:
+| File | Purpose | Called by |
+|---|---|---|
+| `cd-nextjs-vercel.yml` | Deploy Next.js → Vercel | `fitness-app-frontend`, `tiffanys-space`, `arthurs-portfolio` |
+| `cd-python-vercel.yml` | Deploy FastAPI → Vercel + optional Alembic migrations | `kriegerdataforge` |
+| `cd-terraform.yml` | `terraform plan` + `apply` for Vercel infra | `kriegerdataforge-terraform` |
+| `issue-create-repo.yml` | Auto-provision repos from issue template | internal |
 
-```yaml
-uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/<workflow>.yml@main
-```
+Full calling syntax, inputs, and secrets reference: `docs/WORKFLOWS.md`.
 
-**Consumer repos:** `fitness-app-frontend`, `tiffanys-space`, `kriegerdataforge`,
-`arthurs-portfolio`, `kriegerdataforge-terraform`.
+## Deployment Model
 
-**Workflow categories:**
-- Linting and code quality (ESLint, Ruff, mypy, actionlint, tflint)
-- Testing (Jest, pytest, Terratest)
-- Security scanning (CodeQL, Trivy, Checkov)
-- Building and Docker image builds
-- Deployment (Vercel preview + production, Docker Hub push)
-- Infrastructure validation (Terraform plan/apply)
+- **All deploys are manual** — `workflow_dispatch` only, no auto-deploy on push
+- **Every deploy passes through a GitHub Environment gate** — pauses for required reviewer approval before secrets are loaded
+- `VERCEL_TOKEN`, `DB_DATABASE_URL`, and all credentials live only in GitHub Environment secrets
+- Collaborators cannot deploy locally — there is no token outside GitHub Environments
+- Local dev uses `make docker-up` with no cloud credentials
+
+## Environment Gates
+
+| Environment | Approved by | Branch |
+|---|---|---|
+| `development` | Owner + collaborators | `main` only |
+| `production` | Owner only | `main` only |
+| `infrastructure` | Owner only | `main` only |
 
 ## Required Reading Before Any Task
 
-- `CLAUDE.md` — full context, critical rules, and command reference
-- `docs/` — workflow catalog and consumer integration guides (when available)
+- `CLAUDE.md` — full context, deployment model, critical rules
+- `docs/WORKFLOWS.md` — workflow catalog with calling syntax and secrets reference
+- `docs/MANUAL_SETUP.md` — environment setup and PAT configuration
 
 ## Critical Rules
 
 1. Never commit secrets — use `${{ secrets.NAME }}` exclusively.
-2. Pin all third-party action versions to a commit SHA — never `@main` or `@latest`.
-3. Every reusable workflow must have `on: workflow_call:` as its trigger.
-4. Every change here is a **potential breaking change** for all consumer repos.
-5. Set minimum required permissions using the `permissions:` block on every workflow.
-6. Never use `pull_request_target` with an untrusted code checkout.
-7. Adding a `required: true` input is a breaking change — use `required: false` + `default:` or coordinate first.
+2. Pin all actions to a tag (e.g. `@v6`) — never `@main` or `@latest`.
+3. Every deployment workflow must use `environment:` to activate the GitHub Environment gate.
+4. Every change to an existing workflow is a **potential breaking change** for all consumer repos.
+5. Set minimum `permissions:` on every workflow.
+6. `secrets: inherit` is the standard caller pattern for passing environment secrets.
+7. Adding `required: true` to an existing input is a breaking change — use `required: false` + `default:`.
 
 ## Before Submitting a PR
 
 - [ ] `make lint` passes (actionlint)
-- [ ] Backward compatibility verified or all consumers updated
-- [ ] Required secrets documented for consuming repo maintainers
-- [ ] Action versions pinned to SHA or tag
+- [ ] All existing `inputs:` / `outputs:` / `secrets:` interfaces unchanged, or all consumers updated
+- [ ] New secrets documented in `docs/WORKFLOWS.md` and consumer repo maintainers notified
+- [ ] Action versions pinned to tag or SHA
 
 ## Prompts
 
 AI prompts for development tasks are in `prompts/`:
 
 - `prompts/dev/` — implement or modify reusable workflows
-- `prompts/architect/` — cross-repo CI/CD architecture design
-- `prompts/code_review/` — workflow security and compatibility review
-- `prompts/tester/` — validate workflows work correctly for all consumers
-- `prompts/docs/` — document workflows for consumer repo developers
+- `prompts/architect/` — cross-repo CI/CD architecture
+- `prompts/code_review/` — security and backward compatibility review
+- `prompts/tester/` — validate workflows for all consumers
+- `prompts/docs/` — document workflows for consumer developers

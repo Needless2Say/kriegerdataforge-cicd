@@ -4,6 +4,15 @@
 Design decisions here define the calling contract for consumer repos. Prioritize stable,
 composable interfaces that work for all consumers without requiring repo-specific forks.
 
+**Deployment model constraints:**
+- All deploys are `workflow_dispatch` only — do NOT design auto-deploy triggers for CD workflows
+- Every deployment job must use `environment:` to activate a GitHub Environment gate
+- Consumer repos call with `secrets: inherit` — design secret names to match what's in GitHub Environment secrets
+- Environments: `development` (owner + collaborators), `production` (owner only), `infrastructure` (owner only), all restricted to `main` branch
+
+**Implemented workflows (existing public API — do not break):**
+- `cd-nextjs-vercel.yml`, `cd-python-vercel.yml`, `cd-terraform.yml`, `issue-create-repo.yml`
+
 ---
 
 ## Design Task
@@ -33,3 +42,5 @@ composable interfaces that work for all consumers without requiring repo-specifi
 - [ ] Example calling syntax for each consumer repo
 - [ ] Variation strategy — how inputs handle differences between consumers (e.g., different Node versions, different deploy targets)
 - [ ] Backward compatibility notes
+- [ ] Deployment model compliance: `workflow_dispatch` trigger only for CD; `environment:` on all deploy jobs
+- [ ] Environment gate specification: which environment name, who approves, branch restriction
