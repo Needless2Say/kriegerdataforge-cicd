@@ -11,12 +11,13 @@
 #
 # Required environment secrets in the "infrastructure" GitHub Environment:
 #   VERCEL_API_TOKEN                    — maps to TF_VAR_vercel_api_token
-#   BACKEND_AUTH_SECRET_KEY             — maps to TF_VAR_backend_auth_secret_key
+#   BACKEND_AUTH_PRIVATE_KEY            — maps to TF_VAR_backend_auth_private_key (RSA private key PEM)
+#   BACKEND_AUTH_PUBLIC_KEY             — maps to TF_VAR_backend_auth_public_key  (RSA public key PEM)
+#   FRONTEND_AUTH_PUBLIC_KEY            — maps to TF_VAR_frontend_auth_public_key  (RSA public key PEM, same as backend)
 #   BACKEND_AUTH_ADMIN_EMAIL            — maps to TF_VAR_backend_auth_admin_email
 #   BACKEND_AUTH_ADMIN_EMAIL_PASSWORD   — maps to TF_VAR_backend_auth_admin_email_password
 #   BACKEND_DB_DATABASE_URL             — maps to TF_VAR_backend_db_database_url
 #   DEV_BACKEND_DB_DATABASE_URL         — maps to TF_VAR_dev_backend_db_database_url
-#   FRONTEND_AUTH_SECRET_KEY            — maps to TF_VAR_frontend_auth_secret_key
 #   TIFFANYS_SPACE_CRON_SECRET          — maps to TF_VAR_tiffanys_space_cron_secret
 # Optional environment secrets (leave empty to skip):
 #   BACKEND_STRIPE_SECRET_KEY           — maps to TF_VAR_backend_stripe_secret_key
@@ -94,12 +95,13 @@ jobs:
         env:
           # ── Sensitive Terraform variables ──────────────────────────────────
           TF_VAR_vercel_api_token: ${{ secrets.VERCEL_API_TOKEN }}
-          TF_VAR_backend_auth_secret_key: ${{ secrets.BACKEND_AUTH_SECRET_KEY }}
+          TF_VAR_backend_auth_private_key: ${{ secrets.BACKEND_AUTH_PRIVATE_KEY }}
+          TF_VAR_backend_auth_public_key: ${{ secrets.BACKEND_AUTH_PUBLIC_KEY }}
+          TF_VAR_frontend_auth_public_key: ${{ secrets.FRONTEND_AUTH_PUBLIC_KEY }}
           TF_VAR_backend_auth_admin_email: ${{ secrets.BACKEND_AUTH_ADMIN_EMAIL }}
           TF_VAR_backend_auth_admin_email_password: ${{ secrets.BACKEND_AUTH_ADMIN_EMAIL_PASSWORD }}
           TF_VAR_backend_db_database_url: ${{ secrets.BACKEND_DB_DATABASE_URL }}
           TF_VAR_dev_backend_db_database_url: ${{ secrets.DEV_BACKEND_DB_DATABASE_URL }}
-          TF_VAR_frontend_auth_secret_key: ${{ secrets.FRONTEND_AUTH_SECRET_KEY }}
           TF_VAR_tiffanys_space_cron_secret: ${{ secrets.TIFFANYS_SPACE_CRON_SECRET }}
           TF_VAR_backend_stripe_secret_key: ${{ secrets.BACKEND_STRIPE_SECRET_KEY }}
           TF_VAR_backend_stripe_webhook_secret: ${{ secrets.BACKEND_STRIPE_WEBHOOK_SECRET }}
@@ -119,12 +121,13 @@ jobs:
         run: terraform apply tfplan
         env:
           TF_VAR_vercel_api_token: ${{ secrets.VERCEL_API_TOKEN }}
-          TF_VAR_backend_auth_secret_key: ${{ secrets.BACKEND_AUTH_SECRET_KEY }}
+          TF_VAR_backend_auth_private_key: ${{ secrets.BACKEND_AUTH_PRIVATE_KEY }}
+          TF_VAR_backend_auth_public_key: ${{ secrets.BACKEND_AUTH_PUBLIC_KEY }}
+          TF_VAR_frontend_auth_public_key: ${{ secrets.FRONTEND_AUTH_PUBLIC_KEY }}
           TF_VAR_backend_auth_admin_email: ${{ secrets.BACKEND_AUTH_ADMIN_EMAIL }}
           TF_VAR_backend_auth_admin_email_password: ${{ secrets.BACKEND_AUTH_ADMIN_EMAIL_PASSWORD }}
           TF_VAR_backend_db_database_url: ${{ secrets.BACKEND_DB_DATABASE_URL }}
           TF_VAR_dev_backend_db_database_url: ${{ secrets.DEV_BACKEND_DB_DATABASE_URL }}
-          TF_VAR_frontend_auth_secret_key: ${{ secrets.FRONTEND_AUTH_SECRET_KEY }}
           TF_VAR_tiffanys_space_cron_secret: ${{ secrets.TIFFANYS_SPACE_CRON_SECRET }}
           TF_VAR_backend_stripe_secret_key: ${{ secrets.BACKEND_STRIPE_SECRET_KEY }}
           TF_VAR_backend_stripe_webhook_secret: ${{ secrets.BACKEND_STRIPE_WEBHOOK_SECRET }}
