@@ -7,6 +7,7 @@ All other KriegerDataForge repos call workflows from this repo rather than maint
 their own CI/CD logic. This is the single source of truth for all deployment pipelines.
 
 Consumer repos reference workflows here with:
+
 ```yaml
 uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/<workflow>.yml@main
 ```
@@ -14,7 +15,7 @@ uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/<workflow>.yml@main
 ## Implemented Workflows
 
 | File | Purpose | Called by |
-|---|---|---|
+| --- | --- | --- |
 | `cd-nextjs-vercel.yml` | Deploy Next.js app to Vercel | `fitness-app-frontend`, `tiffanys-space`, `arthurs-portfolio` |
 | `cd-python-vercel.yml` | Deploy FastAPI backend to Vercel + optional Alembic migrations | `kriegerdataforge` |
 | `cd-terraform.yml` | `terraform plan` + `terraform apply` | `kriegerdataforge-terraform` |
@@ -22,12 +23,37 @@ uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/<workflow>.yml@main
 
 See `docs/WORKFLOWS.md` for the full catalog: calling syntax, inputs, secrets, and examples.
 
+## Two-Tier Model — What Belongs Here vs. Tenant Repos
+
+Every tenant repo delegates deployment to a reusable workflow here. The tenant's `cd.yml`
+is a thin caller — all deploy logic lives in this repo.
+
+| Thing | Here (`kriegerdataforge-cicd`) | Tenant repo |
+| --- | --- | --- |
+| Reusable deploy logic | `cd-nextjs-vercel.yml`, `cd-python-vercel.yml`, `cd-terraform.yml` | — |
+| Version bump validation | `bump-version-check.yml` | — |
+| Release tag + GitHub Release | `create-github-release.yml` | — |
+| Internal platform automation | `issue-create-repo.yml`, `rotate-vercel-tokens.yml` | — |
+| Deployment caller workflow | — | `.github/workflows/cd.yml` |
+| App CI (lint / typecheck / tests) | — | `.github/workflows/ci.yml` |
+| Release trigger | — | `.github/workflows/release.yml` |
+| Platform scripts (token rotation, DB backups) | `scripts/` | — |
+| App source code | — | `api/`, `src/`, etc. |
+| App-specific Docker / Makefile | — | `Dockerfile`, `Makefile` |
+
+If the same logic would need to exist in more than one tenant repo, it belongs here.
+If it's specific to one app's stack, it stays in that tenant repo.
+
+See `CONTRIBUTING.md` for full governance rules: adding workflows, breaking-change policy,
+PR process, and how to onboard a new tenant repo.
+
 ## Deployment Model
 
 **All deploys are manual** — triggered via `workflow_dispatch` in the GitHub Actions UI.
 There are **no automatic deploys on push**. Vercel git auto-deploy is disabled in Terraform.
 
 **Environment gate flow:**
+
 1. Developer triggers CD workflow manually
 2. GitHub pauses — sends approval notification to required reviewers
 3. Reviewer approves in GitHub UI
@@ -36,7 +62,7 @@ There are **no automatic deploys on push**. Vercel git auto-deploy is disabled i
 **Approval model:**
 
 | Environment | Reviewers | Branch restriction |
-|---|---|---|
+| --- | --- | --- |
 | `development` | Owner + designated collaborators | `main` only |
 | `production` | Owner only | `main` only |
 | `infrastructure` | Owner only | `main` only |
@@ -48,9 +74,11 @@ deploy locally.
 ## Local Development
 
 Local dev uses Docker — no Vercel credentials needed:
+
 ```bash
 make docker-up   # in the consumer repo
 ```
+
 There is no path to deploy locally. The Vercel CLI has no token outside GitHub Environments.
 
 ## Tech Stack
