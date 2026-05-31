@@ -1,0 +1,74 @@
+# Reusable CD workflow — Create GitHub Release
+#
+# Creates a GitHub Release tagged "v{VERSION}" where VERSION is the content of
+# the root-level VERSION file. Automatically generates release notes from the
+# commits and PRs since the previous tag.
+#
+# Skips gracefully if the tag already exists (prevents double-release when
+# two PRs both target the same version — a known race condition documented in
+# AGENTS.md).
+#
+# The caller MUST grant `permissions: contents: write` to allow tag + release
+# creation via the default GITHUB_TOKEN.
+#
+# Usage (consumer repo .github/workflows/release.yml):
+#   on:
+#     push:
+#       branches: ["main"]
+#       paths: ["VERSION"]     # only fires when VERSION changes
+#   jobs:
+#     release:
+#       permissions:
+#         contents: write
+#       uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/create-github-release.yml@main
+
+name: Create GitHub Release (reusable)
+
+on:
+  workflow_call:
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Read VERSION
+        id: version
+        run: |
+          if [ ! -f VERSION ]; then
+            echo "❌  VERSION file not found."
+            exit 1
+          fi
+          VERSION=$(cat VERSION | tr -d '[:space:]')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check if tag already exists
+        id: tag_check
+        run: |
+          if git tag --list | grep -qx "${{ steps.version.outputs.tag }}"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "⚠️  Tag ${{ steps.version.outputs.tag }} already exists — skipping release creation."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        if: steps.tag_check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --title "${{ steps.version.outputs.tag }}" \
+            --generate-notes \
+            --latest
+          echo "✅  Release ${{ steps.version.outputs.tag }} created."

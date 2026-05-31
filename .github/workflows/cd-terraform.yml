@@ -19,6 +19,7 @@
 #   BACKEND_DB_DATABASE_URL             — maps to TF_VAR_backend_db_database_url
 #   DEV_BACKEND_DB_DATABASE_URL         — maps to TF_VAR_dev_backend_db_database_url
 #   TIFFANYS_SPACE_CRON_SECRET          — maps to TF_VAR_tiffanys_space_cron_secret
+#
 # Optional environment secrets (leave empty to skip):
 #   BACKEND_STRIPE_SECRET_KEY           — maps to TF_VAR_backend_stripe_secret_key
 #   BACKEND_STRIPE_WEBHOOK_SECRET       — maps to TF_VAR_backend_stripe_webhook_secret
@@ -40,6 +41,7 @@
 #       uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/cd-terraform.yml@main
 #       with:
 #         environment: infrastructure
+#         version: ${{ inputs.version }}
 #       secrets: inherit
 
 name: CD — Terraform Apply (reusable)
@@ -49,6 +51,10 @@ on:
     inputs:
       environment:
         description: 'Target GitHub Environment (should always be "infrastructure")'
+        required: true
+        type: string
+      version:
+        description: 'Version to deploy (e.g. 1.2.0). Specify an older version to roll back. NOTE: rolling back Terraform reverts config but not state — review plan carefully.'
         required: true
         type: string
 
@@ -72,6 +78,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: v${{ inputs.version }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3

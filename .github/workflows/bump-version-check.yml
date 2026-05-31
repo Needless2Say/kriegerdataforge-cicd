@@ -1,0 +1,116 @@
+# Reusable CI workflow — Version bump check
+#
+# Validates that the VERSION file on a PR branch is exactly one valid semver
+# increment ahead of the VERSION file on main:
+#   • Patch:  X.Y.Z+1   (e.g., 0.1.0 → 0.1.1)
+#   • Minor:  X.Y+1.0   (e.g., 0.1.3 → 0.2.0)
+#   • Major:  X+1.0.0   (e.g., 0.9.9 → 1.0.0)
+#
+# Any other change (no bump, skip by 2, downgrade, wrong format) fails the job
+# with a descriptive error message.
+#
+# VERSION files are plain-text single-line semver strings (e.g., "0.1.0").
+# They are manually edited by the developer before opening a PR — CI does NOT
+# auto-increment versions.
+#
+# Usage (consumer repo .github/workflows/ci.yml):
+#   version-check:
+#     if: github.event_name == 'pull_request'
+#     uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/bump-version-check.yml@main
+
+name: Version Bump Check (reusable)
+
+on:
+  workflow_call:
+
+jobs:
+  version-check:
+    name: Version bump check
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate version bump
+        run: |
+          # Fetch origin/main so we can read its VERSION
+          git fetch origin main --depth=1
+
+          # Read base (main) version — fall back to 0.0.0 if file is brand new
+          if git show origin/main:VERSION > /dev/null 2>&1; then
+            BASE=$(git show origin/main:VERSION | tr -d '[:space:]')
+          else
+            echo "⚠️  VERSION file not found on main — treating base as 0.0.0"
+            BASE="0.0.0"
+          fi
+
+          # Read head (PR branch) version
+          if [ ! -f VERSION ]; then
+            echo "❌  VERSION file is missing from this branch."
+            echo "    Add a plain-text VERSION file containing the new semver (e.g., 0.1.0)."
+            exit 1
+          fi
+          HEAD=$(cat VERSION | tr -d '[:space:]')
+
+          echo "Base version (main) : $BASE"
+          echo "Head version (PR)   : $HEAD"
+
+          python3 - <<'PYEOF'
+          import sys, os
+
+          base_raw = os.environ.get("BASE") or open("/dev/stdin").readline().strip()
+          head_raw = os.environ.get("HEAD")
+
+          # Re-read from shell-exported variables via a temp file trick — use env
+          import subprocess
+          base_raw = subprocess.check_output("git show origin/main:VERSION 2>/dev/null || echo 0.0.0", shell=True).decode().strip()
+          head_raw = open("VERSION").read().strip()
+
+          def parse(v):
+              parts = v.split(".")
+              if len(parts) != 3:
+                  raise ValueError(f"'{v}' is not a valid semver (expected X.Y.Z)")
+              try:
+                  return tuple(int(p) for p in parts)
+              except ValueError:
+                  raise ValueError(f"'{v}' contains non-integer components")
+
+          try:
+              base = parse(base_raw)
+              head = parse(head_raw)
+          except ValueError as e:
+              print(f"❌  VERSION parse error: {e}")
+              sys.exit(1)
+
+          maj, min_, pat = base
+          valid_bumps = [
+              (maj, min_, pat + 1),   # patch
+              (maj, min_ + 1, 0),     # minor
+              (maj + 1, 0, 0),        # major
+          ]
+
+          if head in valid_bumps:
+              bump_type = ["patch", "minor", "major"][valid_bumps.index(head)]
+              v_base = ".".join(str(x) for x in base)
+              v_head = ".".join(str(x) for x in head)
+              print(f"✅  Version bump valid ({bump_type}): {v_base} → {v_head}")
+          else:
+              v_base = ".".join(str(x) for x in base)
+              v_head = ".".join(str(x) for x in head)
+              allowed = [".".join(str(x) for x in b) for b in valid_bumps]
+              print(f"❌  Invalid version bump: {v_base} → {v_head}")
+              print(f"    Allowed next versions: {', '.join(allowed)}")
+              print()
+              print("    Rules:")
+              print("      • Increment exactly one component by 1")
+              print("      • When bumping minor, patch must reset to 0")
+              print("      • When bumping major, minor and patch must reset to 0")
+              print("      • Skipping versions (e.g., +2) is not allowed")
+              sys.exit(1)
+          PYEOF
