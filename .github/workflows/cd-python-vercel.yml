@@ -18,6 +18,7 @@
 #   VERCEL_ORG_ID      — Vercel team / org ID
 #   VERCEL_PROJECT_ID  — Vercel project ID for the target environment
 #   DB_DATABASE_URL    — SQLAlchemy connection string (required if run_migrations=true)
+#   GH_PACKAGES_PAT    — GitHub PAT (repo read scope) for installing kdf-auth-sdk
 #
 # Usage (consumer repo .github/workflows/cd.yml):
 #   jobs:
@@ -74,7 +75,11 @@ jobs:
           cache: "pip"
 
       - name: Install Python dependencies
-        run: pip install -r requirements.txt
+        run: |
+          git config --global url."https://__token__:${GH_PACKAGES_PAT}@github.com/".insteadOf "https://github.com/"
+          pip install -r requirements.txt
+        env:
+          GH_PACKAGES_PAT: ${{ secrets.GH_PACKAGES_PAT }}
 
       - name: Compact API for Vercel
         run: python scripts/vercel_compactor.py
