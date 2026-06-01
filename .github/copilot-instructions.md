@@ -9,7 +9,7 @@
 | File | Purpose | Called by |
 |---|---|---|
 | `cd-nextjs-vercel.yml` | Deploy Next.js → Vercel | `fitness-app-frontend`, `tiffanys-space`, `arthurs-portfolio` |
-| `cd-python-vercel.yml` | Deploy FastAPI → Vercel + optional Alembic migrations | `kriegerdataforge` |
+| `cd-python-vercel.yml` | Deploy FastAPI → Vercel + optional Alembic migrations | `kriegerdataforge`, `fitness-app-backend`, `tiffanys-closet-backend` |
 | `cd-terraform.yml` | `terraform plan` + `apply` for Vercel infra | `kriegerdataforge-terraform` |
 | `issue-create-repo.yml` | Auto-provision repos from issue template | internal |
 
@@ -27,9 +27,11 @@ Full calling syntax, inputs, and secrets reference: `docs/WORKFLOWS.md`.
 
 | Environment | Approved by | Branch |
 |---|---|---|
-| `development` | Owner + collaborators | `main` only |
-| `production` | Owner only | `main` only |
-| `infrastructure` | Owner only | `main` only |
+| `dev` | Owner + collaborators | `main` only |
+| `prod` | Owner only | `main` only |
+| `infra` | Owner only | `main` only |
+
+> **Naming:** environments are `dev`/`prod`/`infra` — NEVER `development`/`production`/`infrastructure`.
 
 ## Required Reading Before Any Task
 

@@ -11,7 +11,7 @@ than maintaining their own deploy pipelines.
 | File | Purpose | Consumers |
 |---|---|---|
 | `cd-nextjs-vercel.yml` | Deploy Next.js → Vercel | `fitness-app-frontend`, `tiffanys-space`, `arthurs-portfolio` |
-| `cd-python-vercel.yml` | Deploy FastAPI → Vercel + Alembic migrations | `kriegerdataforge` |
+| `cd-python-vercel.yml` | Deploy FastAPI → Vercel + Alembic migrations | `kriegerdataforge`, `fitness-app-backend`, `tiffanys-closet-backend` |
 | `cd-terraform.yml` | `terraform plan` + `apply` | `kriegerdataforge-terraform` |
 | `issue-create-repo.yml` | Auto-provision new repos from issue template | internal |
 
@@ -28,9 +28,11 @@ See `docs/WORKFLOWS.md` for full calling syntax, inputs, and secrets for each wo
 
 | Environment | Who can approve | Branch |
 |---|---|---|
-| `development` | Owner + collaborators | `main` only |
-| `production` | Owner only | `main` only |
-| `infrastructure` | Owner only | `main` only |
+| `dev` | Owner + collaborators | `main` only |
+| `prod` | Owner only | `main` only |
+| `infra` | Owner only | `main` only |
+
+> Environment names are ALWAYS `dev`/`prod`/`infra` — NEVER `development`/`production`/`infrastructure`.
 
 ## GitHub Actions Rules
 
