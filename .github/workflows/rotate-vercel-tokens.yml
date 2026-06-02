@@ -55,7 +55,9 @@ jobs:
         env:
           VERCEL_MASTER_TOKEN: ${{ secrets.VERCEL_MASTER_TOKEN }}
           GH_TOKEN: ${{ secrets.CICD_PAT }}
+          APPS_FILTER: ${{ inputs.apps || 'all' }}
+          ENVS_FILTER: ${{ inputs.envs || 'all' }}
         run: |
           python scripts/rotate_vercel_tokens.py \
-            --apps "${{ inputs.apps || 'all' }}" \
-            --envs "${{ inputs.envs || 'all' }}"
+            --apps "$APPS_FILTER" \
+            --envs "$ENVS_FILTER"

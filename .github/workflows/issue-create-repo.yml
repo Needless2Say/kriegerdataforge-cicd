@@ -50,16 +50,21 @@ jobs:
 
       - name: Extract fields
         id: fields
+        env:
+          PAYLOAD: ${{ steps.parse.outputs.payload }}
         run: |
-          echo "repo_name=$(echo '${{ steps.parse.outputs.payload }}' | jq -r '."Repository Name"')" >> $GITHUB_OUTPUT
-          echo "repo_type=$(echo '${{ steps.parse.outputs.payload }}' | jq -r '."Repository Type"')" >> $GITHUB_OUTPUT
-          echo "visibility=$(echo '${{ steps.parse.outputs.payload }}' | jq -r '.Visibility')" >> $GITHUB_OUTPUT
-          echo "description=$(echo '${{ steps.parse.outputs.payload }}' | jq -r '.Description')" >> $GITHUB_OUTPUT
+          {
+            echo "repo_name=$(echo "$PAYLOAD" | jq -r '."Repository Name"')"
+            echo "repo_type=$(echo "$PAYLOAD" | jq -r '."Repository Type"')"
+            echo "visibility=$(echo "$PAYLOAD" | jq -r '.Visibility')"
+            echo "description=$(echo "$PAYLOAD" | jq -r '.Description')"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Validate fields
+        env:
+          REPO_NAME: ${{ steps.fields.outputs.repo_name }}
+          REPO_TYPE: ${{ steps.fields.outputs.repo_type }}
         run: |
-          REPO_NAME="${{ steps.fields.outputs.repo_name }}"
-          REPO_TYPE="${{ steps.fields.outputs.repo_type }}"
           if [[ -z "$REPO_NAME" || "$REPO_NAME" == "null" ]]; then
             echo "::error::repo_name is required"
             exit 1
@@ -68,11 +73,13 @@ jobs:
             echo "::error::repo_name must contain only lowercase letters, numbers, and hyphens"
             exit 1
           fi
-          VALID_TYPES=("nextjs" "fastapi" "npm-package" "python-package")
-          if [[ ! " ${VALID_TYPES[*]} " =~ " ${REPO_TYPE} " ]]; then
-            echo "::error::repo_type must be one of: nextjs, fastapi, npm-package, python-package"
-            exit 1
-          fi
+          case "$REPO_TYPE" in
+            nextjs|fastapi|npm-package|python-package) ;;
+            *)
+              echo "::error::repo_type must be one of: nextjs, fastapi, npm-package, python-package"
+              exit 1
+              ;;
+          esac
 
       - name: Create repository from template
         env:
@@ -84,14 +91,15 @@ jobs:
         run: |
           TEMPLATE="kriegerdataforge-template-${REPO_TYPE}"
           echo "Creating Needless2Say/${REPO_NAME} from template Needless2Say/${TEMPLATE}"
+          if [[ "$VISIBILITY" == "private" ]]; then PRIVATE="true"; else PRIVATE="false"; fi
           gh api \
             --method POST \
             -H "Accept: application/vnd.github+json" \
-            /repos/Needless2Say/${TEMPLATE}/generate \
+            "/repos/Needless2Say/${TEMPLATE}/generate" \
             -f owner="Needless2Say" \
             -f name="${REPO_NAME}" \
             -f description="${DESCRIPTION}" \
-            -F private=$([ "$VISIBILITY" = "private" ] && echo "true" || echo "false") \
+            -F "private=${PRIVATE}" \
             -F include_all_branches=false
           # Wait for repo to be fully created before configuring it
           sleep 5
@@ -107,7 +115,7 @@ jobs:
           gh api \
             --method PUT \
             -H "Accept: application/vnd.github+json" \
-            /repos/Needless2Say/${REPO_NAME}/environments/prod \
+            "/repos/Needless2Say/${REPO_NAME}/environments/prod" \
             -F "wait_timer=0" \
             --input - <<EOF
           {
@@ -122,7 +130,7 @@ jobs:
           gh api \
             --method POST \
             -H "Accept: application/vnd.github+json" \
-            /repos/Needless2Say/${REPO_NAME}/environments/prod/deployment-branch-policies \
+            "/repos/Needless2Say/${REPO_NAME}/environments/prod/deployment-branch-policies" \
             -f name="main" \
             -f type="branch"
 
@@ -135,7 +143,7 @@ jobs:
           gh api \
             --method PUT \
             -H "Accept: application/vnd.github+json" \
-            /repos/Needless2Say/${REPO_NAME}/environments/dev \
+            "/repos/Needless2Say/${REPO_NAME}/environments/dev" \
             -F "wait_timer=0" \
             --input - <<EOF
           {
@@ -149,7 +157,7 @@ jobs:
           gh api \
             --method POST \
             -H "Accept: application/vnd.github+json" \
-            /repos/Needless2Say/${REPO_NAME}/environments/dev/deployment-branch-policies \
+            "/repos/Needless2Say/${REPO_NAME}/environments/dev/deployment-branch-policies" \
             -f name="main" \
             -f type="branch"
 
@@ -162,7 +170,7 @@ jobs:
           gh api \
             --method PUT \
             -H "Accept: application/vnd.github+json" \
-            /repos/Needless2Say/${REPO_NAME}/branches/main/protection \
+            "/repos/Needless2Say/${REPO_NAME}/branches/main/protection" \
             --input - <<'EOF'
           {
             "required_status_checks": null,

@@ -56,7 +56,7 @@ jobs:
             echo "    Add a plain-text VERSION file containing the new semver (e.g., 0.1.0)."
             exit 1
           fi
-          HEAD=$(cat VERSION | tr -d '[:space:]')
+          HEAD=$(tr -d '[:space:]' < VERSION)
 
           echo "Base version (main) : $BASE"
           echo "Head version (PR)   : $HEAD"
