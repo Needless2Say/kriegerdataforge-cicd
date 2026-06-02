@@ -1,0 +1,119 @@
+# ======================================== AI AGENT WORKFLOW TEMPLATE ========================================
+#
+# STATUS: SKELETON / TODO — This template shows the intended pattern for AI-driven agent
+# workflows. Copy this file, rename it, and fill in the TODOs to build a real agent.
+#
+# NAMING CONVENTION: <agent-name>-agent.yml (e.g., pr-review-agent.yml)
+# PLACEMENT: .github/workflows/ in this repo (kriegerdataforge-cicd)
+# CALLING PATTERN: Consumer repos call this via workflow_call + secrets: inherit
+#
+# =========================================================================================================
+
+name: "[TODO: Agent Name] Agent"
+
+on:
+  workflow_call:
+    inputs:
+      # TODO: Define inputs your agent needs. Examples:
+      pr_number:
+        description: "Pull request number to process"
+        required: false
+        type: number
+      repository:
+        description: "Repository in owner/repo format"
+        required: true
+        type: string
+      trigger_context:
+        description: "JSON string with event-specific context for the agent"
+        required: false
+        type: string
+        default: "{}"
+    outputs:
+      # TODO: Define outputs your agent produces. Examples:
+      agent_result:
+        description: "JSON string with agent output/findings"
+        value: ${{ jobs.run-agent.outputs.agent_result }}
+      status:
+        description: "Agent run status: success | skipped | error"
+        value: ${{ jobs.run-agent.outputs.status }}
+
+# Minimal required permissions — expand only as needed for this agent
+permissions:
+  contents: read
+  # TODO: Add additional permissions only if required:
+  # pull-requests: write    # to post PR comments
+  # issues: write           # to create/update issues
+  # actions: read           # to read workflow runs
+
+jobs:
+  run-agent:
+    name: Run AI Agent
+    runs-on: ubuntu-latest
+    # TODO: Choose the right environment for this agent's secret access
+    # environment: development
+    outputs:
+      agent_result: ${{ steps.invoke-agent.outputs.result }}
+      status: ${{ steps.invoke-agent.outputs.status }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # TODO: Set fetch-depth based on how much history the agent needs
+          fetch-depth: 1
+
+      # TODO: Add any setup steps the agent needs (Python, Node, etc.)
+      # - name: Set up Python
+      #   uses: actions/setup-python@v5
+      #   with:
+      #     python-version: "3.12"
+
+      # TODO: If using a script-based agent, install dependencies here
+      # - name: Install agent dependencies
+      #   run: pip install anthropic requests
+
+      - name: Invoke AI Agent
+        id: invoke-agent
+        env:
+          # TODO: Replace with the correct secret name for this agent
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Pass inputs as env vars for the agent script
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          INPUT_REPOSITORY: ${{ inputs.repository }}
+          INPUT_TRIGGER_CONTEXT: ${{ inputs.trigger_context }}
+        run: |
+          # TODO: Replace this placeholder with the actual agent invocation.
+          #
+          # Option A — Inline curl (simple agents):
+          # RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
+          #   -H "x-api-key: $ANTHROPIC_API_KEY" \
+          #   -H "anthropic-version: 2023-06-01" \
+          #   -H "content-type: application/json" \
+          #   -d "{
+          #     \"model\": \"claude-sonnet-4-6\",
+          #     \"max_tokens\": 4096,
+          #     \"messages\": [{\"role\": \"user\", \"content\": \"$PROMPT\"}]
+          #   }")
+          #
+          # Option B — Python script (complex agents):
+          # python scripts/agents/agent_name.py
+          #
+          # Option C — Claude Code CLI (full agentic runs):
+          # npx @anthropic-ai/claude-code --non-interactive --print "$PROMPT"
+          #
+          echo "result={}" >> "$GITHUB_OUTPUT"
+          echo "status=skipped" >> "$GITHUB_OUTPUT"
+
+      # TODO: Add post-processing steps (post comments, update labels, etc.)
+      # - name: Post agent result as PR comment
+      #   if: inputs.pr_number != ''
+      #   uses: actions/github-script@v7
+      #   with:
+      #     script: |
+      #       const result = JSON.parse('${{ steps.invoke-agent.outputs.result }}');
+      #       await github.rest.issues.createComment({
+      #         owner: context.repo.owner,
+      #         repo: context.repo.repo,
+      #         issue_number: ${{ inputs.pr_number }},
+      #         body: result.comment
+      #       });

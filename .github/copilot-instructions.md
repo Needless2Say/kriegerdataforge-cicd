@@ -9,7 +9,7 @@
 | File | Purpose | Called by |
 |---|---|---|
 | `cd-nextjs-vercel.yml` | Deploy Next.js → Vercel | `fitness-app-frontend`, `tiffanys-space`, `arthurs-portfolio` |
-| `cd-python-vercel.yml` | Deploy FastAPI → Vercel + optional Alembic migrations | `kriegerdataforge`, `fitness-app-backend`, `tiffanys-closet-backend` |
+| `cd-python-vercel.yml` | Deploy FastAPI → Vercel + optional Alembic migrations | `kriegerdataforge`, `fitness-app-backend`, `tiffanys-space-backend` |
 | `cd-terraform.yml` | `terraform plan` + `apply` for Vercel infra | `kriegerdataforge-terraform` |
 | `issue-create-repo.yml` | Auto-provision repos from issue template | internal |
 

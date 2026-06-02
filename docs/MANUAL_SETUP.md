@@ -60,7 +60,7 @@ Copy each token value immediately — Vercel shows it only once. Keep them in a 
 
 > **ONCE** — Run locally before anything else. This disables auto-deploys on the existing frontend projects and provisions the two new dev Vercel projects.
 >
-> **Note on database architecture:** Right now all apps share a single Neon project — the `kriegerdataforge` FastAPI backend is the only service that connects to it directly. The frontends (`fitness-app-frontend`, `tiffanys_space`) call the backend API, not the database. The plan to split into 3 separate databases (one per app: fitness, tiffanys-closet, KDF auth) is **Stage 7** of the overall plan and involves data migration. Do not try to set up 3 databases here — Phase 1 only needs a dev branch of the existing single database.
+> **Note on database architecture:** Right now all apps share a single Neon project — the `kriegerdataforge` FastAPI backend is the only service that connects to it directly. The frontends (`fitness-app-frontend`, `tiffanys_space`) call the backend API, not the database. The plan to split into 3 separate databases (one per app: fitness, tiffanys-space, KDF auth) is **Stage 7** of the overall plan and involves data migration. Do not try to set up 3 databases here — Phase 1 only needs a dev branch of the existing single database.
 
 ### 1.1 — Provision the Neon Dev Database
 
@@ -558,7 +558,7 @@ Friend gets **Write** access to exactly two repos — no other repos:
 1. `fitness-app-frontend` → Settings → Collaborators → Add people → Write role
 2. `fitness-app-backend` → Settings → Collaborators → Add people → Write role
 
-> **Do NOT** add the friend to `kriegerdataforge`, `tiffanys-closet-backend`, `kriegerdataforge-terraform`, `kriegerdataforge-cicd`, or any other repo. Fine-grained per-repo access is intentional.
+> **Do NOT** add the friend to `kriegerdataforge`, `tiffanys-space-backend`, `kriegerdataforge-terraform`, `kriegerdataforge-cicd`, or any other repo. Fine-grained per-repo access is intentional.
 
 ### 12.2 — Add friend as `dev` environment reviewer (fitness repos only)
 

@@ -25,12 +25,12 @@
 			"secret_name": "GH_PACKAGES_PAT"
 		},
 		{
-			"repo": "Needless2Say/tiffanys-closet-backend",
+			"repo": "Needless2Say/tiffanys-space-backend",
 			"environment": "prod",
 			"secret_name": "GH_PACKAGES_PAT"
 		},
 		{
-			"repo": "Needless2Say/tiffanys-closet-backend",
+			"repo": "Needless2Say/tiffanys-space-backend",
 			"environment": "dev",
 			"secret_name": "GH_PACKAGES_PAT"
 		}
@@ -57,13 +57,13 @@
 			"env_key": "GH_PACKAGES_PAT"
 		},
 		{
-			"project_id": "TODO_tiffanys_closet_backend_prod_project_id",
-			"project_name": "tiffanys-closet-backend-prod",
+			"project_id": "TODO_tiffanys_space_backend_prod_project_id",
+			"project_name": "tiffanys-space-backend-prod",
 			"env_key": "GH_PACKAGES_PAT"
 		},
 		{
-			"project_id": "TODO_tiffanys_closet_backend_dev_project_id",
-			"project_name": "tiffanys-closet-backend-dev",
+			"project_id": "TODO_tiffanys_space_backend_dev_project_id",
+			"project_name": "tiffanys-space-backend-dev",
 			"env_key": "GH_PACKAGES_PAT"
 		}
 	]

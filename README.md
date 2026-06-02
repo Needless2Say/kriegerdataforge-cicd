@@ -17,7 +17,7 @@ Keeping CI/CD logic in one place means deploy behavior is consistent across all 
 | Workflow | Purpose | Consumers |
 |---|---|---|
 | `cd-nextjs-vercel.yml` | Deploy Next.js app to Vercel | fitness-app-frontend, tiffanys-space, arthurs-portfolio |
-| `cd-python-vercel.yml` | Deploy FastAPI app to Vercel with optional Alembic migrations | kriegerdataforge, fitness-app-backend, tiffanys-closet-backend |
+| `cd-python-vercel.yml` | Deploy FastAPI app to Vercel with optional Alembic migrations | kriegerdataforge, fitness-app-backend, tiffanys-space-backend |
 | `cd-terraform.yml` | Run `terraform plan` and `terraform apply` | kriegerdataforge-terraform |
 | `create-github-release.yml` | Create a GitHub Release and git tag from the `VERSION` file | All repos with a `release.yml` caller |
 | `bump-version-check.yml` | Validate that `VERSION` has been bumped on a PR | All versioned repos |
