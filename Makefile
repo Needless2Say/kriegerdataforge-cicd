@@ -19,7 +19,7 @@
 # =============================================================================
 
 .DEFAULT_GOAL := help
-.PHONY: help lint check-all \
+.PHONY: help lint test check-all \
         codeql-db codeql-scan-security codeql-scan-quality codeql-scan-all \
         codeql-scan-security-csv codeql-scan-quality-csv codeql-scan-csv-all
 
@@ -50,7 +50,16 @@ lint: ## Lint GitHub Actions workflow files with actionlint
 		printf "$(YELLOW)actionlint not found — skipping (install: brew install actionlint)$(NC)\n"; \
 	fi
 
-check-all: lint ## Run all local checks
+test: ## Run Python script unit tests with coverage
+	@printf "$(BLUE)========================================$(NC)\n"
+	@printf "$(BLUE)  Running Python unit tests$(NC)\n"
+	@printf "$(BLUE)========================================$(NC)\n"
+	cd scripts && pip install -r requirements-test.txt -q && \
+		pytest tests/ --cov=. --cov-report=term-missing \
+		       --cov-omit="tests/*,backups/*"
+	@printf "$(GREEN)Tests passed!$(NC)\n"
+
+check-all: lint test ## Run all local checks
 	@printf "$(GREEN)All checks passed!$(NC)\n"
 
 # ── CodeQL Security Scanning ──────────────────────────────────────────────────
