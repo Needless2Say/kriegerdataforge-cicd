@@ -330,6 +330,105 @@ This is a long-lived "meta-token" whose only job is to create and delete the per
 
 ---
 
+## Phase 6.5 — GH_PACKAGES_PAT Setup and Rotation
+
+> **ONCE** — Required for any repo that uses `kdf-auth-sdk`. The `GH_PACKAGES_PAT` is a fine-grained PAT used by GitHub Actions (pip install on the runner) and by Vercel (installCommand in vercel.json) to clone the private `kriegerdataforge-python-sdk` repo during builds.
+
+### 6.5.1 — Create the initial `kdf-packages-read` fine-grained PAT
+
+1. Go to **GitHub → Profile → Settings → Developer settings → Personal access tokens → Fine-grained tokens**
+2. Click **Generate new token**
+3. Configure:
+   - **Token name:** `kdf-packages-read`
+   - **Expiration:** 1 year
+   - **Resource owner:** `Needless2Say`
+   - **Repository access:** Only selected repositories → `kriegerdataforge-python-sdk`
+   - **Repository permissions:** Contents → **Read-only** (only permission needed)
+4. Click **Generate token** → copy the value immediately (shown only once)
+
+### 6.5.2 — Store it as GH_PACKAGES_PAT_NEW in this repo
+
+1. Go to `kriegerdataforge-cicd` → **Settings → Secrets and variables → Actions → New repository secret**
+2. Name: `GH_PACKAGES_PAT_NEW`, Value: the token from step 6.5.1
+
+### 6.5.3 — Run the distribute workflow
+
+1. Go to `kriegerdataforge-cicd` → **Actions → Distribute GH_PACKAGES_PAT → Run workflow**
+2. This pushes the new PAT to all GitHub environment secrets in all backend repos and all Vercel project env vars listed in `scripts/gh_pat_registry.json`
+
+### 6.5.4 — Update the expiry date in the registry
+
+1. Open `scripts/gh_pat_registry.json` in this repo
+2. Update `"pat_expiry"` to the expiry date you set in step 6.5.1 (format: `YYYY-MM-DD`)
+3. Commit and push the change — this keeps the check workflow accurate
+
+### 6.5.5 — Clean up and add Vercel project IDs
+
+1. Delete the `GH_PACKAGES_PAT_NEW` secret from repo secrets (it is no longer needed)
+2. Open `scripts/gh_pat_registry.json` and fill in any `project_id` values that still say `TODO_*`
+   - Vercel project IDs are available in your Vercel Dashboard → each project → Settings → General → Project ID
+   - Or from `terraform output` if provisioned via Terraform
+
+### 6.5.6 — Set GH_PACKAGES_PAT in Vercel project settings (first-time only)
+
+For each backend Vercel project that uses `kdf-auth-sdk` and hasn't had the variable set yet:
+1. Vercel Dashboard → project → **Settings → Environment Variables → Add New**
+2. Name: `GH_PACKAGES_PAT`, Value: the token, Environment: All (Production + Preview + Development)
+
+> After the first distribute run, subsequent rotations will update these automatically via the Vercel API.
+
+### When the check workflow fires (biweekly expiry check)
+
+The `Check GH_PACKAGES_PAT Expiry` workflow runs on the 1st and 15th of each month. If the token is within 14 days of expiry (or already expired), the workflow fails and GitHub sends you an email.
+
+**To rotate:**
+1. Create a new fine-grained PAT with the same settings as 6.5.1
+2. Add it as `GH_PACKAGES_PAT_NEW` in repo secrets
+3. Trigger **Distribute GH_PACKAGES_PAT** workflow
+4. Update `pat_expiry` in `scripts/gh_pat_registry.json` and commit
+5. Delete `GH_PACKAGES_PAT_NEW` from repo secrets
+6. Optionally revoke the old token: GitHub → Settings → Developer settings → Fine-grained tokens → old `kdf-packages-read` → **Revoke**
+
+---
+
+## Developer Local Setup — Installing kdf-auth-sdk
+
+> **PER DEVELOPER** — Each developer on the project creates their own fine-grained PAT to `pip install kdf-auth-sdk` locally. Never share a token between developers — if a developer's token is compromised or their access is revoked, you'd otherwise need to rotate the shared token for everyone.
+
+### One-time setup for each developer
+
+1. **Create a personal fine-grained PAT:**
+   - GitHub → Profile → Settings → Developer settings → Personal access tokens → Fine-grained tokens
+   - Click **Generate new token**
+   - Token name: `kdf-local-dev` (or any descriptive name)
+   - Expiration: 1 year (or 90 days — your choice)
+   - Resource owner: `Needless2Say`
+   - Repository access: Only selected repositories → `kriegerdataforge-python-sdk`
+   - Permission: Contents → **Read-only**
+   - Generate and copy the token
+
+2. **Configure git to use it for GitHub HTTPS:**
+   ```bash
+   git config --global url."https://__token__:<YOUR_PAT>@github.com/".insteadOf "https://github.com/"
+   ```
+   Replace `<YOUR_PAT>` with your token value. This tells git (and pip) to authenticate private GitHub URLs automatically. It applies globally to all git operations from your machine, but the token only has read access to one repo so the blast radius of a leak is minimal.
+
+3. **Verify it works:**
+   ```bash
+   pip install "kdf-auth-sdk @ git+https://github.com/Needless2Say/kriegerdataforge-python-sdk.git@v0.0.3"
+   ```
+   This should install without prompting for credentials.
+
+4. **For normal local dev, just run:**
+   ```bash
+   make docker-up
+   ```
+   The Docker workflow pre-installs everything; you only need the git config step above if you're running tests or the app outside Docker.
+
+> **When a developer leaves the project:** Go to GitHub → Settings → Collaborators for the relevant repos and remove their access. Their personal PAT only works for the SDK repo (read-only), which becomes inaccessible once their GitHub account no longer has access. No shared token rotation required.
+
+---
+
 ## Phase 7 — Remove Old Repo-Level Deployment Secrets
 
 > **ONCE** — After environment secrets are set in Phase 5, remove any stale repo-level deployment secrets.
