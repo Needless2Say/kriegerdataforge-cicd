@@ -53,10 +53,12 @@ jobs:
         env:
           PAYLOAD: ${{ steps.parse.outputs.payload }}
         run: |
-          echo "repo_name=$(echo "$PAYLOAD" | jq -r '."Repository Name"')" >> "$GITHUB_OUTPUT"
-          echo "repo_type=$(echo "$PAYLOAD" | jq -r '."Repository Type"')" >> "$GITHUB_OUTPUT"
-          echo "visibility=$(echo "$PAYLOAD" | jq -r '.Visibility')" >> "$GITHUB_OUTPUT"
-          echo "description=$(echo "$PAYLOAD" | jq -r '.Description')" >> "$GITHUB_OUTPUT"
+          {
+            echo "repo_name=$(echo "$PAYLOAD" | jq -r '."Repository Name"')"
+            echo "repo_type=$(echo "$PAYLOAD" | jq -r '."Repository Type"')"
+            echo "visibility=$(echo "$PAYLOAD" | jq -r '.Visibility')"
+            echo "description=$(echo "$PAYLOAD" | jq -r '.Description')"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Validate fields
         env:
@@ -71,11 +73,13 @@ jobs:
             echo "::error::repo_name must contain only lowercase letters, numbers, and hyphens"
             exit 1
           fi
-          VALID_TYPES=("nextjs" "fastapi" "npm-package" "python-package")
-          if [[ ! " ${VALID_TYPES[*]} " =~ " ${REPO_TYPE} " ]]; then
-            echo "::error::repo_type must be one of: nextjs, fastapi, npm-package, python-package"
-            exit 1
-          fi
+          case "$REPO_TYPE" in
+            nextjs|fastapi|npm-package|python-package) ;;
+            *)
+              echo "::error::repo_type must be one of: nextjs, fastapi, npm-package, python-package"
+              exit 1
+              ;;
+          esac
 
       - name: Create repository from template
         env:
