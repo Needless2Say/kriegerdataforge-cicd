@@ -1,6 +1,6 @@
 """
 Unit tests for the three tenant entry-point scripts:
-  auth/db_backup.py, fitness-app/db_backup.py, tiffanys-closet/db_backup.py
+  auth/db_backup.py, fitness-app/db_backup.py, tiffanys-space/db_backup.py
 
 Each script is a 3-line wrapper that calls run_backup(app_name="<app>").
 These tests verify the correct app_name is passed by running each script via
@@ -93,13 +93,13 @@ class TestFitnessAppDbBackup:
         mock_run_backup.assert_not_called()
 
 
-class TestTiffanysClosetDbBackup:
-    def test_calls_run_backup_with_tiffanys_closet_app_name(self):
-        mock_run = _run_script_as_main(SCRIPTS_DIR / "tiffanys-closet" / "db_backup.py")
-        mock_run.assert_called_once_with(app_name="tiffanys-closet")
+class TestTiffanysSpaceDbBackup:
+    def test_calls_run_backup_with_tiffanys_space_app_name(self):
+        mock_run = _run_script_as_main(SCRIPTS_DIR / "tiffanys-space" / "db_backup.py")
+        mock_run.assert_called_once_with(app_name="tiffanys-space")
 
     def test_called_exactly_once(self):
-        mock_run = _run_script_as_main(SCRIPTS_DIR / "tiffanys-closet" / "db_backup.py")
+        mock_run = _run_script_as_main(SCRIPTS_DIR / "tiffanys-space" / "db_backup.py")
         assert mock_run.call_count == 1
 
     def test_not_called_when_imported_not_as_main(self):
@@ -112,7 +112,7 @@ class TestTiffanysClosetDbBackup:
             {"common": MagicMock(), "common.db_backup_base": mock_module},
         ):
             runpy.run_path(
-                str(SCRIPTS_DIR / "tiffanys-closet" / "db_backup.py"),
+                str(SCRIPTS_DIR / "tiffanys-space" / "db_backup.py"),
                 run_name="not_main",
             )
 

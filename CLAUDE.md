@@ -88,7 +88,16 @@ make check-all  # run all local checks
 AI prompts for development tasks are in `prompts/`:
 
 - `prompts/dev/` — implement new or modify existing reusable workflows
-- `prompts/architect/` — cross-repo CI/CD architecture design
+- `prompts/architect/` — cross-repo CI/CD architecture design; also general KDF ecosystem architect prompts
 - `prompts/code_review/` — review for correctness, security, and backward compatibility
-- `prompts/tester/` — validate workflows behave correctly for all consumers
+- `prompts/tester/` — validate workflows behave correctly for all consumers; universal test creator
 - `prompts/docs/` — document workflows for consumer repo developers
+- `prompts/prompt_generators/` — blank meta-prompt template + filled-in generator requests
+
+## AI Agents (Brainstorm / Skeleton)
+
+`agents/` contains a skeleton for future AI-driven agent workflows — not yet implemented.
+See `agents/README.md` for the vision and planned structure.
+
+- `agents/workflows/_ai-agent-template.yml` — skeleton GitHub Actions workflow for AI agents
+- `agents/context/_agent-context-template.md` — template for per-agent context docs

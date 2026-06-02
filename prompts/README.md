@@ -31,12 +31,22 @@ Full reference: `docs/WORKFLOWS.md` (calling syntax, inputs, secrets) and `docs/
 | Subdirectory        | Purpose                                                         |
 |---------------------|-----------------------------------------------------------------|
 | `dev/`              | Implement new or modify existing reusable workflows             |
-| `architect/`        | Cross-repo CI/CD architecture design and workflow catalog       |
+| `architect/`        | Cross-repo CI/CD architecture design; also contains general KDF ecosystem architect prompts |
 | `code_review/`      | Review for correctness, security, and backward compatibility    |
-| `tester/`           | Validate workflows work correctly for all consumer repos        |
+| `tester/`           | Validate workflows work correctly for all consumer repos; universal test creator |
 | `docs/`             | Document workflows for consumer repo developers                 |
 | `design/`           | Design workflow interfaces, inputs, outputs, and trigger strategy |
-| `prompt_generators/`| Meta-prompts for generating new prompts                        |
+| `prompt_generators/`| Meta-prompts for generating new prompts; blank template + filled-in generator requests |
+
+### Notable Files
+
+| File | Purpose |
+|---|---|
+| `architect/create-backend-template-skeleton.md` | Full architect prompt for creating a reusable FastAPI backend template |
+| `architect/create-frontend-template-skeleton.md` | Full architect prompt for creating a reusable Next.js frontend template |
+| `tester/test-creator-universal.md` | Universal test suite creation prompt — works on any repo/stack |
+| `prompt_generators/prompt-generator-blank.md` | Blank meta-prompt template — fill in to generate any new prompt |
+| `prompt_generators/generate-prompt.md` | CI/CD-specific prompt generator (generates prompts for this repo) |
 
 ---
 
