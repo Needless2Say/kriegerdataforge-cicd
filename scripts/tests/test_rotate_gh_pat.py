@@ -171,10 +171,10 @@ class TestUpdateGitHubEnvSecret:
         private, pub_b64 = nacl_keypair
         mock_get = MagicMock()
         mock_get.json.return_value = {"key_id": "kid", "key": pub_b64}
-        mock_put = MagicMock()
 
+        # Use `as mock_put` to capture the callable mock, not a pre-created return value.
         with patch("requests.get", return_value=mock_get), \
-             patch("requests.put", return_value=mock_put):
+             patch("requests.put") as mock_put:
             update_github_env_secret("gh", "o/r", "prod", "SECRET", "pat_value")
 
         body = mock_put.call_args[1]["json"]
@@ -357,8 +357,10 @@ class TestCmdCheck:
         assert cmd_check(self._reg(_future_date(60))) == 0
 
     def test_ok_exactly_one_day_beyond_warn_threshold(self):
-        # warn=14 → days_remaining=15 → OK
-        assert cmd_check(self._reg(_future_date(15), warn=14)) == 0
+        # warn=14 → need days_remaining > 14. Use +16 to stay safe across the
+        # midnight boundary: cmd_check parses the date string to 00:00 UTC, so
+        # (date+16days 00:00 - now HH:MM).days is always >= 15 regardless of time of day.
+        assert cmd_check(self._reg(_future_date(16), warn=14)) == 0
 
     def test_warns_at_warn_days_boundary(self):
         # warn=14, days_remaining=14 → 14 <= 14 → warn
@@ -467,9 +469,9 @@ class TestCmdDistribute:
         repos = {c[1] for c in calls}
         assert "Needless2Say/kriegerdataforge" in repos
         assert "Needless2Say/fitness-app-backend" in repos
-        # verify correct PAT value is pushed
+        # verify correct PAT value is pushed (c[4] = secret_value, c[3] = secret_name)
         for c in calls:
-            assert c[3] == "ghp_new_value"
+            assert c[4] == "ghp_new_value"
 
     def test_skips_vercel_entries_with_todo_project_id(self, monkeypatch, sample_registry, capsys):
         monkeypatch.setenv("GH_PACKAGES_PAT_NEW", "ghp_new")
@@ -483,8 +485,8 @@ class TestCmdDistribute:
         # Only the real project (prj_real_123) should be upserted
         assert mock_vercel.call_count == 1
         assert mock_vercel.call_args[0][1] == "prj_real_123"
-        # TODO project mentioned in output
-        assert "TODO_fill_in_later" in capsys.readouterr().out
+        # skipped project name mentioned in output (project_id is not printed, project_name is)
+        assert "fill in project_id" in capsys.readouterr().out
 
     def test_updates_real_vercel_projects(self, monkeypatch, sample_registry):
         monkeypatch.setenv("GH_PACKAGES_PAT_NEW", "ghp_new")
