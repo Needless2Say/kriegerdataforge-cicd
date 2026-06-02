@@ -1,0 +1,48 @@
+name: Distribute GH_PACKAGES_PAT
+
+on:
+  # Manual only — triggered after you create a new fine-grained PAT and store it
+  # as GH_PACKAGES_PAT_NEW in kriegerdataforge-cicd repo-level secrets.
+  #
+  # Full rotation flow:
+  #   1. Create a new fine-grained PAT at github.com/settings/tokens
+  #      Name: "kdf-packages-read"
+  #      Expiration: 1 year
+  #      Repository access: kriegerdataforge-python-sdk only
+  #      Permission: Contents → Read-only
+  #   2. Go to kriegerdataforge-cicd → Settings → Secrets and variables → Actions
+  #      Add (or update) a secret named GH_PACKAGES_PAT_NEW with the new token value.
+  #   3. Run this workflow (Actions → Distribute GH_PACKAGES_PAT → Run workflow).
+  #   4. After it succeeds, update pat_expiry in scripts/gh_pat_registry.json to the
+  #      new expiry date (YYYY-MM-DD) and commit the change.
+  #   5. Delete the GH_PACKAGES_PAT_NEW secret (it is no longer needed).
+  #   6. Optionally revoke the old PAT: github.com/settings/tokens → find old token → Revoke.
+  workflow_dispatch:
+
+jobs:
+  distribute:
+    name: Distribute GH_PACKAGES_PAT
+    runs-on: ubuntu-latest
+
+    # No GitHub Environment — uses repo-level secrets only.
+    # GH_PACKAGES_PAT_NEW and CICD_PAT must be set as repo-level secrets on
+    # kriegerdataforge-cicd before triggering this workflow.
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Distribute new PAT
+        env:
+          GH_PACKAGES_PAT_NEW: ${{ secrets.GH_PACKAGES_PAT_NEW }}
+          GH_TOKEN: ${{ secrets.CICD_PAT }}
+          VERCEL_MASTER_TOKEN: ${{ secrets.VERCEL_MASTER_TOKEN }}
+        run: python scripts/rotate_gh_pat.py distribute
