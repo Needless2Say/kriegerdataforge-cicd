@@ -89,7 +89,7 @@ jobs:
 
       - name: Deploy to Vercel
         working-directory: vercel_api
-        run: NODE_OPTIONS="--require ./dns-preload.js" vercel --prod --yes --build-env GH_PACKAGES_PAT=$GH_PACKAGES_PAT
+        run: NODE_OPTIONS="--require ./dns-preload.js" vercel --prod --yes --build-env "GH_PACKAGES_PAT=$GH_PACKAGES_PAT"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
