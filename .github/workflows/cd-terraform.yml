@@ -11,9 +11,12 @@
 #
 # Required environment secrets in the "infrastructure" GitHub Environment:
 #   VERCEL_API_TOKEN                    — maps to TF_VAR_vercel_api_token
-#   BACKEND_AUTH_PRIVATE_KEY            — maps to TF_VAR_backend_auth_private_key (RSA private key PEM)
-#   BACKEND_AUTH_PUBLIC_KEY             — maps to TF_VAR_backend_auth_public_key  (RSA public key PEM)
-#   FRONTEND_AUTH_PUBLIC_KEY            — maps to TF_VAR_frontend_auth_public_key  (RSA public key PEM, same as backend)
+#   BACKEND_AUTH_PRIVATE_KEY            — maps to TF_VAR_backend_auth_private_key (PROD RSA private key PEM)
+#   BACKEND_AUTH_PUBLIC_KEY             — maps to TF_VAR_backend_auth_public_key  (PROD RSA public key PEM)
+#   FRONTEND_AUTH_PUBLIC_KEY            — maps to TF_VAR_frontend_auth_public_key  (PROD RSA public key PEM, same as backend)
+#   BACKEND_AUTH_PRIVATE_KEY_DEV        — maps to TF_VAR_backend_auth_private_key_dev (DEV RSA private key PEM — distinct from prod)
+#   BACKEND_AUTH_PUBLIC_KEY_DEV         — maps to TF_VAR_backend_auth_public_key_dev  (DEV RSA public key PEM)
+#   FRONTEND_AUTH_PUBLIC_KEY_DEV        — maps to TF_VAR_frontend_auth_public_key_dev (DEV RSA public key PEM, same as backend dev)
 #   BACKEND_AUTH_ADMIN_EMAIL            — maps to TF_VAR_backend_auth_admin_email
 #   BACKEND_AUTH_ADMIN_EMAIL_PASSWORD   — maps to TF_VAR_backend_auth_admin_email_password
 #   BACKEND_DB_DATABASE_URL             — maps to TF_VAR_backend_db_database_url
@@ -106,6 +109,9 @@ jobs:
           TF_VAR_backend_auth_private_key: ${{ secrets.BACKEND_AUTH_PRIVATE_KEY }}
           TF_VAR_backend_auth_public_key: ${{ secrets.BACKEND_AUTH_PUBLIC_KEY }}
           TF_VAR_frontend_auth_public_key: ${{ secrets.FRONTEND_AUTH_PUBLIC_KEY }}
+          TF_VAR_backend_auth_private_key_dev: ${{ secrets.BACKEND_AUTH_PRIVATE_KEY_DEV }}
+          TF_VAR_backend_auth_public_key_dev: ${{ secrets.BACKEND_AUTH_PUBLIC_KEY_DEV }}
+          TF_VAR_frontend_auth_public_key_dev: ${{ secrets.FRONTEND_AUTH_PUBLIC_KEY_DEV }}
           TF_VAR_backend_auth_admin_email: ${{ secrets.BACKEND_AUTH_ADMIN_EMAIL }}
           TF_VAR_backend_auth_admin_email_password: ${{ secrets.BACKEND_AUTH_ADMIN_EMAIL_PASSWORD }}
           TF_VAR_backend_db_database_url: ${{ secrets.BACKEND_DB_DATABASE_URL }}
@@ -132,6 +138,9 @@ jobs:
           TF_VAR_backend_auth_private_key: ${{ secrets.BACKEND_AUTH_PRIVATE_KEY }}
           TF_VAR_backend_auth_public_key: ${{ secrets.BACKEND_AUTH_PUBLIC_KEY }}
           TF_VAR_frontend_auth_public_key: ${{ secrets.FRONTEND_AUTH_PUBLIC_KEY }}
+          TF_VAR_backend_auth_private_key_dev: ${{ secrets.BACKEND_AUTH_PRIVATE_KEY_DEV }}
+          TF_VAR_backend_auth_public_key_dev: ${{ secrets.BACKEND_AUTH_PUBLIC_KEY_DEV }}
+          TF_VAR_frontend_auth_public_key_dev: ${{ secrets.FRONTEND_AUTH_PUBLIC_KEY_DEV }}
           TF_VAR_backend_auth_admin_email: ${{ secrets.BACKEND_AUTH_ADMIN_EMAIL }}
           TF_VAR_backend_auth_admin_email_password: ${{ secrets.BACKEND_AUTH_ADMIN_EMAIL_PASSWORD }}
           TF_VAR_backend_db_database_url: ${{ secrets.BACKEND_DB_DATABASE_URL }}

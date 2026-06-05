@@ -391,6 +391,45 @@ The `Check GH_PACKAGES_PAT Expiry` workflow runs on the 1st and 15th of each mon
 
 ---
 
+## Phase 6.6 — Vercel Blob Storage for Images (per backend project)
+
+> **ONCE per app, per environment** — Required for any backend that stores
+> user images in production (currently `fitness-app-backend`; also
+> `tiffanys-space-backend`). In production the storage layer reads
+> `BLOB_READ_WRITE_TOKEN`; locally it uses MinIO via docker compose and this
+> token is not needed.
+
+**Why this is manual (not Terraform):** Vercel **auto-injects**
+`BLOB_READ_WRITE_TOKEN` into a project the moment you connect a Blob store to
+it. There is no first-class Terraform resource for Vercel Blob stores, and the
+SDK explicitly treats this token as Vercel-managed
+(`kdf_sdk/storage/service.py`: *"Auto-injected by Vercel … must NOT be managed
+via Terraform"*). Do **not** add it to `*.auto.tfvars` or to GitHub secrets —
+it lives only in Vercel.
+
+### 6.6.1 — Create and connect a Blob store
+
+For each backend project (do this for both the **dev** and **production**
+Vercel projects):
+
+1. Vercel Dashboard → **Storage → Create Database → Blob**
+2. Name it descriptively, e.g. `fitness-app-images` (dev: `fitness-app-images-dev`)
+3. On the store's **Projects** tab, **Connect** it to the matching backend project
+   and select the environment(s) it should apply to (Production / Preview / Development)
+4. Vercel automatically adds `BLOB_READ_WRITE_TOKEN` to that project's
+   Environment Variables — no manual value entry required
+
+### 6.6.2 — Verify
+
+1. Project → **Settings → Environment Variables** → confirm `BLOB_READ_WRITE_TOKEN`
+   is present for the expected environments
+2. After deploy, smoke-test an image upload (see Phase 8 deploy checklist)
+
+> **Rotation:** Blob tokens are managed by Vercel; rotate via the store's
+> Settings if ever needed. No registry file or workflow tracks this token.
+
+---
+
 ## Developer Local Setup — Installing kdf-auth-sdk
 
 > **PER DEVELOPER** — Each developer on the project creates their own fine-grained PAT to `pip install kdf-auth-sdk` locally. Never share a token between developers — if a developer's token is compromised or their access is revoked, you'd otherwise need to rotate the shared token for everyone.
