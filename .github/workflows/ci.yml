@@ -57,3 +57,6 @@ jobs:
 
       - name: Run tests
         run: cd scripts && pytest tests/ --tb=short
+
+  version-check:
+    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/bump-version-check.yml@main

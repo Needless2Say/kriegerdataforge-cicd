@@ -1,4 +1,4 @@
-name: Node.js · Build (Next.js)
+acname: Node.js · Build (Next.js)
 
 on:
   workflow_call:
