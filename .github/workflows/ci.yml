@@ -1,4 +1,4 @@
-# CI — runs on every PR and every push to main.
+# CI — runs on every PR targeting main (opened, updated, reopened).
 #
 # Jobs:
 #   lint   — actionlint validates all .github/workflows/*.yml files
@@ -12,8 +12,7 @@ name: CI
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
+    types: [opened, synchronize, reopened]
 
 jobs:
   lint:

@@ -1,0 +1,45 @@
+name: Python · Type-check (mypy)
+
+on:
+  workflow_call:
+    inputs:
+      python_version:
+        description: Python version to use
+        type: string
+        default: "3.13"
+      install_command:
+        description: Command to install dependencies before type-checking
+        type: string
+        default: "pip install -r requirements.txt"
+      typecheck_command:
+        description: Full mypy command to run
+        type: string
+        default: "python -m mypy api/"
+      needs_sdk_auth:
+        description: Configure git credentials for the private SDK (requires GH_PACKAGES_PAT secret)
+        type: boolean
+        default: false
+
+jobs:
+  type-check:
+    name: Type-check (mypy)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Configure private SDK access
+        if: ${{ inputs.needs_sdk_auth }}
+        env:
+          GH_PACKAGES_PAT: ${{ secrets.GH_PACKAGES_PAT }}
+        run: git config --global url."https://__token__:${GH_PACKAGES_PAT}@github.com/".insteadOf "https://github.com/"
+
+      - name: Install dependencies
+        run: ${{ inputs.install_command }}
+
+      - name: Run mypy
+        run: ${{ inputs.typecheck_command }}

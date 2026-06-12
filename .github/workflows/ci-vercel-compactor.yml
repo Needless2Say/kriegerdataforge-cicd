@@ -1,0 +1,28 @@
+name: Vercel compactor up-to-date
+
+on:
+  workflow_call:
+    inputs:
+      python_version:
+        description: Python version to use
+        type: string
+        default: "3.13"
+
+jobs:
+  vercel-compactor-staleness:
+    name: Vercel compactor up-to-date
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Check vercel_api/ is in sync with api/
+        # Dry run that exits 1 if regenerating vercel_api/ from api/ would change
+        # any file. Prevents deploying a stale Vercel artifact when api/ changes
+        # without running `make vercel-compact`. --skip-import-check avoids needing
+        # the private SDK installed.
+        run: python scripts/vercel_compactor.py --check --skip-import-check

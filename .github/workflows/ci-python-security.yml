@@ -1,0 +1,58 @@
+name: Python · Security (bandit + pip-audit)
+
+on:
+  workflow_call:
+    inputs:
+      python_version:
+        description: Python version to use
+        type: string
+        default: "3.13"
+      bandit_paths:
+        description: Space-separated paths to pass to bandit -r
+        type: string
+        default: "api/ scripts/ vercel_api/"
+      needs_sdk_auth:
+        description: Configure git credentials for the private SDK for pip-audit (requires GH_PACKAGES_PAT secret)
+        type: boolean
+        default: false
+
+jobs:
+  bandit:
+    name: Bandit SAST
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Install bandit
+        run: pip install bandit[toml]
+
+      - name: Run bandit
+        run: python -m bandit -r ${{ inputs.bandit_paths }} -ll --format txt
+
+  pip-audit:
+    name: pip-audit (CVE check)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Configure private SDK access
+        if: ${{ inputs.needs_sdk_auth }}
+        env:
+          GH_PACKAGES_PAT: ${{ secrets.GH_PACKAGES_PAT }}
+        run: git config --global url."https://__token__:${GH_PACKAGES_PAT}@github.com/".insteadOf "https://github.com/"
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Audit requirements.txt
+        run: python -m pip_audit -r requirements.txt

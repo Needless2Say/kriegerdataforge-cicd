@@ -1,0 +1,52 @@
+name: Node.js · Build (Next.js)
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: Node.js version to use
+        type: string
+        default: "22"
+      upload_artifact:
+        description: Upload the build output as a GitHub Actions artifact
+        type: boolean
+        default: false
+      artifact_name:
+        description: Name for the uploaded artifact (only used when upload_artifact is true)
+        type: string
+        default: "static-export"
+      artifact_path:
+        description: Path to upload as artifact (only used when upload_artifact is true)
+        type: string
+        default: "out/"
+      artifact_retention_days:
+        description: Number of days to retain the artifact
+        type: number
+        default: 3
+
+jobs:
+  build:
+    name: Build (Next.js)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: make ci-build
+
+      - name: Upload build artifact
+        if: ${{ inputs.upload_artifact }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ inputs.artifact_path }}
+          retention-days: ${{ inputs.artifact_retention_days }}
