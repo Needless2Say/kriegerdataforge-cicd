@@ -1,0 +1,12 @@
+name: Release
+
+on:
+  push:
+    branches: ["main"]
+    paths: ["VERSION"]
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/create-github-release.yml@main

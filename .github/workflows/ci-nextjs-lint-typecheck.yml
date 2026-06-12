@@ -1,0 +1,31 @@
+name: Node.js · Lint & type-check
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: Node.js version to use
+        type: string
+        default: "22"
+
+jobs:
+  lint-and-typecheck:
+    name: Lint · Type-check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: make ci-lint
+
+      - name: Type-check
+        run: make ci-typecheck
