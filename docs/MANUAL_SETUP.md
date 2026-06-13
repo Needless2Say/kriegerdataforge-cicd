@@ -48,7 +48,7 @@ For the **per-app deployment tokens** in the table below, use these settings:
 | `kdf-fitness-frontend-prod` | `fitness-app-frontend` repo, `prod` environment |
 | `kdf-fitness-frontend-dev` | `fitness-app-frontend` repo, `dev` environment |
 | `kdf-tiffanys-frontend-prod` | `tiffanys_space` repo, `prod` environment |
-| `kdf-infra` | `kriegerdataforge-terraform` repo, `infra` environment |
+| `kdf-infra` | `kriegerdataforge-terraform` repo, **both** `dev` and `prod` environments (the Vercel API token Terraform uses to manage projects is account-level — the same value in both) |
 
 Copy each token value immediately — Vercel shows it only once. Keep them in a secure location (e.g. 1Password) until you add them to GitHub Environments in Phase 4.
 
@@ -56,65 +56,74 @@ Copy each token value immediately — Vercel shows it only once. Keep them in a 
 
 ---
 
-## Phase 1 — Apply Terraform Changes (Disable Auto-Deploys + Create Dev Projects)
+## Phase 1 — Provision Databases + Apply Terraform (per environment)
 
-> **ONCE** — Run locally before anything else. This disables auto-deploys on the existing frontend projects and provisions the two new dev Vercel projects.
+> **ONCE** — Run locally before anything else. Provisions the per-tenant databases and applies
+> the Vercel infrastructure for each environment.
 >
-> **Note on database architecture:** Right now all apps share a single Neon project — the `kriegerdataforge` FastAPI backend is the only service that connects to it directly. The frontends (`fitness-app-frontend`, `tiffanys_space`) call the backend API, not the database. The plan to split into 3 separate databases (one per app: fitness, tiffanys-space, KDF auth) is **Stage 7** of the overall plan and involves data migration. Do not try to set up 3 databases here — Phase 1 only needs a dev branch of the existing single database.
+> **Terraform layout (current):** the `kriegerdataforge-terraform` repo is **directory-per-environment**
+> — reusable modules under `modules/`, and one deployable root per environment under
+> `environments/dev/` and `environments/prod/`. There are **no Terraform workspaces**. Each env root
+> auto-loads its `*.auto.tfvars` (so `make plan-dev` / `make apply-dev` need no `-var-file` flags).
+> See the terraform repo's `README.md` and `docs/ONBOARDING_A_TENANT.md` for the authoritative details.
+>
+> **Database architecture:** each tenant backend has its **own** Neon database, **per environment**
+> (dev + prod): `kdf-auth`, `fitness-app`, `tiffanys-space`. That is 3 databases × 2 environments.
+> Frontends never touch a database — they call their own backend, which talks to kdf-auth.
 
-### 1.1 — Provision the Neon Dev Database
+### 1.1 — Provision the Neon databases
 
-Before running Terraform, you need the dev database connection string.
+For **each** tenant (`kdf-auth`, `fitness-app`, `tiffanys-space`) and **each** environment
+(`dev`, `prod`), get a pooled connection string:
 
-1. Go to [console.neon.tech](https://console.neon.tech)
-2. Open your existing KriegerDataForge Neon project
-3. Click **Branches** → **New Branch**
-   - Branch name: `dev`
-   - Branch from: `main` (this copies the live schema without copying data)
-4. After the branch is created, click the branch name → **Connection Details**
-5. Select **psycopg2** from the connection format dropdown
-6. Copy the full connection string. It looks like:
+1. Go to [console.neon.tech](https://console.neon.tech) → the tenant's Neon project (or a `dev`
+   branch of it for the dev environment).
+2. **Connection Details** → copy the **pooled** connection string. It looks like:
 
    ```bash
-   postgresql://user:password@ep-xxxx.region.aws.neon.tech/dbname?sslmode=require
+   postgresql://user:password@ep-xxxx-pooler.region.aws.neon.tech/neondb?channel_binding=require&sslmode=require
    ```
 
-   > **Note:** Neon gives you `postgresql://`. The `postgresql+psycopg2://` variant is the SQLAlchemy dialect format used internally by the FastAPI app — Terraform stores and passes the raw `postgresql://` string as-is to Vercel.
+   > Neon gives you `postgresql://`. The FastAPI app applies the SQLAlchemy dialect internally —
+   > Terraform stores and passes the raw `postgresql://` string as-is to Vercel.
 
-7. Save it — this is your `dev_backend_db_database_url`
+### 1.2 — Fill in the per-environment tfvars
 
-### 1.2 — Add Dev Variables to terraform.tfvars
+In the terraform repo, populate the gitignored, auto-loaded files for **each** environment
+(copy each `*.example` to the real name and fill it in):
 
-Open `kriegerdataforge-terraform/terraform.tfvars` and add the following block at the bottom:
-
-```hcl
-# ── Development environment ─────────────────────────────────────────────────
-dev_backend_db_database_url = "postgresql://user:pass@ep-xxxx.region.aws.neon.tech/dbname?sslmode=require"
-dev_backend_url             = "https://placeholder-update-after-first-deploy.vercel.app"
-dev_backend_cors_origins    = "http://localhost:3000,http://localhost:3001"
+```text
+environments/<env>/credentials.auto.tfvars        # Vercel API token + admin email/password
+environments/<env>/kdf-platform.secrets.auto.tfvars   # RSA keypair, kdf-auth DB URL, CORS, backend_url, Stripe
+environments/<env>/fitness-app.secrets.auto.tfvars    # project names, backend URL, DB URL, CORS, service key
+environments/<env>/tiffanys-space.secrets.auto.tfvars # project names, backend URL, DB URL, CORS, cron, service key
 ```
 
-Replace the `dev_backend_db_database_url` value with the connection string from step 1.1.
+The non-secret shared config (`common.auto.tfvars`) is already committed. Put each tenant's
+Neon connection string from step 1.1 into that tenant's `*_backend_db_database_url`
+(`kdf_auth_db_database_url` lives in `kdf-platform.secrets.auto.tfvars`). See
+`docs/SECRETS_INVENTORY.md` for the full per-file variable list.
 
-> **Note:** `dev_backend_url` is a placeholder for now. After the first dev backend deploy completes (Phase 8), come back and update it with the actual Vercel URL (e.g. `https://kriegerdataforge-dev.vercel.app`), then re-run `terraform apply`.
+> Backend URLs (`*_backend_url`) can be placeholders until the first deploy; come back and set
+> the real Vercel URLs (Phase 8), then re-apply.
 
-### 1.3 — Run Terraform Apply
+### 1.3 — Apply
 
 ```bash
 cd kriegerdataforge-terraform
-terraform init
-terraform plan   # review the changes — should show 2 new projects + auto-deploy disabled on 2 existing ones
-terraform apply
+make init                 # initialises both environment roots
+make plan-dev             # review — projects already exist → updates only; new tenants → + create
+make apply-dev            # then verify, and:
+make plan-prod
+make apply-prod
 ```
 
-After apply completes, note the new project IDs printed in the outputs:
+> If a Vercel project does not yet exist, `apply` creates it. If it already exists, add an
+> `import` block to that env root first (see `docs/ONBOARDING_A_TENANT.md` §5) so Terraform
+> adopts it instead of trying to recreate it.
 
-```bash
-kriegerdataforge_dev_project_id   = "prj_..."
-fitness_app_dev_project_id        = "prj_..."
-```
-
-Save these — you'll need them in Phase 5.
+Project IDs are available afterwards via `terraform -chdir=environments/<env> output` — you'll
+reference them in Phase 5.
 
 ---
 
@@ -188,11 +197,14 @@ For each repo, go to **Settings → Environments** and create the environments b
 3. Under **Deployment branches and tags** → **Selected branches and tags** → Add rule → Branch name: `main`
 4. Click **Save protection rules**
 
-### For repo 6 (kriegerdataforge-terraform): Create ONE environment
+### For repo 6 (kriegerdataforge-terraform): Create TWO environments
 
-**Environment: `infra`**
+The Terraform CD workflow runs `terraform -chdir=environments/<env>`, so it needs a GitHub
+Environment named `dev` and one named `prod` (matching the `environments/<env>/` roots).
 
-1. Click **New environment** → name: `infra` → **Configure environment**
+**Environment: `prod`** and **Environment: `dev`** (create both)
+
+1. Click **New environment** → name: `prod` (then repeat for `dev`) → **Configure environment**
 2. Required reviewers: yourself only
 3. Deployment branches: `main` only
 4. Click **Save protection rules**
@@ -226,7 +238,7 @@ For each repo, go to **Settings → Environments** and create the environments b
 |---|---|
 | `VERCEL_TOKEN` | The `kdf-auth-backend-dev` token value from Phase 0 |
 | `VERCEL_ORG_ID` | Your Vercel Team ID |
-| `VERCEL_PROJECT_ID` | The `kriegerdataforge_dev_project_id` from Phase 1.3 output |
+| `VERCEL_PROJECT_ID` | `terraform -chdir=environments/dev output kdf_auth_service_project_id` |
 | `DB_DATABASE_URL` | The dev Neon branch connection string from Phase 1.1 |
 
 ### fitness-app-frontend
@@ -243,7 +255,7 @@ For each repo, go to **Settings → Environments** and create the environments b
 |---|---|
 | `VERCEL_TOKEN` | The `kdf-fitness-frontend-dev` token value from Phase 0 |
 | `VERCEL_ORG_ID` | Your Vercel Team ID |
-| `VERCEL_PROJECT_ID` | The `fitness_app_dev_project_id` from Phase 1.3 output |
+| `VERCEL_PROJECT_ID` | `terraform -chdir=environments/dev output fitness_app_frontend_project_id` |
 
 ### tiffanys_space
 
@@ -261,30 +273,60 @@ For each repo, go to **Settings → Environments** and create the environments b
 | `VERCEL_ORG_ID` | *(skip until dev project exists)* |
 | `VERCEL_PROJECT_ID` | *(skip until dev project exists)* |
 
-### kriegerdataforge-terraform (`infra` environment)
+### kriegerdataforge-terraform (`dev` and `prod` environments)
 
-**Secrets** (use "Add secret" for all of these):
-| Secret Name | Value |
+The Terraform CD workflow (`cd-terraform.yml`) runs `terraform -chdir=environments/<env>`
+(directory-per-environment; **no Terraform workspaces**) and injects every per-environment
+value as a `TF_VAR_*` from the matching GitHub Environment. Create **two** GitHub
+Environments — `dev` and `prod` — each populated as below. The values are exactly what you
+put in that env's local files under `environments/<env>/` (the source column says which file).
+
+> The committed, non-secret `environments/<env>/common.auto.tfvars` already supplies
+> `vercel_team_id`, `github_org`, JWT issuer/audience, token TTLs, feature-flag defaults,
+> and Sentry DSNs — so those are **not** set as GitHub secrets/variables here.
+
+**Secrets (Settings → Environments → [dev|prod] → Add secret):**
+| Secret Name | Source file → variable |
 |---|---|
-| `VERCEL_API_TOKEN` | The `kdf-infra` token value from Phase 0 |
-| `BACKEND_AUTH_SECRET_KEY` | Value from `terraform.tfvars` → `backend_auth_secret_key` |
-| `BACKEND_AUTH_ADMIN_EMAIL` | Value from `terraform.tfvars` → `backend_auth_admin_email` |
-| `BACKEND_AUTH_ADMIN_EMAIL_PASSWORD` | Value from `terraform.tfvars` → `backend_auth_admin_email_password` |
-| `BACKEND_DB_DATABASE_URL` | Value from `terraform.tfvars` → `backend_db_database_url` |
-| `DEV_BACKEND_DB_DATABASE_URL` | Value from `terraform.tfvars` → `dev_backend_db_database_url` |
-| `FRONTEND_AUTH_SECRET_KEY` | Value from `terraform.tfvars` → `frontend_auth_secret_key` |
-| `TIFFANYS_SPACE_CRON_SECRET` | Value from `terraform.tfvars` → `tiffanys_space_cron_secret` |
-| `VERCEL_TEAM_ID` | Your Vercel Team ID |
-| `BACKEND_URL_PRODUCTION` | Value from `terraform.tfvars` → `backend_url_production` |
-| `BACKEND_URL_PREVIEW` | Value from `terraform.tfvars` → `backend_url_preview` |
-| `DEV_BACKEND_URL` | Placeholder for now — update after Phase 8 first dev deploy |
-| `BACKEND_STRIPE_SECRET_KEY` | *(placeholder — skip for now, add when Stripe is enabled)* |
-| `BACKEND_STRIPE_WEBHOOK_SECRET` | *(placeholder — skip for now, add when Stripe is enabled)* |
-| `FITNESS_APP_SENTRY_AUTH_TOKEN` | *(placeholder — skip for now, add when Sentry is configured)* |
-| `TIFFANYS_SPACE_SENTRY_AUTH_TOKEN` | *(placeholder — skip for now, add when Sentry is configured)* |
-| ~~`TF_TOKEN_APP_TERRAFORM_IO`~~ | ~~Terraform Cloud API token~~ — **DEFERRED** (see Phase 2) |
+| `VERCEL_API_TOKEN` | `credentials.auto.tfvars` → `vercel_api_token` |
+| `BACKEND_AUTH_ADMIN_EMAIL` | `credentials.auto.tfvars` → `backend_auth_admin_email` |
+| `BACKEND_AUTH_ADMIN_EMAIL_PASSWORD` | `credentials.auto.tfvars` → `backend_auth_admin_email_password` |
+| `BACKEND_AUTH_PRIVATE_KEY` | `kdf-platform.secrets.auto.tfvars` → `backend_auth_private_key` |
+| `BACKEND_AUTH_PUBLIC_KEY` | `kdf-platform.secrets.auto.tfvars` → `backend_auth_public_key` |
+| `FRONTEND_AUTH_PUBLIC_KEY` | `kdf-platform.secrets.auto.tfvars` → `frontend_auth_public_key` (same value) |
+| `KDF_AUTH_DB_DATABASE_URL` | `kdf-platform.secrets.auto.tfvars` → `kdf_auth_db_database_url` |
+| `FITNESS_APP_BACKEND_DB_DATABASE_URL` | `fitness-app.secrets.auto.tfvars` → `fitness_app_backend_db_database_url` |
+| `TIFFANYS_SPACE_BACKEND_DB_DATABASE_URL` | `tiffanys-space.secrets.auto.tfvars` → `tiffanys_space_backend_db_database_url` |
+| `FITNESS_APP_SERVICE_KEY` | `fitness-app.secrets.auto.tfvars` → `fitness_app_service_key` |
+| `TIFFANYS_SPACE_SERVICE_KEY` | `tiffanys-space.secrets.auto.tfvars` → `tiffanys_space_service_key` |
+| `TIFFANYS_SPACE_CRON_SECRET` | `tiffanys-space.secrets.auto.tfvars` → `tiffanys_space_cron_secret` *(optional)* |
+| `BACKEND_STRIPE_SECRET_KEY` | `kdf-platform.secrets.auto.tfvars` *(optional; `""` if disabled)* |
+| `BACKEND_STRIPE_WEBHOOK_SECRET` | `kdf-platform.secrets.auto.tfvars` *(optional)* |
+| `FITNESS_APP_SENTRY_AUTH_TOKEN` | `fitness-app.secrets.auto.tfvars` *(optional)* |
+| `TIFFANYS_SPACE_SENTRY_AUTH_TOKEN` | `tiffanys-space.secrets.auto.tfvars` *(optional)* |
+| `TF_TOKEN_APP_TERRAFORM_IO` | Terraform Cloud API token — **DEFERRED** until remote state is configured |
 
-> The four placeholder secrets still need to be created as secrets in GitHub — just set their value to an empty string `""` for now. The Terraform CD workflow will pass them through as empty and the apps handle them gracefully (Stripe and Sentry are disabled via their respective feature flags).
+**Variables (Settings → Environments → [dev|prod] → Add variable):**
+| Variable Name | Source file → variable |
+|---|---|
+| `BACKEND_URL` | `kdf-platform.secrets.auto.tfvars` → `backend_url` (the KDF auth service URL) |
+| `FITNESS_APP_BACKEND_URL` | `fitness-app.secrets.auto.tfvars` → `fitness_app_backend_url` |
+| `TIFFANYS_SPACE_BACKEND_URL` | `tiffanys-space.secrets.auto.tfvars` → `tiffanys_space_backend_url` |
+| `KDF_AUTH_SERVICE_PROJECT_NAME` | `kdf-platform.secrets.auto.tfvars` → `kdf_auth_service_project_name` |
+| `FITNESS_APP_PROJECT_NAME` | `fitness-app.secrets.auto.tfvars` → `fitness_app_project_name` |
+| `FITNESS_APP_BACKEND_PROJECT_NAME` | `fitness-app.secrets.auto.tfvars` → `fitness_app_backend_project_name` |
+| `TIFFANYS_SPACE_PROJECT_NAME` | `tiffanys-space.secrets.auto.tfvars` → `tiffanys_space_project_name` |
+| `TIFFANYS_SPACE_BACKEND_PROJECT_NAME` | `tiffanys-space.secrets.auto.tfvars` → `tiffanys_space_backend_project_name` |
+| `KDF_AUTH_CORS_ORIGINS` | `kdf-platform.secrets.auto.tfvars` *(optional)* |
+| `FITNESS_APP_BACKEND_CORS_ORIGINS` | `fitness-app.secrets.auto.tfvars` *(optional)* |
+| `TIFFANYS_SPACE_BACKEND_CORS_ORIGINS` | `tiffanys-space.secrets.auto.tfvars` *(optional)* |
+
+> Optional secrets you are not using yet must still exist as empty-string (`""`) secrets so
+> the workflow can reference them; the apps handle empties gracefully (Stripe/Sentry off).
+>
+> The values above come from each environment's local `environments/<env>/*.auto.tfvars`. For the
+> authoritative file/variable layout, see the terraform repo's `README.md`,
+> `docs/ONBOARDING_A_TENANT.md`, and `docs/SECRETS_INVENTORY.md`.
 
 > **How to find your production backend URL:** Vercel Dashboard → `kriegerdataforge` project → Domains.
 
@@ -495,17 +537,23 @@ For `kriegerdataforge`, `fitness-app-frontend`, `tiffanys_space`:
 3. Wait for the approval notification → Click **Review deployments** → **Approve**
 4. Wait for the deploy to complete → note the Vercel deployment URL from the logs
 
-### 8.2 — Update dev URLs in Terraform + GitHub Variables
+### 8.2 — Update backend URLs in the env tfvars + GitHub Variables
 
-1. Open `kriegerdataforge-terraform/terraform.tfvars` and update:
+Once a backend's real Vercel URL is known, set it in two places for that environment:
 
-   ```hcl
-   dev_backend_url          = "https://kriegerdataforge-dev.vercel.app"
-   dev_backend_cors_origins = "http://localhost:3000,http://localhost:3001,https://fitness-app-frontend-dev.vercel.app"
-   ```
+1. **Local tfvars** — in `kriegerdataforge-terraform/environments/dev/`:
+   - the tenant's own backend URL drives its frontend's `API_BASE_URL`, e.g. in
+     `fitness-app.secrets.auto.tfvars`:
+     ```hcl
+     fitness_app_backend_url       = "https://fitness-app-backend-dev.vercel.app"
+     fitness_app_backend_cors_origins = "https://fitness-app-frontend-dev.vercel.app"
+     ```
+   - `backend_url` (the kdf-auth service URL) lives in `kdf-platform.secrets.auto.tfvars`.
 
-2. Update the `DEV_BACKEND_URL` GitHub variable in `kriegerdataforge-terraform` → `infra` environment
-3. Run `terraform apply` locally (or trigger the Terraform CD workflow)
+2. **GitHub Variables** — mirror the same values into the terraform repo's `dev` environment
+   variables (`FITNESS_APP_BACKEND_URL`, `BACKEND_URL`, etc.) so the Terraform CD workflow uses them.
+
+3. Re-apply: `make apply-dev` locally, or trigger the **CD — Terraform** workflow for `dev`.
 
 ### 8.3 — Deploy dev frontend
 
@@ -537,8 +585,8 @@ Run through this checklist to confirm the setup is working end-to-end.
 
 ### Terraform CD
 
-- [X] Go to `kriegerdataforge-terraform` → Actions → CD — Terraform → Run workflow
-- [X] `infra` environment gate appears → you approve → `terraform plan` + `apply` runs ✅
+- [X] Go to `kriegerdataforge-terraform` → Actions → CD — Terraform → Run workflow (environment: `dev` or `prod`)
+- [X] The matching (`dev`/`prod`) environment gate appears → you approve → `terraform plan` + `apply` runs against `environments/<env>/` ✅
 
 ### Branch protection
 
@@ -639,9 +687,9 @@ Key things to communicate:
 | Prod backend project ID | `prj_3kiJpapxo5G4Syd4j6i6LkeWXS9s` (hardcoded) |
 | Prod fitness project ID | `prj_cqvUqHUTI2peopP8ZQalqPE3um7u` (hardcoded) |
 | Prod tiffanys project ID | `prj_Vwlw8Nts7rFo2Apq25ZhXN3K6fw9` (hardcoded) |
-| Dev project IDs | `terraform output` after Phase 1.3 |
-| Neon connection strings | Neon Console → Project → Branches → Connection Details → psycopg2 format |
-| `AUTH_SECRET_KEY` etc. | Your local `terraform.tfvars` |
+| Project IDs (per env) | `terraform -chdir=environments/<env> output` |
+| Neon connection strings | Neon Console → Project → Connection Details → pooled `postgresql://` string |
+| RSA keypair, DB URLs, service keys, etc. | The env root's `environments/<env>/*.auto.tfvars` (see terraform repo `docs/SECRETS_INVENTORY.md`) |
 
 ---
 
