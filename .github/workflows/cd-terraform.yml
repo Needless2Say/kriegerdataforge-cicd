@@ -1,54 +1,65 @@
 # Reusable CD workflow — Terraform Apply
 #
-# Called by kriegerdataforge-terraform to run `terraform apply` against the
-# Vercel infrastructure. The `environment` input activates the GitHub
-# Environment gate (owner-only approval). The `workspace` input selects the
-# Terraform workspace (dev or prod) before plan/apply.
+# Called by kriegerdataforge-terraform to run `terraform plan` + `terraform apply`
+# against the Vercel infrastructure.
 #
-# Non-sensitive shared variables live in shared.tfvars (committed to git) and
-# are loaded via -var-file=shared.tfvars. All other variables are injected as
-# TF_VAR_* environment variables from the GitHub Environment secrets/variables.
+# ── Layout (directory-per-environment) ────────────────────────────────────────
+# The consumer repo is laid out as reusable modules under modules/ and one
+# deployable root per environment under environments/<env>/. There are NO
+# Terraform workspaces. This workflow runs every terraform command with
+# `-chdir=environments/${{ inputs.environment }}` (dev or prod). Each env root
+# auto-loads its committed, NON-secret common.auto.tfvars; all per-environment
+# secret + non-secret values are injected here as TF_VAR_* environment variables
+# (the real *.auto.tfvars files are gitignored and absent in CI).
 #
-# ── GitHub Environments ───────────────────────────────────────────────────────
-# Create TWO environments in the kriegerdataforge-terraform repo:
-#   dev  — dev workspace secrets/variables
-#   prod — prod workspace secrets/variables
+# The `environment` input both selects the env root directory AND activates the
+# matching GitHub Environment gate (owner-only approval) whose scoped
+# secrets/variables are loaded below.
 #
-# ── Required secrets (per environment) ────────────────────────────────────────
-#   VERCEL_API_TOKEN                      → TF_VAR_vercel_api_token
-#   BACKEND_AUTH_PRIVATE_KEY              → TF_VAR_backend_auth_private_key  (RSA private key PEM, PKCS#8)
-#   BACKEND_AUTH_PUBLIC_KEY               → TF_VAR_backend_auth_public_key
-#   FRONTEND_AUTH_PUBLIC_KEY              → TF_VAR_frontend_auth_public_key  (same as BACKEND_AUTH_PUBLIC_KEY)
-#   BACKEND_AUTH_ADMIN_EMAIL              → TF_VAR_backend_auth_admin_email
-#   BACKEND_AUTH_ADMIN_EMAIL_PASSWORD     → TF_VAR_backend_auth_admin_email_password
-#   KDF_AUTH_DB_DATABASE_URL              → TF_VAR_kdf_auth_db_database_url
-#   FITNESS_APP_BACKEND_DB_DATABASE_URL   → TF_VAR_fitness_app_backend_db_database_url
+# ── Required secrets (per GitHub Environment: dev, prod) ───────────────────────
+#   VERCEL_API_TOKEN                       → TF_VAR_vercel_api_token
+#   BACKEND_AUTH_ADMIN_EMAIL               → TF_VAR_backend_auth_admin_email
+#   BACKEND_AUTH_ADMIN_EMAIL_PASSWORD      → TF_VAR_backend_auth_admin_email_password
+#   BACKEND_AUTH_PRIVATE_KEY               → TF_VAR_backend_auth_private_key  (RSA PEM, PKCS#8)
+#   BACKEND_AUTH_PUBLIC_KEY                → TF_VAR_backend_auth_public_key
+#   FRONTEND_AUTH_PUBLIC_KEY               → TF_VAR_frontend_auth_public_key  (== BACKEND_AUTH_PUBLIC_KEY)
+#   KDF_AUTH_DB_DATABASE_URL               → TF_VAR_kdf_auth_db_database_url
+#   FITNESS_APP_BACKEND_DB_DATABASE_URL    → TF_VAR_fitness_app_backend_db_database_url
 #   TIFFANYS_SPACE_BACKEND_DB_DATABASE_URL → TF_VAR_tiffanys_space_backend_db_database_url
-#   FITNESS_APP_SERVICE_KEY                → TF_VAR_fitness_app_service_key  (openssl rand -hex 32)
-#   TIFFANYS_SPACE_SERVICE_KEY             → TF_VAR_tiffanys_space_service_key  (openssl rand -hex 32)
+#   FITNESS_APP_SERVICE_KEY                → TF_VAR_fitness_app_service_key   (openssl rand -hex 32)
+#   TIFFANYS_SPACE_SERVICE_KEY             → TF_VAR_tiffanys_space_service_key (openssl rand -hex 32)
 #
-# ── Optional secrets (leave unset to use defaults / disable feature) ──────────
-#   TIFFANYS_SPACE_CRON_SECRET            → TF_VAR_tiffanys_space_cron_secret
-#   BACKEND_STRIPE_SECRET_KEY             → TF_VAR_backend_stripe_secret_key
-#   BACKEND_STRIPE_WEBHOOK_SECRET         → TF_VAR_backend_stripe_webhook_secret
-#   FITNESS_APP_SENTRY_AUTH_TOKEN         → TF_VAR_fitness_app_sentry_auth_token
-#   TIFFANYS_SPACE_SENTRY_AUTH_TOKEN      → TF_VAR_tiffanys_space_sentry_auth_token
+# ── Optional secrets (unset = use default / disable feature) ──────────────────
+#   TIFFANYS_SPACE_CRON_SECRET             → TF_VAR_tiffanys_space_cron_secret
+#   BACKEND_STRIPE_SECRET_KEY              → TF_VAR_backend_stripe_secret_key
+#   BACKEND_STRIPE_WEBHOOK_SECRET          → TF_VAR_backend_stripe_webhook_secret
+#   FITNESS_APP_SENTRY_AUTH_TOKEN          → TF_VAR_fitness_app_sentry_auth_token
+#   TIFFANYS_SPACE_SENTRY_AUTH_TOKEN       → TF_VAR_tiffanys_space_sentry_auth_token
+#   TF_TOKEN_APP_TERRAFORM_IO              → Terraform Cloud auth (until remote state is configured)
 #
-# ── Required environment variables (non-secret, per environment) ──────────────
-#   BACKEND_URL                           → TF_VAR_backend_url
-#   KDF_AUTH_SERVICE_PROJECT_NAME         → TF_VAR_kdf_auth_service_project_name
-#   FITNESS_APP_PROJECT_NAME              → TF_VAR_fitness_app_project_name
-#   FITNESS_APP_BACKEND_PROJECT_NAME      → TF_VAR_fitness_app_backend_project_name
-#   TIFFANYS_SPACE_PROJECT_NAME           → TF_VAR_tiffanys_space_project_name
-#   TIFFANYS_SPACE_BACKEND_PROJECT_NAME   → TF_VAR_tiffanys_space_backend_project_name
+# ── Required environment variables (non-secret, per GitHub Environment) ───────
+#   BACKEND_URL                            → TF_VAR_backend_url                  (KDF auth service URL)
+#   FITNESS_APP_BACKEND_URL                → TF_VAR_fitness_app_backend_url      (fitness app's own backend)
+#   TIFFANYS_SPACE_BACKEND_URL             → TF_VAR_tiffanys_space_backend_url   (tiffany's own backend)
+#   KDF_AUTH_SERVICE_PROJECT_NAME          → TF_VAR_kdf_auth_service_project_name
+#   FITNESS_APP_PROJECT_NAME               → TF_VAR_fitness_app_project_name
+#   FITNESS_APP_BACKEND_PROJECT_NAME       → TF_VAR_fitness_app_backend_project_name
+#   TIFFANYS_SPACE_PROJECT_NAME            → TF_VAR_tiffanys_space_project_name
+#   TIFFANYS_SPACE_BACKEND_PROJECT_NAME    → TF_VAR_tiffanys_space_backend_project_name
 #
 # ── Optional environment variables ────────────────────────────────────────────
-#   KDF_AUTH_CORS_ORIGINS                 → TF_VAR_kdf_auth_cors_origins
-#   FITNESS_APP_BACKEND_CORS_ORIGINS      → TF_VAR_fitness_app_backend_cors_origins
-#   TIFFANYS_SPACE_BACKEND_CORS_ORIGINS   → TF_VAR_tiffanys_space_backend_cors_origins
+#   KDF_AUTH_CORS_ORIGINS                  → TF_VAR_kdf_auth_cors_origins
+#   FITNESS_APP_BACKEND_CORS_ORIGINS       → TF_VAR_fitness_app_backend_cors_origins
+#   TIFFANYS_SPACE_BACKEND_CORS_ORIGINS    → TF_VAR_tiffanys_space_backend_cors_origins
 #
-# ── After setting up Terraform Cloud ─────────────────────────────────────────
-#   TF_TOKEN_APP_TERRAFORM_IO  — Terraform Cloud API token (remote state auth)
+# NOTE: the non-secret shared values (vercel_team_id, github_org, JWT issuer/audience,
+#   token TTLs, feature-flag defaults, Sentry DSNs) come from the committed
+#   environments/<env>/common.auto.tfvars and do NOT need to be injected here.
+#
+# ⚠ STATE: this workflow assumes a remote backend (Terraform Cloud / S3) is
+#   configured per env root — `terraform init` in CI starts with EMPTY local state,
+#   so without a remote backend a plan would propose creating everything. Configure
+#   the backend block in environments/<env>/providers.tf before running CD live.
 
 name: CD — Terraform Apply (reusable)
 
@@ -56,33 +67,62 @@ on:
   workflow_call:
     inputs:
       environment:
-        description: 'Target GitHub Environment (dev or prod)'
-        required: true
-        type: string
-      workspace:
-        description: 'Terraform workspace to select (dev or prod)'
+        description: 'Target environment (dev or prod) — selects environments/<env>/ AND the GitHub Environment gate'
         required: true
         type: string
       version:
-        description: 'Version to deploy (e.g. 1.2.0). Specify an older version to roll back. NOTE: rolling back Terraform reverts config but not state — review plan carefully.'
+        description: 'Version to deploy (e.g. 1.2.0). Specify an older version to roll back. NOTE: rolling back Terraform reverts config but not state — review the plan carefully.'
         required: true
         type: string
 
 jobs:
   apply:
-    name: Terraform Apply (${{ inputs.workspace }})
+    name: Terraform Apply (${{ inputs.environment }})
     runs-on: ubuntu-latest
 
-    # Activates the environment gate (owner approval) and loads its
-    # scoped secrets and variables.
+    # Activates the environment gate (owner approval) and loads its scoped
+    # secrets and variables.
     environment: ${{ inputs.environment }}
 
     permissions:
       contents: read
 
-    defaults:
-      run:
-        working-directory: .
+    # Run every terraform command against the selected environment root.
+    env:
+      TF_DIR: environments/${{ inputs.environment }}
+      # ── Credentials / secrets ─────────────────────────────────────────────
+      TF_VAR_vercel_api_token: ${{ secrets.VERCEL_API_TOKEN }}
+      TF_VAR_backend_auth_admin_email: ${{ secrets.BACKEND_AUTH_ADMIN_EMAIL }}
+      TF_VAR_backend_auth_admin_email_password: ${{ secrets.BACKEND_AUTH_ADMIN_EMAIL_PASSWORD }}
+      TF_VAR_backend_auth_private_key: ${{ secrets.BACKEND_AUTH_PRIVATE_KEY }}
+      TF_VAR_backend_auth_public_key: ${{ secrets.BACKEND_AUTH_PUBLIC_KEY }}
+      TF_VAR_frontend_auth_public_key: ${{ secrets.FRONTEND_AUTH_PUBLIC_KEY }}
+      TF_VAR_kdf_auth_db_database_url: ${{ secrets.KDF_AUTH_DB_DATABASE_URL }}
+      TF_VAR_fitness_app_backend_db_database_url: ${{ secrets.FITNESS_APP_BACKEND_DB_DATABASE_URL }}
+      TF_VAR_tiffanys_space_backend_db_database_url: ${{ secrets.TIFFANYS_SPACE_BACKEND_DB_DATABASE_URL }}
+      TF_VAR_fitness_app_service_key: ${{ secrets.FITNESS_APP_SERVICE_KEY }}
+      TF_VAR_tiffanys_space_service_key: ${{ secrets.TIFFANYS_SPACE_SERVICE_KEY }}
+      # ── Optional secrets ──────────────────────────────────────────────────
+      TF_VAR_tiffanys_space_cron_secret: ${{ secrets.TIFFANYS_SPACE_CRON_SECRET }}
+      TF_VAR_backend_stripe_secret_key: ${{ secrets.BACKEND_STRIPE_SECRET_KEY }}
+      TF_VAR_backend_stripe_webhook_secret: ${{ secrets.BACKEND_STRIPE_WEBHOOK_SECRET }}
+      TF_VAR_fitness_app_sentry_auth_token: ${{ secrets.FITNESS_APP_SENTRY_AUTH_TOKEN }}
+      TF_VAR_tiffanys_space_sentry_auth_token: ${{ secrets.TIFFANYS_SPACE_SENTRY_AUTH_TOKEN }}
+      # ── Per-env non-secret variables ──────────────────────────────────────
+      TF_VAR_backend_url: ${{ vars.BACKEND_URL }}
+      TF_VAR_fitness_app_backend_url: ${{ vars.FITNESS_APP_BACKEND_URL }}
+      TF_VAR_tiffanys_space_backend_url: ${{ vars.TIFFANYS_SPACE_BACKEND_URL }}
+      TF_VAR_kdf_auth_service_project_name: ${{ vars.KDF_AUTH_SERVICE_PROJECT_NAME }}
+      TF_VAR_fitness_app_project_name: ${{ vars.FITNESS_APP_PROJECT_NAME }}
+      TF_VAR_fitness_app_backend_project_name: ${{ vars.FITNESS_APP_BACKEND_PROJECT_NAME }}
+      TF_VAR_tiffanys_space_project_name: ${{ vars.TIFFANYS_SPACE_PROJECT_NAME }}
+      TF_VAR_tiffanys_space_backend_project_name: ${{ vars.TIFFANYS_SPACE_BACKEND_PROJECT_NAME }}
+      # ── Optional non-secret variables ─────────────────────────────────────
+      TF_VAR_kdf_auth_cors_origins: ${{ vars.KDF_AUTH_CORS_ORIGINS }}
+      TF_VAR_fitness_app_backend_cors_origins: ${{ vars.FITNESS_APP_BACKEND_CORS_ORIGINS }}
+      TF_VAR_tiffanys_space_backend_cors_origins: ${{ vars.TIFFANYS_SPACE_BACKEND_CORS_ORIGINS }}
+      # ── Remote state auth (once a backend is configured) ──────────────────
+      TF_TOKEN_app_terraform_io: ${{ secrets.TF_TOKEN_APP_TERRAFORM_IO }}
 
     steps:
       - name: Checkout
@@ -96,89 +136,22 @@ jobs:
           terraform_version: "~1.9"
 
       - name: Terraform Init
-        run: terraform init
-        env:
-          TF_TOKEN_app_terraform_io: ${{ secrets.TF_TOKEN_APP_TERRAFORM_IO }}
-
-      - name: Select workspace
-        run: terraform workspace select ${{ inputs.workspace }}
+        run: terraform -chdir="$TF_DIR" init
 
       - name: Terraform Validate
-        run: terraform validate
+        run: terraform -chdir="$TF_DIR" validate
 
       - name: Terraform Plan
         id: plan
-        run: terraform plan -var-file=shared.tfvars -out=tfplan -detailed-exitcode
-        env:
-          # ── Credentials (same value for both workspaces) ───────────────────
-          TF_VAR_vercel_api_token:                      ${{ secrets.VERCEL_API_TOKEN }}
-          TF_VAR_backend_auth_admin_email:              ${{ secrets.BACKEND_AUTH_ADMIN_EMAIL }}
-          TF_VAR_backend_auth_admin_email_password:     ${{ secrets.BACKEND_AUTH_ADMIN_EMAIL_PASSWORD }}
-          # ── Workspace-specific secrets ────────────────────────────────────
-          TF_VAR_backend_auth_private_key:              ${{ secrets.BACKEND_AUTH_PRIVATE_KEY }}
-          TF_VAR_backend_auth_public_key:               ${{ secrets.BACKEND_AUTH_PUBLIC_KEY }}
-          TF_VAR_frontend_auth_public_key:              ${{ secrets.FRONTEND_AUTH_PUBLIC_KEY }}
-          TF_VAR_kdf_auth_db_database_url:              ${{ secrets.KDF_AUTH_DB_DATABASE_URL }}
-          TF_VAR_fitness_app_backend_db_database_url:   ${{ secrets.FITNESS_APP_BACKEND_DB_DATABASE_URL }}
-          TF_VAR_tiffanys_space_backend_db_database_url: ${{ secrets.TIFFANYS_SPACE_BACKEND_DB_DATABASE_URL }}
-          TF_VAR_fitness_app_service_key:                ${{ secrets.FITNESS_APP_SERVICE_KEY }}
-          TF_VAR_tiffanys_space_service_key:              ${{ secrets.TIFFANYS_SPACE_SERVICE_KEY }}
-          TF_VAR_tiffanys_space_cron_secret:            ${{ secrets.TIFFANYS_SPACE_CRON_SECRET }}
-          # ── Optional secrets ──────────────────────────────────────────────
-          TF_VAR_backend_stripe_secret_key:             ${{ secrets.BACKEND_STRIPE_SECRET_KEY }}
-          TF_VAR_backend_stripe_webhook_secret:         ${{ secrets.BACKEND_STRIPE_WEBHOOK_SECRET }}
-          TF_VAR_fitness_app_sentry_auth_token:         ${{ secrets.FITNESS_APP_SENTRY_AUTH_TOKEN }}
-          TF_VAR_tiffanys_space_sentry_auth_token:      ${{ secrets.TIFFANYS_SPACE_SENTRY_AUTH_TOKEN }}
-          # ── Workspace-specific variables (non-secret) ────────────────────
-          TF_VAR_backend_url:                           ${{ vars.BACKEND_URL }}
-          TF_VAR_kdf_auth_service_project_name:         ${{ vars.KDF_AUTH_SERVICE_PROJECT_NAME }}
-          TF_VAR_fitness_app_project_name:              ${{ vars.FITNESS_APP_PROJECT_NAME }}
-          TF_VAR_fitness_app_backend_project_name:      ${{ vars.FITNESS_APP_BACKEND_PROJECT_NAME }}
-          TF_VAR_tiffanys_space_project_name:           ${{ vars.TIFFANYS_SPACE_PROJECT_NAME }}
-          TF_VAR_tiffanys_space_backend_project_name:   ${{ vars.TIFFANYS_SPACE_BACKEND_PROJECT_NAME }}
-          # ── Optional variables ────────────────────────────────────────────
-          TF_VAR_kdf_auth_cors_origins:                 ${{ vars.KDF_AUTH_CORS_ORIGINS }}
-          TF_VAR_fitness_app_backend_cors_origins:      ${{ vars.FITNESS_APP_BACKEND_CORS_ORIGINS }}
-          TF_VAR_tiffanys_space_backend_cors_origins:   ${{ vars.TIFFANYS_SPACE_BACKEND_CORS_ORIGINS }}
-          TF_TOKEN_app_terraform_io:                    ${{ secrets.TF_TOKEN_APP_TERRAFORM_IO }}
+        # Each env root auto-loads its committed common.auto.tfvars; secrets and
+        # per-env values come from the TF_VAR_* env block above. No -var-file needed.
+        run: terraform -chdir="$TF_DIR" plan -out=tfplan -detailed-exitcode
 
       # Only apply if plan detected changes (exit code 2 = changes present).
       # Exit code 0 = no changes, exit code 1 = error (already failed above).
       - name: Terraform Apply
         if: steps.plan.outputs.exitcode == 2
-        run: terraform apply tfplan
-        env:
-          # ── Credentials ───────────────────────────────────────────────────
-          TF_VAR_vercel_api_token:                      ${{ secrets.VERCEL_API_TOKEN }}
-          TF_VAR_backend_auth_admin_email:              ${{ secrets.BACKEND_AUTH_ADMIN_EMAIL }}
-          TF_VAR_backend_auth_admin_email_password:     ${{ secrets.BACKEND_AUTH_ADMIN_EMAIL_PASSWORD }}
-          # ── Workspace-specific secrets ────────────────────────────────────
-          TF_VAR_backend_auth_private_key:              ${{ secrets.BACKEND_AUTH_PRIVATE_KEY }}
-          TF_VAR_backend_auth_public_key:               ${{ secrets.BACKEND_AUTH_PUBLIC_KEY }}
-          TF_VAR_frontend_auth_public_key:              ${{ secrets.FRONTEND_AUTH_PUBLIC_KEY }}
-          TF_VAR_kdf_auth_db_database_url:              ${{ secrets.KDF_AUTH_DB_DATABASE_URL }}
-          TF_VAR_fitness_app_backend_db_database_url:   ${{ secrets.FITNESS_APP_BACKEND_DB_DATABASE_URL }}
-          TF_VAR_tiffanys_space_backend_db_database_url: ${{ secrets.TIFFANYS_SPACE_BACKEND_DB_DATABASE_URL }}
-          TF_VAR_fitness_app_service_key:                ${{ secrets.FITNESS_APP_SERVICE_KEY }}
-          TF_VAR_tiffanys_space_service_key:              ${{ secrets.TIFFANYS_SPACE_SERVICE_KEY }}
-          TF_VAR_tiffanys_space_cron_secret:            ${{ secrets.TIFFANYS_SPACE_CRON_SECRET }}
-          # ── Optional secrets ──────────────────────────────────────────────
-          TF_VAR_backend_stripe_secret_key:             ${{ secrets.BACKEND_STRIPE_SECRET_KEY }}
-          TF_VAR_backend_stripe_webhook_secret:         ${{ secrets.BACKEND_STRIPE_WEBHOOK_SECRET }}
-          TF_VAR_fitness_app_sentry_auth_token:         ${{ secrets.FITNESS_APP_SENTRY_AUTH_TOKEN }}
-          TF_VAR_tiffanys_space_sentry_auth_token:      ${{ secrets.TIFFANYS_SPACE_SENTRY_AUTH_TOKEN }}
-          # ── Workspace-specific variables (non-secret) ────────────────────
-          TF_VAR_backend_url:                           ${{ vars.BACKEND_URL }}
-          TF_VAR_kdf_auth_service_project_name:         ${{ vars.KDF_AUTH_SERVICE_PROJECT_NAME }}
-          TF_VAR_fitness_app_project_name:              ${{ vars.FITNESS_APP_PROJECT_NAME }}
-          TF_VAR_fitness_app_backend_project_name:      ${{ vars.FITNESS_APP_BACKEND_PROJECT_NAME }}
-          TF_VAR_tiffanys_space_project_name:           ${{ vars.TIFFANYS_SPACE_PROJECT_NAME }}
-          TF_VAR_tiffanys_space_backend_project_name:   ${{ vars.TIFFANYS_SPACE_BACKEND_PROJECT_NAME }}
-          # ── Optional variables ────────────────────────────────────────────
-          TF_VAR_kdf_auth_cors_origins:                 ${{ vars.KDF_AUTH_CORS_ORIGINS }}
-          TF_VAR_fitness_app_backend_cors_origins:      ${{ vars.FITNESS_APP_BACKEND_CORS_ORIGINS }}
-          TF_VAR_tiffanys_space_backend_cors_origins:   ${{ vars.TIFFANYS_SPACE_BACKEND_CORS_ORIGINS }}
-          TF_TOKEN_app_terraform_io:                    ${{ secrets.TF_TOKEN_APP_TERRAFORM_IO }}
+        run: terraform -chdir="$TF_DIR" apply tfplan
 
       - name: No changes
         if: steps.plan.outputs.exitcode == 0

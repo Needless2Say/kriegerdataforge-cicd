@@ -157,60 +157,86 @@ jobs:
 
 **Called by:** `kriegerdataforge-terraform`
 
+**Layout:** The consumer is **directory-per-environment** — reusable modules under
+`modules/`, one deployable root per environment under `environments/<env>/`, and **no
+Terraform workspaces**. The workflow runs every command with
+`-chdir=environments/<environment>`.
+
 **What it does:**
-1. Activates the `infrastructure` environment gate (owner-only approval)
-2. Checks out the repo
+1. Activates the `${{ inputs.environment }}` (dev or prod) environment gate (owner-only approval)
+2. Checks out the consumer repo at the requested version tag
 3. Sets up Terraform `~1.9`
-4. `terraform init` (with optional Terraform Cloud auth via `TF_TOKEN_app_terraform_io`)
-5. `terraform validate`
-6. `terraform plan -out=tfplan -detailed-exitcode`
+4. `terraform -chdir=environments/<env> init` (remote backend auth via `TF_TOKEN_app_terraform_io`)
+5. `terraform -chdir=environments/<env> validate`
+6. `terraform -chdir=environments/<env> plan -out=tfplan -detailed-exitcode`
    - Exit code 0 = no changes → skips apply, logs "No infrastructure changes"
    - Exit code 2 = changes detected → runs apply
-7. `terraform apply tfplan` (only if changes detected)
+7. `terraform -chdir=environments/<env> apply tfplan` (only if changes detected)
 
-All sensitive Terraform variables are injected as `TF_VAR_*` environment variables
-sourced from the `infrastructure` GitHub Environment secrets.
+The env root auto-loads its committed, non-secret `common.auto.tfvars`. All per-environment
+secret and non-secret values are injected as `TF_VAR_*` environment variables from the
+matching GitHub Environment (no `-var-file` is used). `vercel_team_id`, JWT issuer/audience,
+TTLs, feature-flag defaults, and Sentry DSNs come from `common.auto.tfvars` and are **not** injected.
+
+> **State:** `terraform init` in CI has no local state, so a remote backend (Terraform
+> Cloud / S3) must be configured in `environments/<env>/providers.tf` before running this
+> against live projects.
 
 **Caller pattern:**
 ```yaml
 # .github/workflows/cd.yml in kriegerdataforge-terraform
 on:
   workflow_dispatch:
+    inputs:
+      environment: { type: choice, options: [dev, prod] }
+      version: { type: string }
 
 jobs:
   apply:
     uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/cd-terraform.yml@main
     with:
-      environment: infrastructure
+      environment: ${{ inputs.environment }}
+      version: ${{ inputs.version }}
     secrets: inherit
 ```
 
-**Required environment secrets (in the `infrastructure` environment of `kriegerdataforge-terraform`):**
+**Required environment secrets (per `dev` / `prod` GitHub Environment):**
 
 | Secret | Maps to Terraform variable |
 |---|---|
 | `VERCEL_API_TOKEN` | `TF_VAR_vercel_api_token` |
-| `BACKEND_AUTH_SECRET_KEY` | `TF_VAR_backend_auth_secret_key` |
+| `BACKEND_AUTH_PRIVATE_KEY` | `TF_VAR_backend_auth_private_key` (RSA PEM, PKCS#8) |
+| `BACKEND_AUTH_PUBLIC_KEY` | `TF_VAR_backend_auth_public_key` |
+| `FRONTEND_AUTH_PUBLIC_KEY` | `TF_VAR_frontend_auth_public_key` (== `BACKEND_AUTH_PUBLIC_KEY`) |
 | `BACKEND_AUTH_ADMIN_EMAIL` | `TF_VAR_backend_auth_admin_email` |
 | `BACKEND_AUTH_ADMIN_EMAIL_PASSWORD` | `TF_VAR_backend_auth_admin_email_password` |
-| `BACKEND_DB_DATABASE_URL` | `TF_VAR_backend_db_database_url` |
-| `DEV_BACKEND_DB_DATABASE_URL` | `TF_VAR_dev_backend_db_database_url` |
-| `FRONTEND_AUTH_SECRET_KEY` | `TF_VAR_frontend_auth_secret_key` |
-| `TIFFANYS_SPACE_CRON_SECRET` | `TF_VAR_tiffanys_space_cron_secret` |
+| `KDF_AUTH_DB_DATABASE_URL` | `TF_VAR_kdf_auth_db_database_url` |
+| `FITNESS_APP_BACKEND_DB_DATABASE_URL` | `TF_VAR_fitness_app_backend_db_database_url` |
+| `TIFFANYS_SPACE_BACKEND_DB_DATABASE_URL` | `TF_VAR_tiffanys_space_backend_db_database_url` |
+| `FITNESS_APP_SERVICE_KEY` | `TF_VAR_fitness_app_service_key` |
+| `TIFFANYS_SPACE_SERVICE_KEY` | `TF_VAR_tiffanys_space_service_key` |
+| `TIFFANYS_SPACE_CRON_SECRET` | `TF_VAR_tiffanys_space_cron_secret` *(optional)* |
 | `BACKEND_STRIPE_SECRET_KEY` | `TF_VAR_backend_stripe_secret_key` *(optional)* |
 | `BACKEND_STRIPE_WEBHOOK_SECRET` | `TF_VAR_backend_stripe_webhook_secret` *(optional)* |
 | `FITNESS_APP_SENTRY_AUTH_TOKEN` | `TF_VAR_fitness_app_sentry_auth_token` *(optional)* |
 | `TIFFANYS_SPACE_SENTRY_AUTH_TOKEN` | `TF_VAR_tiffanys_space_sentry_auth_token` *(optional)* |
-| `TF_TOKEN_APP_TERRAFORM_IO` | Terraform Cloud auth *(optional until remote state is configured)* |
+| `TF_TOKEN_APP_TERRAFORM_IO` | Terraform Cloud auth *(once remote state is configured)* |
 
-**Required environment variables (non-secret):**
+**Required environment variables (non-secret, per `dev` / `prod`):**
 
 | Variable | Maps to Terraform variable |
 |---|---|
-| `VERCEL_TEAM_ID` | `TF_VAR_vercel_team_id` |
-| `BACKEND_URL_PRODUCTION` | `TF_VAR_backend_url_production` |
-| `BACKEND_URL_PREVIEW` | `TF_VAR_backend_url_preview` |
-| `DEV_BACKEND_URL` | `TF_VAR_dev_backend_url` |
+| `BACKEND_URL` | `TF_VAR_backend_url` (KDF auth service URL) |
+| `FITNESS_APP_BACKEND_URL` | `TF_VAR_fitness_app_backend_url` (fitness app's own backend) |
+| `TIFFANYS_SPACE_BACKEND_URL` | `TF_VAR_tiffanys_space_backend_url` (tiffany's own backend) |
+| `KDF_AUTH_SERVICE_PROJECT_NAME` | `TF_VAR_kdf_auth_service_project_name` |
+| `FITNESS_APP_PROJECT_NAME` | `TF_VAR_fitness_app_project_name` |
+| `FITNESS_APP_BACKEND_PROJECT_NAME` | `TF_VAR_fitness_app_backend_project_name` |
+| `TIFFANYS_SPACE_PROJECT_NAME` | `TF_VAR_tiffanys_space_project_name` |
+| `TIFFANYS_SPACE_BACKEND_PROJECT_NAME` | `TF_VAR_tiffanys_space_backend_project_name` |
+| `KDF_AUTH_CORS_ORIGINS` | `TF_VAR_kdf_auth_cors_origins` *(optional)* |
+| `FITNESS_APP_BACKEND_CORS_ORIGINS` | `TF_VAR_fitness_app_backend_cors_origins` *(optional)* |
+| `TIFFANYS_SPACE_BACKEND_CORS_ORIGINS` | `TF_VAR_tiffanys_space_backend_cors_origins` *(optional)* |
 
 ---
 
@@ -282,7 +308,7 @@ The fine-grained PAT used by `issue-create-repo.yml` requires:
 | `tiffanys-space` | `cd-nextjs-vercel.yml` | `development`, `production` | — |
 | `arthurs-portfolio` | `cd-nextjs-vercel.yml` | `development`, `production` | — |
 | `kriegerdataforge` | `cd-python-vercel.yml` | `development`, `production` | `run_migrations` |
-| `kriegerdataforge-terraform` | `cd-terraform.yml` | `infrastructure` | — |
+| `kriegerdataforge-terraform` | `cd-terraform.yml` | `dev`, `prod` | `environment`, `version` |
 
 ---
 
