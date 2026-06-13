@@ -25,7 +25,7 @@ READ FOR CONTEXT (patterns to carry over):
   • API_AND_DATA_FLOW_GUIDE.md    — Server actions, API proxy, OpenAPI client, error handling
   • SETUP_AND_ONBOARDING.md       — Docker setup, env vars, local dev workflow
   • TESTING_GUIDE.md              — Jest config, test patterns, coverage expectations
-  • DEBUGGING_AND_ERROR_PATHS.md  — Error boundaries, logging, Sentry integration
+  • DEBUGGING_AND_ERROR_PATHS.md  — Error boundaries, logging, the error-tracking service integration
 
 ────────────────────────────────────────
 📂 Reference Source Code (fitness-app-frontend/src/)
@@ -49,7 +49,7 @@ CORE INFRASTRUCTURE (carry over and generalize):
   • src/core/providers/           — ErrorContextProvider
 
 CONFIGURATION (carry over and generalize):
-  • next.config.ts                — Security headers, API proxy, Sentry, Docker support
+  • next.config.ts                — Security headers, API proxy, the error-tracking service, Docker support
   • tsconfig.json                 — Strict TypeScript with path aliases
   • Dockerfile                    — Multi-stage Docker build (dev + production)
   • .env.example                  — Environment variable template
@@ -166,7 +166,7 @@ These principles govern ALL applications in the ecosystem:
 | **Validation**   | Zod                           | 4+       | Runtime + compile-time schemas              |
 | **HTTP Client**  | Axios                         | 1.10+    | Via OpenAPI-generated client                |
 | **Auth**         | jose                          | 6+       | JWT verification at Edge Runtime            |
-| **Error Tracking** | Sentry                      | 10+      | Client, server, and edge monitoring         |
+| **Error Tracking** | the error-tracking service                      | 10+      | Client, server, and edge monitoring         |
 | **Analytics**    | Vercel Analytics              | 1.6+     | Page-level analytics                        |
 | **Build**        | Turbopack                     | (bundled)| Dev server default                          |
 | **Container**    | Docker                        | Alpine   | Multi-stage dev + production builds         |
@@ -224,7 +224,7 @@ templates/front-end-application-template/
 ├── jest.setup.ts                         # [TEMPLATE] Jest setup file
 ├── babel.config.jest.js                  # [TEMPLATE] Babel config for Jest
 ├── Makefile                              # [TEMPLATE] Setup & dev commands (install, dev, build, test, lint, etc.)
-├── next.config.ts                        # [TEMPLATE] Security headers, proxy, Sentry, Docker
+├── next.config.ts                        # [TEMPLATE] Security headers, proxy, the error-tracking service, Docker
 ├── next-env.d.ts                         # [TEMPLATE] Next.js type declarations
 ├── package.json                          # [TEMPLATE] Scripts and metadata ONLY (no dependencies listed)
 ├── postcss.config.mjs                    # [TEMPLATE] PostCSS for Tailwind
@@ -248,8 +248,8 @@ templates/front-end-application-template/
 │   └── AI_AGENT_CONTEXT.md              # [TEMPLATE] AI agent quick-start guide
 │
 └── src/
-    ├── instrumentation.ts                # [TEMPLATE] Sentry server instrumentation
-    ├── instrumentation-client.ts         # [TEMPLATE] Sentry client instrumentation
+    ├── instrumentation.ts                # [TEMPLATE] the error-tracking service server instrumentation
+    ├── instrumentation-client.ts         # [TEMPLATE] the error-tracking service client instrumentation
     ├── proxy.ts                          # [AUTH] Edge middleware — JWT verification
     │
     ├── types/
@@ -663,7 +663,7 @@ pattern with colored output, help descriptions (## comments), and .PHONY declara
   │                         │   2. Run `npm init -y` or ensure package.json exists               │
   │                         │   3. Install production dependencies via `npm install`:              │
   │                         │      next, react, react-dom, @hookform/resolvers,                   │
-  │                         │      @sentry/nextjs, axios, cookie, jose,                           │
+  │                         │      your observability client, axios, cookie, jose,                           │
   │                         │      react-hook-form, server-only, sharp, zod,                      │
   │                         │      @next/env, @vercel/analytics, @types/cookie                    │
   │                         │   4. Install dev dependencies via `npm install -D`:                  │
@@ -760,7 +760,7 @@ When adapting fitness app code to the template:
 
   8. **Backend URL:** Use configurable env vars. Default to http://backend:8000 for Docker.
 
-  9. **Sentry DSN:** Keep Sentry integration but with empty/placeholder DSN.
+  9. **the error-tracking service DSN:** Keep the error-tracking service integration but with empty/placeholder DSN.
 
   10. **Vercel Analytics:** Keep the integration but make it optional (feature-flagged).
 
@@ -810,7 +810,7 @@ When creating this template, follow these guidelines:
       Detailed docs are in the docs/ directory for deeper understanding.
 
   9.  **TODO Markers** — Use // TODO: [CUSTOMIZE] markers for things developers must change
-      (e.g., metadata, app name, Sentry DSN, backend URL).
+      (e.g., metadata, app name, the error-tracking service DSN, backend URL).
 
   10. **Prove It Compiles** — After generating all files, run `make setup` to install deps,
       then verify that `make lint` and `make build` pass. Fix any type errors before
@@ -934,7 +934,7 @@ Approach this task in the following phases:
   • Use the exact same coding standards (they're non-negotiable)
   • Use the exact same dependency versions as the fitness app (proven stable)
   • Use the three-layer architecture (it's the ecosystem standard)
-  • Include Sentry integration (it's standard for all apps)
+  • Include the error-tracking service integration (it's standard for all apps)
   • Include Vercel Analytics (it's standard for deployment target)
 
 ────────────────────────────────────────

@@ -283,7 +283,7 @@ put in that env's local files under `environments/<env>/` (the source column say
 
 > The committed, non-secret `environments/<env>/common.auto.tfvars` already supplies
 > `vercel_team_id`, `github_org`, JWT issuer/audience, token TTLs, feature-flag defaults,
-> and Sentry DSNs — so those are **not** set as GitHub secrets/variables here.
+> and the error-tracking service DSNs — so those are **not** set as GitHub secrets/variables here.
 
 **Secrets (Settings → Environments → [dev|prod] → Add secret):**
 | Secret Name | Source file → variable |
@@ -302,8 +302,6 @@ put in that env's local files under `environments/<env>/` (the source column say
 | `TIFFANYS_SPACE_CRON_SECRET` | `tiffanys-space.secrets.auto.tfvars` → `tiffanys_space_cron_secret` *(optional)* |
 | `BACKEND_STRIPE_SECRET_KEY` | `kdf-platform.secrets.auto.tfvars` *(optional; `""` if disabled)* |
 | `BACKEND_STRIPE_WEBHOOK_SECRET` | `kdf-platform.secrets.auto.tfvars` *(optional)* |
-| `FITNESS_APP_SENTRY_AUTH_TOKEN` | `fitness-app.secrets.auto.tfvars` *(optional)* |
-| `TIFFANYS_SPACE_SENTRY_AUTH_TOKEN` | `tiffanys-space.secrets.auto.tfvars` *(optional)* |
 | `TF_TOKEN_APP_TERRAFORM_IO` | Terraform Cloud API token — **DEFERRED** until remote state is configured |
 
 **Variables (Settings → Environments → [dev|prod] → Add variable):**
@@ -322,7 +320,7 @@ put in that env's local files under `environments/<env>/` (the source column say
 | `TIFFANYS_SPACE_BACKEND_CORS_ORIGINS` | `tiffanys-space.secrets.auto.tfvars` *(optional)* |
 
 > Optional secrets you are not using yet must still exist as empty-string (`""`) secrets so
-> the workflow can reference them; the apps handle empties gracefully (Stripe/Sentry off).
+> the workflow can reference them; the apps handle empties gracefully (Stripe/the error-tracking service off).
 >
 > The values above come from each environment's local `environments/<env>/*.auto.tfvars`. For the
 > authoritative file/variable layout, see the terraform repo's `README.md`,
