@@ -176,7 +176,7 @@ Terraform workspaces**. The workflow runs every command with
 The env root auto-loads its committed, non-secret `common.auto.tfvars`. All per-environment
 secret and non-secret values are injected as `TF_VAR_*` environment variables from the
 matching GitHub Environment (no `-var-file` is used). `vercel_team_id`, JWT issuer/audience,
-TTLs, feature-flag defaults, and Sentry DSNs come from `common.auto.tfvars` and are **not** injected.
+TTLs, feature-flag defaults, and the error-tracking service DSNs come from `common.auto.tfvars` and are **not** injected.
 
 > **State:** `terraform init` in CI has no local state, so a remote backend (Terraform
 > Cloud / S3) must be configured in `environments/<env>/providers.tf` before running this
@@ -218,8 +218,6 @@ jobs:
 | `TIFFANYS_SPACE_CRON_SECRET` | `TF_VAR_tiffanys_space_cron_secret` *(optional)* |
 | `BACKEND_STRIPE_SECRET_KEY` | `TF_VAR_backend_stripe_secret_key` *(optional)* |
 | `BACKEND_STRIPE_WEBHOOK_SECRET` | `TF_VAR_backend_stripe_webhook_secret` *(optional)* |
-| `FITNESS_APP_SENTRY_AUTH_TOKEN` | `TF_VAR_fitness_app_sentry_auth_token` *(optional)* |
-| `TIFFANYS_SPACE_SENTRY_AUTH_TOKEN` | `TF_VAR_tiffanys_space_sentry_auth_token` *(optional)* |
 | `TF_TOKEN_APP_TERRAFORM_IO` | Terraform Cloud auth *(once remote state is configured)* |
 
 **Required environment variables (non-secret, per `dev` / `prod`):**

@@ -33,8 +33,6 @@
 #   TIFFANYS_SPACE_CRON_SECRET             → TF_VAR_tiffanys_space_cron_secret
 #   BACKEND_STRIPE_SECRET_KEY              → TF_VAR_backend_stripe_secret_key
 #   BACKEND_STRIPE_WEBHOOK_SECRET          → TF_VAR_backend_stripe_webhook_secret
-#   FITNESS_APP_SENTRY_AUTH_TOKEN          → TF_VAR_fitness_app_sentry_auth_token
-#   TIFFANYS_SPACE_SENTRY_AUTH_TOKEN       → TF_VAR_tiffanys_space_sentry_auth_token
 #   TF_TOKEN_APP_TERRAFORM_IO              → Terraform Cloud auth (until remote state is configured)
 #
 # ── Required environment variables (non-secret, per GitHub Environment) ───────
@@ -53,7 +51,7 @@
 #   TIFFANYS_SPACE_BACKEND_CORS_ORIGINS    → TF_VAR_tiffanys_space_backend_cors_origins
 #
 # NOTE: the non-secret shared values (vercel_team_id, github_org, JWT issuer/audience,
-#   token TTLs, feature-flag defaults, Sentry DSNs) come from the committed
+#   token TTLs, feature-flag defaults) come from the committed
 #   environments/<env>/common.auto.tfvars and do NOT need to be injected here.
 #
 # ⚠ STATE: this workflow assumes a remote backend (Terraform Cloud / S3) is
@@ -106,8 +104,6 @@ jobs:
       TF_VAR_tiffanys_space_cron_secret: ${{ secrets.TIFFANYS_SPACE_CRON_SECRET }}
       TF_VAR_backend_stripe_secret_key: ${{ secrets.BACKEND_STRIPE_SECRET_KEY }}
       TF_VAR_backend_stripe_webhook_secret: ${{ secrets.BACKEND_STRIPE_WEBHOOK_SECRET }}
-      TF_VAR_fitness_app_sentry_auth_token: ${{ secrets.FITNESS_APP_SENTRY_AUTH_TOKEN }}
-      TF_VAR_tiffanys_space_sentry_auth_token: ${{ secrets.TIFFANYS_SPACE_SENTRY_AUTH_TOKEN }}
       # ── Per-env non-secret variables ──────────────────────────────────────
       TF_VAR_backend_url: ${{ vars.BACKEND_URL }}
       TF_VAR_fitness_app_backend_url: ${{ vars.FITNESS_APP_BACKEND_URL }}
