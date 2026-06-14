@@ -278,6 +278,76 @@ jobs:
 
 ---
 
+## Workflow 5: `ci-python-security.yml`
+
+**Purpose:** Reusable Python security scanning — runs two jobs:
+- **bandit** (SAST) over the configured source paths.
+- **pip-audit** (SCA) against `requirements.txt` for known CVEs.
+
+**Trigger:** `workflow_call` only. Consumers call it from their own `ci.yml`
+(PR-time) and/or `security.yml` (push + weekly schedule).
+
+**Inputs:**
+
+| Input | Type | Default | Description |
+|---|---|---|---|
+| `python_version` | string | `3.13` | Python version for both jobs |
+| `bandit_paths` | string | `api/ scripts/ vercel_api/` | Space-separated paths passed to `bandit -r` |
+| `needs_sdk_auth` | boolean | `false` | Configure git credentials for the private SDK so pip-audit can resolve it (requires `GH_PACKAGES_PAT`) |
+
+**Secrets:** pass `secrets: inherit` when `needs_sdk_auth: true` (for `GH_PACKAGES_PAT`).
+
+**Consumers:** `kriegerdataforge` (`bandit_paths: api/ scripts/ vercel_api/ generate_openapi.py`, `needs_sdk_auth: true`), `kriegerdataforge-sdk` (`bandit_paths: src/`).
+
+---
+
+## Workflow 6: `ci-codeql.yml`
+
+**Purpose:** Reusable CodeQL static analysis (SAST). Initializes CodeQL, autobuilds,
+analyzes, and uploads results to the consumer repo's **Security ▸ Code scanning** tab.
+
+> ⚠️ **Entitlement:** CodeQL code scanning runs only on **public** repos (free) or
+> **private** repos with **GitHub Code Security** (formerly GitHub Advanced
+> Security — an Enterprise add-on). GitHub Pro / Copilot do **not** include it.
+> Because most KDF repos are private, consumers **gate** the calling job behind the
+> `ENABLE_CODEQL` repo/org Actions *variable*, so it stays skipped (green) until the
+> entitlement exists. Set `ENABLE_CODEQL=true` to turn it on — no workflow change.
+
+**Trigger:** `workflow_call` only. Consumers call it from `codeql.yml` on
+push/PR to `main` + a weekly schedule, with the job gated on `vars.ENABLE_CODEQL`.
+
+**Inputs:**
+
+| Input | Type | Default | Description |
+|---|---|---|---|
+| `language` | string | `python` | CodeQL language (e.g. `python`, `javascript-typescript`) |
+| `config_file` | string | `""` | Path to a CodeQL config file in the consumer repo (optional) |
+| `queries` | string | `security-extended,security-and-quality` | Query suites to run |
+
+**Permissions:** the reusable job requests `security-events: write` (+ `actions:read`,
+`contents:read`); the consumer caller must grant the same.
+
+**Consumer caller pattern:**
+
+```yaml
+# .github/workflows/codeql.yml in the consumer repo
+jobs:
+  codeql:
+    if: ${{ vars.ENABLE_CODEQL == 'true' }}
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ci-codeql.yml@main
+    with:
+      language: python
+      config_file: ./.github/codeql/codeql-config.yml
+```
+
+**Consumers:** `kriegerdataforge`, `kriegerdataforge-sdk`.
+
+---
+
 ## Permissions Reference
 
 ### Workflow-level permissions
