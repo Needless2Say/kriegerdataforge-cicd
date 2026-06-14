@@ -20,8 +20,15 @@
 
 .DEFAULT_GOAL := help
 .PHONY: help lint test check-all \
+        bump-patch bump-minor bump-major \
         codeql-db codeql-scan-security codeql-scan-quality codeql-scan-all \
         codeql-scan-security-csv codeql-scan-quality-csv codeql-scan-csv-all
+
+ifeq ($(OS),Windows_NT)
+    PY3 := py
+else
+    PY3 := python3
+endif
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 
@@ -61,6 +68,19 @@ test: ## Run Python script unit tests with coverage
 
 check-all: lint test ## Run all local checks
 	@printf "$(GREEN)All checks passed!$(NC)\n"
+
+# ── Version Bumping ───────────────────────────────────────────────────────────
+# Edits VERSION (and any other version files) then prints next-step instructions.
+# Open a PR after running — CI's bump-version-check.yml validates the increment.
+
+bump-patch: ## Bump patch version (0.0.X) and update VERSION
+	@$(PY3) scripts/common/bump_version.py patch
+
+bump-minor: ## Bump minor version (0.X.0) and update VERSION
+	@$(PY3) scripts/common/bump_version.py minor
+
+bump-major: ## Bump major version (X.0.0) and update VERSION
+	@$(PY3) scripts/common/bump_version.py major
 
 # ── CodeQL Security Scanning ──────────────────────────────────────────────────
 # Language: javascript-typescript — scans any JS/TS scripts that get added.
