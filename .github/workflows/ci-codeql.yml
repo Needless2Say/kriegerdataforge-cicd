@@ -1,0 +1,72 @@
+# Reusable CodeQL code-scanning workflow.
+#
+# Runs GitHub CodeQL static analysis (SAST) over a consumer repo and uploads the
+# results to the repo's Security ▸ Code scanning tab.
+#
+# ⚠️ ENTITLEMENT: CodeQL code scanning is available only when the calling repo is
+#   • a PUBLIC repo (free for everyone), OR
+#   • a PRIVATE repo with "GitHub Code Security" (formerly GitHub Advanced
+#     Security) — an Enterprise add-on. GitHub Pro / Copilot do NOT include it.
+#
+# Because most KDF repos are private without that add-on, consumers gate the
+# calling job behind the `ENABLE_CODEQL` repo/org Actions *variable* so the job
+# stays skipped (green) until the entitlement exists. Flip it on by setting
+# `ENABLE_CODEQL=true` once a repo is public or Code Security is purchased — no
+# workflow change required.
+#
+# Usage (consumer repo .github/workflows/codeql.yml):
+#   jobs:
+#     codeql:
+#       if: ${{ vars.ENABLE_CODEQL == 'true' }}
+#       uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ci-codeql.yml@main
+#       with:
+#         language: python
+#         config_file: ./.github/codeql/codeql-config.yml
+
+name: CodeQL (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      language:
+        description: CodeQL language to analyze (e.g. python, javascript-typescript)
+        type: string
+        default: python
+      config_file:
+        description: Path to a CodeQL config file in the consumer repo (optional)
+        type: string
+        default: ""
+      queries:
+        description: CodeQL query suites to run
+        type: string
+        default: security-extended,security-and-quality
+
+jobs:
+  analyze:
+    name: Analyze (${{ inputs.language }})
+    runs-on: ubuntu-latest
+
+    # CodeQL needs to write analysis results back to the Security tab.
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3
+        with:
+          languages: ${{ inputs.language }}
+          config-file: ${{ inputs.config_file }}
+          queries: ${{ inputs.queries }}
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3
+        with:
+          category: "/language:${{ inputs.language }}"

@@ -1,0 +1,14 @@
+version: 2
+updates:
+  # Keep GitHub Actions current across the SHARED reusable workflows — this is the
+  # highest-leverage place to track action updates, since every consumer repo
+  # inherits the actions pinned here (AUDIT §4). Dependabot auto-PRs SHA-pin bumps,
+  # updating both the commit hash and its `# vX` version comment.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "github-actions"

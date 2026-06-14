@@ -41,7 +41,7 @@ jobs:
     steps:
       - name: Parse issue form body
         id: parse
-        uses: peter-murray/issue-forms-body-parser@v4
+        uses: peter-murray/issue-forms-body-parser@22e5d90e6a607073d08891bc036461971cbcfb45 # v4
         with:
           issue_id: ${{ github.event.issue.number }}
           separator: "###"

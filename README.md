@@ -21,6 +21,8 @@ Keeping CI/CD logic in one place means deploy behavior is consistent across all 
 | `cd-terraform.yml` | Run `terraform plan` and `terraform apply` | kriegerdataforge-terraform |
 | `create-github-release.yml` | Create a GitHub Release and git tag from the `VERSION` file | All repos with a `release.yml` caller |
 | `bump-version-check.yml` | Validate that `VERSION` has been bumped on a PR | All versioned repos |
+| `ci-python-security.yml` | Bandit SAST + pip-audit CVE scan for Python repos | kriegerdataforge, kriegerdataforge-sdk |
+| `ci-codeql.yml` | CodeQL static analysis (gated by `ENABLE_CODEQL`; needs public repo or Code Security) | kriegerdataforge, kriegerdataforge-sdk |
 | `issue-create-repo.yml` | Auto-provision new repositories from an issue template | Internal |
 | `rotate-vercel-tokens.yml` | Scheduled rotation of Vercel tokens | Internal |
 
