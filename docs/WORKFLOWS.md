@@ -31,6 +31,65 @@ in `.env` files, and never visible in logs.
 
 ---
 
+## Deployer Authorization Gate
+
+GitHub cannot restrict **who** may trigger a `workflow_dispatch` — anyone with write access
+to a repo can. The Environment approval gate covers *prod* (owner-only reviewer), but on
+*dev* a collaborator is also an allowed reviewer and could self-approve. To enforce an
+explicit per-repo allow-list of who may deploy, every CD workflow runs a **deployer
+authorization gate** as its first job.
+
+**How it works:**
+1. Each reusable CD workflow (`cd-nextjs-vercel.yml`, `cd-python-vercel.yml`,
+   `cd-terraform.yml`) starts with an `authorize` job that the `deploy`/`apply` job
+   `needs:`. `arthurs-portfolio` (self-contained GitHub Pages deploy) has the same job,
+   gating its `build`.
+2. `authorize` checks out this repo (sparse — `scripts/` only) and runs
+   [`scripts/check_deployer.py`](../scripts/check_deployer.py).
+3. The script looks up `github.triggering_actor` (the user who clicked **Run workflow**)
+   against [`scripts/deployer_registry.json`](../scripts/deployer_registry.json), keyed by
+   `github.repository` and the target environment. Username matching is case-insensitive.
+4. **Not authorized → the job fails → the deploy job never runs.** Because `authorize`
+   has **no `environment:`**, it runs *before* the Environment approval is even requested —
+   an unauthorized dispatch fails fast, with no approval notification and no secrets loaded.
+
+**Decision (fail closed):** a repo not in the registry, an environment not listed for that
+repo, or an actor not in the list → **denied**. When a new repo is provisioned, add it to
+`deployer_registry.json` before its first deploy.
+
+**Registry shape** (`scripts/deployer_registry.json`):
+```json
+{
+  "deployers": {
+    "Needless2Say/fitness-app-frontend": {
+      "dev":  ["Needless2Say", "Ascensionn"],
+      "prod": ["Needless2Say"]
+    },
+    "Needless2Say/arthurs-portfolio": {
+      "github-pages": ["Needless2Say"]
+    }
+  }
+}
+```
+Environment keys must match the value the caller passes to the reusable workflow's
+`environment` input (`dev`/`prod` for Vercel + Terraform; `github-pages` for
+`arthurs-portfolio`).
+
+**Repo access for the gate:** the `authorize` job checks out `kriegerdataforge-cicd` with
+`token: ${{ secrets.CICD_REGISTRY_PAT || github.token }}`. If this repo is **public**, the
+default `github.token` clones it — nothing to configure. If it is **private**, add a
+read-only fine-grained PAT as a repo/org secret named `CICD_REGISTRY_PAT` (it reaches the
+reusable workflow via the caller's `secrets: inherit`); without it the checkout — and thus
+every deploy — will fail closed.
+
+**To change who can deploy:** edit `scripts/deployer_registry.json` and commit. No workflow
+edits are needed — all consumers read the registry live from `main` at deploy time.
+
+`check_deployer.py` is standard-library only and unit-tested in
+`scripts/tests/test_check_deployer.py` (`pytest tests/test_check_deployer.py`).
+
+---
+
 ## Local Development
 
 Local dev uses Docker — **no Vercel credentials needed**:
@@ -370,13 +429,18 @@ The fine-grained PAT used by `issue-create-repo.yml` requires:
 
 ## Consumer Repo Summary
 
+Every repo below runs the [Deployer Authorization Gate](#deployer-authorization-gate) and
+must have a matching entry in `scripts/deployer_registry.json`.
+
 | Consumer repo | Workflow called | Environments | Extra inputs |
 |---|---|---|---|
-| `fitness-app-frontend` | `cd-nextjs-vercel.yml` | `development`, `production` | — |
-| `tiffanys-space` | `cd-nextjs-vercel.yml` | `development`, `production` | — |
-| `arthurs-portfolio` | `cd-nextjs-vercel.yml` | `development`, `production` | — |
-| `kriegerdataforge` | `cd-python-vercel.yml` | `development`, `production` | `run_migrations` |
-| `kriegerdataforge-terraform` | `cd-terraform.yml` | `dev`, `prod` | `environment`, `version` |
+| `fitness-app-frontend` | `cd-nextjs-vercel.yml` | `dev`, `prod` | — |
+| `tiffanys-space` | `cd-nextjs-vercel.yml` | `dev`, `prod` | — |
+| `fitness-app-backend` | `cd-python-vercel.yml` | `dev`, `prod` | `run_migrations` |
+| `tiffanys-space-backend` | `cd-python-vercel.yml` | `dev`, `prod` | `run_migrations` |
+| `kriegerdataforge` | `cd-python-vercel.yml` | `dev`, `prod` | `run_migrations` |
+| `kriegerdataforge-terraform` | `cd-terraform.yml` | `dev`, `prod` | `version` |
+| `arthurs-portfolio` | self-contained (`nextjs.yml` → GitHub Pages) | `github-pages` | `version` |
 
 ---
 
