@@ -37,8 +37,39 @@ on:
         type: string
 
 jobs:
+  # ── Deployer authorization gate ───────────────────────────────────────────
+  # Runs BEFORE the deploy job, and BEFORE the GitHub Environment approval is
+  # requested. Verifies the user who dispatched this run is an approved deployer
+  # for this repo + environment, per the central allow-list in
+  # kriegerdataforge-cicd (scripts/deployer_registry.json). Fails closed.
+  authorize:
+    name: Authorize deployer
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out deployer registry (kriegerdataforge-cicd)
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          repository: Needless2Say/kriegerdataforge-cicd
+          ref: main
+          sparse-checkout: scripts
+          path: _kdf_cicd
+          # Default token works when this cicd repo is public. If it is private,
+          # add a repo/org secret CICD_REGISTRY_PAT (read-only) — it is picked up
+          # via the caller's `secrets: inherit`; otherwise we fall back to github.token.
+          token: ${{ secrets.CICD_REGISTRY_PAT || github.token }}
+
+      - name: Verify deployer is approved
+        run: python3 _kdf_cicd/scripts/check_deployer.py
+        env:
+          DEPLOY_REPO: ${{ github.repository }}
+          DEPLOY_ACTOR: ${{ github.triggering_actor }}
+          DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+
   deploy:
     name: Deploy (${{ inputs.environment }})
+    needs: authorize
     runs-on: ubuntu-latest
 
     # Activates the GitHub Environment gate for the caller repo:
