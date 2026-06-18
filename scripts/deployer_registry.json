@@ -5,6 +5,10 @@
 			"dev": ["Needless2Say"],
 			"prod": ["Needless2Say"]
 		},
+		"Needless2Say/kriegerdataforge-auth-ui": {
+			"dev": ["Needless2Say"],
+			"prod": ["Needless2Say"]
+		},
 		"Needless2Say/fitness-app-backend": {
 			"dev": ["Needless2Say", "Ascensionn"],
 			"prod": ["Needless2Say"]
