@@ -127,6 +127,17 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           GH_PACKAGES_PAT: ${{ secrets.GH_PACKAGES_PAT }}
 
+      # psycopg2 (the source build pinned in requirements, not psycopg2-binary)
+      # links libpq dynamically and needs libpq.so.5 at import time. The slim
+      # runner image does not ship it (Vercel's runtime does, so the deployed app
+      # is unaffected), so install the runtime library before Alembic imports the
+      # driver. Guarded to the migration path so non-migrating deploys skip it.
+      - name: Install libpq (psycopg2 runtime dependency)
+        if: inputs.run_migrations == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libpq5
+
       - name: Run Alembic migrations
         if: inputs.run_migrations == 'true'
         run: alembic upgrade head
