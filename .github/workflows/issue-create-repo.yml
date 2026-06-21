@@ -33,7 +33,7 @@ permissions:
 jobs:
   create-repo:
     name: Create repository from template
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
 
     # only run when the new repo label is added
     if: github.event.label.name == 'new-repo'

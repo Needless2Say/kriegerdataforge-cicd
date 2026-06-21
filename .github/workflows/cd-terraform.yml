@@ -81,7 +81,7 @@ jobs:
   # kriegerdataforge-cicd (scripts/deployer_registry.json). Fails closed.
   authorize:
     name: Authorize deployer
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     permissions:
       contents: read
     steps:
@@ -107,7 +107,7 @@ jobs:
   apply:
     name: Terraform Apply (${{ inputs.environment }})
     needs: authorize
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
 
     # Activates the environment gate (owner approval) and loads its scoped
     # secrets and variables.

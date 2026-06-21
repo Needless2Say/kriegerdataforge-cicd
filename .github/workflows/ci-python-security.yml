@@ -19,7 +19,7 @@ on:
 jobs:
   bandit:
     name: Bandit SAST
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
 
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -36,7 +36,7 @@ jobs:
 
   pip-audit:
     name: pip-audit (CVE check)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
 
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6

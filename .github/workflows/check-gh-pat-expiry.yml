@@ -11,7 +11,7 @@ on:
 jobs:
   check:
     name: Check GH_PACKAGES_PAT expiry
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
 
     # No GitHub Environment — uses repo-level secrets only
     # No secrets are required for check mode — it reads pat_expiry from the registry file
