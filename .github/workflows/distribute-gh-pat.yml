@@ -22,7 +22,7 @@ on:
 jobs:
   distribute:
     name: Distribute GH_PACKAGES_PAT
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
 
     # No GitHub Environment — uses repo-level secrets only.
     # GH_PACKAGES_PAT_NEW and CICD_PAT must be set as repo-level secrets on

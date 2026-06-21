@@ -56,7 +56,7 @@ jobs:
   # kriegerdataforge-cicd (scripts/deployer_registry.json). Fails closed.
   authorize:
     name: Authorize deployer
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     permissions:
       contents: read
     steps:
@@ -82,7 +82,7 @@ jobs:
   deploy:
     name: Deploy (${{ inputs.environment }})
     needs: authorize
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
 
     # Activates the GitHub Environment gate for the caller repo:
     # - Pauses for required reviewer approval

@@ -33,7 +33,7 @@ on:
 jobs:
   rotate:
     name: Rotate Vercel tokens
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
 
     # No GitHub Environment — uses repo-level secrets only
     # VERCEL_MASTER_TOKEN and CICD_PAT are stored as repo-level secrets
