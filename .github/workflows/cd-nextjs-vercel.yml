@@ -96,6 +96,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate Vercel project binding
+        run: |
+          if [ -z "${VERCEL_PROJECT_ID:-}" ]; then
+            echo "❌  VERCEL_PROJECT_ID is not set in the GitHub Environment."
+            echo "    Without it the Vercel CLI falls back to org-wide project discovery"
+            echo "    and may deploy to the wrong project or trigger other projects."
+            echo "    Set VERCEL_PROJECT_ID in the '${{ inputs.environment }}' environment"
+            echo "    secrets for this repo and re-run."
+            exit 1
+          fi
+          echo "✅  Deploying to Vercel project: $VERCEL_PROJECT_ID"
+        env:
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
       - name: Deploy to Vercel
         run: npx vercel --prod --yes
         env:
