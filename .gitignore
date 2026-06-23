@@ -9,8 +9,18 @@
 **/.venv/
 
 # ── Secrets / local env files ───────────────────────────────────────────────────
-# Real database credentials used by the backup scripts — never commit
-scripts/.env.backup
+# Real credentials used by the backup/rotation scripts — never commit.
+# A leading-slash-free `.env*` matches at EVERY level, so this covers both
+# scripts/.env.backup AND the per-tenant scripts/<tenant>/.env.backup files
+# (the earlier literal `scripts/.env.backup` missed the per-tenant copies — PL-007).
+# Example templates are re-included so they stay tracked.
+.env*
+!.env*.example
+# Key / cert material the rotation & db_backup scripts may touch (PL-016)
+*.pem
+*.key
+*.p12
+*.pfx
 
 # ── Script output ───────────────────────────────────────────────────────────────
 # pg_dump output files produced by db_backup scripts
