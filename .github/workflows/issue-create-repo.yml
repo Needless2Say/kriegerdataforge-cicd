@@ -31,11 +31,48 @@ permissions:
   issues: write
 
 jobs:
+  # ── Actor authorization (PL-076) ──────────────────────────────────────────────
+  # `issues: labeled` can be fired by anyone with Triage/Write access, yet every
+  # step below runs with CICD_PAT (org Administration + Secrets:write). Without an
+  # actor check, any collaborator who can add the `new-repo` label could provision
+  # repos and write secrets org-wide — bypassing the owner-only deploy gate the CD
+  # workflows enforce via check_deployer.py. Fail closed (exit 1, loud DENIED, in
+  # the same spirit as check_deployer.py) unless the labeling actor is the
+  # repository owner. `create-repo` `needs:` this job, so a denied/skip result
+  # short-circuits the privileged steps. The github.event.sender / repository_owner
+  # comparison is case-insensitive (GitHub logins are case-insensitive) and is not
+  # hard-coded to a username.
+  #
+  # Owner follow-up (config, not code): scope CICD_PAT down to the minimum the
+  # provisioning steps need — it currently carries org-wide Administration +
+  # Secrets:write.
+  authorize:
+    name: Authorize issue actor
+    runs-on: ubuntu-slim
+    if: github.event.label.name == 'new-repo'
+    permissions:
+      contents: read
+    steps:
+      - name: Verify the labeling actor is the repository owner
+        env:
+          ACTOR: ${{ github.event.sender.login }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          actor_lc="$(echo "$ACTOR" | tr '[:upper:]' '[:lower:]')"
+          owner_lc="$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')"
+          if [[ -z "$actor_lc" || "$actor_lc" != "$owner_lc" ]]; then
+            echo "::error::DENIED: '${ACTOR}' is not the repository owner ('${OWNER}'). Only the owner may provision repositories (this workflow uses CICD_PAT with org Administration + Secrets:write). Failing closed."
+            exit 1
+          fi
+          echo "OK: '${ACTOR}' is the repository owner — authorized to provision repositories."
+
   create-repo:
     name: Create repository from template
     runs-on: ubuntu-slim
+    needs: authorize
 
-    # only run when the new repo label is added
+    # only run when the new repo label is added AND the actor is authorized (the
+    # `needs: authorize` failure on a non-owner short-circuits this job)
     if: github.event.label.name == 'new-repo'
 
     steps:
