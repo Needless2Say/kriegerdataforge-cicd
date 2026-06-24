@@ -38,6 +38,12 @@ jobs:
           GH_PACKAGES_PAT: ${{ secrets.GH_PACKAGES_PAT }}
         run: git config --global url."https://__token__:${GH_PACKAGES_PAT}@github.com/".insteadOf "https://github.com/"
 
+      # The slim runner lacks libpq, so psycopg2 (built from source — it ships
+      # no manylinux wheels) fails with "pg_config executable not found".
+      # Provide the build dependency so `pip install -r requirements.txt` works.
+      - name: Install libpq (psycopg2 build dependency)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpq-dev
+
       - name: Install dependencies
         run: ${{ inputs.install_command }}
 
