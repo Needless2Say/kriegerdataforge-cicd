@@ -31,11 +31,55 @@ permissions:
   issues: write
 
 jobs:
+  # ── Actor authorization (PL-076) ──────────────────────────────────────────────
+  # `issues: labeled` can be fired by anyone with Triage/Write access, yet every
+  # step below runs with CICD_PAT (org Administration + Secrets:write). Without an
+  # actor check, any collaborator who can add the `new-repo` label could provision
+  # repos and write secrets org-wide — bypassing the owner-only deploy gate the CD
+  # workflows enforce via check_deployer.py. Fail closed (exit 1, loud DENIED, in
+  # the same spirit as check_deployer.py) unless the triggering actor is the
+  # repository owner. `create-repo` `needs:` this job, so a denied/skip result
+  # short-circuits the privileged steps. The actor / repository_owner comparison
+  # is case-insensitive (GitHub logins are case-insensitive) and is not hard-coded
+  # to a username.
+  #
+  # Actor source: github.triggering_actor (NOT github.event.sender.login) to match
+  # check_deployer.py and the CD workflows, and so a manual "Re-run jobs" is
+  # attributed to whoever re-ran it (the stored event payload's sender is frozen
+  # to the original labeler on a re-run). The `if:` also pins the event action to
+  # `labeled` so only a label-add — not some other issue event carrying the label —
+  # can reach the gate.
+  #
+  # Owner follow-up (config, not code): scope CICD_PAT down to the minimum the
+  # provisioning steps need — it currently carries org-wide Administration +
+  # Secrets:write.
+  authorize:
+    name: Authorize issue actor
+    runs-on: ubuntu-slim
+    if: github.event.action == 'labeled' && github.event.label.name == 'new-repo'
+    permissions:
+      contents: read
+    steps:
+      - name: Verify the triggering actor is the repository owner
+        env:
+          ACTOR: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          actor_lc="$(echo "$ACTOR" | tr '[:upper:]' '[:lower:]')"
+          owner_lc="$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')"
+          if [[ -z "$actor_lc" || "$actor_lc" != "$owner_lc" ]]; then
+            echo "::error::DENIED: '${ACTOR}' is not the repository owner ('${OWNER}'). Only the owner may provision repositories (this workflow uses CICD_PAT with org Administration + Secrets:write). Failing closed."
+            exit 1
+          fi
+          echo "OK: '${ACTOR}' is the repository owner — authorized to provision repositories."
+
   create-repo:
     name: Create repository from template
     runs-on: ubuntu-slim
+    needs: authorize
 
-    # only run when the new repo label is added
+    # only run when the new repo label is added AND the actor is authorized (the
+    # `needs: authorize` failure on a non-owner short-circuits this job)
     if: github.event.label.name == 'new-repo'
 
     steps:
@@ -64,6 +108,7 @@ jobs:
         env:
           REPO_NAME: ${{ steps.fields.outputs.repo_name }}
           REPO_TYPE: ${{ steps.fields.outputs.repo_type }}
+          VISIBILITY: ${{ steps.fields.outputs.visibility }}
         run: |
           if [[ -z "$REPO_NAME" || "$REPO_NAME" == "null" ]]; then
             echo "::error::repo_name is required"
@@ -77,6 +122,15 @@ jobs:
             nextjs|fastapi|npm-package|python-package) ;;
             *)
               echo "::error::repo_type must be one of: nextjs, fastapi, npm-package, python-package"
+              exit 1
+              ;;
+          esac
+          # Allow-list visibility — it flows into the repo-creation API call, so
+          # constrain it to the two valid values rather than trusting the form.
+          case "$VISIBILITY" in
+            public|private) ;;
+            *)
+              echo "::error::visibility must be 'public' or 'private' (got '${VISIBILITY}')"
               exit 1
               ;;
           esac
