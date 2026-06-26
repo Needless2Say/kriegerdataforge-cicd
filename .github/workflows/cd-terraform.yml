@@ -185,6 +185,14 @@ jobs:
       # still pending. The flip-to-deny closeout removes `continue-on-error` here
       # AND flips prod_guard `warn` -> `deny` in the terraform repo, so a
       # misconfigured prod apply then fails closed at this step before Apply runs.
+      #
+      # SCOPE NOTE: `--all-namespaces` evaluates EVERY policy package against the
+      # real plan — terraform.invariants (prod_guard + the cross-app stripe/jwt/
+      # url/pii invariants) AND terraform.envvars (scope_policy). So removing
+      # continue-on-error at the flip makes ALL of those existing `deny` rules
+      # deploy-blocking, not only prod_guard. That is intended (every invariant
+      # should hold on a valid prod plan), but is flagged here so the broader
+      # enforcement at the flip is not a surprise.
       - name: Invariant policy gate (conftest, advisory)
         continue-on-error: true
         env:
