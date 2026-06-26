@@ -174,6 +174,38 @@ jobs:
         # per-env values come from the TF_VAR_* env block above. No -var-file needed.
         run: terraform -chdir="$TF_DIR" plan -out=tfplan -detailed-exitcode
 
+      # PL-078: cross-app + production-readiness invariant gate against the REAL
+      # plan, BEFORE apply (reusing the plan from the step above). The terraform
+      # repo owns the OPA policies (policy/) incl. prod_guard.rego, which requires
+      # an injected `environment` to discriminate prod from dev.
+      #
+      # ADVISORY for now (continue-on-error + prod_guard rules are `warn`, so
+      # conftest exits 0 on them): it surfaces violations in the logs without ever
+      # blocking a deploy while PL-014 (Upstash Redis) and PL-051 (prod Stripe) are
+      # still pending. The flip-to-deny closeout removes `continue-on-error` here
+      # AND flips prod_guard `warn` -> `deny` in the terraform repo, so a
+      # misconfigured prod apply then fails closed at this step before Apply runs.
+      #
+      # SCOPE NOTE: `--all-namespaces` evaluates EVERY policy package against the
+      # real plan — terraform.invariants (prod_guard + the cross-app stripe/jwt/
+      # url/pii invariants) AND terraform.envvars (scope_policy). So removing
+      # continue-on-error at the flip makes ALL of those existing `deny` rules
+      # deploy-blocking, not only prod_guard. That is intended (every invariant
+      # should hold on a valid prod plan), but is flagged here so the broader
+      # enforcement at the flip is not a surprise.
+      - name: Invariant policy gate (conftest, advisory)
+        continue-on-error: true
+        env:
+          KDF_TARGET_ENV: ${{ inputs.environment }}
+        run: |
+          CONFTEST_VERSION="0.68.2"
+          curl -sSL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" \
+            | tar -xzf - conftest
+          ./conftest --version
+          terraform -chdir="$TF_DIR" show -json tfplan > tfplan.json
+          python3 -c "import json, os; d = json.load(open('tfplan.json')); d['environment'] = os.environ['KDF_TARGET_ENV']; json.dump(d, open('tfplan.json', 'w'))"
+          ./conftest test tfplan.json --policy policy --all-namespaces
+
       # Only apply if plan detected changes (exit code 2 = changes present).
       # Exit code 0 = no changes, exit code 1 = error (already failed above).
       - name: Terraform Apply
