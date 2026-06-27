@@ -1,125 +1,154 @@
-# kriegerdataforge-cicd — Agent Quick-Start
+# kriegerdataforge-cicd — Agent Guide
 
-## App Vision & Purpose
+> **This is the canonical agent guide for this repo.** `CLAUDE.md`, `.cursorrules`, and
+> `.github/copilot-instructions.md` all point here. Read this first, then follow
+> [`WORKFLOW.md`](./WORKFLOW.md) for every task and [`skills.md`](./skills.md) for
+> security-sensitive work.
 
-**Centralized shared GitHub Actions workflow library** for the KriegerDataForge ecosystem.
-All other KriegerDataForge repos call workflows from this repo rather than maintaining
-their own CI/CD logic. This is the single source of truth for all deployment pipelines.
+## Vision & purpose — what you're building toward
 
-Consumer repos reference workflows here with:
+`kriegerdataforge-cicd` is the **centralized CI/CD platform library** for the KriegerDataForge (KDF)
+ecosystem — a single, public home for reusable GitHub Actions workflows and the cross-repo automation
+that every tenant repo calls instead of maintaining its own pipelines. KDF's hub (`kriegerdataforge`)
+is the auth/identity service, and the ultimate goal is a large multi-tenant data platform that other
+apps (fitness-app, tiffanys-space, arthurs-portfolio, and future tenants) build on top of. This repo
+is the connective tissue that makes that scale possible: deploy behavior, security gates, version
+discipline, and secret handling are defined **once** here and propagate to every consumer at once. A
+tenant's `cd.yml` is a thin caller (`uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/<wf>.yml@main`
++ `secrets: inherit`); all the real logic lives here.
 
-```yaml
-uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/<workflow>.yml@main
-```
+The owner's vision is **safe, uniform, least-privilege automation that one person can run and onboard
+collaborators into**: every deploy is manual (`workflow_dispatch` only — Vercel git auto-deploy is off),
+pauses at a GitHub Environment approval gate before any secret loads, and is fenced by a per-repo
+**deployer authorization gate** that fails closed. Credentials never live in `.env` or code — only in
+GitHub Environment secrets — and per-app Vercel tokens plus the `GH_PACKAGES_PAT` are rotated on a
+schedule by scripts in this repo. As KDF grows, this library is also the planned home for AI-driven
+agent workflows (`agents/`, skeleton only) so automation scales with the platform.
 
-## Implemented Workflows
+## Tech stack
 
-| File | Purpose | Called by |
-| --- | --- | --- |
-| `cd-nextjs-vercel.yml` | Deploy Next.js app to Vercel | `fitness-app-frontend`, `tiffanys-space`, `arthurs-portfolio` |
-| `cd-python-vercel.yml` | Deploy FastAPI backend to Vercel + optional Alembic migrations | `kriegerdataforge` |
-| `cd-terraform.yml` | `terraform plan` + `terraform apply` | `kriegerdataforge-terraform` |
-| `issue-create-repo.yml` | Auto-provision new repos from templates on issue label | triggered internally |
+- **GitHub Actions** — reusable workflows (`on: workflow_call`), called by every tenant repo.
+- **Vercel CLI** — `npx vercel --prod --yes` for Next.js + FastAPI serverless deploys.
+- **Terraform `~1.9`** (`hashicorp/setup-terraform`) — `cd-terraform.yml` runs `plan`/`apply`.
+- **Python 3.13 (stdlib-first)** — platform scripts in `scripts/` (token/PAT rotation, DB backup,
+  deployer gate, version bump/check); tested with `pytest` + coverage.
+- **actionlint** — local + CI lint for all workflow YAML.
+- **CodeQL** (`javascript-typescript`) — optional local SAST via the Makefile.
 
-See `docs/WORKFLOWS.md` for the full catalog: calling syntax, inputs, secrets, and examples.
+## Module map
 
-## Two-Tier Model — What Belongs Here vs. Tenant Repos
+| Path | Purpose |
+| --- | --- |
+| `.github/workflows/cd-nextjs-vercel.yml` | Deploy Next.js → Vercel (fitness-app-frontend, tiffanys-space, arthurs-portfolio) |
+| `.github/workflows/cd-python-vercel.yml` | Deploy FastAPI → Vercel + optional Alembic migrations (kriegerdataforge, app backends) |
+| `.github/workflows/cd-terraform.yml` | `terraform plan` + `apply` for Vercel infra (kriegerdataforge-terraform) |
+| `.github/workflows/bump-version-check.yml` | Validate `VERSION` is exactly +1 semver ahead of `main` |
+| `.github/workflows/create-github-release.yml` | Create GitHub Release + git tag from `VERSION` |
+| `.github/workflows/ci-*.yml` | Reusable per-stack CI (python lint/typecheck/tests/security, nextjs build/lint/tests, codeql, npm-audit, vercel-compactor) |
+| `.github/workflows/issue-create-repo.yml` | Auto-provision new repos from the `new-repo` issue template |
+| `.github/workflows/rotate-vercel-tokens.yml`, `distribute-gh-pat.yml`, `check-gh-pat-expiry.yml` | Scheduled secret rotation/distribution |
+| `scripts/check_deployer.py` + `deployer_registry.json` | Per-repo/per-env deployer authorization gate (fail closed) |
+| `scripts/rotate_vercel_tokens.py`, `rotate_gh_pat.py` | Token/PAT rotation logic (registries: `vercel_token_registry.json`, `gh_pat_registry.json`) |
+| `scripts/common/bump_version.py`, `check_version.py` | Version bump + CI consistency/increment check |
+| `scripts/*/db_backup.py` | Per-tenant Neon DB backup |
+| `docs/WORKFLOWS.md`, `docs/MANUAL_SETUP.md` | Workflow catalog (inputs/secrets/callers) + manual setup runbook |
+| `prompts/` | Role-based AI prompts (dev, architect, code_review, tester, docs, design, prompt_generators) |
+| `agents/` | Skeleton for future AI-driven agent workflows — **not yet implemented** |
+| `CONTRIBUTING.md` | Two-tier model + breaking-change governance |
 
-Every tenant repo delegates deployment to a reusable workflow here. The tenant's `cd.yml`
-is a thin caller — all deploy logic lives in this repo.
+## Critical rules
 
-| Thing | Here (`kriegerdataforge-cicd`) | Tenant repo |
-| --- | --- | --- |
-| Reusable deploy logic | `cd-nextjs-vercel.yml`, `cd-python-vercel.yml`, `cd-terraform.yml` | — |
-| Version bump validation | `bump-version-check.yml` | — |
-| Release tag + GitHub Release | `create-github-release.yml` | — |
-| Internal platform automation | `issue-create-repo.yml`, `rotate-vercel-tokens.yml` | — |
-| Deployment caller workflow | — | `.github/workflows/cd.yml` |
-| App CI (lint / typecheck / tests) | — | `.github/workflows/ci.yml` |
-| Release trigger | — | `.github/workflows/release.yml` |
-| Platform scripts (token rotation, DB backups) | `scripts/` | — |
-| App source code | — | `api/`, `src/`, etc. |
-| App-specific Docker / Makefile | — | `Dockerfile`, `Makefile` |
-
-If the same logic would need to exist in more than one tenant repo, it belongs here.
-If it's specific to one app's stack, it stays in that tenant repo.
-
-See `CONTRIBUTING.md` for full governance rules: adding workflows, breaking-change policy,
-PR process, and how to onboard a new tenant repo.
-
-## Deployment Model
-
-**All deploys are manual** — triggered via `workflow_dispatch` in the GitHub Actions UI.
-There are **no automatic deploys on push**. Vercel git auto-deploy is disabled in Terraform.
-
-**Environment gate flow:**
-
-1. Developer triggers CD workflow manually
-2. GitHub pauses — sends approval notification to required reviewers
-3. Reviewer approves in GitHub UI
-4. Environment secrets are loaded and the deploy runs
-
-**Approval model:**
-
-| Environment | Reviewers | Branch restriction |
-| --- | --- | --- |
-| `development` | Owner + designated collaborators | `main` only |
-| `production` | Owner only | `main` only |
-| `infrastructure` | Owner only | `main` only |
-
-**Credential isolation:** `VERCEL_TOKEN`, `DB_DATABASE_URL`, and all deploy credentials
-live only in GitHub Environment secrets. Collaborators cannot access them and cannot
-deploy locally.
-
-## Local Development
-
-Local dev uses Docker — no Vercel credentials needed:
-
-```bash
-make docker-up   # in the consumer repo
-```
-
-There is no path to deploy locally. The Vercel CLI has no token outside GitHub Environments.
-
-## Tech Stack
-
-- GitHub Actions (YAML workflows, `workflow_call` triggers)
-- Shell scripts
-- Vercel CLI (`npx vercel --prod --yes`)
-- Terraform `~1.9` + hashicorp/setup-terraform
-
-## Read Before You Code
-
-- `docs/WORKFLOWS.md` — full workflow catalog: inputs, secrets, calling syntax, consumer table
-- `docs/MANUAL_SETUP.md` — environment setup, secrets configuration, PAT setup
-
-## Critical Rules
-
-1. Never commit secrets — use `${{ secrets.NAME }}` exclusively.
-2. Pin all third-party action versions to a specific tag (e.g. `@v6`) — never `@main` or `@latest`.
-3. All deployment workflows must use `environment:` to activate the GitHub Environment gate.
-4. Treat every change to an existing workflow as a **breaking change candidate** — all consumer repos call these.
-5. Set minimum required permissions using `permissions:` on every workflow.
-6. Never use `pull_request_target` with an untrusted code checkout.
-7. Adding a `required: true` input is a breaking change — use `required: false` + `default:` or coordinate with all consumers.
-8. `secrets: inherit` is the standard pattern for passing environment secrets from caller to reusable workflow.
+1. **Never commit secrets.** Use `${{ secrets.NAME }}` exclusively — never hardcode, never `echo` a secret.
+2. **Pin all third-party actions to a specific tag or SHA** (e.g. `@v6` / full SHA) — never `@main` or `@latest`.
+3. **Every deployment workflow MUST set `environment:`** to activate the GitHub Environment approval gate.
+4. **Treat every change to an existing workflow as a breaking-change candidate** — all consumer repos
+   call these live from `@main`. When in doubt, add a new workflow rather than mutate an existing one.
+5. **Adding a `required: true` input, removing/renaming an input, changing an input `type:`, renaming
+   a secret, or removing an `output:` is a breaking change** — use `required: false` + `default:`, or
+   coordinate the update across all affected consumers first.
+6. **Set minimum `permissions:` on every workflow.** `id-token: write` only where Vercel OIDC needs it.
+7. **`secrets: inherit` is the standard caller pattern** for passing environment secrets to a reusable workflow.
+8. **Never use `pull_request_target` with an untrusted code checkout.**
+9. **Environment names are `dev` / `prod` / `infra`** — NEVER `development` / `production` / `infrastructure`.
+   (`arthurs-portfolio` uses `github-pages`.) These keys must match `deployer_registry.json`.
+10. **Deploys fail closed.** A repo/env/actor not in `scripts/deployer_registry.json` is denied — when you
+    onboard a tenant, add its registry entry *before* its first deploy.
+11. **`scripts/` is stdlib-first** and unit-tested; keep `make check-all` green before opening a PR.
 
 ## Commands
 
-```bash
-make lint       # actionlint — validate all workflow YAML
-make check-all  # run all local checks
-```
+| Task | Command |
+| --- | --- |
+| Lint workflows | `make lint` (actionlint) |
+| Run script unit tests | `make test` (pytest in `scripts/`, with coverage) |
+| **Full local CI (the gate)** | `make check-all` (runs `lint` + `test`) — **there is no `make ci` target** |
+| Type-check | _none in this repo_ (workflow YAML + stdlib scripts; rely on `make lint` + tests) |
+| Version bump (patch / minor / major) | `make bump-patch` / `make bump-minor` / `make bump-major` |
+| CodeQL local scan (optional) | `make codeql-db` then `make codeql-scan-all` (or `*-csv` variants) |
+| List targets | `make help` |
+
+> **Version gate is strict.** `bump-version-check.yml` requires `VERSION` to be **exactly one** valid
+> semver increment ahead of `main` (patch `X.Y.Z+1`, minor `X.Y+1.0`, major `X+1.0.0`). No bump,
+> skip-by-2, downgrade, or bad format **fails CI**. Always run `make bump-<level>` — never hand-edit.
+
+## Required reading
+
+1. [`README.md`](./README.md) — what this library is, the workflow catalog, deployment + environment-gate model.
+2. [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md) — full per-workflow reference: inputs, secrets, caller patterns,
+   the **deployer authorization gate**, and the consumer-repo summary.
+3. [`docs/MANUAL_SETUP.md`](docs/MANUAL_SETUP.md) — the runbook for everything that can't be automated:
+   GitHub Environments, environment secrets, PAT/token creation + rotation, tenant onboarding, org migration.
+4. [`CONTRIBUTING.md`](./CONTRIBUTING.md) — the two-tier model (what belongs here vs. a tenant repo) and the
+   breaking-change rules for modifying a reusable workflow.
+5. [`agents/README.md`](agents/README.md) — the (not-yet-built) AI-agent vision for where this repo is heading.
+
+Quick lookups: workflow inputs/secrets → `docs/WORKFLOWS.md`; setup/secrets/PAT steps → `docs/MANUAL_SETUP.md`; who can deploy → `scripts/deployer_registry.json`; rotation registries → `scripts/vercel_token_registry.json`, `scripts/gh_pat_registry.json`.
+
+## How to work in this repo — the agent kit
+
+**Every task follows the tiered loop in [`WORKFLOW.md`](./WORKFLOW.md)** — pick a lane:
+
+- **Quick** — tiny, no-behavior change → implement → `make ci` → PR.
+- **Standard** — a one-repo feature → orient → **plan & owner approves** → implement → `make ci`
+  green (+ version bump) → PR → **GitHub CI green** → **owner merges**.
+- **Epic** — complex/novel design or anything that **spans repos** → the design gate + cross-repo
+  coordination below.
+
+Don't skip the plan-approval gate; don't self-merge. The supporting kit:
+
+- [`docs/agent/DESIGN_AND_EPICS.md`](docs/agent/DESIGN_AND_EPICS.md) — the **design gate** (design
+  doc + ADR, owner-approved before code) and the **cross-repo epic playbook** (blast-radius,
+  contract-first ordering, flag-gated slices). **Cross-repo epic trackers live in the ecosystem hub
+  at `kriegerdataforge/docs/epics/`.**
+- [`docs/agent/DEFINITION_OF_DONE.md`](docs/agent/DEFINITION_OF_DONE.md) — the change-type-scaled
+  **Definition of Done** (checkbox form in
+  [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md)).
+- [`docs/agent/templates/`](docs/agent/templates/) — copy-paste **design-spec**, **ADR**, and
+  **epic-tracker** templates. ADRs land in `docs/CHANGELOG_AND_DECISION_LOG.md` (create if absent).
+- Role prompts: [`prompts/`](./prompts).
+
+> **Note:** this repo is `workflow_call`-shaped — `make ci` maps to **`make check-all`** here (there is
+> no plain `ci` target). Because every workflow is consumed live from `@main`, a "one-repo feature" here
+> can still ripple into all consumers — when you touch a reusable workflow's interface, treat it as an
+> **Epic** (cross-repo) and follow `CONTRIBUTING.md`'s breaking-change rules.
+
+### Before opening a PR (this repo)
+
+- [ ] `make check-all` is green locally (`make lint` actionlint + `make test` pytest in `scripts/`).
+- [ ] New/changed Python in `scripts/` has unit tests (`scripts/tests/`); stdlib-first kept.
+- [ ] `VERSION` bumped via `make bump-<level>` — **exactly +1** (the strict `bump-version-check.yml` gate).
+- [ ] Workflow interface preserved (inputs/outputs/secrets unchanged) **or** all consumers coordinated;
+      breaking changes follow `CONTRIBUTING.md`.
+- [ ] Touched a workflow YAML → updated `docs/WORKFLOWS.md` (and the consumer/catalog tables) in the same PR.
+- [ ] Third-party actions pinned to tag/SHA; minimum `permissions:` set; no secret echoed or committed.
+- [ ] New tenant/deploy path → `scripts/deployer_registry.json` entry added.
+- [ ] Architectural change (new workflow, gate redesign, rotation/auth model) → ADR + owner approval first.
 
 ## Prompts
 
-AI prompts for development tasks are in `prompts/`:
-
-- `prompts/dev/` — implement new or modify existing reusable workflows
-- `prompts/architect/` — cross-repo CI/CD architecture design
-- `prompts/code_review/` — review for correctness, security, and backward compatibility
-- `prompts/tester/` — validate workflows behave correctly for all consumers
-- `prompts/docs/` — document workflows for consumer repo developers
+Role-based AI prompts live in [`prompts/`](./prompts): `dev/` (implement/modify workflows), `architect/`
+(cross-repo CI/CD + KDF ecosystem design), `code_review/` (correctness/security/backward-compat),
+`tester/` (validate workflows for all consumers), `docs/`, `design/`, and `prompt_generators/`.
 
 ## Security — read [`skills.md`](./skills.md)
 
