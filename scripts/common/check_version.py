@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -89,6 +90,52 @@ def _get_main_version(cwd: Path) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
+# ── Kit-only PR exemption (ADR D-001, option B) ──────────────────────────────
+# A kit-sync PR (opened by distribute_kit.py) only touches the byte-identical
+# agentic-workflow kit, which is documentation and does NOT bump VERSION. Such a
+# PR would otherwise fail this gate. When a PR changes ONLY kit paths, skip the
+# version check. Outside a PR (no GITHUB_BASE_REF — local runs, pushes) the normal
+# check always runs.
+KIT_EXEMPT_FILES = {"skills.md", "WORKFLOW.md"}
+KIT_EXEMPT_PREFIXES = ("docs/agent/",)
+
+
+def _changed_files(cwd: Path, base_ref: str) -> list[str]:
+    subprocess.run(
+        ["git", "fetch", "origin", base_ref, "--depth=1"],
+        capture_output=True,
+        check=False,
+        cwd=cwd,
+    )
+    result = subprocess.run(
+        ["git", "diff", "--name-only", f"origin/{base_ref}", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=cwd,
+    )
+    if result.returncode != 0:
+        return []
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def _is_kit_only_pr(cwd: Path) -> bool:
+    """True if this is a PR whose changed files are ALL agentic-workflow kit paths."""
+    base_ref = os.environ.get("GITHUB_BASE_REF")
+    if not base_ref:
+        return False  # not a PR context — run the normal check
+    files = _changed_files(cwd, base_ref)
+    if not files:
+        return False
+    for f in files:
+        if f in KIT_EXEMPT_FILES:
+            continue
+        if any(f.startswith(p) for p in KIT_EXEMPT_PREFIXES):
+            continue
+        return False
+    return True
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="CI version checker")
     parser.add_argument(
@@ -110,6 +157,14 @@ def main() -> None:
     args = parser.parse_args()
 
     root = args.root if args.root is not None else Path.cwd()
+
+    if _is_kit_only_pr(root):
+        print(
+            "Kit-only PR (skills.md / WORKFLOW.md / docs/agent/**) — skipping version "
+            "check (agentic-workflow kit sync, ADR D-001 option B)."
+        )
+        return
+
     passed = True
 
     # Read version from each source

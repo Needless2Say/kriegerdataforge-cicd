@@ -1,0 +1,66 @@
+name: Distribute Agentic-Workflow Kit
+
+# Propagates the canonical kit (kit/common/) to consumer repos via distribute_kit.py.
+# See ADR D-001 / kriegerdataforge/docs/epics/agent-kit-distribution.md.
+#
+#   • workflow_dispatch — run on demand. 'check' (read-only drift report) or
+#     'distribute' (open one sync PR per drifted repo; never auto-merges).
+#   • schedule — weekly read-only drift alarm: a failed run = some repo drifted
+#     from the canonical kit.
+#
+# Before the first 'distribute', each consumer repo's version-check must exempt the
+# kit paths (ADR D-001 option B — shipped in scripts/common/check_version.py).
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "check (read-only drift report) or distribute (open sync PRs)"
+        type: choice
+        options:
+          - check
+          - distribute
+        default: check
+      only:
+        description: "Optional: only this kit file (e.g. skills.md). Blank = all kit files."
+        type: string
+        default: ""
+  schedule:
+    - cron: "0 12 * * 1" # Mondays 12:00 UTC — weekly drift alarm (check only)
+
+permissions:
+  contents: read
+
+jobs:
+  distribute-kit:
+    name: Distribute kit
+    runs-on: ubuntu-slim
+    # Never run on forks (this repo is public).
+    if: github.repository == 'Needless2Say/kriegerdataforge-cicd'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Run distribute_kit
+        env:
+          # CICD_PAT needs contents:read (check) + contents & pull-requests:write (distribute)
+          # on the target repos.
+          GH_TOKEN: ${{ secrets.CICD_PAT }}
+          MODE: ${{ github.event.inputs.mode || 'check' }}
+          ONLY: ${{ github.event.inputs.only }}
+        run: |
+          ARGS="$MODE"
+          if [ -n "$ONLY" ]; then
+            ARGS="$ARGS --only $ONLY"
+          fi
+          echo "Running: distribute_kit.py $ARGS"
+          python scripts/distribute_kit.py $ARGS
