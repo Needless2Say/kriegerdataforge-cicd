@@ -101,3 +101,24 @@ See `agents/README.md` for the vision and planned structure.
 
 - `agents/workflows/_ai-agent-template.yml` — skeleton GitHub Actions workflow for AI agents
 - `agents/context/_agent-context-template.md` — template for per-agent context docs
+
+## Security — read [`skills.md`](./skills.md)
+
+This repo follows the KriegerDataForge ecosystem **security playbook** in [`skills.md`](./skills.md).
+**Before any security-sensitive work** — auth/OIDC/tokens, BFF/proxy/CSP/cookies, backend authz/endpoints,
+secrets/env/config, Terraform/infra, CI/CD, or dependencies — open `skills.md` and follow the **scenario**
+that matches your task.
+
+Non-negotiables (full detail + the scenario rules are in `skills.md`):
+
+- **Fail closed, never open.** The **server is authoritative** — recompute security/$-relevant values
+  (totals, prices, roles, status); never trust client-sent ones.
+- **Never trust client input** for a security decision — IPs (use the edge header, not raw `X-Forwarded-For`),
+  hostnames / `request.url` (the internal bind, not the browser host), `Origin`, ownership (exact check, not a
+  substring/regex).
+- **Secrets never touch git or logs** — real values only in gitignored files; `.example` holds placeholders;
+  never echo a secret; the owner rotates.
+- **Least privilege** — closed request schemas + field allow-lists (no blind `setattr`), distinct per-client
+  OIDC audiences, validated `iss`/`aud`.
+- Found a security issue? **Verify it's real, then flag it** — and **pause for owner approval before any
+  architectural, destructive, or behavior-changing edit** (OIDC protocol changes get a design note first).
