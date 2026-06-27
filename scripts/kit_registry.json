@@ -1,0 +1,26 @@
+{
+	"_comment": "Registry for the agentic-workflow kit sync (distribute_kit.py). The canonical source is kriegerdataforge-cicd/kit/common/. 'files' are the byte-identical, language-agnostic kit paths synced to every repo in 'repos'. check mode reports drift; distribute mode opens one PR per drifted repo (never auto-merges). See ADR D-001 / kriegerdataforge/docs/epics/agent-kit-distribution.md.",
+	"kit_version_file": "kit/KIT_VERSION",
+	"files": [
+		"skills.md",
+		"WORKFLOW.md",
+		"docs/agent/DESIGN_AND_EPICS.md",
+		"docs/agent/DEFINITION_OF_DONE.md",
+		"docs/agent/templates/design-spec.template.md",
+		"docs/agent/templates/adr-entry.template.md",
+		"docs/agent/templates/epic-tracker.template.md"
+	],
+	"repos": [
+		{ "repo": "Needless2Say/kriegerdataforge", "branch": "main" },
+		{ "repo": "Needless2Say/kriegerdataforge-sdk", "branch": "main" },
+		{ "repo": "Needless2Say/kriegerdataforge-terraform", "branch": "main" },
+		{ "repo": "Needless2Say/kriegerdataforge-auth-ui", "branch": "main" },
+		{ "repo": "Needless2Say/fitness-app-frontend", "branch": "main" },
+		{ "repo": "Needless2Say/fitness-app-backend", "branch": "main" },
+		{ "repo": "Needless2Say/tiffanys-space", "branch": "main" },
+		{ "repo": "Needless2Say/tiffanys-space-backend", "branch": "main" },
+		{ "repo": "Needless2Say/arthurs-portfolio", "branch": "main" },
+		{ "repo": "Needless2Say/kriegerdataforge-portfolio", "branch": "main" }
+	],
+	"_excluded_notes": "kriegerdataforge-cicd is the SOURCE — its own kit/common IS the canonical, so it is not a sync target (no self-PRs). The 4 kriegerdataforge-template-* repos join once committed + is_template (epic slice P2). .github/PULL_REQUEST_TEMPLATE.md is intentionally NOT in 'files' until the 3-way fork is reconciled (epic slice P1). AGENTS.md / CLAUDE.md / .cursorrules / .github/copilot-instructions.md are per-repo and never synced. Before running distribute, each repo's version-check must paths-ignore the kit paths (ADR D-001 option B), or the docs-only sync PRs fail that gate."
+}
