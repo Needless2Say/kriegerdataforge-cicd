@@ -58,9 +58,9 @@ jobs:
           MODE: ${{ github.event.inputs.mode || 'check' }}
           ONLY: ${{ github.event.inputs.only }}
         run: |
-          ARGS="$MODE"
+          ARGS=("$MODE")
           if [ -n "$ONLY" ]; then
-            ARGS="$ARGS --only $ONLY"
+            ARGS+=(--only "$ONLY")
           fi
-          echo "Running: distribute_kit.py $ARGS"
-          python scripts/distribute_kit.py $ARGS
+          echo "Running: distribute_kit.py ${ARGS[*]}"
+          python scripts/distribute_kit.py "${ARGS[@]}"
