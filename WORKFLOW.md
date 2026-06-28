@@ -68,8 +68,7 @@ assumptions you're making. **Calibrate the approval to the work:**
   line plan is enough: share it, note any assumptions, and you may proceed.
 
 When the design is non-trivial, **the plan IS a design doc** — go through the design gate (Step 2
-of the Epic track) even if the work stays in one repo. If your repo ships `prompts/` scaffolds
-(`architect/`, `design/`, `dev/`), use them to structure the plan.
+of the Epic track) even if the work stays in one repo.
 
 ### 3. Implement
 
