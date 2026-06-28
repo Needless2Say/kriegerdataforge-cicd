@@ -52,7 +52,6 @@ agent workflows (`agents/`, skeleton only) so automation scales with the platfor
 | `scripts/common/bump_version.py`, `check_version.py` | Version bump + CI consistency/increment check |
 | `scripts/*/db_backup.py` | Per-tenant Neon DB backup |
 | `docs/WORKFLOWS.md`, `docs/MANUAL_SETUP.md` | Workflow catalog (inputs/secrets/callers) + manual setup runbook |
-| `prompts/` | Role-based AI prompts (dev, architect, code_review, tester, docs, design, prompt_generators) |
 | `agents/` | Skeleton for future AI-driven agent workflows — **not yet implemented** |
 | `CONTRIBUTING.md` | Two-tier model + breaking-change governance |
 
@@ -125,7 +124,6 @@ Don't skip the plan-approval gate; don't self-merge. The supporting kit:
   [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md)).
 - [`docs/agent/templates/`](docs/agent/templates/) — copy-paste **design-spec**, **ADR**, and
   **epic-tracker** templates. ADRs land in `docs/CHANGELOG_AND_DECISION_LOG.md` (create if absent).
-- Role prompts: [`prompts/`](./prompts).
 
 > **Note:** this repo is `workflow_call`-shaped — `make ci` maps to **`make check-all`** here (there is
 > no plain `ci` target). Because every workflow is consumed live from `@main`, a "one-repo feature" here
@@ -143,12 +141,6 @@ Don't skip the plan-approval gate; don't self-merge. The supporting kit:
 - [ ] Third-party actions pinned to tag/SHA; minimum `permissions:` set; no secret echoed or committed.
 - [ ] New tenant/deploy path → `scripts/deployer_registry.json` entry added.
 - [ ] Architectural change (new workflow, gate redesign, rotation/auth model) → ADR + owner approval first.
-
-## Prompts
-
-Role-based AI prompts live in [`prompts/`](./prompts): `dev/` (implement/modify workflows), `architect/`
-(cross-repo CI/CD + KDF ecosystem design), `code_review/` (correctness/security/backward-compat),
-`tester/` (validate workflows for all consumers), `docs/`, `design/`, and `prompt_generators/`.
 
 ## Security — read [`skills.md`](./skills.md)
 

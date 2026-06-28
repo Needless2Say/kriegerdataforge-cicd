@@ -100,3 +100,129 @@ authorization gate are worth it for privileged ops, and it is one shared pattern
 flow depends on the owner pre-setting `GH_PACKAGES_PAT_NEW` (GitHub can't generate PATs); the workflow
 guards on it. Every new privileged operation should be added as another `ops-*` form + a thin parser
 workflow that `needs:` the same `_authorize-owner.yml` gate — never a new ad-hoc gate.
+
+---
+
+## D-003 — Agentic-Workflow Standard v1.2: pre-launch hardening
+
+- **Date:** 2026-06-28
+- **Status:** Accepted
+- **Tier / scope:** Epic · repos: all (kit synced from `cicd/kit/common/`)
+- **Design doc:** the 25-agent stress-test of the v1.1 kit (this session) · **Epic tracker:**
+  [`kriegerdataforge/docs/epics/agent-kit-distribution.md`](https://github.com/Needless2Say/kriegerdataforge/blob/main/docs/epics/agent-kit-distribution.md)
+
+**Context.** Before the first ecosystem-wide sync, a 25-agent adversarial stress-test (5 repo-recon
+probes + a small-task simulation + a gamification-epic simulation, each finding verified against the
+real files) checked the v1.1 kit against the actual repos. It confirmed 11 gaps and discarded 6 false
+positives — evidence the standard is sound, but with rough edges an ambitious cross-repo task exposes:
+the headline "Vendored byte-identical across every repo" guarantee was literally false pre-sync; the
+engine shipped no version marker; the Epic lane mandated feature flags and cross-user leaderboards that
+the repos/kit gave no sanctioned way to build; and several smaller "the kit assumes/decides X" gaps.
+
+**Decision.** Ship **Standard v1.2** as additive, byte-identical kit edits (`KIT_VERSION` → v1.2.0):
+
+- **Honest sync wording** — "the kit-sync engine keeps this file byte-identical … drift is flagged and
+  re-synced" replaces the absolute "vendored byte-identical" claim, in all four docs.
+- **Vendored version marker** — `docs/agent/KIT_VERSION` is added to the synced set so every repo records
+  which kit version it carries; `distribute_kit.py` refuses to run if it disagrees with `kit/KIT_VERSION`.
+- **Semver-by-impact** mapping in `WORKFLOW.md`/`DEFINITION_OF_DONE.md`, plus a note that the CI version
+  check enforces consistency + strictly-ahead, **not** the chosen level.
+- **Quick lane** now carries the repo-mandatory post-build-sync reminder (e.g. `make vercel-compact`)
+  the Standard lane already had.
+- **PR-template-as-DoD is a constraint** — reduce the Testing section to a single `make ci` gate, and
+  every command a PR template names must be a real Makefile target (fixes granular/nonexistent-target drift).
+- **ADR ids continue a repo's existing scheme** (e.g. `ADR-NNN`) rather than forcing a clashing `D-NNN` series.
+- **Epic "integrate & verify"** splits agent (verify on local/preview with the flag forced on) from owner
+  (merge the prod-flag/infra slice, authorize prod verification).
+- **Feature-flag convention** (see D-004) and **cross-user public-profile contract** (see D-005).
+- **Gamification/anti-abuse scenario** added to `skills.md` + a matching `DEFINITION_OF_DONE.md` checkbox.
+
+**Alternatives considered.**
+
+- *Ship v1.1 first, v1.2 after* — rejected: nothing had been synced yet, so one clean v1.2.0 avoids two
+  sync waves across every repo.
+- *Keep the "byte-identical" wording* — rejected: literally false until synced; the engine-mechanism
+  framing is both honest and accurate post-sync.
+
+**Trade-offs.** The kit grows (a flag subsection, an anti-abuse scenario, a contract row) — accepted; the
+edits are additive and byte-identical-safe, so the engine fans them out as ordinary review-gated PRs.
+
+**Consequences.** Bump **both** `kit/KIT_VERSION` and `kit/common/docs/agent/KIT_VERSION` → v1.2.0 and run
+**Distribute**; cicd is sync-excluded, so its root copies are updated in this same change. The first
+ecosystem-wide sync delivers v1.2.0. Repo-local defects the stress-test found — `fitness-app-frontend`'s
+`make generate-client` pointing at the **wrong backend** (the hub instead of `fitness-app-backend`), and
+two PR templates — are fixed in their own repos' PRs, not here.
+
+---
+
+## D-004 — Feature-flag convention: a simple owned default-off flag
+
+- **Date:** 2026-06-28
+- **Status:** Accepted
+- **Tier / scope:** Epic · repos: all (kit convention; first used by any flag-gated epic)
+- **Design doc:** this session's stress-test (the flag-mechanism gap)
+
+**Context.** The Epic lane mandates "ship dark behind a feature flag, off by default," but no repo has a
+flag mechanism and the kit never said how to build one — so an agent would invent one mid-epic, itself an
+undesigned new pattern. The owner asked for the best outcome with the most **control and scalability**.
+
+**Decision.** Codify a **tiered** convention in `DESIGN_AND_EPICS.md` §3.3:
+
+- **Default (almost every slice): a simple, owned, default-off flag.** A backend feature → a Pydantic
+  `Settings` boolean `FEATURE_<NAME>_ENABLED=False` (the `fitness-app-backend` `reports` pattern). A
+  frontend-only feature → `NEXT_PUBLIC_<NAME>_ENABLED` read via `serverEnv` (never bare `process.env`). A
+  backend flag the frontend must observe → a small `GET /config/flags` endpoint consumed through the
+  regenerated read-only client. Enabled **last** by an owner-merged infra (terraform) slice.
+- **Out of scope:** per-user / percentage / cohort rollout, remote kill-switches, or A/B are **not** covered
+  by this convention — if a slice needs them, surface it to the owner as a **design decision** before
+  building; never hand-roll per-user flag logic.
+
+**Alternatives considered.**
+
+- *Build or adopt a flag service* — not pursued: it's a multi-week effort with its own infra, authz, and
+  audit surface; out of scope for the standard, to be raised with the owner only if a concrete need arises.
+- *Leave flags undefined / design-gate every time* — rejected: no consistency; every epic re-litigates the basics.
+
+**Trade-offs.** The simple flag has no per-user/percentage targeting — accepted for now; the convention
+names the exact escalation trigger so a service is adopted **deliberately**, requirements known, not prematurely.
+
+**Consequences.** `GET /config/flags`-style endpoints are the sanctioned cross-layer mechanism, and "off by
+default in `main`" is enforced by the owning backend's setting. The standard does **not** commit to a flag
+service; a future need for cohort / percentage / kill-switch rollout is raised with the owner as its own
+design decision.
+
+---
+
+## D-005 — Cross-user public-profile resolution: a hub-owned read-only contract
+
+- **Date:** 2026-06-28
+- **Status:** Accepted
+- **Tier / scope:** Epic · repos: hub (`kriegerdataforge`) owns; all tenant backends consume
+- **Design doc:** this session's stress-test (the leaderboard identity gap)
+
+**Context.** Identity decoupling forbids a tenant DB a per-app user/identity table or a cross-DB FK to
+`kdf_users`, and the SDK maps `sub` → `KDFUser.username` for the **current** token-holder only. So a feature
+that must display **other** users (a leaderboard's names/avatars, social, mentions) had no sanctioned way to
+resolve arbitrary `user_id`s — steering an agent toward either a rule-violating per-app user cache or an
+unflagged hub change.
+
+**Decision.** Add a **fourth contract-ownership row**: *"Other users' public profile"* is owned by the **hub**
+and consumed by tenant backends via a **hub-owned read-only batch endpoint** (e.g. `GET /users/public?ids=…`)
+returning display fields only — **never** a per-app user table or cross-DB FK. Because it extends the hub's
+identity surface, it **leads the contract-first sequence and carries a design note**. Documented in
+`AGENT_OPERATING_STANDARD.md` (contract map + worked example C), `DESIGN_AND_EPICS.md` (Discovery → Identity),
+and `skills.md` (the gamification scenario).
+
+**Alternatives considered.**
+
+- *Per-app user cache table synced from the hub* — rejected: violates identity decoupling; stale-data +
+  ownership problems.
+- *Resolve via the SDK* — rejected: the SDK is auth-only and resolves the current token-holder, not arbitrary
+  ids; widening it couples every tenant to a profile contract.
+
+**Trade-offs.** A leaderboard now depends on a hub round-trip (batchable / cacheable) — accepted; it keeps
+identity single-sourced in the hub.
+
+**Consequences.** The `GET /users/public` batch endpoint is **hub work to implement** when the first
+cross-user-display feature is built: display fields only (no PII beyond the public profile), rate-limited, and
+consumed **read-only** by tenant backends.

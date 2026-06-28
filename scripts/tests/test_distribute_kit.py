@@ -208,3 +208,39 @@ def test_cmd_distribute_reports_failure_rc():
     ):
         rc = dk.cmd_distribute(reg, "tok", None)
     assert rc == 1
+
+
+# ── version-marker consistency ───────────────────────────────────────────────────
+
+
+def test_assert_version_consistency_passes_when_match():
+    marker = MagicMock()
+    marker.is_file.return_value = True
+    marker.read_text.return_value = "v1.2.0\n"
+    with (
+        patch.object(dk, "VENDORED_VERSION_FILE", marker),
+        patch.object(dk, "_kit_version", return_value="v1.2.0"),
+    ):
+        dk._assert_version_consistency()  # no SystemExit
+
+
+def test_assert_version_consistency_exits_on_mismatch():
+    marker = MagicMock()
+    marker.is_file.return_value = True
+    marker.read_text.return_value = "v1.1.0"
+    with (
+        patch.object(dk, "VENDORED_VERSION_FILE", marker),
+        patch.object(dk, "_kit_version", return_value="v1.2.0"),
+        pytest.raises(SystemExit),
+    ):
+        dk._assert_version_consistency()
+
+
+def test_assert_version_consistency_noop_when_marker_absent():
+    marker = MagicMock()
+    marker.is_file.return_value = False
+    with (
+        patch.object(dk, "VENDORED_VERSION_FILE", marker),
+        patch.object(dk, "_kit_version", return_value="v1.2.0"),
+    ):
+        dk._assert_version_consistency()  # returns early, no error

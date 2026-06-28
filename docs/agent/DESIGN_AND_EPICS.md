@@ -1,6 +1,6 @@
 # Design Gate & Epic Playbook — KriegerDataForge
 
-Vendored byte-identical across every KDF repo. This is the deep-dive behind the **Epic lane**
+Kept byte-identical across every KDF repo by the kit-sync engine. This is the deep-dive behind the **Epic lane**
 in [`../../WORKFLOW.md`](../../WORKFLOW.md). Use it whenever the work is **complex/novel** (a
 new subsystem, an auth system, a non-trivial architecture) **or spans more than one repo**.
 
@@ -39,7 +39,10 @@ Before designing, enumerate everything the change touches, so nothing is discove
   respect or explicitly supersede. Coordinate with what exists; don't design in a vacuum.
 - **Contracts** — which API endpoints / OpenAPI schemas / SDK surfaces change?
 - **Data** — which tables/migrations? Is the migration backward-compatible (expand/contract)?
-- **Identity** — does it touch `KDFUser`, JWT claims, scopes, or the per-client OIDC audience?
+- **Identity** — does it touch `KDFUser`, JWT claims, scopes, or the per-client OIDC audience? Does it
+  need to *display other users* (a leaderboard, social, mentions)? That can't be a per-app user table —
+  it needs the **hub's read-only public-profile endpoint** (see the contract-ownership map), an
+  auth-adjacent change that leads the sequence and carries a design note.
 - **Config / secrets** — new env vars or secrets? (Then Terraform + the secrets inventory move too.)
 - **User surfaces** — which screens/flows; what's the flag and the rollout?
 - **Unknowns & assumptions** — list them explicitly; resolve the load-bearing ones with the owner.
@@ -63,7 +66,8 @@ cross-repo work).
 Capture the *decision* (not the whole design) as an **Architecture Decision Record** appended to
 the repo's decision log `docs/CHANGELOG_AND_DECISION_LOG.md` (create it if your repo doesn't have
 one yet — that is the canonical ADR home) using
-[`templates/adr-entry.template.md`](templates/adr-entry.template.md): next `D-NNN` id, context,
+[`templates/adr-entry.template.md`](templates/adr-entry.template.md): the next id (continue the
+repo's existing scheme if its log already uses one — e.g. `ADR-NNN` — otherwise `D-NNN`), context,
 the decision, alternatives considered, trade-offs, and consequences. ADRs are append-only and
 immutable; supersede with a new one rather than editing.
 
@@ -109,7 +113,28 @@ Typical ordering for a per-app feature (no auth-contract change):
 The generated client is **read-only — never hand-edit it; regenerate.** Never build a consumer
 against a contract that doesn't exist yet: backend + contract land first.
 
-### 3.3 Create the epic tracker (in the hub)
+### 3.3 Feature flags — shipping dark in KDF
+
+Every slice ships behind a flag, **off by default**, so `main` stays releasable. KDF's default is a
+**simple, owned flag — no framework**:
+
+- **A backend feature** is gated by a default-off boolean in the owning backend's settings — a Pydantic
+  `Settings` field (e.g. `FEATURE_<NAME>_ENABLED: bool = False`), the same pattern `fitness-app-backend`
+  already uses for its `reports` config. The endpoint short-circuits (404 / empty) while off.
+- **A frontend-only feature** is a default-off `NEXT_PUBLIC_<NAME>_ENABLED`, read through the repo's
+  **`serverEnv` / `publicEnv` schema** — never bare `process.env` (build-inlining drops runtime values).
+- **A backend flag the frontend must observe** is *not* hand-read (the generated client is read-only):
+  the backend exposes a small `GET /config/flags`-style endpoint, the frontend consumes it through the
+  **regenerated client** and gates on it. The epic tracker's `Flag:` field is the owning backend's flag
+  name; the frontend keys off the same name.
+- **Enabling** flips the value in infra (`kriegerdataforge-terraform`) as the **last** slice — an
+  owner-merged change, never an agent one.
+
+That covers ship-dark for almost every epic. **Richer rollout — per-user / percentage / cohort, remote
+kill-switches, A/B — is out of scope for this convention.** If a slice seems to need it, **stop and
+surface it to the owner as a design decision** before building — don't hand-roll per-user flag logic.
+
+### 3.4 Create the epic tracker (in the hub)
 
 For any multi-repo epic, create **one** coordinating tracker in the ecosystem hub:
 `kriegerdataforge/docs/epics/<name>.md` (template:
@@ -119,12 +144,14 @@ ordering, the flag name, and links to the design doc + ADRs. Every slice PR in e
 back to this tracker; the tracker is updated as each slice lands. It is the single source of
 truth for "where is this epic."
 
-### 3.4 Execute & integrate
+### 3.5 Execute & integrate
 
 Run each slice through the Standard lane (plan → `make ci` → PR → green CI). Keep the tracker
-current. When all slices are merged: enable the flag, run the cross-repo end-to-end check, do a
-final review (consider **`/code-review ultra`** on the integrated result), record the outcome in
-the decision log, and mark the epic complete.
+current. When all slices are merged: the **agent** verifies on the local/preview stack with the flag
+forced on (some repos — e.g. `kriegerdataforge-auth-ui` — aren't in the local compose; verify those
+against a preview deploy) and does a final review (consider **`/code-review ultra`** on the integrated
+result). The **owner** merges the infra slice that enables the production flag and authorizes the
+production cross-repo check. Record the outcome in the decision log and mark the epic complete.
 
 > **Parallelism:** independent slices in different repos can be built concurrently (separate
 > sub-agents / git worktrees). Slices with a contract dependency must respect the order above.

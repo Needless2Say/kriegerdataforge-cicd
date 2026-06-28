@@ -7,6 +7,7 @@
 		"docs/agent/AGENT_OPERATING_STANDARD.md",
 		"docs/agent/DESIGN_AND_EPICS.md",
 		"docs/agent/DEFINITION_OF_DONE.md",
+		"docs/agent/KIT_VERSION",
 		"docs/agent/templates/design-spec.template.md",
 		"docs/agent/templates/adr-entry.template.md",
 		"docs/agent/templates/epic-tracker.template.md"

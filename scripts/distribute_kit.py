@@ -56,6 +56,7 @@ REPO_ROOT = SCRIPTS_DIR.parent
 REGISTRY_FILE = SCRIPTS_DIR / "kit_registry.json"
 KIT_DIR = REPO_ROOT / "kit" / "common"
 KIT_VERSION_FILE = REPO_ROOT / "kit" / "KIT_VERSION"
+VENDORED_VERSION_FILE = KIT_DIR / "docs" / "agent" / "KIT_VERSION"
 
 # ============================================================
 # Helpers
@@ -80,6 +81,20 @@ def _kit_version() -> str:
     if KIT_VERSION_FILE.is_file():
         return KIT_VERSION_FILE.read_text(encoding="utf-8").strip()
     return "unknown"
+
+
+def _assert_version_consistency() -> None:
+    """The vendored marker (``docs/agent/KIT_VERSION``, synced into every repo) must match the
+    canonical ``kit/KIT_VERSION`` — bump both together. Guards against shipping a wrong version."""
+    if not VENDORED_VERSION_FILE.is_file():
+        return
+    canonical = _kit_version()
+    vendored = VENDORED_VERSION_FILE.read_text(encoding="utf-8").strip()
+    if vendored != canonical:
+        sys.exit(
+            f"Error: kit version mismatch — kit/KIT_VERSION={canonical!r} but "
+            f"docs/agent/KIT_VERSION={vendored!r}. Bump both together."
+        )
 
 
 def _read_local(rel_path: str) -> str:
@@ -365,6 +380,7 @@ def parse_cli_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_cli_args()
     registry = _load_registry()
+    _assert_version_consistency()
     token = os.environ.get("GH_TOKEN", "").strip()
     if not token:
         sys.exit("Error: GH_TOKEN environment variable not set.")

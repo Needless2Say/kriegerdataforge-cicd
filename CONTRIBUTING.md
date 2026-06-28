@@ -13,7 +13,7 @@ Tier 1 — this repo                   Tier 2 — each tenant repo
 Reusable workflow YAMLs     ←────── .github/workflows/cd.yml (caller)
 Platform scripts                     .github/workflows/ci.yml (app CI)
 Issue templates                      .github/workflows/release.yml
-docs/, prompts/                      App source, Dockerfile, Makefile
+docs/                                App source, Dockerfile, Makefile
 ```
 
 Every tenant repo delegates deployment to a reusable workflow here. The tenant's `cd.yml`

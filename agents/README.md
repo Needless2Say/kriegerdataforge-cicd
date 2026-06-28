@@ -90,6 +90,5 @@ following the same credential isolation model as the deploy workflows.
 
 ## Related Resources
 
-- `prompts/` — Ready-to-use AI prompts that agents can be pre-loaded with
 - `docs/WORKFLOWS.md` — Full catalog of existing reusable workflows
 - `CLAUDE.md` — Repo overview and critical rules for AI agents working in this repo
