@@ -32,19 +32,30 @@ User flow (entry → steps → exit), key screens/components, mobile + accessibi
 
 ## 5. Technical design
 
+- **Best-case design:** what would best serve this repo's (and every touched repo's) vision if
+  effort weren't the constraint? Name it first — *then* state what you're proposing now and why.
 - Approach & key components; how it fits existing architecture and patterns.
-- **API contract** (endpoints, request/response schemas) — *define before consumers*.
+- **API contract** (endpoints, request/response schemas) — defined in the repo that **owns** it,
+  *before* consumers; a per-app API reaches the frontend via its generated client (never hand-edited).
 - **Feature flag:** name + default + enable plan.
 - Alternatives considered (and why rejected) — mirror into the ADR.
 
 ## 6. Data
 
-Tables / fields / enums; migration plan (expand→contract); FKs reference `kdf_users.id`;
-backward-compatibility + rollback.
+Tables / fields / enums; migration plan (expand→contract); backward-compatibility + rollback.
+**Identity:** in the **hub**, user FKs reference `kdf_users.id`; in a **tenant app DB**, `user_id`
+is a plain column from the verified JWT — **no cross-DB FK to `kdf_users`**, no per-app user table.
 
 ## 7. Cross-repo / blast radius
 
-Repos, contracts, secrets/env (Terraform), identity/JWT impact, ordering. (Epic → fill the tracker.)
+Contracts, secrets/env (Terraform), identity/JWT impact, ordering. (Epic → also fill the tracker.)
+**For every repo you touch, fill this in — read each repo's `AGENTS.md` first:**
+
+| Repo | Its vision / purpose (1 line) | Critical rules this change must respect | How this design honors them (or a conflict to escalate) |
+| --- | --- | --- | --- |
+| {repo} | | | |
+
+A conflict between two repos' visions or rules is **surfaced to the owner**, never resolved silently.
 
 ## 8. Success metrics
 

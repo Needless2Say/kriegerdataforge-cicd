@@ -25,6 +25,10 @@ on:
         description: "Optional: only this kit file (e.g. skills.md). Blank = all kit files."
         type: string
         default: ""
+      repos:
+        description: "Optional: comma-separated repo names/substrings to target (e.g. 'kriegerdataforge-sdk, fitness-app-backend', or 'tiffanys' for both). Blank = all repos in the registry. Run 'check' first to preview the list."
+        type: string
+        default: ""
   schedule:
     - cron: "0 12 * * 1" # Mondays 12:00 UTC — weekly drift alarm (check only)
 
@@ -57,10 +61,14 @@ jobs:
           GH_TOKEN: ${{ secrets.CICD_PAT }}
           MODE: ${{ github.event.inputs.mode || 'check' }}
           ONLY: ${{ github.event.inputs.only }}
+          REPOS: ${{ github.event.inputs.repos }}
         run: |
           ARGS=("$MODE")
           if [ -n "$ONLY" ]; then
             ARGS+=(--only "$ONLY")
+          fi
+          if [ -n "$REPOS" ]; then
+            ARGS+=(--repos "$REPOS")
           fi
           echo "Running: distribute_kit.py ${ARGS[*]}"
           python scripts/distribute_kit.py "${ARGS[@]}"

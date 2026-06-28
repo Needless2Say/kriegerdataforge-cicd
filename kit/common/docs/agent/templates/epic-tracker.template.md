@@ -13,19 +13,29 @@ What this epic delivers and the product goal it advances (one paragraph).
 
 ## Blast radius
 
-Repos, contracts, tables/migrations, identity/JWT, secrets/env (Terraform), user surfaces.
+Contracts, tables/migrations, identity/JWT, secrets/env (Terraform), user surfaces — and, for
+**every repo touched** (read each repo's `AGENTS.md` first):
+
+| Repo | Its vision / purpose (1 line) | Critical rules to respect | Vision honored? / conflict to escalate |
+| --- | --- | --- | --- |
+| {repo} | | | |
 
 ## Contract-first sequence
 
-Ordered so no consumer is built before its contract exists.
+Ordered so no consumer is built before its contract exists. **Each contract is defined in the repo
+that owns it:** a per-app API in that app's backend (consumed via its OpenAPI-generated, read-only
+client); the auth/JWT contract in `kriegerdataforge-sdk` (add an SDK slice **only** if that changes).
 
 | # | Slice (vertical, flag-gated) | Repo | Depends on | PR | State |
 | --- | --- | --- | --- | --- | --- |
 | 1 | schema + migration (expand) + endpoint | fitness-app-backend | — | #-- | planned |
-| 2 | extend / regenerate shared contract | kriegerdataforge-sdk | 1 | #-- | planned |
-| 3 | consumer / UI behind flag | fitness-app-frontend | 2 | #-- | planned |
+| 2 | regenerate typed client (`make openapi` → `make generate-client`) | fitness-app-backend → fitness-app-frontend | 1 | #-- | planned |
+| 3 | consumer / UI on the generated client, behind flag | fitness-app-frontend | 2 | #-- | planned |
 | 4 | env vars / secrets / flag wiring | kriegerdataforge-terraform | 1 | #-- | planned |
 | 5 | enable flag + e2e verify + contract (cleanup) migration | — | 1–4 | #-- | planned |
+
+> An **auth/JWT** contract change instead leads with a `kriegerdataforge-sdk` slice (extend/regenerate
+> the shared contract), which lands before the backends that consume it.
 
 ## Rollout & rollback
 
