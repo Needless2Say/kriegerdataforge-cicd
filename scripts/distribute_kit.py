@@ -30,6 +30,9 @@ Usage:
     GH_TOKEN=... python distribute_kit.py check
     GH_TOKEN=... python distribute_kit.py check --only skills.md
     GH_TOKEN=... python distribute_kit.py distribute --only skills.md
+    # Target a subset of repos (comma-separated names/substrings); blank = all:
+    GH_TOKEN=... python distribute_kit.py distribute --repos kriegerdataforge-sdk,fitness-app-backend
+    GH_TOKEN=... python distribute_kit.py check --repos tiffanys   # both tiffanys-* repos
 """
 
 from __future__ import annotations
@@ -95,6 +98,34 @@ def _select_files(registry: dict, only: str | None) -> list[str]:
         if not files:
             sys.exit(f"Error: --only '{only}' matched no files in the registry.")
     return files
+
+
+def _select_repos(registry: dict, repos_arg: str | None) -> list[dict]:
+    """Filter the registry's repos to those matching --repos.
+
+    --repos is a comma-separated list of tokens. A registry entry matches a token if the token
+    equals its full ``owner/repo``, equals its short name, or is a substring of its short name
+    (all case-insensitive). An empty/absent value selects ALL repos. No match is an error.
+    """
+    repos: list[dict] = registry.get("repos", [])
+    if not repos_arg:
+        return repos
+    tokens = [t.strip().lower() for t in repos_arg.split(",") if t.strip()]
+    if not tokens:
+        return repos
+    selected = [
+        entry
+        for entry in repos
+        if any(
+            t == entry["repo"].lower()
+            or t == entry["repo"].split("/", 1)[-1].lower()
+            or t in entry["repo"].split("/", 1)[-1].lower()
+            for t in tokens
+        )
+    ]
+    if not selected:
+        sys.exit(f"Error: --repos '{repos_arg}' matched no repos in the registry.")
+    return selected
 
 
 def _get_remote_file(
@@ -209,10 +240,10 @@ def _create_pr(
 # ============================================================
 
 
-def cmd_check(registry: dict, token: str, only: str | None) -> int:
+def cmd_check(registry: dict, token: str, only: str | None, repos_arg: str | None = None) -> int:
     """Read-only drift report. Exit 1 if any repo is out of sync or errored."""
     files = _select_files(registry, only)
-    repos: list[dict] = registry.get("repos", [])
+    repos: list[dict] = _select_repos(registry, repos_arg)
     version = _kit_version()
     print(f"Checking agentic-workflow kit {version} across {len(repos)} repo(s), {len(files)} file(s):")
 
@@ -243,10 +274,10 @@ def cmd_check(registry: dict, token: str, only: str | None) -> int:
     return 0
 
 
-def cmd_distribute(registry: dict, token: str, only: str | None) -> int:
+def cmd_distribute(registry: dict, token: str, only: str | None, repos_arg: str | None = None) -> int:
     """Open one sync PR per drifted repo. Never auto-merges."""
     files = _select_files(registry, only)
-    repos: list[dict] = registry.get("repos", [])
+    repos: list[dict] = _select_repos(registry, repos_arg)
     version = _kit_version()
     sync_branch = f"chore/kit-sync-{version}"
     title = f"chore(kit): sync agentic-workflow kit {version}"
@@ -303,10 +334,12 @@ def parse_cli_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  # Read-only drift report (scheduled drift alarm)\n"
+            "  # Read-only drift report across all repos (scheduled drift alarm)\n"
             "  GH_TOKEN=... python distribute_kit.py check\n\n"
             "  # Open sync PRs for skills.md only (v1 scope)\n"
-            "  GH_TOKEN=... python distribute_kit.py distribute --only skills.md"
+            "  GH_TOKEN=... python distribute_kit.py distribute --only skills.md\n\n"
+            "  # Target a subset of repos (comma-separated names/substrings); blank = all\n"
+            "  GH_TOKEN=... python distribute_kit.py distribute --repos kriegerdataforge-sdk,fitness-app-backend"
         ),
     )
     parser.add_argument(
@@ -319,6 +352,15 @@ def parse_cli_args() -> argparse.Namespace:
         default=None,
         help="Only operate on kit files whose path contains this substring (e.g. 'skills.md').",
     )
+    parser.add_argument(
+        "--repos",
+        default=None,
+        help=(
+            "Only operate on these repos (comma-separated names or substrings, e.g. "
+            "'kriegerdataforge-sdk,fitness-app-backend'). Matches the full owner/repo, the short "
+            "name, or a substring of it. Blank = all repos in the registry."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -330,9 +372,9 @@ def main() -> None:
         sys.exit("Error: GH_TOKEN environment variable not set.")
 
     if args.mode == "check":
-        sys.exit(cmd_check(registry, token, args.only))
+        sys.exit(cmd_check(registry, token, args.only, args.repos))
     else:
-        sys.exit(cmd_distribute(registry, token, args.only))
+        sys.exit(cmd_distribute(registry, token, args.only, args.repos))
 
 
 if __name__ == "__main__":

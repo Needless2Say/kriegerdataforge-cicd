@@ -48,6 +48,41 @@ def test_select_files_only_no_match_exits(registry):
         dk._select_files(registry, "does-not-exist.md")
 
 
+def test_select_repos_all(registry):
+    assert dk._select_repos(registry, None) == registry["repos"]
+    assert dk._select_repos(registry, "") == registry["repos"]
+    assert dk._select_repos(registry, "  ,  ") == registry["repos"]
+
+
+def test_select_repos_filters_subset(registry):
+    sel = dk._select_repos(registry, "repo-a")
+    assert [e["repo"] for e in sel] == ["Needless2Say/repo-a"]
+
+
+def test_select_repos_multiple_tokens(registry):
+    sel = dk._select_repos(registry, "repo-a, repo-b")
+    assert [e["repo"] for e in sel] == ["Needless2Say/repo-a", "Needless2Say/repo-b"]
+
+
+def test_select_repos_substring_matches_many(registry):
+    # the shared substring "repo-" matches both repo-a and repo-b
+    assert len(dk._select_repos(registry, "repo-")) == 2
+
+
+def test_select_repos_full_owner_repo(registry):
+    sel = dk._select_repos(registry, "Needless2Say/repo-b")
+    assert [e["repo"] for e in sel] == ["Needless2Say/repo-b"]
+
+
+def test_select_repos_case_insensitive(registry):
+    assert len(dk._select_repos(registry, "REPO-A")) == 1
+
+
+def test_select_repos_no_match_exits(registry):
+    with pytest.raises(SystemExit):
+        dk._select_repos(registry, "nonexistent")
+
+
 # ── Contents API helper ──────────────────────────────────────────────────────────
 
 
@@ -112,6 +147,20 @@ def test_cmd_check_returns_1_on_drift(registry):
 def test_cmd_check_returns_1_on_error(registry):
     with patch.object(dk, "compute_drift", side_effect=RuntimeError("boom")):
         assert dk.cmd_check(registry, "tok", None) == 1
+
+
+def test_cmd_check_respects_repos_filter(registry):
+    """With --repos, only the selected repos are checked."""
+    checked: list[str] = []
+
+    def fake_drift(_token, repo, _branch, _files):
+        checked.append(repo)
+        return []
+
+    with patch.object(dk, "compute_drift", side_effect=fake_drift):
+        rc = dk.cmd_check(registry, "tok", None, "repo-b")
+    assert rc == 0
+    assert checked == ["Needless2Say/repo-b"]
 
 
 # ── distribute mode ──────────────────────────────────────────────────────────────
