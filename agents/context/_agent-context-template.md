@@ -43,7 +43,7 @@ The system prompt loaded into the AI for this agent's task. This should be the c
 source — keep it in sync with the workflow's actual prompt string.
 
 ```
-[Paste the system prompt here, or reference a file in prompts/ that this agent uses]
+[Paste the system prompt here]
 ```
 
 ---
