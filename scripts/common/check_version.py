@@ -96,8 +96,27 @@ def _get_main_version(cwd: Path) -> str | None:
 # PR would otherwise fail this gate. When a PR changes ONLY kit paths, skip the
 # version check. Outside a PR (no GITHUB_BASE_REF — local runs, pushes) the normal
 # check always runs.
-KIT_EXEMPT_FILES = {"skills.md", "WORKFLOW.md"}
+#
+# The exempt FILE set is DERIVED from the kit registry (scripts/kit_registry.json) — the
+# single source of truth for what distribute_kit.py syncs — so it can never drift from the
+# synced set. The static fallback is used only if the registry isn't co-located with this
+# script (consumer CI checks out cicd beside it as `.cicd/`, so it normally is). The prefix
+# covers docs/agent/** without enumerating every template path.
+_REGISTRY_FILE = Path(__file__).resolve().parent.parent / "kit_registry.json"
+KIT_EXEMPT_FILES_FALLBACK = {"skills.md", "WORKFLOW.md"}
 KIT_EXEMPT_PREFIXES = ("docs/agent/",)
+
+
+def _kit_exempt_files() -> set[str]:
+    """Kit files exempt from the version check — the kit registry's file list unioned with
+    the static fallback. Returns just the fallback if the registry can't be read."""
+    files = set(KIT_EXEMPT_FILES_FALLBACK)
+    try:
+        data = json.loads(_REGISTRY_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return files
+    files.update(f for f in data.get("files", []) if isinstance(f, str))
+    return files
 
 
 def _changed_files(cwd: Path, base_ref: str) -> list[str]:
@@ -127,8 +146,9 @@ def _is_kit_only_pr(cwd: Path) -> bool:
     files = _changed_files(cwd, base_ref)
     if not files:
         return False
+    exempt = _kit_exempt_files()
     for f in files:
-        if f in KIT_EXEMPT_FILES:
+        if f in exempt:
             continue
         if any(f.startswith(p) for p in KIT_EXEMPT_PREFIXES):
             continue
