@@ -59,3 +59,44 @@ is sync-excluded, so its root-level kit copies are updated in this same change. 
 keep `AGENT_OPERATING_STANDARD.md` consistent with the operational files (the doc defers to them on
 conflict). The contract-ownership rule and the identity-decoupling FK split (hub FK vs tenant plain
 `user_id`) are now invariants every cross-repo design must respect.
+
+---
+
+## D-002 — Ops Console: issue-form front-ends for privileged operations
+
+- **Date:** 2026-06-27
+- **Status:** Accepted
+- **Tier / scope:** Epic · repos: `kriegerdataforge-cicd` (effects span the ecosystem)
+- **Design doc:** [`docs/design/ops-console.md`](design/ops-console.md)
+
+**Context.** `workflow_dispatch` cannot multi-select (its `choice` input is single-select), so targeting a
+subset of repos for kit distribution meant typing exact names. Privileged ops also left no first-class
+record. And this repo is **public** (not yet an org), so anyone can open an issue — authorization, not
+obscurity, must be the control. GitHub **issue forms** support multi-select `dropdown`s and `checkboxes`,
+and the repo already runs a proven issue-form → parser → owner-gated workflow (`issue-create-repo.yml`).
+
+**Decision.** Add an **Ops Console**: issue-form front-ends (`.github/ISSUE_TEMPLATE/ops-*.yml`) for
+privileged operations (kit distribution, secret rotation), each driven by a parser workflow that **reuses a
+single fail-closed owner-only gate** (`_authorize-owner.yml`, comparing `github.triggering_actor` to
+`github.repository_owner`) and calls the **existing engine scripts** (`distribute_kit.py`, `rotate_*.py`).
+One engine, multiple front-ends — `workflow_dispatch`/cron are retained for automation and the scheduled
+drift/expiry alarms. Trigger is a **manually-applied `ops:*` label** (deliberate go); destructive ops
+require a confirmation checkbox; parsed issue content is treated as untrusted (passed via `env:` only,
+never inlined into `run:`, and allow-listed before use). No secret value ever appears in an issue.
+
+**Alternatives considered.**
+
+- *`workflow_dispatch` free-text repo list* — shipped as the CLI/automation path, but no multi-select and
+  poor discoverability for humans; kept, not removed.
+- *A custom web UI / external tool* — rejected: heavyweight; issues already give UI + audit + access control.
+- *Auto-applying the trigger label from the form* — rejected: would run the workflow on every opened issue
+  (noise/abuse surface). Manual labeling by the owner is the deliberate, owner-only trigger.
+
+**Trade-offs.** More YAML (forms + parser workflows + the reusable gate) and option lists to keep roughly in
+sync with the registries — accepted, because the audit trail + multi-select UX + a single centralized
+authorization gate are worth it for privileged ops, and it is one shared pattern.
+
+**Consequences.** Create the `ops`, `ops:distribute-kit`, `ops:rotate-secrets` labels. The GH-PAT rotation
+flow depends on the owner pre-setting `GH_PACKAGES_PAT_NEW` (GitHub can't generate PATs); the workflow
+guards on it. Every new privileged operation should be added as another `ops-*` form + a thin parser
+workflow that `needs:` the same `_authorize-owner.yml` gate — never a new ad-hoc gate.

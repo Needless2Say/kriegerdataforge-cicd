@@ -1,0 +1,135 @@
+name: Ops · Distribute kit (issue-triggered)
+
+# Issue-form front-end for distribute_kit.py. Triggered ONLY when the `ops:distribute-kit`
+# label is added (a deliberate, owner-applied "go"). Authorization is enforced by the reusable
+# owner-only gate; this repo is public, so the gate — not obscurity — is the control.
+#
+# Issue content is untrusted: parsed values flow through env vars into an argv array, never
+# inlined into a shell string, and `mode` is allow-listed before use.
+
+on:
+  issues:
+    types:
+      - labeled
+
+permissions:
+  contents: read
+
+jobs:
+  authorize:
+    if: github.event.action == 'labeled' && github.event.label.name == 'ops:distribute-kit'
+    uses: ./.github/workflows/_authorize-owner.yml
+
+  run:
+    name: Distribute kit
+    needs: authorize
+    # Belt-and-suspenders: needs-success (the gate exit 1s on a non-owner) AND the gate's explicit
+    # authorized output AND the label/action pins. No status function here, so the implicit
+    # needs:authorize success requirement is preserved (a denied gate skips this job).
+    if: >-
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'ops:distribute-kit' &&
+      needs.authorize.outputs.authorized == 'true'
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Parse issue form
+        id: parse
+        uses: peter-murray/issue-forms-body-parser@22e5d90e6a607073d08891bc036461971cbcfb45 # v4
+        with:
+          issue_id: ${{ github.event.issue.number }}
+          separator: "###"
+          label_marker_start: ">>"
+          label_marker_end: "<<"
+
+      - name: Extract and validate fields
+        id: fields
+        env:
+          PAYLOAD: ${{ steps.parse.outputs.payload }}
+        run: |
+          MODE="$(echo "$PAYLOAD" | jq -r '."Mode" // empty')"
+          REPOS="$(echo "$PAYLOAD" | jq -r '."Target repos" // empty')"
+          ONLY="$(echo "$PAYLOAD" | jq -r '."Kit file filter" // empty')"
+
+          # Allow-list the mode — never trust the parsed value.
+          case "$MODE" in
+            check|distribute) ;;
+            *) echo "::error::invalid or missing mode: '${MODE}'"; exit 1 ;;
+          esac
+
+          # Issue forms render an empty optional field as "_No response_".
+          if [ "$ONLY" = "_No response_" ] || [ "$ONLY" = "null" ]; then ONLY=""; fi
+          # Strip newlines from the free-text field (avoid GITHUB_OUTPUT injection).
+          ONLY="$(printf '%s' "$ONLY" | tr -d '\r\n')"
+
+          # A multi-select dropdown may render comma- or newline-separated — strip CR, then
+          # newlines -> commas (also blocks GITHUB_OUTPUT injection via embedded newlines).
+          REPOS="$(printf '%s' "$REPOS" | tr -d '\r' | tr '\n' ',')"
+          # ALL means "no repo filter" only when it is a selected option (exact comma-token),
+          # never a substring elsewhere in the value -> sync every registry repo.
+          if printf '%s' "$REPOS" | tr ',' '\n' | grep -qix "ALL"; then REPOS=""; fi
+
+          {
+            echo "mode=$MODE"
+            echo "repos=$REPOS"
+            echo "only=$ONLY"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run distribute_kit
+        id: dist
+        env:
+          GH_TOKEN: ${{ secrets.CICD_PAT }}
+          MODE: ${{ steps.fields.outputs.mode }}
+          REPOS: ${{ steps.fields.outputs.repos }}
+          ONLY: ${{ steps.fields.outputs.only }}
+        run: |
+          ARGS=("$MODE")
+          if [ -n "$REPOS" ]; then ARGS+=(--repos "$REPOS"); fi
+          if [ -n "$ONLY" ]; then ARGS+=(--only "$ONLY"); fi
+          echo "cmd=distribute_kit.py ${ARGS[*]}" >> "$GITHUB_OUTPUT"
+          echo "Running: distribute_kit.py ${ARGS[*]}"
+          set +e
+          python scripts/distribute_kit.py "${ARGS[@]}" > result.txt 2>&1
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          cat result.txt
+
+      - name: Comment result on the issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          CMD: ${{ steps.dist.outputs.cmd }}
+        run: |
+          {
+            echo "### Ops — kit distribution result"
+            echo
+            echo "Command: \`${CMD:-distribute_kit.py (did not run)}\`"
+            echo
+            echo '```'
+            cat result.txt 2>/dev/null || echo "(no output captured — an earlier step failed)"
+            echo '```'
+          } > comment.md
+          gh issue comment "$ISSUE" --repo "$REPO" --body-file comment.md
+
+      - name: Fail the run if a distribute pass errored
+        if: steps.fields.outputs.mode == 'distribute' && steps.dist.outputs.rc != '0'
+        env:
+          RC: ${{ steps.dist.outputs.rc }}
+        run: |
+          echo "::error::distribute_kit exited ${RC} — see the issue comment."
+          exit 1

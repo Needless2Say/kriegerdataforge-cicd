@@ -1,0 +1,45 @@
+name: Authorize (owner-only)
+
+# Reusable fail-closed authorization gate for privileged "Ops Console" workflows.
+#
+# This repo is PUBLIC, so anyone can open an issue. Authorization — not obscurity — is the
+# control. Every privileged ops workflow calls this as a job and `needs:` it; if the check
+# fails the privileged job is skipped (fail closed).
+#
+# We compare github.triggering_actor (NOT github.event.sender.login) to github.repository_owner
+# so that a manual "Re-run jobs" is attributed to whoever re-ran it, not the frozen original
+# actor in the stored event payload. The comparison is case-insensitive (GitHub logins are) and
+# is never hard-coded to a username.
+
+on:
+  workflow_call:
+    outputs:
+      authorized:
+        description: "'true' only when the triggering actor is the repository owner."
+        value: ${{ jobs.verify.outputs.authorized }}
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify triggering actor is the repository owner
+    runs-on: ubuntu-slim
+    outputs:
+      authorized: ${{ steps.check.outputs.authorized }}
+    steps:
+      - name: Compare actor to repository owner
+        id: check
+        env:
+          ACTOR: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          actor_lc="$(printf '%s' "$ACTOR" | tr '[:upper:]' '[:lower:]')"
+          owner_lc="$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')"
+          if [ -z "$actor_lc" ] || [ "$actor_lc" != "$owner_lc" ]; then
+            echo "::error::DENIED: '${ACTOR}' is not the repository owner ('${OWNER}'). These ops run with CICD_PAT (org-wide secrets/admin) — failing closed."
+            echo "authorized=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "OK: '${ACTOR}' is the repository owner — authorized."
+          echo "authorized=true" >> "$GITHUB_OUTPUT"

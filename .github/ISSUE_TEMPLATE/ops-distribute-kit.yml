@@ -1,0 +1,69 @@
+name: "Ops · Distribute Agentic-Workflow Kit"
+description: "Owner-only: sync the agentic-workflow kit to selected repos (check or open PRs)."
+title: "[Ops] Distribute kit: "
+labels:
+  - ops
+assignees:
+  - Needless2Say
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Distribute the agentic-workflow kit
+        Fill in the fields, submit, then **add the `ops:distribute-kit` label** to run.
+        Only the repository owner can actually run it (the workflow fails closed otherwise).
+
+        - **check** — read-only drift report; opens nothing.
+        - **distribute** — opens **one review-gated PR per drifted repo** (never auto-merges).
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      description: "check = drift report only · distribute = open sync PRs"
+      options:
+        - check
+        - distribute
+    validations:
+      required: true
+
+  - type: dropdown
+    id: repos
+    attributes:
+      label: Target repos
+      description: "Multi-select. Pick ALL, or any subset. (If ALL is selected, the rest is ignored.)"
+      multiple: true
+      options:
+        - ALL
+        - kriegerdataforge
+        - kriegerdataforge-sdk
+        - kriegerdataforge-terraform
+        - kriegerdataforge-auth-ui
+        - fitness-app-frontend
+        - fitness-app-backend
+        - tiffanys-space
+        - tiffanys-space-backend
+        - arthurs-portfolio
+        - kriegerdataforge-portfolio
+        - kriegerdataforge-template-nextjs
+        - kriegerdataforge-template-fastapi
+        - kriegerdataforge-template-npm-package
+        - kriegerdataforge-template-python-package
+    validations:
+      required: true
+
+  - type: input
+    id: only
+    attributes:
+      label: Kit file filter
+      description: "Optional: only sync one kit file (e.g. skills.md). Blank = all kit files."
+      placeholder: "(blank = all files)"
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        ▶ **To run:** add the **`ops:distribute-kit`** label to this issue. Re-add it to re-run.
