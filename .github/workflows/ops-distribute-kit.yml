@@ -46,23 +46,27 @@ jobs:
       - name: Install dependencies
         run: pip install -r scripts/requirements.txt
 
-      - name: Parse issue form
-        id: parse
-        uses: peter-murray/issue-forms-body-parser@22e5d90e6a607073d08891bc036461971cbcfb45 # v4
-        with:
-          issue_id: ${{ github.event.issue.number }}
-          separator: "###"
-          label_marker_start: ">>"
-          label_marker_end: "<<"
-
       - name: Extract and validate fields
         id: fields
         env:
-          PAYLOAD: ${{ steps.parse.outputs.payload }}
+          # Untrusted issue-form body — only ever read as awk DATA (here-string), never inlined into
+          # a command, and every extracted value is allow-listed/normalized below.
+          BODY: ${{ github.event.issue.body }}
         run: |
-          MODE="$(echo "$PAYLOAD" | jq -r '."Mode" // empty')"
-          REPOS="$(echo "$PAYLOAD" | jq -r '."Target repos" // empty')"
-          ONLY="$(echo "$PAYLOAD" | jq -r '."Kit file filter" // empty')"
+          # Self-parse the issue-form body ("### <Label>\n\n<value>...") — no third-party action
+          # (so no Node-20 deprecation, no marker-config quirks). field() prints the non-empty lines
+          # under a "### <Label>" heading, up to the next heading.
+          field() {
+            awk -v lbl="### $1" '
+              { sub(/\r$/, "") }
+              $0 == lbl { cap = 1; next }
+              /^### / { cap = 0 }
+              cap && NF { print }
+            ' <<< "$BODY"
+          }
+          MODE="$(field "Mode" | head -1)"
+          REPOS="$(field "Target repos" | tr '\n' ',')"
+          ONLY="$(field "Kit file filter" | head -1)"
 
           # Allow-list the mode — never trust the parsed value.
           case "$MODE" in
@@ -71,15 +75,13 @@ jobs:
           esac
 
           # Issue forms render an empty optional field as "_No response_".
-          if [ "$ONLY" = "_No response_" ] || [ "$ONLY" = "null" ]; then ONLY=""; fi
-          # Strip newlines from the free-text field (avoid GITHUB_OUTPUT injection).
+          if [ "$ONLY" = "_No response_" ]; then ONLY=""; fi
           ONLY="$(printf '%s' "$ONLY" | tr -d '\r\n')"
 
-          # A multi-select dropdown may render comma- or newline-separated — strip CR, then
-          # newlines -> commas (also blocks GITHUB_OUTPUT injection via embedded newlines).
-          REPOS="$(printf '%s' "$REPOS" | tr -d '\r' | tr '\n' ',')"
-          # ALL means "no repo filter" only when it is a selected option (exact comma-token),
-          # never a substring elsewhere in the value -> sync every registry repo.
+          # repos arrives comma-joined; trim trailing comma + CR. ALL (an exact comma-token) means
+          # "no repo filter" -> sync every registry repo.
+          REPOS="$(printf '%s' "$REPOS" | tr -d '\r')"
+          REPOS="${REPOS%,}"
           if printf '%s' "$REPOS" | tr ',' '\n' | grep -qix "ALL"; then REPOS=""; fi
 
           {

@@ -37,9 +37,23 @@ jobs:
           actor_lc="$(printf '%s' "$ACTOR" | tr '[:upper:]' '[:lower:]')"
           owner_lc="$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')"
           if [ -z "$actor_lc" ] || [ "$actor_lc" != "$owner_lc" ]; then
-            echo "::error::DENIED: '${ACTOR}' is not the repository owner ('${OWNER}'). These ops run with CICD_PAT (org-wide secrets/admin) — failing closed."
+            msg="DENIED: '${ACTOR}' is not the repository owner ('${OWNER}'). These ops run with CICD_PAT (org-wide secrets/admin) — failing closed."
+            echo "::error::${msg}"
+            {
+              echo "### Ops authorization"
+              echo ""
+              echo "${msg}"
+            } >> "$GITHUB_STEP_SUMMARY"
             echo "authorized=false" >> "$GITHUB_OUTPUT"
             exit 1
           fi
-          echo "OK: '${ACTOR}' is the repository owner — authorized."
+          msg="OK: '${ACTOR}' is the repository owner — authorized to run this workflow."
+          # ::notice:: surfaces it in the run's Annotations; the step summary shows it on the run page
+          # (same style as the deployer authorization check, check_deployer.py _emit).
+          echo "::notice title=Ops authorization::${msg}"
+          {
+            echo "### Ops authorization"
+            echo ""
+            echo "${msg}"
+          } >> "$GITHUB_STEP_SUMMARY"
           echo "authorized=true" >> "$GITHUB_OUTPUT"
