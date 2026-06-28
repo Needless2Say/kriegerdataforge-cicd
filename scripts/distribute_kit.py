@@ -30,9 +30,9 @@ Usage:
     GH_TOKEN=... python distribute_kit.py check
     GH_TOKEN=... python distribute_kit.py check --only skills.md
     GH_TOKEN=... python distribute_kit.py distribute --only skills.md
-    # Target a subset of repos (comma-separated names/substrings); blank = all:
+    # Target a subset of repos (comma-separated exact names); blank = all:
     GH_TOKEN=... python distribute_kit.py distribute --repos kriegerdataforge-sdk,fitness-app-backend
-    GH_TOKEN=... python distribute_kit.py check --repos tiffanys   # both tiffanys-* repos
+    GH_TOKEN=... python distribute_kit.py check --repos tiffanys-space,tiffanys-space-backend
 """
 
 from __future__ import annotations
@@ -101,30 +101,28 @@ def _select_files(registry: dict, only: str | None) -> list[str]:
 
 
 def _select_repos(registry: dict, repos_arg: str | None) -> list[dict]:
-    """Filter the registry's repos to those matching --repos.
+    """Filter the registry's repos to those named in --repos.
 
-    --repos is a comma-separated list of tokens. A registry entry matches a token if the token
-    equals its full ``owner/repo``, equals its short name, or is a substring of its short name
-    (all case-insensitive). An empty/absent value selects ALL repos. No match is an error.
+    --repos is a comma-separated list of names. A registry entry matches a name if the name
+    **equals** its full ``owner/repo`` or its short name (case-insensitive) — an **exact** match,
+    not a substring, so one name never fans out to siblings (e.g. ``kriegerdataforge`` selects only
+    the hub, not ``kriegerdataforge-sdk``). An empty/absent value selects ALL repos. No match is an
+    error. To target several repos, list them: ``--repos tiffanys-space,tiffanys-space-backend``.
     """
     repos: list[dict] = registry.get("repos", [])
     if not repos_arg:
         return repos
-    tokens = [t.strip().lower() for t in repos_arg.split(",") if t.strip()]
+    tokens = {t.strip().lower() for t in repos_arg.split(",") if t.strip()}
     if not tokens:
         return repos
     selected = [
         entry
         for entry in repos
-        if any(
-            t == entry["repo"].lower()
-            or t == entry["repo"].split("/", 1)[-1].lower()
-            or t in entry["repo"].split("/", 1)[-1].lower()
-            for t in tokens
-        )
+        if entry["repo"].lower() in tokens
+        or entry["repo"].split("/", 1)[-1].lower() in tokens
     ]
     if not selected:
-        sys.exit(f"Error: --repos '{repos_arg}' matched no repos in the registry.")
+        sys.exit(f"Error: --repos '{repos_arg}' matched no repos in the registry (names are exact).")
     return selected
 
 
@@ -356,9 +354,9 @@ def parse_cli_args() -> argparse.Namespace:
         "--repos",
         default=None,
         help=(
-            "Only operate on these repos (comma-separated names or substrings, e.g. "
-            "'kriegerdataforge-sdk,fitness-app-backend'). Matches the full owner/repo, the short "
-            "name, or a substring of it. Blank = all repos in the registry."
+            "Only operate on these repos (comma-separated EXACT names, e.g. "
+            "'kriegerdataforge-sdk,fitness-app-backend'). Matches the full owner/repo or the short "
+            "name exactly (not a substring). Blank = all repos in the registry."
         ),
     )
     return parser.parse_args()

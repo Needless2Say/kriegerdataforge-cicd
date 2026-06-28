@@ -64,9 +64,13 @@ def test_select_repos_multiple_tokens(registry):
     assert [e["repo"] for e in sel] == ["Needless2Say/repo-a", "Needless2Say/repo-b"]
 
 
-def test_select_repos_substring_matches_many(registry):
-    # the shared substring "repo-" matches both repo-a and repo-b
-    assert len(dk._select_repos(registry, "repo-")) == 2
+def test_select_repos_is_exact_not_substring(registry):
+    # "repo" is a substring of both but an exact match of neither -> no match (exits).
+    with pytest.raises(SystemExit):
+        dk._select_repos(registry, "repo")
+    # a partial like "repo-" must not fan out to repo-a/repo-b either.
+    with pytest.raises(SystemExit):
+        dk._select_repos(registry, "repo-")
 
 
 def test_select_repos_full_owner_repo(registry):
