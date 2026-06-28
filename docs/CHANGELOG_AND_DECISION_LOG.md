@@ -155,7 +155,7 @@ two PR templates — are fixed in their own repos' PRs, not here.
 
 ---
 
-## D-004 — Feature-flag convention: a simple owned flag now, a flag service as a design-gated escalation
+## D-004 — Feature-flag convention: a simple owned default-off flag
 
 - **Date:** 2026-06-28
 - **Status:** Accepted
@@ -173,21 +173,23 @@ undesigned new pattern. The owner asked for the best outcome with the most **con
   frontend-only feature → `NEXT_PUBLIC_<NAME>_ENABLED` read via `serverEnv` (never bare `process.env`). A
   backend flag the frontend must observe → a small `GET /config/flags` endpoint consumed through the
   regenerated read-only client. Enabled **last** by an owner-merged infra (terraform) slice.
-- **Escalation (scalability):** per-user / percentage / cohort rollout, remote kill-switches, or A/B belong
-  to a **dedicated feature-flag service**, adopted via its **own design gate** — not invented mid-slice.
+- **Out of scope:** per-user / percentage / cohort rollout, remote kill-switches, or A/B are **not** covered
+  by this convention — if a slice needs them, surface it to the owner as a **design decision** before
+  building; never hand-roll per-user flag logic.
 
 **Alternatives considered.**
 
-- *Build a flag service now* — deferred: it's a multi-week epic with its own infra, authz, and audit
-  surface; bundling it into a docs-hardening change would violate the standard's own design-before-code rule.
+- *Build or adopt a flag service* — not pursued: it's a multi-week effort with its own infra, authz, and
+  audit surface; out of scope for the standard, to be raised with the owner only if a concrete need arises.
 - *Leave flags undefined / design-gate every time* — rejected: no consistency; every epic re-litigates the basics.
 
 **Trade-offs.** The simple flag has no per-user/percentage targeting — accepted for now; the convention
 names the exact escalation trigger so a service is adopted **deliberately**, requirements known, not prematurely.
 
-**Consequences.** Roadmap: **"evaluate / stand up a feature-flag service"** is a design-gated epic to scope
-when the first slice needs cohort/%/kill-switch rollout. Until then, `GET /config/flags`-style endpoints are
-the sanctioned cross-layer mechanism, and "off by default in `main`" is enforced by the owning backend's setting.
+**Consequences.** `GET /config/flags`-style endpoints are the sanctioned cross-layer mechanism, and "off by
+default in `main`" is enforced by the owning backend's setting. The standard does **not** commit to a flag
+service; a future need for cohort / percentage / kill-switch rollout is raised with the owner as its own
+design decision.
 
 ---
 

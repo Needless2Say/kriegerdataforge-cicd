@@ -131,9 +131,8 @@ Every slice ships behind a flag, **off by default**, so `main` stays releasable.
   owner-merged change, never an agent one.
 
 That covers ship-dark for almost every epic. **Richer rollout — per-user / percentage / cohort, remote
-kill-switches, A/B — is a different thing:** it belongs to a dedicated feature-flag service, and
-standing one up is its **own design-gated epic**, not something you invent mid-slice. If a slice seems
-to need it, stop and surface it to the owner rather than hand-rolling per-user flag logic.
+kill-switches, A/B — is out of scope for this convention.** If a slice seems to need it, **stop and
+surface it to the owner as a design decision** before building — don't hand-roll per-user flag logic.
 
 ### 3.4 Create the epic tracker (in the hub)
 
