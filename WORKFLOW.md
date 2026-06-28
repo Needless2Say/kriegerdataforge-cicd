@@ -1,8 +1,9 @@
 # Standard Workflow — KriegerDataForge
 
-Vendored **byte-identical** across every KriegerDataForge repo. The loop is the same
-everywhere; the repo-specific detail (vision, stack, commands, required reading) lives in
-[`AGENTS.md`](./AGENTS.md). Read `AGENTS.md` first, then follow this.
+The canonical source is `kriegerdataforge-cicd/kit/common/`; the kit-sync engine keeps this file
+**byte-identical** across every KriegerDataForge repo (drift is flagged weekly and re-synced). The
+loop is the same everywhere; the repo-specific detail (vision, stack, commands, required reading)
+lives in [`AGENTS.md`](./AGENTS.md). Read `AGENTS.md` first, then follow this.
 
 New here, or want the *why* behind these rules? Read
 [`docs/agent/AGENT_OPERATING_STANDARD.md`](docs/agent/AGENT_OPERATING_STANDARD.md) once — the whole
@@ -37,8 +38,9 @@ most expensive mistake.
 
 ## Quick lane
 
-Implement → `make ci` **green** → bump version → branch → PR (say *what* and *why*) →
-confirm GitHub CI green → hand back. No formal plan needed. The moment it stops being a
+Implement → `make ci` **green** (plus any repo-mandatory post-build sync — `AGENTS.md` calls these
+out, e.g. `make vercel-compact` after an `api/` change) → bump version → branch → PR (say *what* and
+*why*) → confirm GitHub CI green → hand back. No formal plan needed. The moment it stops being a
 1-file no-behavior change, switch to Standard.
 
 ---
@@ -85,9 +87,13 @@ make ci
 
 `make help` lists targets; a few repos use a stricter gate (e.g. `make ci-strict`) — check the
 Makefile. Then bump the version with the repo's script (`make bump-patch` / `bump-minor` /
-`bump-major`); some repos need a follow-up sync (the auth service: `make vercel-compact`) —
-`AGENTS.md` calls these out. Stage files **explicitly**; never `git add -A`. Confirm your change
-meets [`docs/agent/DEFINITION_OF_DONE.md`](docs/agent/DEFINITION_OF_DONE.md) for its change type.
+`bump-major`) — **pick the level by impact:** no behavior/contract change → patch; a
+backward-compatible feature or additive contract → minor; a breaking API/schema/contract change →
+major. (The CI version check only verifies the version is consistent across files and strictly ahead
+of `main` — it does **not** police your level choice; that judgment is yours.) Some repos need a
+follow-up sync (the auth service: `make vercel-compact`) — `AGENTS.md` calls these out. Stage files
+**explicitly**; never `git add -A`. Confirm your change meets
+[`docs/agent/DEFINITION_OF_DONE.md`](docs/agent/DEFINITION_OF_DONE.md) for its change type.
 
 ### 5. Branch, commit, PR, push
 
@@ -139,8 +145,12 @@ Standard-lane PRs. Full detail: [`docs/agent/DESIGN_AND_EPICS.md`](docs/agent/DE
    [`docs/agent/templates/epic-tracker.template.md`](docs/agent/templates/epic-tracker.template.md)).
 5. **Execute slices** — run **each slice through the Standard lane** as its own PR in its own
    repo, linked back to the epic tracker. Update the tracker's status grid as each slice lands.
-6. **Integrate & verify** — enable the flag, run an end-to-end check across repos, do a final
-   review (consider **`/code-review ultra`**), update the decision log, and close the epic.
+6. **Integrate & verify** — the **agent** verifies each slice on the local/preview stack with the
+   flag forced on (some repos, e.g. `kriegerdataforge-auth-ui`, aren't in the local compose — verify
+   those against a preview deploy or standalone) and does a final review (consider
+   **`/code-review ultra`**). The **owner** merges the infra/flag-wiring slice that enables the
+   production flag and authorizes the production cross-repo check; then update the decision log and
+   close the epic.
 
 ---
 

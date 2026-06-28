@@ -1,6 +1,6 @@
 # The KriegerDataForge AI Agent Operating Standard
 
-> Vendored **byte-identical** across every KriegerDataForge (KDF) repo. This is the human-readable
+> The kit-sync engine keeps this doc **byte-identical** across every KriegerDataForge (KDF) repo. This is the human-readable
 > *why* and *how it all fits* behind the operational files. Read it once to understand the standard;
 > use [`../../WORKFLOW.md`](../../WORKFLOW.md) day to day. If anything here and an operational file
 > ever disagree, the operational file wins and this doc is the bug — fix it in the canonical source
@@ -115,8 +115,11 @@ mega-PR:
    **Vision & purpose** and **Critical rules first**. That's what catches, for example, that a
    gamification `points` table in the fitness DB must use a **plain `user_id` column from the verified
    JWT — never a cross-DB foreign key to `kdf_users`** (the identity-decoupling rule), and that the
-   frontend's generated API client is **read-only**. It also scans `kriegerdataforge/docs/epics/` for
-   an overlapping epic and the touched repos' decision logs for ADRs to respect.
+   frontend's generated API client is **read-only**. It also catches that the **leaderboard** must
+   render *other* users' names/avatars — data the tenant DB can't own — so it needs the **hub's
+   read-only public-profile lookup** (contract map, row 4), an auth-adjacent contract that leads the
+   sequence and carries a design note. It also scans `kriegerdataforge/docs/epics/` for an overlapping
+   epic and the touched repos' decision logs for ADRs to respect.
 2. **Design + ADR — approved before any code.** The agent writes a design doc
    ([`templates/design-spec.template.md`](templates/design-spec.template.md)) — including the
    **per-repo vision table** (each repo, its vision, its rules, how the design honors them) — and
@@ -160,6 +163,7 @@ owns it, then regenerate/extend its consumers:**
 | **Identity / auth** — the JWT, `KDFUser`, claims, scopes, per-client audience | `kriegerdataforge-sdk` (verification) + the **hub** (issuance) | every tenant backend verifies via the SDK; touch the SDK slice **only** when this contract changes |
 | **A per-app API** — endpoints + request/response schemas | that **app's own backend** | its frontend consumes a **read-only OpenAPI-generated client** (`make openapi` → `make generate-client`); the SDK is **not** in this path |
 | **The user/identity store** | the **hub** (`kdf_users`) | tenant app DBs reference identity by a **plain `user_id` column from the verified JWT — no cross-DB FK**, no per-app user table |
+| **Other users' public profile** — display name / avatar for leaderboards, social, mentions | the **hub** (`kriegerdataforge`) | tenant backends resolve arbitrary `user_id`s via a **hub-owned read-only batch endpoint** (e.g. `GET /users/public?ids=…`) returning display fields only — **never** a per-app user table or cross-DB FK. It's a hub contract change, so it leads the contract-first sequence and carries a design note |
 
 The single most common cross-repo mistake is treating the SDK as the carrier for a *per-app* API
 contract. It isn't — the SDK is auth-only.
@@ -189,7 +193,9 @@ This whole standard — `WORKFLOW.md`, `DESIGN_AND_EPICS.md`, `DEFINITION_OF_DON
 driven by `scripts/kit_registry.json`) propagates the kit to every repo as **owner-reviewed PRs**
 (never auto-merged), a weekly job alarms on drift, and new repos are seeded from the four
 `kriegerdataforge-template-*` repos. To change the standard: edit the canonical copy in
-`kit/common/`, bump `kit/KIT_VERSION`, and run the **Distribute** workflow. **Never hand-edit a
+`kit/common/`, bump **both** `kit/KIT_VERSION` and the vendored marker
+`kit/common/docs/agent/KIT_VERSION` (the engine refuses to run if they disagree), and run the
+**Distribute** workflow. **Never hand-edit a
 synced kit file in a downstream repo** — your change will be reported as drift and overwritten;
 change the source instead.
 

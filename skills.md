@@ -102,6 +102,31 @@ security audit (`PL-###` findings); the canonical audit lives in the `kriegerdat
 - Raise domain exceptions → `to_http_exception()` (never bare `HTTPException` in services); keep settings
   access **lazy** (no module-level `get_*_settings()` — the vercel compactor imports with no env).
 
+## Scenario: gamification / incentive systems  *(points · streaks · badges · leaderboards)*
+
+High-incentive surfaces invite cheating (replayed grants, forged clocks, self-inflated scores). The
+server-authoritative rule above is necessary but **not** sufficient — also:
+
+- **Grant from server-verified events only.** Points/badges/XP are awarded by the server in response to
+  a domain event it verified (a logged workout, a completed order) — **never** a client call that says
+  "add N points" or "I earned this badge." Any client-sent total/score is display-only.
+- **Idempotent awards.** Every grant endpoint is **idempotent**, keyed on the source event id (a unique
+  constraint on `(user_id, event_id, award_type)`), so a replayed/double-submitted request can't
+  double-award. Reject or no-op the duplicate; never blindly insert.
+- **Server-owned clocks & timezones.** Streak windows, "daily" resets, and cooldowns use the **server
+  clock** and a per-user timezone **stored server-side** — never a client-supplied timestamp or `tz`
+  header (both are trivially forged to game streaks / unlock time-gated rewards).
+- **Append-only, auditable, rate-limited.** Grants are an append-only ledger (who / what / when / source
+  event), so a total is a **recomputable sum**, not a mutable counter you `setattr`. Rate-limit grant
+  and claim endpoints; alert on anomalies (impossible velocity, negative deltas).
+- **Leaderboards are server-computed.** Rank from server-owned totals only; the read endpoint is
+  **paginated and rate-limited**, and renders *other* users via the **hub's read-only public-profile
+  lookup** (display name / avatar) — never a per-app user table or a cross-DB FK to `kdf_users` (the
+  identity-decoupling rule).
+- **Spend / redeem is a transaction.** Spending points (rewards, unlocks) re-checks the **server-side
+  balance** inside the same transaction as the debit — never trust a client-sent balance, and guard
+  against concurrent double-spend (row lock / conditional update).
+
 ## Scenario: Terraform / infrastructure  *(kriegerdataforge-terraform)*
 
 - **Per-client audience invariant:** each tenant's `AUTH_AUDIENCE` / `KDF_JWT_AUDIENCE` = its own
