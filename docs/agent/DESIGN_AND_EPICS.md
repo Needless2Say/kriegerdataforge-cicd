@@ -30,7 +30,13 @@ When in doubt, write the design doc — it's cheaper than rebuilding.
 
 Before designing, enumerate everything the change touches, so nothing is discovered mid-build:
 
-- **Repos** — which of the 15 are affected, and in what order?
+- **Repos & their visions** — which repos are affected, and in what order? **For each, open its
+  `AGENTS.md` and read its Vision & purpose and Critical rules *before* designing — not just the
+  repo you started in. Your design must serve every touched repo's vision and break none of its
+  rules.** If two repos' visions or rules pull in different directions, surface it to the owner.
+- **Prior decisions** — scan `kriegerdataforge/docs/epics/` for an in-flight epic that overlaps your
+  blast radius, and each touched repo's `docs/CHANGELOG_AND_DECISION_LOG.md` for ADRs you must
+  respect or explicitly supersede. Coordinate with what exists; don't design in a vacuum.
 - **Contracts** — which API endpoints / OpenAPI schemas / SDK surfaces change?
 - **Data** — which tables/migrations? Is the migration backward-compatible (expand/contract)?
 - **Identity** — does it touch `KDFUser`, JWT claims, scopes, or the per-client OIDC audience?
@@ -38,8 +44,10 @@ Before designing, enumerate everything the change touches, so nothing is discove
 - **User surfaces** — which screens/flows; what's the flag and the rollout?
 - **Unknowns & assumptions** — list them explicitly; resolve the load-bearing ones with the owner.
 
-> Use **parallel sub-agents** here: fan out read-only explorers across the affected repos/modules
-> and synthesize one blast-radius map, rather than reading everything serially.
+> Use **parallel sub-agents** here (if your tool supports them): fan out read-only explorers across
+> the affected repos/modules and synthesize one blast-radius map — each explorer **capturing its
+> repo's vision + critical rules, not only its code structure**. No sub-agents? Read serially —
+> but never skip the per-repo vision reads.
 
 ### 2.2 Design doc
 
@@ -78,17 +86,28 @@ a feature flag** (off by default) so `main` stays releasable throughout.
 
 ### 3.2 Sequence contract-first
 
-Order slices by dependency, contract first:
+**Define each contract in the repo that owns it, then regenerate/extend its consumers.** There are
+two contract types with two different owners — don't conflate them:
+
+- **Auth / identity** (the JWT, `KDFUser`, claims, scopes, per-client audience) is owned by
+  **`kriegerdataforge-sdk`**. Touch an SDK slice **only** when *this* contract changes — then it
+  lands before the backends that depend on it.
+- **A per-app API** is owned by **that app's own backend**; its frontend consumes it through an
+  **OpenAPI-generated client**. The SDK is **not** in this path.
+
+Typical ordering for a per-app feature (no auth-contract change):
 
 ```text
 1. Backend: schema + migration (expand) + endpoint, behind a flag   (fitness-app-backend)
-2. SDK/client: regenerate or extend the shared contract             (kriegerdataforge-sdk)
-3. Consumer/frontend: build on the new contract, behind the flag    (fitness-app-frontend)
+2. Contract: regenerate the typed client from the backend's OpenAPI
+   (fitness-app-backend: make openapi  →  fitness-app-frontend: make generate-client)
+3. Consumer/frontend: build on the generated client, behind the flag (fitness-app-frontend)
 4. Infra: env vars / secrets / flags wired                          (kriegerdataforge-terraform)
 5. Enable the flag; end-to-end verify; contract (cleanup) migration
 ```
 
-Never build a consumer against a contract that doesn't exist yet. Backend + contract land first.
+The generated client is **read-only — never hand-edit it; regenerate.** Never build a consumer
+against a contract that doesn't exist yet: backend + contract land first.
 
 ### 3.3 Create the epic tracker (in the hub)
 
@@ -116,7 +135,8 @@ the decision log, and mark the epic complete.
 
 **Always ask first** (strategic/ambiguous): target users & problem, success criteria, priority,
 must-have vs nice-to-have, anything architectural/destructive/irreversible, anything touching
-auth/identity/money, where a new cross-repo contract should live.
+auth/identity/money, where a new cross-repo contract should live, **a conflict between two touched
+repos' visions or critical rules** (never resolve it silently — the owner decides).
 
 **Proceed without asking** (and note it): standard error wording, established UI/code patterns,
 implementation details that don't affect behavior or contracts, formatting, obvious naming.
@@ -126,17 +146,21 @@ assumption that, if wrong, invalidates the work.
 
 ---
 
-## 5. Using parallel sub-agents (for Claude Code / agentic tools)
+## 5. Parallelism & adversarial review (tool-agnostic)
 
-Large or cross-cutting work benefits from fan-out — use it deliberately, not by default:
+Large or cross-cutting work benefits from fan-out and a refutation pass. The **requirements** below
+hold for any agent; the **mechanisms** are optional and depend on your tooling.
 
-- **Discovery fan-out** — multiple read-only explorers, each mapping one repo/subsystem, then one
-  synthesis into the blast-radius map.
-- **Parallel slices** — independent slices built concurrently (isolated worktrees) once the
-  contract they share exists.
-- **Adversarial review** — before handback on security-sensitive or architectural work, a
-  reviewer pass whose job is to *refute* the change (find the bug, the missing authz, the broken
-  contract). `/code-review ultra` is the heavyweight version for an integrated epic.
+- **Discovery fan-out** — map the blast radius with read-only explorers, each covering one
+  repo/subsystem and **reading its `AGENTS.md` vision + critical rules**, then synthesize one map.
+  No sub-agents in your tool? Read the repos serially — don't skip the vision reads.
+- **Parallel slices** — independent slices (no shared-contract dependency) may be built
+  concurrently if your tool supports isolated worktrees; otherwise build them in sequence.
+- **Adversarial review (required on security-sensitive or architectural work)** — before handback,
+  do a pass whose only job is to *refute* the change: find the bug, the missing authz, the broken
+  contract, the violated repo rule. If your tool supports it, `/code-review ultra` or parallel
+  reviewer sub-agents are the heavyweight version; **otherwise do this refutation pass yourself,
+  manually.** The review is mandatory; the slash command is not.
 
-Match the fan-out to the task: a one-repo feature rarely needs it; an ecosystem epic almost
-always does.
+Match the fan-out to the task: a one-repo feature rarely needs it; an ecosystem epic almost always
+does.

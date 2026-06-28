@@ -4,6 +4,7 @@
 	"files": [
 		"skills.md",
 		"WORKFLOW.md",
+		"docs/agent/AGENT_OPERATING_STANDARD.md",
 		"docs/agent/DESIGN_AND_EPICS.md",
 		"docs/agent/DEFINITION_OF_DONE.md",
 		"docs/agent/templates/design-spec.template.md",

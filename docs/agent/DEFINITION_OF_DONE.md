@@ -10,7 +10,9 @@ sufficient. A change is *done* when it meets the bar below for **its change type
 
 - [ ] **Local `make ci` is green** (lint, type-check, tests, and the repo's security/audit steps).
 - [ ] **Version bumped** with the repo's script; any required sync run (e.g. `make vercel-compact`).
-- [ ] **Scoped** — the diff does only what the plan said; no unrelated drive-by changes.
+- [ ] **Scoped** — the diff does only what the *approved plan* said; no unrelated drive-by changes.
+      Ambition belongs in the **plan** (proposed to the owner); restraint belongs in the **diff** —
+      never smuggle a bigger idea silently into the code.
 - [ ] **Self-reviewed** — you read your own diff as a reviewer before opening the PR.
 - [ ] **No secrets** in code, tests, commits, or logs.
 - [ ] **PR describes** what changed and how it was verified; links the issue/epic if any.
@@ -35,7 +37,9 @@ sufficient. A change is *done* when it meets the bar below for **its change type
       against both old and new at every step.
 - [ ] **Rollback path** stated — how to revert safely if the deploy goes bad.
 - [ ] **Migration runs cleanly** forward (and the down-path is sane).
-- [ ] User foreign keys reference `kdf_users.id`; no new per-app user/identity tables.
+- [ ] **Identity decoupling respected** — in the **hub** (`kriegerdataforge`), user FKs reference
+      `kdf_users.id`. In a **tenant app DB** (fitness, tiffanys, …), `user_id` is a **plain column
+      from the verified JWT — no cross-DB FK to `kdf_users`**, and no per-app user/identity table.
 
 ## If it's security-relevant (auth, OIDC, tokens, sessions, authz, secrets, CSP, infra, CI)
 
@@ -44,11 +48,15 @@ sufficient. A change is *done* when it meets the bar below for **its change type
 - [ ] **Least privilege** — closed request schemas + field allow-lists; exact ownership checks;
       validated `iss`/`aud` with distinct per-client audiences.
 - [ ] **OIDC/auth-protocol change** carried a design note and stays backward-compatible through the transition.
-- [ ] Consider an **adversarial review** / **`/code-review ultra`** before handback.
+- [ ] **Adversarial review before handback** — a pass that tries to *refute* the change (missing
+      authz, broken contract, violated rule). Use `/code-review ultra` or reviewer sub-agents if your
+      tool supports them; otherwise do the refutation pass manually.
 
 ## If it touches a cross-repo contract (API / OpenAPI / SDK)
 
-- [ ] **Contract changed first**, consumers regenerated/updated after (backend → SDK → frontend).
+- [ ] **Contract changed first, in the repo that owns it**, consumers regenerated after — a per-app
+      API through its backend's OpenAPI (`make openapi` → frontend `make generate-client`, a
+      **read-only** generated client); the SDK slice only when the **auth/JWT** contract changes.
 - [ ] **Epic tracker** in `kriegerdataforge/docs/epics/<name>.md` updated; this PR links to it.
 - [ ] Shipped **behind a feature flag**; the flag/rollout is documented.
 
