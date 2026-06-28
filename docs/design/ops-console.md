@@ -113,3 +113,17 @@ issue is denied (workflow fails closed); every run leaves an issue + result comm
 - Assumes the `ops`, `ops:distribute-kit`, `ops:rotate-secrets` labels exist (created as part of rollout).
 - Assumes `GH_PACKAGES_PAT_NEW`, `CICD_PAT`, `VERCEL_MASTER_TOKEN` repo secrets exist for the rotate flows
   (owner-managed; the workflow guards on the owner-supplied one being present).
+
+## 11. Running it (quick reference)
+
+The forms and issue-triggered workflows live on the **default branch**, so they are usable only after
+this lands on `main`. Then, as the owner:
+
+1. **Issues → New issue** → pick **"Ops · Distribute Agentic-Workflow Kit"** (or **"Ops · Rotate a secret"**).
+2. Fill the dropdowns (multi-select the repos / pick the target) and submit.
+3. **Add the trigger label** — `ops:distribute-kit` or `ops:rotate-secrets` — to run. The workflow checks
+   you are the repository owner, runs the engine, and comments the result back (sanitized for rotation).
+4. Re-add the label to re-run.
+
+If a run is denied, the actor was not the repository owner (the gate fails closed) — that is expected on
+this public repo.
