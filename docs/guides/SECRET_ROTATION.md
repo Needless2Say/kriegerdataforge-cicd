@@ -269,7 +269,7 @@ Two separate Vercel secrets, both engine-minted:
 
 > **Requires `VERCEL_TEAM_ID`.** The engine scopes minted tokens to your Vercel team via the `teamId`
 > param — a personal-scoped token is rejected ("token is not valid") for team projects. The
-> `VERCEL_TEAM_ID` repo **variable** must be set (= `VERCEL_ORG_ID`); generate fails fast without it.
+> `VERCEL_TEAM_ID` repo **secret** must be set (= `VERCEL_ORG_ID`); generate fails fast without it.
 > Setup: `MANUAL_SETUP.md` §6.2a.
 
 - **When:** monthly schedule (the cron rotates both), or a token leaked.
