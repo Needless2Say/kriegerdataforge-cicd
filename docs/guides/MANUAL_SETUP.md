@@ -417,11 +417,15 @@ For each backend Vercel project that uses `kdf-auth-sdk` and hasn't had the vari
 
 > After the first distribute run, subsequent rotations will update these automatically via the Vercel API.
 
-### When the check workflow fires (biweekly expiry check)
+### When the expiry monitor fires (weekly)
 
-The `Check GH_PACKAGES_PAT Expiry` workflow runs on the 1st and 15th of each month. If the token is within its warn window (`warn_days_before_expiry`, default 7) of expiry — or already expired — the workflow fails and GitHub sends you an email.
+The `Check Secret Expiry` workflow runs every Monday. It checks every monitored credential's
+`check.expiry` and, when any is within its warn window (or expired/undated), **opens a single
+deduplicated tracking issue** (label `ops:secret-expiry`) listing what to rotate and the recipe; the
+issue **auto-closes** once everything is healthy. (Per-app `VERCEL_TOKEN`s auto-rotate via *Rotate
+Vercel Tokens* and aren't part of this nudge.)
 
-**To rotate:**
+**To rotate `GH_PACKAGES_PAT`:**
 1. Create a new fine-grained PAT with the same settings as 6.5.1
 2. Add it as `GH_PACKAGES_PAT_NEW` in repo secrets
 3. Trigger **Distribute GH_PACKAGES_PAT** workflow

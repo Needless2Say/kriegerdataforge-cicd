@@ -1,9 +1,10 @@
 name: Rotate Vercel Tokens
 
 on:
-  # first of every month at 09:00 UTC
-  # schedule:
-  #   - cron: "0 9 1 * *"
+  # Monthly auto-rotation: first of every month at 09:00 UTC. The per-app Vercel tokens are
+  # created with a 35-day expiry, so a ~30-day cadence leaves ~5 days of slack if a run is missed.
+  schedule:
+    - cron: "0 9 1 * *"
 
   # allow manual trigger — optionally scope to specific apps and/or environments
   workflow_dispatch:

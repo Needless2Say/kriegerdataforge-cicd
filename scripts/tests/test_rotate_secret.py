@@ -283,6 +283,37 @@ class TestCheck:
     def test_aggregate_rc_any_bad(self):
         assert cmd_check([self._e(_future(60)), self._e(_past(1))]) == 1
 
+    def test_emits_needs_rotation_line_with_only_unhealthy(self, capsys):
+        cmd_check([
+            {"name": "A", "check": {"expiry": _past(1)}},
+            {"name": "B", "check": {"expiry": _future(60)}},
+            {"name": "C", "kind": "manual", "check": {"expiry": "TODO_set"}},
+        ])
+        out = capsys.readouterr().out
+        assert "NEEDS_ROTATION: A,C" in out  # B (healthy) excluded; manual TODO flagged
+
+    def test_emits_empty_needs_line_when_all_healthy(self, capsys):
+        rc = cmd_check([{"name": "X", "check": {"expiry": _future(60)}}, {"name": "Y"}])
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "NEEDS_ROTATION: \n" in out
+
+
+class TestRealRegistry:
+    """The actual scripts/secret_registry.json must parse and run an offline check."""
+
+    def test_loads_with_monitored_tokens_and_checks_offline(self):
+        reg = rs._load_registry()  # reads the real REGISTRY_FILE
+        entries = _select_secrets(reg, ALL)
+        names = {e["name"] for e in entries}
+        assert {"GH_PACKAGES_PAT", "VERCEL_TOKEN", "CICD_PAT", "CICD_REGISTRY_PAT", "VERCEL_MASTER_TOKEN"} <= names
+        # the three manual tokens carry a check block (monitored) and no engine targets
+        for name in ("CICD_PAT", "CICD_REGISTRY_PAT", "VERCEL_MASTER_TOKEN"):
+            e = next(x for x in entries if x["name"] == name)
+            assert e.get("kind") == "manual" and "check" in e
+            assert not e.get("github_env_secrets") and not e.get("vercel_env_vars")
+        assert cmd_check(entries) in (0, 1)
+
 
 # ── generate: vercel_token ──────────────────────────────────────────────────────
 

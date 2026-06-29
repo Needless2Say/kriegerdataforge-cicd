@@ -118,7 +118,7 @@ workflow-interface change → major.
 | `.github/workflows/create-github-release.yml` | Create a GitHub Release + git tag from `VERSION` |
 | `.github/workflows/secret-scan.yml` | Post-push secret-scan backstop over the PR diff |
 | `.github/workflows/_authorize-owner.yml` | Owner-gate reused by the privileged ops workflows |
-| `.github/workflows/rotate-vercel-tokens.yml`, `distribute-gh-pat.yml`, `check-gh-pat-expiry.yml`, `distribute-kit.yml` | Scheduled / owner-gated secret rotation + kit distribution |
+| `.github/workflows/rotate-vercel-tokens.yml`, `distribute-gh-pat.yml`, `check-secret-expiry.yml`, `distribute-kit.yml` | Scheduled / owner-gated secret rotation, weekly expiry monitor + kit distribution |
 | `.github/workflows/issue-create-repo.yml` | Auto-provision a new repo from the `new-repo` issue template |
 | `.github/ISSUE_TEMPLATE/` | `new-repo.yml`, the owner ops templates (`ops-*.yml`), plus the standard bug/feature templates |
 | `scripts/check_deployer.py` + `deployer_registry.json` | Per-repo/per-env **deployer authorization gate** (fail closed) |

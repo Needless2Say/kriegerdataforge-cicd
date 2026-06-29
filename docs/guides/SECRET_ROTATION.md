@@ -138,7 +138,7 @@ python scripts/rotate_secret.py --mode paste --secrets GH_PACKAGES_PAT
 ```
 
 Or trigger the scheduled workflows from the Actions tab: **Rotate Vercel Tokens** (generate),
-**Distribute GH_PACKAGES_PAT** (paste, reads `GH_PACKAGES_PAT_NEW`), **Check GH_PACKAGES_PAT Expiry**.
+**Distribute GH_PACKAGES_PAT** (paste, reads `GH_PACKAGES_PAT_NEW`), **Check Secret Expiry** (the weekly monitor — see §9).
 
 ### What "generate" vs "paste" means per secret
 
@@ -365,8 +365,38 @@ One-time value shown at client registration; kdf-auth never returns it again —
 
 ---
 
+## 9. Automated monitoring & rotation cadence
+
+Two scheduled workflows keep credentials fresh. Everything is **monthly** in cadence — fully automated
+where the credential can be minted by a machine, reminder-driven where it can't.
+
+| Credential | Cadence | Mechanism |
+|---|---|---|
+| Per-app `VERCEL_TOKEN` / `VERCEL_API_TOKEN` | monthly | **Auto-generate** — `Rotate Vercel Tokens` (cron, 1st of the month). Hands-off. |
+| `GH_PACKAGES_PAT` | monthly\* | **Auto-issue reminder** → mint by hand, then §8.2. |
+| `CICD_PAT`, `CICD_REGISTRY_PAT` | monthly\* | **Auto-issue reminder** → §8.3 / §8.5. |
+| `VERCEL_MASTER_TOKEN` | monitored | **Auto-issue reminder** → §8.4. Auto-rotation is a planned enhancement. |
+
+\* GitHub has no PAT-creation API, so "monthly" here means: set the PAT's expiry to ~30 days when you
+create it, and the monitor reminds you to run the ~5-minute manual recipe. **The GitHub App migration
+removes this toil entirely** — see [`../design/github-app-migration.md`](../design/github-app-migration.md).
+
+**`Check Secret Expiry`** runs weekly (Mondays): `rotate_secret.py --mode check --secrets all`, then keeps
+**one deduplicated tracking issue** (label `ops:secret-expiry`):
+- near / at / undated expiry → opens the issue (or updates it) listing what to rotate + the recipe;
+- all healthy → **auto-closes** it.
+
+It reads only the registry's `check.expiry` metadata — never a secret value. After you rotate, update that
+secret's `check.expiry` in `scripts/secret_registry.json`; the issue auto-closes on the next clean run.
+
+**Manual override (enhanced security):** nothing here blocks an out-of-cycle rotation — run the
+`ops:rotate-secrets` form / CLI any time (e.g. after a suspected leak, §0), independent of the schedule.
+
+---
+
 ## See also
 - [`MANUAL_SETUP.md`](./MANUAL_SETUP.md) — first-time provisioning of every secret + environment.
+- [`../design/github-app-migration.md`](../design/github-app-migration.md) — planned move to a GitHub App (ephemeral tokens) + Vercel-master auto-rotation.
 - [`docs/reference/WORKFLOWS.md`](../reference/WORKFLOWS.md) — reusable workflow inputs/secrets reference.
 - `scripts/rotate_secret.py --help` · `scripts/secret_registry.json` — the engine + registry.
 - terraform repo `SECRETS_ROTATION` / `SECRETS_ROTATION_QUICKSTART` — app-plane (Terraform-owned) secrets.

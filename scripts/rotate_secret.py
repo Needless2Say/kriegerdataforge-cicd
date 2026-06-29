@@ -289,10 +289,14 @@ def _check_one(entry: dict) -> int:
 
 def cmd_check(entries: list[dict]) -> int:
     print(f"Checking expiry for {len(entries)} secret(s):")
-    rc = 0
+    needs: list[str] = []
     for entry in entries:
-        rc |= _check_one(entry)
-    return rc
+        if _check_one(entry) != 0:
+            needs.append(entry["name"])
+    print()
+    # Machine-readable line the scheduled monitor greps to build/close the rotation issue.
+    print("NEEDS_ROTATION: " + ",".join(needs))
+    return 1 if needs else 0
 
 
 # ============================================================
