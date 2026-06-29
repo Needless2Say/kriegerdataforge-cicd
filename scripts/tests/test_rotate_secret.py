@@ -307,8 +307,9 @@ class TestRealRegistry:
         entries = _select_secrets(reg, ALL)
         names = {e["name"] for e in entries}
         assert {"GH_PACKAGES_PAT", "VERCEL_TOKEN", "CICD_PAT", "CICD_REGISTRY_PAT", "VERCEL_MASTER_TOKEN"} <= names
-        # the three manual tokens carry a check block (monitored) and no engine targets
-        for name in ("CICD_PAT", "CICD_REGISTRY_PAT", "VERCEL_MASTER_TOKEN"):
+        assert "KDF_APP_PRIVATE_KEY" in names  # the GitHub App private key is monitored too
+        # the manual tokens carry a check block (monitored) and no engine targets
+        for name in ("CICD_PAT", "CICD_REGISTRY_PAT", "VERCEL_MASTER_TOKEN", "KDF_APP_PRIVATE_KEY"):
             e = next(x for x in entries if x["name"] == name)
             assert e.get("kind") == "manual" and "check" in e
             assert not e.get("github_env_secrets") and not e.get("vercel_env_vars")

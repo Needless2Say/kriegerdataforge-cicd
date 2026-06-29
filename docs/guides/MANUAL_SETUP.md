@@ -435,6 +435,71 @@ Vercel Tokens* and aren't part of this nudge.)
 
 ---
 
+## Phase 6.7 — GitHub App (ephemeral tokens, replaces CICD_PAT for automation)
+
+> **ONCE — recommended.** Replaces the long-lived `CICD_PAT` in the rotation + kit workflows with
+> **short-lived GitHub App installation tokens** (minted per run via `actions/create-github-app-token`,
+> auto-revoked when the job ends). Design + rationale: [`docs/design/github-app-migration.md`](../design/github-app-migration.md).
+>
+> This is **opt-in and reversible**: the workflows only mint App tokens when the repo variable
+> `USE_GITHUB_APP=true`, and fall back to `CICD_PAT` otherwise. Until you finish this phase, everything
+> keeps working on `CICD_PAT` exactly as before.
+
+### 6.7.1 — Create the GitHub App
+
+1. GitHub → your account **Settings → Developer settings → GitHub Apps → New GitHub App**.
+2. **Name:** `kdf-cicd-automation` (any unique name). **Homepage URL:** your repo URL (any valid URL).
+3. **Webhook:** untick **Active** (this App is API-only; no webhook needed).
+4. **Repository permissions** — grant exactly these (least privilege; the per-workflow token is
+   downscoped *below* this at mint time):
+   - **Secrets:** Read and write — *(lets the rotation engine write environment secrets)*
+   - **Contents:** Read and write — *(lets kit distribution push a sync branch)*
+   - **Pull requests:** Read and write — *(lets kit distribution open the sync PR)*
+   - Leave everything else **No access**.
+5. **Where can this App be installed?** Only on this account.
+6. **Create GitHub App.**
+
+> **Token lifetime — nothing to configure.** GitHub fixes the installation-token TTL at **1 hour** and
+> offers no shorter setting; you don't need one, because `actions/create-github-app-token` **revokes the
+> token in a post-job step**, so the real exposure window is the job's runtime (minutes). Each workflow
+> already mints **per-job** and **downscopes** to the one permission it needs.
+
+### 6.7.2 — Note the App ID and generate a private key
+
+1. On the App's **General** page, copy the **App ID** (a number).
+2. Scroll to **Private keys → Generate a private key**. A `.pem` file downloads — **keep it secret**
+   (treat it like the master key it is). You can hold several keys for zero-downtime rotation later.
+
+### 6.7.3 — Install the App on the consumer repos
+
+1. App page → **Install App** → choose your account → **Only select repositories**.
+2. Select the repos the automation touches: `kriegerdataforge`, `fitness-app-backend`,
+   `tiffanys-space-backend`, `fitness-app-frontend`, `tiffanys_space`, `kriegerdataforge-terraform`,
+   plus any other repo the kit is distributed to. (You can add repos later; the token auto-scopes to
+   whatever is installed.)
+
+### 6.7.4 — Add the App credentials to `kriegerdataforge-cicd`
+
+In `kriegerdataforge-cicd` → **Settings → Secrets and variables → Actions**:
+
+1. **Secrets** tab → **New repository secret**: name `KDF_APP_ID`, value = the App ID from 6.7.2.
+2. **Secrets** tab → **New repository secret**: name `KDF_APP_PRIVATE_KEY`, value = the **entire
+   contents** of the `.pem` file (including the `-----BEGIN/END-----` lines).
+3. **Variables** tab → **New repository variable**: name `USE_GITHUB_APP`, value `true`. *(This is the
+   on/off switch — set it to anything but `true`, or delete it, for an instant rollback to `CICD_PAT`.)*
+
+### 6.7.5 — Verify, then record the key's rotation reminder
+
+1. **Actions → Check Secret Expiry → Run workflow** (read-only; proves the App can authenticate). Or do a
+   scoped **Rotate Vercel Tokens** run against a single app to prove a real secret write.
+2. In `scripts/secret_registry.json`, set the `KDF_APP_PRIVATE_KEY` entry's `check.expiry` to a relaxed
+   rotation reminder (e.g. ~6 months out, `YYYY-MM-DD`) and commit — the weekly monitor will nudge you to
+   rotate the key on that cadence (rotation recipe: [`SECRET_ROTATION.md` §8.3a](./SECRET_ROTATION.md)).
+3. `CICD_PAT` now only backs `issue-create-repo.yml` (creating a personal-account repo needs a user PAT,
+   which an App token can't do until the org move). Keep it; its blast radius is now minimal.
+
+---
+
 ## Phase 6.6 — Vercel Blob Storage for Images (per backend project)
 
 > **ONCE per app, per environment** — Required for any backend that stores

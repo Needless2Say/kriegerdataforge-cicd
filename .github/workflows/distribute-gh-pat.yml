@@ -50,10 +50,23 @@ jobs:
       - name: Install dependencies
         run: pip install -r scripts/requirements.txt
 
+      # Short-lived GitHub App installation token (auto-revoked at job end; effective lifetime =
+      # job runtime, not the 1-hour nominal TTL). Downscoped to secrets:write to paste the staged
+      # PAT into each environment secret. Gated on USE_GITHUB_APP, falls back to CICD_PAT.
+      - name: Mint GitHub App token
+        id: app-token
+        if: vars.USE_GITHUB_APP == 'true'
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.KDF_APP_ID }}
+          private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-secrets: write
+
       - name: Distribute new PAT
         env:
           # The staged new PAT (created in the GitHub UI) feeds the engine's paste mode.
           STAGED_SECRET_VALUE: ${{ secrets.GH_PACKAGES_PAT_NEW }}
-          GH_TOKEN: ${{ secrets.CICD_PAT }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
           VERCEL_MASTER_TOKEN: ${{ secrets.VERCEL_MASTER_TOKEN }}
         run: python scripts/rotate_secret.py --mode paste --secrets GH_PACKAGES_PAT
