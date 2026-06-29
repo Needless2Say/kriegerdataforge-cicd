@@ -13,8 +13,8 @@ on:
   #   2. Go to kriegerdataforge-cicd → Settings → Secrets and variables → Actions
   #      Add (or update) a secret named GH_PACKAGES_PAT_NEW with the new token value.
   #   3. Run this workflow (Actions → Distribute GH_PACKAGES_PAT → Run workflow).
-  #   4. After it succeeds, update pat_expiry in scripts/gh_pat_registry.json to the
-  #      new expiry date (YYYY-MM-DD) and commit the change.
+  #   4. After it succeeds, update the GH_PACKAGES_PAT check.expiry in scripts/secret_registry.json
+  #      to the new expiry date (YYYY-MM-DD) and commit the change.
   #   5. Delete the GH_PACKAGES_PAT_NEW secret (it is no longer needed).
   #   6. Optionally revoke the old PAT: github.com/settings/tokens → find old token → Revoke.
   workflow_dispatch:
@@ -52,7 +52,8 @@ jobs:
 
       - name: Distribute new PAT
         env:
-          GH_PACKAGES_PAT_NEW: ${{ secrets.GH_PACKAGES_PAT_NEW }}
+          # The staged new PAT (created in the GitHub UI) feeds the engine's paste mode.
+          STAGED_SECRET_VALUE: ${{ secrets.GH_PACKAGES_PAT_NEW }}
           GH_TOKEN: ${{ secrets.CICD_PAT }}
           VERCEL_MASTER_TOKEN: ${{ secrets.VERCEL_MASTER_TOKEN }}
-        run: python scripts/rotate_gh_pat.py distribute
+        run: python scripts/rotate_secret.py --mode paste --secrets GH_PACKAGES_PAT

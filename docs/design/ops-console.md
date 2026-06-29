@@ -70,17 +70,20 @@ the registries). The engine's `--repos` already ignores unknown tokens, so a sta
 - `input` **only**: optional kit-file filter
 - workflow → `distribute_kit.py <mode> [--repos "<selected>"] [--only <file>]` (omit `--repos` if `ALL`).
 
-**Form 2 — rotate-secrets** (`ops-rotate-secrets.yml` form + workflow). The two mechanisms differ, so the
-form's **target** dropdown selects the flow:
+**Form 2 — rotate-secrets** (`ops-rotate-secrets.yml` form + workflow). Backed by the unified engine
+`scripts/rotate_secret.py` + `scripts/secret_registry.json` (one entry per CI-plane secret listing every
+GitHub-env-secret / non-Terraform-Vercel target). The form picks **secret(s)** (multi-select), a **mode**,
+and **environments** (multi):
 
-- **`GH_PACKAGES_PAT` (owner-supplied):** GitHub can't generate PATs. Owner first stores the new value in
-  the `GH_PACKAGES_PAT_NEW` repo secret; the workflow verifies it is set, then runs
-  `rotate_gh_pat.py distribute` (distributes to all targets in `gh_pat_registry.json`). `check` mode =
-  expiry report, needs no secret.
-- **`Vercel tokens` (auto-generated):** `rotate_vercel_tokens.py` creates new tokens via the Vercel API,
-  selectable by **apps** (multi) and **envs** (multi); `VERCEL_MASTER_TOKEN` required.
-- A **confirmation checkbox** ("I understand this rotates live credentials") is required for any rotate.
-- Fields that don't apply to the chosen target are ignored (the form descriptions say which is which).
+- **`generate`:** auto-mint fresh value(s). `VERCEL_TOKEN` mints a unique Vercel token per target via the
+  Vercel API (`VERCEL_MASTER_TOKEN` required); per-environment secrets get a distinct value per env.
+- **`paste`:** distribute an owner-supplied value. GitHub can't generate PATs, so `GH_PACKAGES_PAT` is
+  paste-only — the owner stages the value in the `SECRET_VALUE_NEW` repo secret first (never in the public
+  issue body); the engine reads `STAGED_SECRET_VALUE` and fans it to every target. Single secret only.
+- **`check`:** expiry report for tracked secrets; needs no live secret.
+- A **Confirm = Yes** is required for generate/paste (both write live credentials).
+- **Scope guard:** entries flagged `terraform_managed` are refused — app-plane secrets rotate via the
+  terraform `SECRETS_ROTATION` runbook, not here.
 
 ## 6. Data / secrets
 

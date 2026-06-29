@@ -52,7 +52,7 @@ For the **per-app deployment tokens** in the table below, use these settings:
 
 Copy each token value immediately — Vercel shows it only once. Keep them in a secure location (e.g. 1Password) until you add them to GitHub Environments in Phase 4.
 
-> **Future apps:** When a new app is provisioned, create tokens `kdf-{app}-{layer}-prod` and `kdf-{app}-{layer}-dev` with scope "Arthur's projects", add them to GitHub, then add the two registry entries in `scripts/vercel_token_registry.json` in this repo. The rotation workflow picks them up automatically on the next run.
+> **Future apps:** When a new app is provisioned, create tokens `kdf-{app}-{layer}-prod` and `kdf-{app}-{layer}-dev` with scope "Arthur's projects", add them to GitHub, then add the two `VERCEL_TOKEN` entries in `scripts/secret_registry.json` in this repo. The rotation workflow picks them up automatically on the next run.
 
 ---
 
@@ -269,7 +269,7 @@ Environment named `dev` and one named `prod` (matching the `environments/<env>/`
 **`dev` environment secrets:**
 | Secret Name | Value |
 |---|---|
-| `VERCEL_TOKEN` | *(No dev project for tiffanys yet — skip. When provisioned in Terraform, create `kdf-tiffanys-frontend-dev` in Vercel, add it here, and add the registry entry in `scripts/vercel_token_registry.json`)* |
+| `VERCEL_TOKEN` | *(No dev project for tiffanys yet — skip. When provisioned in Terraform, create `kdf-tiffanys-frontend-dev` in Vercel, add it here, and add the `VERCEL_TOKEN` entry in `scripts/secret_registry.json`)* |
 | `VERCEL_ORG_ID` | *(skip until dev project exists)* |
 | `VERCEL_PROJECT_ID` | *(skip until dev project exists)* |
 
@@ -361,12 +361,12 @@ This is a long-lived "meta-token" whose only job is to create and delete the per
 
 1. Go to `kriegerdataforge-cicd` → **Actions → Rotate Vercel Tokens**
 2. Click **Run workflow** → **Run workflow** (manual trigger, no filter inputs needed — rotates all)
-3. The workflow will create a new token for each entry in `scripts/vercel_token_registry.json`, push it to the corresponding GitHub environment secret, and delete the old token
+3. The workflow will create a new token for each `VERCEL_TOKEN` entry in `scripts/secret_registry.json`, push it to the corresponding GitHub environment secret, and delete the old token
 4. After it completes, confirm in Vercel Dashboard → Settings → Tokens that the old tokens are gone and new ones with fresh expiry dates appear
 
 > **Schedule:** The workflow runs automatically on the 1st of every month at 09:00 UTC. You will receive a GitHub Actions failure notification if any rotation fails.
 >
-> **Targeted rotation:** You can also trigger it for a single app/env after a suspected leak — use the `apps` and `envs` inputs when running manually. See `scripts/rotate_vercel_tokens.py --help` for examples.
+> **Targeted rotation:** You can also trigger it for a single app/env after a suspected leak — use the `apps` and `envs` inputs when running manually. See `scripts/rotate_secret.py --help` for examples.
 
 ---
 
@@ -394,18 +394,18 @@ This is a long-lived "meta-token" whose only job is to create and delete the per
 ### 6.5.3 — Run the distribute workflow
 
 1. Go to `kriegerdataforge-cicd` → **Actions → Distribute GH_PACKAGES_PAT → Run workflow**
-2. This pushes the new PAT to all GitHub environment secrets in all backend repos and all Vercel project env vars listed in `scripts/gh_pat_registry.json`
+2. This pushes the new PAT to all GitHub environment secrets in all backend repos and all Vercel project env vars listed under the `GH_PACKAGES_PAT` entry in `scripts/secret_registry.json`
 
 ### 6.5.4 — Update the expiry date in the registry
 
-1. Open `scripts/gh_pat_registry.json` in this repo
-2. Update `"pat_expiry"` to the expiry date you set in step 6.5.1 (format: `YYYY-MM-DD`)
+1. Open `scripts/secret_registry.json` in this repo
+2. Update the `GH_PACKAGES_PAT` entry's `check.expiry` to the expiry date you set in step 6.5.1 (format: `YYYY-MM-DD`)
 3. Commit and push the change — this keeps the check workflow accurate
 
 ### 6.5.5 — Clean up and add Vercel project IDs
 
 1. Delete the `GH_PACKAGES_PAT_NEW` secret from repo secrets (it is no longer needed)
-2. Open `scripts/gh_pat_registry.json` and fill in any `project_id` values that still say `TODO_*`
+2. Open `scripts/secret_registry.json` and fill in any `project_id` values (under the `GH_PACKAGES_PAT` entry's `vercel_env_vars`) that still say `TODO_*`
    - Vercel project IDs are available in your Vercel Dashboard → each project → Settings → General → Project ID
    - Or from `terraform output` if provisioned via Terraform
 
@@ -419,13 +419,13 @@ For each backend Vercel project that uses `kdf-auth-sdk` and hasn't had the vari
 
 ### When the check workflow fires (biweekly expiry check)
 
-The `Check GH_PACKAGES_PAT Expiry` workflow runs on the 1st and 15th of each month. If the token is within 14 days of expiry (or already expired), the workflow fails and GitHub sends you an email.
+The `Check GH_PACKAGES_PAT Expiry` workflow runs on the 1st and 15th of each month. If the token is within its warn window (`warn_days_before_expiry`, default 7) of expiry — or already expired — the workflow fails and GitHub sends you an email.
 
 **To rotate:**
 1. Create a new fine-grained PAT with the same settings as 6.5.1
 2. Add it as `GH_PACKAGES_PAT_NEW` in repo secrets
 3. Trigger **Distribute GH_PACKAGES_PAT** workflow
-4. Update `pat_expiry` in `scripts/gh_pat_registry.json` and commit
+4. Update the `GH_PACKAGES_PAT` entry's `check.expiry` in `scripts/secret_registry.json` and commit
 5. Delete `GH_PACKAGES_PAT_NEW` from repo secrets
 6. Optionally revoke the old token: GitHub → Settings → Developer settings → Fine-grained tokens → old `kdf-packages-read` → **Revoke**
 

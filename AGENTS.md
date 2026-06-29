@@ -48,7 +48,7 @@ agent workflows (`agents/`, skeleton only) so automation scales with the platfor
 | `.github/workflows/issue-create-repo.yml` | Auto-provision new repos from the `new-repo` issue template |
 | `.github/workflows/rotate-vercel-tokens.yml`, `distribute-gh-pat.yml`, `check-gh-pat-expiry.yml` | Scheduled secret rotation/distribution |
 | `scripts/check_deployer.py` + `deployer_registry.json` | Per-repo/per-env deployer authorization gate (fail closed) |
-| `scripts/rotate_vercel_tokens.py`, `rotate_gh_pat.py` | Token/PAT rotation logic (registries: `vercel_token_registry.json`, `gh_pat_registry.json`) |
+| `scripts/rotate_secret.py` + `secret_registry.json` | Unified CI-plane secret rotation engine (modes: generate / paste / check; env-aware) |
 | `scripts/common/bump_version.py`, `check_version.py` | Version bump + CI consistency/increment check |
 | `scripts/*/db_backup.py` | Per-tenant Neon DB backup |
 | `docs/WORKFLOWS.md`, `docs/MANUAL_SETUP.md` | Workflow catalog (inputs/secrets/callers) + manual setup runbook |
@@ -101,7 +101,7 @@ agent workflows (`agents/`, skeleton only) so automation scales with the platfor
    breaking-change rules for modifying a reusable workflow.
 5. [`agents/README.md`](agents/README.md) — the (not-yet-built) AI-agent vision for where this repo is heading.
 
-Quick lookups: workflow inputs/secrets → `docs/WORKFLOWS.md`; setup/secrets/PAT steps → `docs/MANUAL_SETUP.md`; who can deploy → `scripts/deployer_registry.json`; rotation registries → `scripts/vercel_token_registry.json`, `scripts/gh_pat_registry.json`.
+Quick lookups: workflow inputs/secrets → `docs/reference/WORKFLOWS.md`; setup/secrets/PAT steps → `docs/guides/MANUAL_SETUP.md`; **rotating a secret** (repo / environment) → `docs/guides/SECRET_ROTATION.md`; who can deploy → `scripts/deployer_registry.json`; rotation registry → `scripts/secret_registry.json`.
 
 ## How to work in this repo — the agent kit
 
