@@ -366,6 +366,19 @@ This is a long-lived "meta-token" whose only job is to create and delete the per
 
 > `CICD_PAT` (added in Phase 3) already has `secrets:write` on all repos — no additional PAT is needed for the rotation script.
 
+### 6.2a — Add the `VERCEL_TEAM_ID` repo **variable** (required for generate)
+
+The engine mints tokens via `POST /v3/user/tokens`; **without a team id the minted token is
+personal-account-scoped, and Vercel rejects it ("The specified token is not valid") for team projects.**
+So the engine scopes every minted token to your team via the `teamId` param, and refuses to run a
+`generate` without it.
+
+1. `kriegerdataforge-cicd` → **Settings → Secrets and variables → Actions → Variables → New repository
+   variable** *(a **variable**, not a secret — the team id isn't sensitive)*.
+2. Name: `VERCEL_TEAM_ID`. Value: your Vercel **team id** — the **same value as `VERCEL_ORG_ID`** in the
+   consumer repos' environment secrets (Vercel Dashboard → Settings → General → Team ID, looks like
+   `team_…`).
+
 ### 6.3 — Verify the rotation workflow runs
 
 1. Go to `kriegerdataforge-cicd` → **Actions → Rotate Vercel Tokens**

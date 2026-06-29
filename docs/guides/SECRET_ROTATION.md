@@ -267,6 +267,11 @@ Two separate Vercel secrets, both engine-minted:
 - **`VERCEL_API_TOKEN`** — the **separate** token the terraform repo uses to *manage* Vercel
   (`kdf-infra`). Rotated on its own so it can carry management scope without over-permissioning deploys.
 
+> **Requires `VERCEL_TEAM_ID`.** The engine scopes minted tokens to your Vercel team via the `teamId`
+> param — a personal-scoped token is rejected ("token is not valid") for team projects. The
+> `VERCEL_TEAM_ID` repo **variable** must be set (= `VERCEL_ORG_ID`); generate fails fast without it.
+> Setup: `MANUAL_SETUP.md` §6.2a.
+
 - **When:** monthly schedule (the cron rotates both), or a token leaked.
 - **Steps:** issue form → secret `VERCEL_TOKEN` and/or `VERCEL_API_TOKEN`, mode **generate**, Confirm =
   Yes, add the label. *(Or: Actions → **Rotate Vercel Tokens** → pick the secret; or `rotate_secret.py

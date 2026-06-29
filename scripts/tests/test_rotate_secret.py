@@ -208,6 +208,18 @@ class TestVercelTokenApi:
             delete_vercel_token("m", "tok_9")
         assert "tok_9" in d.call_args[0][0]
 
+    def test_create_scopes_to_team_when_team_id_set(self):
+        r = MagicMock(); r.json.return_value = {"token": {"id": "tid"}, "bearerToken": "bv"}
+        with patch("requests.post", return_value=r) as p:
+            create_vercel_token("m", "n", "team_abc")
+        assert p.call_args[1]["params"] == {"teamId": "team_abc"}  # team-scoped
+
+    def test_create_omits_team_param_when_no_team_id(self):
+        r = MagicMock(); r.json.return_value = {"token": {"id": "tid"}, "bearerToken": "bv"}
+        with patch("requests.post", return_value=r) as p:
+            create_vercel_token("m", "n")
+        assert p.call_args[1]["params"] is None
+
 
 class TestUpsertVercelEnvVar:
     def test_post_when_absent(self):
@@ -487,6 +499,15 @@ class TestGenerateSharedVercelToken:
         assert rc == 1                       # clean error, not a KeyError traceback
         create.assert_not_called()           # bailed before minting any token
 
+    def test_forwards_team_id_to_create(self, sample_registry):
+        with patch.object(rs, "list_vercel_tokens", return_value=[]), \
+             patch.object(rs, "create_vercel_token", return_value=("nid", "v")) as create, \
+             patch.object(rs, "update_github_env_secret"), \
+             patch.object(rs, "delete_vercel_token"):
+            cmd_generate(self._entry(sample_registry), ALL, ALL, "gh", "m", "team_z")
+        # every mint is scoped to the team (3rd positional arg of create_vercel_token)
+        assert all(c[0][2] == "team_z" for c in create.call_args_list)
+
 
 # ── generate: random_urlsafe (per-env) ──────────────────────────────────────────
 
@@ -601,10 +622,20 @@ class TestMain:
         monkeypatch.setattr(sys, "argv", ["x", "--mode", "generate", "--secrets", "VERCEL_TOKEN"])
         monkeypatch.setenv("GH_TOKEN", "gh")
         monkeypatch.setenv("VERCEL_MASTER_TOKEN", "m")
+        monkeypatch.setenv("VERCEL_TEAM_ID", "team_x")
         with patch.object(rs, "cmd_generate", return_value=0) as g:
             with pytest.raises(SystemExit) as e:
                 rs.main()
         assert e.value.code == 0 and g.called
+        assert g.call_args[0][5] == "team_x"  # team_id forwarded to cmd_generate
+
+    def test_generate_requires_team_id(self, monkeypatch, mock_registry_file):
+        monkeypatch.setattr(sys, "argv", ["x", "--mode", "generate", "--secrets", "VERCEL_TOKEN"])
+        monkeypatch.setenv("GH_TOKEN", "gh")
+        monkeypatch.setenv("VERCEL_MASTER_TOKEN", "m")
+        monkeypatch.delenv("VERCEL_TEAM_ID", raising=False)
+        with pytest.raises(SystemExit, match="VERCEL_TEAM_ID"):
+            rs.main()
 
     def test_paste_requires_single_secret(self, monkeypatch, mock_registry_file):
         monkeypatch.setattr(sys, "argv", ["x", "--mode", "paste", "--secrets", "all"])
