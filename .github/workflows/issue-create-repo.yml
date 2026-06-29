@@ -11,6 +11,13 @@
 #                 Secrets (R/W), Variables (R/W), Actions (R/W)
 #     Account:    Members (Read)
 #
+# NOTE — CICD_PAT holdout. The rotation/kit workflows have moved to ephemeral GitHub App
+# tokens (docs/design/github-app-migration.md). This provisioner stays on CICD_PAT for now
+# because creating a repo under a *personal account* needs a user-to-server PAT — a GitHub App
+# installation token cannot create user-account repos. It moves to the App after the planned
+# org move (then the App's org-level Administration permission can create repos). It is the last
+# CICD_PAT consumer; owner-only and rarely run, so the residual blast radius is minimal.
+#
 # Template repos that must exist before this workflow is useful:
 #   Needless2Say/kriegerdataforge-template-nextjs
 #   Needless2Say/kriegerdataforge-template-fastapi

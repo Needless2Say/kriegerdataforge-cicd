@@ -1,8 +1,49 @@
 # Design note — migrate GitHub PATs to a GitHub App (+ Vercel master auto-rotation)
 
-**Status: PROPOSED — for owner review.** Not yet implemented. This captures the recommended path to
-eliminate the long-lived GitHub PATs and to fully automate the Vercel master-token rotation, so it can be
-reviewed and scheduled later.
+**Status: ACCEPTED — Phase 1 implemented.** The owner approved retiring the long-lived GitHub PATs in
+favour of a GitHub App that mints ephemeral, scoped installation tokens. **Phase 1** (the `CICD_PAT`
+automation surface) is wired in code, behind a feature flag, and ready to switch on once the owner creates
+the App. **Phase 2** (the CI-runner + Vercel-build `GH_PACKAGES_PAT` / `CICD_REGISTRY_PAT`) is scoped below
+and deferred until Phase 1 is validated in production.
+
+## Decisions (resolved)
+
+1. **Migrate to a GitHub App** — approved.
+2. **Token lifetime** — keep the GitHub default of **1 hour nominal**. GitHub fixes the installation-token
+   TTL at 1 hour and exposes *no* knob to shorten it; we don't need one, because
+   `actions/create-github-app-token` **revokes the token in a post-job step**, so the real exposure window
+   is the job's runtime (minutes). Risk is bounded by *scope*, not time: every workflow mints **per-job**,
+   scoped to `owner` and **downscoped** to the minimum permission (`permission-secrets: write` for the
+   rotators, `permission-contents`/`permission-pull-requests: write` for kit distribution).
+3. **Vercel SDK-install (Phase 2)** — chosen path: **option 1 now** (keep a single narrow `contents:read`
+   PAT, monitored, for the Vercel build only), with **option 2 (publish the SDK to a registry)** as the
+   clean long-term follow-up. Rationale below.
+
+## Implementation status
+
+| Workflow | Token before | Token after (Phase 1) |
+|---|---|---|
+| `ops-rotate-secrets.yml` | `CICD_PAT` | App token (`secrets:write`) → falls back to `CICD_PAT` |
+| `rotate-vercel-tokens.yml` | `CICD_PAT` | App token (`secrets:write`) → falls back to `CICD_PAT` |
+| `distribute-gh-pat.yml` | `CICD_PAT` | App token (`secrets:write`) → falls back to `CICD_PAT` |
+| `distribute-kit.yml` | `CICD_PAT` | App token (`contents`+`pull-requests:write`) → falls back to `CICD_PAT` |
+| `ops-distribute-kit.yml` | `CICD_PAT` | App token (`contents`+`pull-requests:write`) → falls back to `CICD_PAT` |
+| `issue-create-repo.yml` | `CICD_PAT` | **unchanged** — the CICD_PAT holdout (see below) |
+
+Each minting step is gated on the **`USE_GITHUB_APP`** repo *variable* and falls back to `CICD_PAT`
+(`${{ steps.app-token.outputs.token || secrets.CICD_PAT }}`), so **merging Phase 1 changes nothing** until
+the owner creates the App and flips the flag — and unsetting the variable is an **instant rollback**.
+
+**The CICD_PAT holdout.** `issue-create-repo.yml` provisions new repos. Creating a repo under a *personal
+account* requires a user-to-server PAT; a GitHub App **installation token cannot create user-account
+repos**. So this one workflow keeps `CICD_PAT` until the planned **org move**, after which the App's
+org-level *Administration* permission can create repos and `CICD_PAT` can be fully retired. It is
+owner-only and rarely run, so the residual exposure is minimal.
+
+The new standing secrets are **`KDF_APP_ID`** (not sensitive) and **`KDF_APP_PRIVATE_KEY`** (a `.pem`,
+stored as a cicd repo secret and monitored in `secret_registry.json`). Setup steps:
+[`docs/guides/MANUAL_SETUP.md` → "GitHub App (ephemeral tokens)"](../guides/MANUAL_SETUP.md). Private-key
+rotation recipe: [`SECRET_ROTATION.md` §8.3a](../guides/SECRET_ROTATION.md).
 
 ---
 
@@ -69,17 +110,27 @@ Vercel builds don't run in GitHub Actions, so they can't call `create-github-app
 
 ## Migration steps (phased, reversible)
 
-1. Create the org-owned GitHub App; set the permissions above; generate a private key; install it on the
-   target repos.
-2. Add `KDF_APP_ID` + `KDF_APP_PRIVATE_KEY` as `kriegerdataforge-cicd` repo secrets.
-3. Update the rotation engine + workflows to mint an App token (`actions/create-github-app-token`) instead
-   of consuming `CICD_PAT`; pick + implement the Vercel SDK-install option above.
-4. **Verify** every flow (a secret rotation, a deploy, an SDK install) works on App tokens.
-5. Remove `CICD_PAT` / `CICD_REGISTRY_PAT` (and `GH_PACKAGES_PAT` if option 2/3 chosen) from
-   `secret_registry.json`'s monitored set; **revoke** the old PATs.
-6. Update `SECRET_ROTATION.md` / `MANUAL_SETUP.md`; set a relaxed reminder for **App private-key** rotation.
+**Owner, to switch Phase 1 on** (one-time, ~10 min — full walkthrough in `MANUAL_SETUP.md`):
 
-Cost: $0 (GitHub Apps are free). Effort: ~½–1 day plus the Vercel-install decision.
+1. Create the App (account-owned for now); grant **Secrets: R/W** + **Contents: R/W** +
+   **Pull requests: R/W**; generate a private key; install it on the consumer repos.
+2. Add `KDF_APP_ID` + `KDF_APP_PRIVATE_KEY` as `kriegerdataforge-cicd` repo secrets, then set the repo
+   **variable** `USE_GITHUB_APP=true`.
+3. **Verify** by running a flow (e.g. *Check Secret Expiry*, or a *Rotate Vercel Tokens* dry run). If
+   anything misbehaves, unset `USE_GITHUB_APP` for an instant rollback to `CICD_PAT`.
+4. Once confident, **revoke** the standalone `CICD_PAT` *capabilities the App now covers* — but keep the
+   PAT itself until the org move (it still backs `issue-create-repo.yml`).
+
+**Already done in code (this PR):** the five rotation/kit workflows mint App tokens behind the
+`USE_GITHUB_APP` flag with a `CICD_PAT` fallback; `KDF_APP_PRIVATE_KEY` added to `secret_registry.json`
+(monitored); `SECRET_ROTATION.md` §8.3a + `MANUAL_SETUP.md` Phase 6.7 setup written.
+
+**Phase 2 (deferred):** App-ify the CI-runner SDK install (`ci-python-*.yml`) and pick the Vercel
+SDK-install path (option 1 now / option 2 long-term) to retire `GH_PACKAGES_PAT` and `CICD_REGISTRY_PAT`.
+This needs the App secrets plumbed into every consumer repo (reusable-workflow `secrets: inherit`) and the
+Vercel-build decision, so it is staged after Phase 1 is proven.
+
+Cost: $0 (GitHub Apps are free).
 
 ---
 
@@ -105,7 +156,10 @@ auto-rotation; until then the master stays on the monitored/reminder path (`SECR
 
 ---
 
-## Decisions needed from the owner
-1. Approve the GitHub App migration (eliminates the PAT rotation toil).
-2. Choose the **Vercel SDK-install** approach (1 narrow PAT / 2 registry / 3 minted-token).
-3. Approve building the fail-safe `VERCEL_MASTER_TOKEN` auto-rotation (or keep it reminder-only).
+## Decisions
+
+1. ✅ **Approved** — migrate to a GitHub App (Phase 1 implemented in this PR).
+2. ✅ **Resolved** — Vercel SDK-install: option 1 (narrow `contents:read` PAT) now, option 2 (registry)
+   as the long-term follow-up. Tracked as Phase 2.
+3. ⬜ **Still open** — approve building the fail-safe `VERCEL_MASTER_TOKEN` auto-rotation, or keep it
+   reminder-only. (Unchanged; depends on the one-time Vercel-API scope check above.)

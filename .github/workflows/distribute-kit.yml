@@ -68,11 +68,26 @@ jobs:
       - name: Install dependencies
         run: pip install -r scripts/requirements.txt
 
+      # Short-lived GitHub App installation token (auto-revoked at job end; effective lifetime =
+      # job runtime, not the 1-hour nominal TTL). Downscoped to contents + pull-requests write —
+      # what distribute_kit needs to push a sync branch and open a PR. Gated on USE_GITHUB_APP,
+      # falls back to CICD_PAT.
+      - name: Mint GitHub App token
+        id: app-token
+        if: vars.USE_GITHUB_APP == 'true'
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.KDF_APP_ID }}
+          private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: write
+          permission-pull-requests: write
+
       - name: Run distribute_kit
         env:
-          # CICD_PAT needs contents:read (check) + contents & pull-requests:write (distribute)
+          # The token needs contents:read (check) + contents & pull-requests:write (distribute)
           # on the target repos.
-          GH_TOKEN: ${{ secrets.CICD_PAT }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
           MODE: ${{ github.event.inputs.mode || 'check' }}
           ONLY: ${{ github.event.inputs.only }}
           REPOS: ${{ github.event.inputs.repos }}

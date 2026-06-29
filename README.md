@@ -85,6 +85,12 @@ GitHub secrets come in two scopes and rotate differently:
 - **Repository secrets** — the cicd ops/control plane (`CICD_PAT`, `VERCEL_MASTER_TOKEN`, …). Rotated
   **by hand**, since they authenticate the engine itself.
 
+The rotation + kit workflows are migrating off the long-lived `CICD_PAT` to a **GitHub App** that mints
+short-lived, scoped installation tokens per run (auto-revoked at job end). Phase 1 is wired behind the
+`USE_GITHUB_APP` flag with a `CICD_PAT` fallback — see
+[docs/design/github-app-migration.md](docs/design/github-app-migration.md) and
+[docs/guides/MANUAL_SETUP.md](docs/guides/MANUAL_SETUP.md) Phase 6.7 to switch it on.
+
 > **Scope:** this engine is **CI-plane only**. App-plane secrets owned by Terraform (DB URLs, the RS256
 > keypair, `KDF_SERVICE_KEY`, `STRIPE_*`, OIDC client secrets, `CRON_SECRET`) are rotated via the
 > terraform `SECRETS_ROTATION` runbook — the engine refuses `terraform_managed` entries.
@@ -131,4 +137,4 @@ This runs actionlint against all workflow files in `.github/workflows/`. Fix any
 - [docs/reference/WORKFLOWS.md](docs/reference/WORKFLOWS.md) — complete workflow reference, inputs, outputs, and secrets for each reusable workflow
 - [docs/guides/MANUAL_SETUP.md](docs/guides/MANUAL_SETUP.md) — initial setup instructions for environments, secrets, and PAT configuration in a new consumer repo
 - [docs/guides/SECRET_ROTATION.md](docs/guides/SECRET_ROTATION.md) — **rotation runbook**: how to rotate repository secrets and environment secrets (engine + by hand), emergency-leak triage, per-secret recipes, and the automated monitoring cadence
-- [docs/design/github-app-migration.md](docs/design/github-app-migration.md) — proposed move to a GitHub App (ephemeral tokens) to retire the long-lived PATs
+- [docs/design/github-app-migration.md](docs/design/github-app-migration.md) — move to a GitHub App (ephemeral tokens) to retire the long-lived PATs (**Phase 1 implemented**, behind the `USE_GITHUB_APP` flag)

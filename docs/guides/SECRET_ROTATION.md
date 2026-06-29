@@ -294,6 +294,22 @@ gotchas, and point to the **terraform `SECRETS_ROTATION` / `SECRETS_ROTATION_QUI
 - **🚨 If leaked:** it can overwrite **every** secret. After 1–4, assume tampering: re-`generate` all
   `VERCEL_TOKEN`s (§8.1) and re-`paste` `GH_PACKAGES_PAT` (§8.2). Review recent Actions runs for unexpected activity.
 
+#### 8.3a `KDF_APP_PRIVATE_KEY` 🔴 (GitHub App — the engine's new write credential)
+The GitHub App that mints the rotation/kit workflows' short-lived tokens. Setup: `MANUAL_SETUP.md`
+Phase 6.7. The non-secret `KDF_APP_ID` never needs rotation; this `.pem` private key does.
+- **When:** leaked, periodic (set a relaxed reminder, e.g. ~6 months), or a key you no longer trust.
+- **Steps (zero-downtime — GitHub Apps allow multiple keys):**
+  1. App → **General → Private keys → Generate a private key** (the App now has *two* valid keys).
+  2. Update the `KDF_APP_PRIVATE_KEY` repo secret in `kriegerdataforge-cicd` with the new `.pem`
+     contents (`gh secret set KDF_APP_PRIVATE_KEY --repo Needless2Say/kriegerdataforge-cicd < new.pem`).
+  3. **Verify** a flow on the new key (Actions → *Check Secret Expiry*, or a scoped *Rotate Vercel Tokens*).
+  4. App → **Delete** the old private key. Securely delete the local `.pem` files.
+  5. Update this entry's `check.expiry` in `secret_registry.json` to the next reminder date; commit.
+- **🚨 If leaked:** the key can mint installation tokens with the App's granted scopes (Secrets +
+  Contents + PR write) → delete that key immediately (step 4), rotate as above, and assume any secret the
+  engine can write is suspect — re-`generate` all `VERCEL_TOKEN`s (§8.1) and re-`paste` `GH_PACKAGES_PAT`
+  (§8.2). If `USE_GITHUB_APP` is on, you can also unset it to fall back to `CICD_PAT` while you rotate.
+
 #### 8.4 `VERCEL_MASTER_TOKEN` 🔴 (full Vercel account)
 - **Steps:**
   1. Vercel → **Account → Tokens** → create `kdf-master-rotation` with **Full Account** scope (team scope
@@ -376,10 +392,14 @@ where the credential can be minted by a machine, reminder-driven where it can't.
 | `GH_PACKAGES_PAT` | monthly\* | **Auto-issue reminder** → mint by hand, then §8.2. |
 | `CICD_PAT`, `CICD_REGISTRY_PAT` | monthly\* | **Auto-issue reminder** → §8.3 / §8.5. |
 | `VERCEL_MASTER_TOKEN` | monitored | **Auto-issue reminder** → §8.4. Auto-rotation is a planned enhancement. |
+| `KDF_APP_PRIVATE_KEY` | ~6-monthly | **Auto-issue reminder** → §8.3a (zero-downtime multi-key rotation). |
 
 \* GitHub has no PAT-creation API, so "monthly" here means: set the PAT's expiry to ~30 days when you
 create it, and the monitor reminds you to run the ~5-minute manual recipe. **The GitHub App migration
-removes this toil entirely** — see [`../design/github-app-migration.md`](../design/github-app-migration.md).
+retires this toil for the rotation/kit workflows** — Phase 1 is implemented (mint App tokens behind the
+`USE_GITHUB_APP` flag, fall back to `CICD_PAT`); once it's switched on, `CICD_PAT` survives only for
+`issue-create-repo.yml` until the org move. See
+[`../design/github-app-migration.md`](../design/github-app-migration.md).
 
 **`Check Secret Expiry`** runs weekly (Mondays): `rotate_secret.py --mode check --secrets all`, then keeps
 **one deduplicated tracking issue** (label `ops:secret-expiry`):
