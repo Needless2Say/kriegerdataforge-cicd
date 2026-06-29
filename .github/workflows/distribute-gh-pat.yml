@@ -51,8 +51,9 @@ jobs:
         run: pip install -r scripts/requirements.txt
 
       # Short-lived GitHub App installation token (auto-revoked at job end; effective lifetime =
-      # job runtime, not the 1-hour nominal TTL). Downscoped to secrets:write to paste the staged
-      # PAT into each environment secret. Gated on USE_GITHUB_APP, falls back to CICD_PAT.
+      # job runtime, not the 1-hour nominal TTL). Downscoped to environments:write — environment
+      # secrets are gated by the "Environments" permission, NOT "Secrets". Gated on USE_GITHUB_APP,
+      # falls back to CICD_PAT.
       - name: Mint GitHub App token
         id: app-token
         if: vars.USE_GITHUB_APP == 'true'
@@ -61,7 +62,7 @@ jobs:
           app-id: ${{ secrets.KDF_APP_ID }}
           private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
-          permission-secrets: write
+          permission-environments: write
 
       - name: Distribute new PAT
         env:

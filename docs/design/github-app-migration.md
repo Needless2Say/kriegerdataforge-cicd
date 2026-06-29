@@ -85,12 +85,13 @@ narrowly-scoped tokens. GitHub Apps support **multiple private keys**, enabling 
 ### Permission mapping (App replaces PAT)
 | Today (PAT) | App permission | Installed on |
 |---|---|---|
-| `CICD_PAT` → write secrets/envs | **Secrets: read/write**, **Environments: read/write**, **Actions: read/write**; **Administration: read/write** only if repo provisioning needs it | all consumer repos |
+| `CICD_PAT` → write env secrets | **Environments: read/write** (environment secrets are gated by "Environments", NOT "Secrets") | all consumer repos |
 | `GH_PACKAGES_PAT` → install the SDK | **Contents: read** | the private SDK repo |
 | `CICD_REGISTRY_PAT` → packages | **Packages: read/write** (if still needed) | the relevant repos |
 
-The rotation engine writes secrets via the REST API with whatever token it's given — an App installation
-token with `Secrets: write` works unchanged. The only standing secrets become **`KDF_APP_ID`** +
+The rotation engine writes **environment** secrets via the REST API with whatever token it's given — an
+App installation token with `Environments: write` works unchanged (environment secrets are gated by the
+"Environments" permission, **not** "Secrets"). The only standing secrets become **`KDF_APP_ID`** +
 **`KDF_APP_PRIVATE_KEY`** (cicd repo secrets).
 
 ### The one hard wrinkle: SDK install on **Vercel** builds

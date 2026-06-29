@@ -461,10 +461,14 @@ Vercel Tokens* and aren't part of this nudge.)
 3. **Webhook:** untick **Active** (this App is API-only; no webhook needed).
 4. **Repository permissions** — grant exactly these (least privilege; the per-workflow token is
    downscoped *below* this at mint time):
-   - **Secrets:** Read and write — *(lets the rotation engine write environment secrets)*
+   - **Environments:** Read and write — *(lets the rotation engine write **environment** secrets. This
+     is the key one: environment secrets — `prod`/`dev`/`infra` — are gated by the **"Environments"**
+     permission, NOT "Secrets". Granting only "Secrets" gives a `403 ... secrets/public-key` on every
+     write.)*
    - **Contents:** Read and write — *(lets kit distribution push a sync branch)*
    - **Pull requests:** Read and write — *(lets kit distribution open the sync PR)*
-   - Leave everything else **No access**.
+   - Leave everything else **No access** — in particular you do **not** need "Secrets" (that governs
+     repo/org-level Actions secrets, which the engine never writes).
 5. **Where can this App be installed?** Only on this account.
 6. **Create GitHub App.**
 
@@ -481,11 +485,12 @@ Vercel Tokens* and aren't part of this nudge.)
 
 ### 6.7.3 — Install the App on the consumer repos
 
-1. App page → **Install App** → choose your account → **Only select repositories**.
-2. Select the repos the automation touches: `kriegerdataforge`, `fitness-app-backend`,
-   `tiffanys-space-backend`, `fitness-app-frontend`, `tiffanys_space`, `kriegerdataforge-terraform`,
-   plus any other repo the kit is distributed to. (You can add repos later; the token auto-scopes to
-   whatever is installed.)
+1. App page → **Install App** → choose your account.
+2. Choose **All repositories** (simplest — the token auto-scopes to what's installed, and the three
+   narrow permissions keep it safe). This avoids a `403` later from a repo you forgot to add.
+   - If you prefer **Only select repositories**, you must include every repo the automation touches:
+     `kriegerdataforge`, `fitness-app-backend`, `tiffanys-space-backend`, `fitness-app-frontend`,
+     `tiffanys_space`, `kriegerdataforge-terraform`, plus any repo the kit is distributed to.
 
 ### 6.7.4 — Add the App credentials to `kriegerdataforge-cicd`
 
@@ -497,15 +502,30 @@ In `kriegerdataforge-cicd` → **Settings → Secrets and variables → Actions*
 3. **Variables** tab → **New repository variable**: name `USE_GITHUB_APP`, value `true`. *(This is the
    on/off switch — set it to anything but `true`, or delete it, for an instant rollback to `CICD_PAT`.)*
 
-### 6.7.5 — Verify, then record the key's rotation reminder
+### 6.7.5 — Verify with a real secret write, then record the key's rotation reminder
 
-1. **Actions → Check Secret Expiry → Run workflow** (read-only; proves the App can authenticate). Or do a
-   scoped **Rotate Vercel Tokens** run against a single app to prove a real secret write.
+1. Run a workflow that **writes an environment secret** so you actually exercise the `Environments`
+   permission — *Check Secret Expiry alone is read-only and will NOT catch a missing-permission `403`.*
+   Use **Actions → Rotate Vercel Tokens → Run workflow** scoped to one app, or **Distribute
+   GH_PACKAGES_PAT**. A `403 ... environments/.../secrets/public-key` means the App is missing
+   **Environments: Read and write** (or isn't installed on that repo) — see the callout below.
 2. In `scripts/secret_registry.json`, set the `KDF_APP_PRIVATE_KEY` entry's `check.expiry` to a relaxed
    rotation reminder (e.g. ~6 months out, `YYYY-MM-DD`) and commit — the weekly monitor will nudge you to
    rotate the key on that cadence (rotation recipe: [`SECRET_ROTATION.md` §8.3a](./SECRET_ROTATION.md)).
 3. `CICD_PAT` now only backs `issue-create-repo.yml` (creating a personal-account repo needs a user PAT,
    which an App token can't do until the org move). Keep it; its blast radius is now minimal.
+
+> **Troubleshooting `403 ... secrets/public-key` on env-secret writes.** Two causes:
+> 1. **Missing permission.** Environment secrets need **Environments: Read and write**, not "Secrets".
+>    Fix in the App's **Permissions & events** → set Environments to Read and write → **Save**. Changing
+>    an existing App's permissions requires **approving** the new permission on each installation
+>    (App → **Install App** → the gear/⚙ → review & accept the requested permissions), or the token
+>    won't actually receive it.
+> 2. **Not installed on that repo.** Confirm the App's installation includes every target repo — the
+>    simplest is to install on **All repositories** (the token auto-scopes to what's installed, and the
+>    three narrow permissions keep it safe).
+> While you fix the App, you can rotate immediately by setting `USE_GITHUB_APP` to anything but `true`
+> (or deleting it) — the workflows fall back to `CICD_PAT`, which already has the needed access.
 
 ---
 
