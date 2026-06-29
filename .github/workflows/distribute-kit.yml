@@ -36,11 +36,25 @@ permissions:
   contents: read
 
 jobs:
+  authorize:
+    # Only dispatched runs are actor-attributable; the weekly schedule has no human actor to
+    # match against the owner, so gate dispatches only (fail-closed for the privileged path).
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/_authorize-owner.yml
+
   distribute-kit:
     name: Distribute kit
+    needs: authorize
+    # Never run on forks (this repo is public). For a dispatch, require the owner gate to pass
+    # (PL-076 parity, fail-closed); the read-only weekly schedule has no authorize job (skipped),
+    # so allow it through. always() lets this job evaluate even though authorize is skipped on
+    # schedule; the explicit success() check below preserves fail-closed on dispatch.
+    if: >-
+      always() &&
+      github.repository == 'Needless2Say/kriegerdataforge-cicd' &&
+      (github.event_name != 'workflow_dispatch' ||
+        (needs.authorize.result == 'success' && needs.authorize.outputs.authorized == 'true'))
     runs-on: ubuntu-slim
-    # Never run on forks (this repo is public).
-    if: github.repository == 'Needless2Say/kriegerdataforge-cicd'
 
     steps:
       - name: Checkout

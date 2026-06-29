@@ -30,9 +30,19 @@ on:
           - dev
           - infra
 
+permissions:
+  contents: read
+
 jobs:
+  authorize:
+    uses: ./.github/workflows/_authorize-owner.yml
+
   rotate:
     name: Rotate Vercel tokens
+    needs: authorize
+    # Fail-closed owner gate (PL-076 parity): the reusable gate exit 1s on a non-owner (so the
+    # implicit needs-success requirement skips this job) AND we re-assert its explicit output.
+    if: needs.authorize.outputs.authorized == 'true'
     runs-on: ubuntu-slim
 
     # No GitHub Environment — uses repo-level secrets only

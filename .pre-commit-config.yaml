@@ -1,0 +1,13 @@
+# Pre-commit hooks for kriegerdataforge-cicd (PL-027).
+#
+# Adds a local gitleaks secret scan so a committed secret is caught BEFORE it
+# lands, complementing the CI `secret-scan` job (which only runs post-push over
+# the PR diff). This repo has no .gitleaks.toml allowlist, so gitleaks uses its
+# built-in default ruleset.
+#
+# Activate with:  pre-commit install
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
