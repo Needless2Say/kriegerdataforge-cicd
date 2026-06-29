@@ -101,7 +101,7 @@ agent workflows (`agents/`, skeleton only) so automation scales with the platfor
    breaking-change rules for modifying a reusable workflow.
 5. [`agents/README.md`](agents/README.md) — the (not-yet-built) AI-agent vision for where this repo is heading.
 
-Quick lookups: workflow inputs/secrets → `docs/WORKFLOWS.md`; setup/secrets/PAT steps → `docs/MANUAL_SETUP.md`; who can deploy → `scripts/deployer_registry.json`; rotation registry → `scripts/secret_registry.json`.
+Quick lookups: workflow inputs/secrets → `docs/reference/WORKFLOWS.md`; setup/secrets/PAT steps → `docs/guides/MANUAL_SETUP.md`; **rotating a secret** (repo / environment) → `docs/guides/SECRET_ROTATION.md`; who can deploy → `scripts/deployer_registry.json`; rotation registry → `scripts/secret_registry.json`.
 
 ## How to work in this repo — the agent kit
 

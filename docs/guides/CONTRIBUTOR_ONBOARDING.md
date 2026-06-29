@@ -222,6 +222,7 @@ and pause for owner approval before any behavior-changing edit.
   Standard lane, not a failure.
 - **Workflow inputs / secrets / caller pattern?** → [`docs/WORKFLOWS.md`](../reference/WORKFLOWS.md).
 - **Environments, secrets, PAT/token setup, tenant onboarding, org migration?** → [`docs/MANUAL_SETUP.md`](MANUAL_SETUP.md).
+- **How do I rotate a secret (repository / environment)?** → [`docs/SECRET_ROTATION.md`](SECRET_ROTATION.md).
 - **Who can deploy what?** → `scripts/deployer_registry.json`. **Rotation registry** →
   `scripts/secret_registry.json`. **Kit distribution** →
   `scripts/kit_registry.json`.

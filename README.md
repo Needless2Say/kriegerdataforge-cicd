@@ -25,6 +25,8 @@ Keeping CI/CD logic in one place means deploy behavior is consistent across all 
 | `ci-codeql.yml` | CodeQL static analysis (gated by `ENABLE_CODEQL`; needs public repo or Code Security) | kriegerdataforge, kriegerdataforge-sdk |
 | `issue-create-repo.yml` | Auto-provision new repositories from an issue template | Internal |
 | `rotate-vercel-tokens.yml` | Scheduled rotation of Vercel tokens | Internal |
+| `distribute-gh-pat.yml`, `check-gh-pat-expiry.yml` | Distribute / expiry-check the `GH_PACKAGES_PAT` | Internal |
+| `ops-rotate-secrets.yml` | Owner-only on-demand secret rotation (driven by the `Ops · Rotate a secret` issue form) | Internal |
 
 ---
 
@@ -66,7 +68,28 @@ For full input/output references and available secrets for each workflow, see [d
 
 ## Security
 
-All credentials are stored as GitHub Environment secrets. There are no `.env` files, no hardcoded values, and no repository-level secrets for deployment credentials. The environment gate is the enforcement point — secrets only become available after an approved reviewer allows the deployment to proceed.
+All **deployment/runtime** credentials are stored as GitHub **Environment** secrets — there are no `.env` files, no hardcoded values, and no repository-level deployment secrets. The environment gate is the enforcement point: secrets only become available after an approved reviewer allows the deployment to proceed. The only **repository-level** secrets are the ops/control-plane credentials this repo uses to *manage* the others (`CICD_PAT`, `VERCEL_MASTER_TOKEN`, and staging slots) — see Secret Rotation below.
+
+---
+
+## Secret Rotation
+
+GitHub secrets come in two scopes and rotate differently:
+
+- **Environment secrets** (`prod` / `dev` / `infra`) — all deploy/runtime credentials. The ones in
+  [`scripts/secret_registry.json`](scripts/secret_registry.json) (`VERCEL_TOKEN`, `GH_PACKAGES_PAT`) are
+  rotated by the **engine** ([`scripts/rotate_secret.py`](scripts/rotate_secret.py)) in two modes —
+  `generate` (auto-mint) or `paste` (distribute an owner-staged value) — selectable per environment.
+  Drive it from the **`Ops · Rotate a secret`** issue form (add the `ops:rotate-secrets` label) or the CLI.
+- **Repository secrets** — the cicd ops/control plane (`CICD_PAT`, `VERCEL_MASTER_TOKEN`, …). Rotated
+  **by hand**, since they authenticate the engine itself.
+
+> **Scope:** this engine is **CI-plane only**. App-plane secrets owned by Terraform (DB URLs, the RS256
+> keypair, `KDF_SERVICE_KEY`, `STRIPE_*`, OIDC client secrets, `CRON_SECRET`) are rotated via the
+> terraform `SECRETS_ROTATION` runbook — the engine refuses `terraform_managed` entries.
+
+**Full step-by-step instructions** (repo secrets, environment secrets, the issue form, the `gh` CLI,
+adding a secret to the registry, verification & troubleshooting): **[docs/guides/SECRET_ROTATION.md](docs/guides/SECRET_ROTATION.md)**.
 
 ---
 
@@ -74,17 +97,17 @@ All credentials are stored as GitHub Environment secrets. There are no `.env` fi
 
 ```
 .github/
-  workflows/
-    cd-nextjs-vercel.yml
-    cd-python-vercel.yml
-    cd-terraform.yml
-    create-github-release.yml
-    bump-version-check.yml
-    issue-create-repo.yml
-    rotate-vercel-tokens.yml
+  workflows/             # reusable CD + CI workflows, scheduled rotation, ops issue handlers
+  ISSUE_TEMPLATE/        # new-repo + owner ops forms (ops-rotate-secrets, ops-distribute-kit)
 docs/
-  WORKFLOWS.md       # Full calling syntax and secrets reference for each workflow
-  MANUAL_SETUP.md    # Setup guide: environments, secrets, PAT configuration
+  guides/
+    MANUAL_SETUP.md      # first-time setup: environments, secrets, PATs
+    SECRET_ROTATION.md   # rotation runbook: repository + environment secrets
+  reference/
+    WORKFLOWS.md         # calling syntax + secrets reference per workflow
+scripts/
+  rotate_secret.py       # unified secret-rotation engine
+  secret_registry.json   # which secrets live where (rotation source of truth)
 Makefile
 ```
 
@@ -104,5 +127,6 @@ This runs actionlint against all workflow files in `.github/workflows/`. Fix any
 
 ## Further Reading
 
-- [docs/WORKFLOWS.md](docs/reference/WORKFLOWS.md) — complete workflow reference, inputs, outputs, and secrets for each reusable workflow
-- [docs/MANUAL_SETUP.md](docs/guides/MANUAL_SETUP.md) — initial setup instructions for environments, secrets, and PAT configuration in a new consumer repo
+- [docs/reference/WORKFLOWS.md](docs/reference/WORKFLOWS.md) — complete workflow reference, inputs, outputs, and secrets for each reusable workflow
+- [docs/guides/MANUAL_SETUP.md](docs/guides/MANUAL_SETUP.md) — initial setup instructions for environments, secrets, and PAT configuration in a new consumer repo
+- [docs/guides/SECRET_ROTATION.md](docs/guides/SECRET_ROTATION.md) — **rotation runbook**: how to rotate repository secrets and environment secrets (engine + by hand)
