@@ -25,7 +25,8 @@ Keeping CI/CD logic in one place means deploy behavior is consistent across all 
 | `ci-codeql.yml` | CodeQL static analysis (gated by `ENABLE_CODEQL`; needs public repo or Code Security) | kriegerdataforge, kriegerdataforge-sdk |
 | `issue-create-repo.yml` | Auto-provision new repositories from an issue template | Internal |
 | `rotate-vercel-tokens.yml` | Scheduled rotation of Vercel tokens | Internal |
-| `distribute-gh-pat.yml`, `check-gh-pat-expiry.yml` | Distribute / expiry-check the `GH_PACKAGES_PAT` | Internal |
+| `distribute-gh-pat.yml` | Distribute a staged `GH_PACKAGES_PAT` to all targets | Internal |
+| `check-secret-expiry.yml` | Weekly credential-expiry monitor → opens/closes a deduped rotation issue | Internal |
 | `ops-rotate-secrets.yml` | Owner-only on-demand secret rotation (driven by the `Ops · Rotate a secret` issue form) | Internal |
 
 ---
@@ -129,4 +130,5 @@ This runs actionlint against all workflow files in `.github/workflows/`. Fix any
 
 - [docs/reference/WORKFLOWS.md](docs/reference/WORKFLOWS.md) — complete workflow reference, inputs, outputs, and secrets for each reusable workflow
 - [docs/guides/MANUAL_SETUP.md](docs/guides/MANUAL_SETUP.md) — initial setup instructions for environments, secrets, and PAT configuration in a new consumer repo
-- [docs/guides/SECRET_ROTATION.md](docs/guides/SECRET_ROTATION.md) — **rotation runbook**: how to rotate repository secrets and environment secrets (engine + by hand)
+- [docs/guides/SECRET_ROTATION.md](docs/guides/SECRET_ROTATION.md) — **rotation runbook**: how to rotate repository secrets and environment secrets (engine + by hand), emergency-leak triage, per-secret recipes, and the automated monitoring cadence
+- [docs/design/github-app-migration.md](docs/design/github-app-migration.md) — proposed move to a GitHub App (ephemeral tokens) to retire the long-lived PATs

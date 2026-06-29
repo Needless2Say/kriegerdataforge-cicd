@@ -46,7 +46,7 @@ agent workflows (`agents/`, skeleton only) so automation scales with the platfor
 | `.github/workflows/create-github-release.yml` | Create GitHub Release + git tag from `VERSION` |
 | `.github/workflows/ci-*.yml` | Reusable per-stack CI (python lint/typecheck/tests/security, nextjs build/lint/tests, codeql, npm-audit, vercel-compactor) |
 | `.github/workflows/issue-create-repo.yml` | Auto-provision new repos from the `new-repo` issue template |
-| `.github/workflows/rotate-vercel-tokens.yml`, `distribute-gh-pat.yml`, `check-gh-pat-expiry.yml` | Scheduled secret rotation/distribution |
+| `.github/workflows/rotate-vercel-tokens.yml`, `distribute-gh-pat.yml`, `check-secret-expiry.yml` | Scheduled secret rotation/distribution + weekly expiry monitor |
 | `scripts/check_deployer.py` + `deployer_registry.json` | Per-repo/per-env deployer authorization gate (fail closed) |
 | `scripts/rotate_secret.py` + `secret_registry.json` | Unified CI-plane secret rotation engine (modes: generate / paste / check; env-aware) |
 | `scripts/common/bump_version.py`, `check_version.py` | Version bump + CI consistency/increment check |
