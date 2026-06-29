@@ -277,7 +277,7 @@ Two separate Vercel secrets, both engine-minted:
   token has account-wide deploy reach, so treat a leak as affecting every app.
 - **One-time cutover:** the first shared `generate` leaves the old per-app tokens (`kdf-auth-backend-*`,
   `kdf-fitness-frontend-*`, `kdf-tiffanys-frontend-*`) orphaned in Vercel — delete them manually, or let
-  them expire (≤35 days). The engine no longer tracks them.
+  them expire (≤45 days). The engine no longer tracks them.
 
 #### 8.2 `GH_PACKAGES_PAT` (env secret in the backend repos + non-Terraform Vercel vars)
 - **When:** the `check` workflow warns of expiry, scheduled, or leaked.

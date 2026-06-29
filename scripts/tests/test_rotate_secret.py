@@ -448,6 +448,45 @@ class TestGenerateSharedVercelToken:
         upd.assert_not_called()
         dele.assert_not_called()
 
+    def test_delete_failure_is_soft_error_not_a_crash(self, sample_registry):
+        # all writes succeed, then the cleanup DELETE raises -> must return 1 (soft error), NOT crash,
+        # and every target must still have been written (the new token is already live).
+        with patch.object(rs, "list_vercel_tokens", return_value=[{"name": "kdf-deploy-shared", "id": "old"}]), \
+             patch.object(rs, "create_vercel_token", return_value=("new", "v")), \
+             patch.object(rs, "update_github_env_secret") as upd, \
+             patch.object(rs, "delete_vercel_token", side_effect=Exception("delete boom")) as dele:
+            rc = cmd_generate(self._entry(sample_registry), ALL, ALL, "gh", "m")
+        assert rc == 1                      # soft error, surfaced via _summary — not a traceback
+        assert upd.call_count == 3          # every target still written
+        dele.assert_called_once_with("m", "old")  # cleanup was attempted
+
+    def test_reaps_all_duplicate_old_tokens(self, sample_registry):
+        # two pre-existing tokens share the name -> BOTH must be deleted (a name->id map would miss one)
+        with patch.object(rs, "list_vercel_tokens", return_value=[
+                 {"name": "kdf-deploy-shared", "id": "old1"},
+                 {"name": "kdf-deploy-shared", "id": "old2"},
+                 {"name": "unrelated", "id": "keep"}]), \
+             patch.object(rs, "create_vercel_token", return_value=("new", "v")), \
+             patch.object(rs, "update_github_env_secret"), \
+             patch.object(rs, "delete_vercel_token") as dele:
+            rc = cmd_generate(self._entry(sample_registry), ALL, ALL, "gh", "m")
+        assert rc == 0
+        deleted = {c[0][1] for c in dele.call_args_list}
+        assert deleted == {"old1", "old2"}  # both duplicates reaped, unrelated token untouched
+
+    def test_missing_entry_token_name_errors_without_minting(self):
+        entry = [{
+            "name": "BAD_SHARED", "kind": "generate", "generator": "vercel_token", "shared": True,
+            "github_env_secrets": [{"repo": "Needless2Say/x", "environment": "prod", "secret_name": "VERCEL_TOKEN"}],
+        }]  # no entry-level vercel_token_name
+        with patch.object(rs, "list_vercel_tokens", return_value=[]), \
+             patch.object(rs, "create_vercel_token") as create, \
+             patch.object(rs, "update_github_env_secret"), \
+             patch.object(rs, "delete_vercel_token"):
+            rc = cmd_generate(entry, ALL, ALL, "gh", "m")
+        assert rc == 1                       # clean error, not a KeyError traceback
+        create.assert_not_called()           # bailed before minting any token
+
 
 # ── generate: random_urlsafe (per-env) ──────────────────────────────────────────
 

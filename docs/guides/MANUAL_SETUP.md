@@ -44,7 +44,7 @@ For the **per-app deployment tokens** in the table below, use these settings:
 |---|---|
 | **Token Name** | see table below |
 | **Scope** | **Arthur's projects** — this restricts the token to your Vercel team's projects only, following least-privilege. |
-| **Expiration** | Custom — set ~35 days out. The monthly rotation workflow (Phase 6) will renew them automatically after initial setup. |
+| **Expiration** | Custom — set ~45 days out. The monthly rotation workflow (Phase 6) re-mints them (45-day expiry) automatically after initial setup. |
 
 > **`kdf-master-rotation` is the exception — see Phase 6.1.** That token must use **Full Account** scope because the Vercel API endpoint for creating/deleting tokens (`/v3/user/tokens`) is a personal account API, not a team API. Tokens scoped to "Arthur's projects" receive a 403 Forbidden when calling it. The per-app tokens here never call that endpoint — they only make deployment calls, so team scope is sufficient and correct.
 

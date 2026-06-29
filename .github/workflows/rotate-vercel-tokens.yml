@@ -2,9 +2,10 @@ name: Rotate Vercel Tokens
 
 on:
   # Monthly auto-rotation: first of every month at 09:00 UTC. New Vercel tokens are created with a
-  # 35-day expiry, so a ~30-day cadence leaves ~5 days of slack if a run is missed. This rotates the
-  # one shared deploy token (VERCEL_TOKEN, fanned out to every app repo) and the separate terraform
-  # management token (VERCEL_API_TOKEN).
+  # 45-day expiry, so a monthly cadence (worst-case 31-day gap) leaves ~2 weeks of slack — a single
+  # missed run never expires the one shared deploy token. This rotates the shared deploy token
+  # (VERCEL_TOKEN, fanned out to every app repo) and the separate terraform management token
+  # (VERCEL_API_TOKEN).
   schedule:
     - cron: "0 9 1 * *"
 
@@ -26,14 +27,24 @@ permissions:
 
 jobs:
   authorize:
+    # Only dispatched runs have a human actor to authorize. A scheduled (cron) run's
+    # github.triggering_actor is the last editor/enabler of the schedule, NOT necessarily the owner,
+    # so gating the cron on the owner check would fail-closed and silently skip the rotation —
+    # eventually expiring the one shared deploy token. Gate dispatches only (same as distribute-kit).
+    if: github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/_authorize-owner.yml
 
   rotate:
     name: Rotate Vercel tokens
     needs: authorize
-    # Fail-closed owner gate (PL-076 parity): the reusable gate exit 1s on a non-owner (so the
-    # implicit needs-success requirement skips this job) AND we re-assert its explicit output.
-    if: needs.authorize.outputs.authorized == 'true'
+    # Fail-closed owner gate for dispatches (PL-076 parity); the read-only/trusted cron path has no
+    # authorize job (skipped), so allow it through. always() lets this job evaluate even when
+    # authorize is skipped on schedule; the explicit success() check preserves fail-closed on dispatch.
+    if: >-
+      always() &&
+      github.repository == 'Needless2Say/kriegerdataforge-cicd' &&
+      (github.event_name != 'workflow_dispatch' ||
+        (needs.authorize.result == 'success' && needs.authorize.outputs.authorized == 'true'))
     runs-on: ubuntu-slim
 
     # No GitHub Environment — uses repo-level secrets only

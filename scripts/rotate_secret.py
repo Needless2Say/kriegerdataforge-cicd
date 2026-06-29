@@ -55,8 +55,9 @@ REGISTRY_FILE = Path(__file__).parent / "secret_registry.json"
 VERCEL_API = "https://api.vercel.com"
 GITHUB_API = "https://api.github.com"
 
-# New Vercel tokens expire after 35 days; the scheduled run rotates every 30, leaving 5 days slack.
-TOKEN_EXPIRY_DAYS = 35
+# New Vercel tokens expire after 45 days. The monthly cron rotates ~every 30 (worst-case 31-day gap),
+# leaving ~2 weeks of slack so a single missed run never expires the one shared deploy token.
+TOKEN_EXPIRY_DAYS = 45
 
 # ============================================================
 # GitHub helpers
@@ -308,6 +309,29 @@ def _gen_value() -> str:
     return _secrets.token_urlsafe(32)
 
 
+def _reap_old_vercel_tokens(
+    master_token: str,
+    all_tokens: list[dict],
+    token_name: str,
+    new_id: str,
+    errors: list[str],
+    label: str,
+) -> None:
+    """Delete EVERY existing Vercel token named ``token_name`` except ``new_id``.
+
+    Vercel allows several tokens to share a display name, so a name->id map would silently miss
+    duplicates (left over from a prior partial-failure run that kept the old token, an operator-seeded
+    token, or a re-run). A delete failure is a **soft error** — the new token is already live, so a
+    failed cleanup must never crash the run or abort the rest of the rotation.
+    """
+    for t in all_tokens:
+        if t.get("name") == token_name and t.get("id") != new_id:
+            try:
+                delete_vercel_token(master_token, t["id"])
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{label}: delete old '{token_name}' (id={t['id']}): {exc}")
+
+
 def _generate_vercel_token_secret(
     entry: dict, apps: frozenset[str], envs: frozenset[str], master_token: str, gh_token: str
 ) -> list[str]:
@@ -325,7 +349,7 @@ def _generate_vercel_token_secret(
     if not targets:
         print(f"  {entry['name']}: no targets matched the app/env filter — skipped.")
         return errors
-    existing = {t["name"]: t["id"] for t in list_vercel_tokens(master_token)}
+    all_tokens = list_vercel_tokens(master_token)
     for t in targets:
         token_name = t["vercel_token_name"]
         label = f"{token_name} -> {t['repo']} [{t['environment']}] {t['secret_name']}"
@@ -333,13 +357,13 @@ def _generate_vercel_token_secret(
         try:
             new_id, new_value = create_vercel_token(master_token, token_name)
             update_github_env_secret(gh_token, t["repo"], t["environment"], t["secret_name"], new_value)
-            old_id = existing.get(token_name)
-            if old_id and old_id != new_id:
-                delete_vercel_token(master_token, old_id)
             print("OK")
         except Exception as exc:  # noqa: BLE001
             print(f"FAILED - {exc}")
             errors.append(f"{label}: {exc}")
+            continue
+        # New token is live; clean up old same-named tokens best-effort (never crashes the run).
+        _reap_old_vercel_tokens(master_token, all_tokens, token_name, new_id, errors, label)
     return errors
 
 
@@ -349,9 +373,9 @@ def _generate_shared_vercel_token(
     """Mint ONE Vercel token and fan the same value out to every target.
 
     A shared token is a single value everywhere, so app/env filters are ignored (a partial write
-    would leave repos out of sync). The previous token (same name) is deleted only if EVERY write
-    succeeded — on any failure both the old and new tokens stay valid, so no repo is left holding a
-    revoked token.
+    would leave repos out of sync). The previous token(s) of the same name are deleted only if EVERY
+    write succeeded — on any failure both the old and new tokens stay valid, so no repo is left
+    holding a revoked token. Cleanup is best-effort (a delete failure is a soft error, never a crash).
     """
     errors: list[str] = []
     targets = entry.get("github_env_secrets", [])
@@ -360,8 +384,10 @@ def _generate_shared_vercel_token(
         return errors
     if apps or envs:
         print(f"  {entry['name']}: shared token — ignoring app/env filter; writing all {len(targets)} target(s).")
-    token_name = entry["vercel_token_name"]
-    existing = {t["name"]: t["id"] for t in list_vercel_tokens(master_token)}
+    token_name = entry.get("vercel_token_name")
+    if not token_name:
+        return [f"{entry['name']}: shared entry is missing the entry-level 'vercel_token_name'."]
+    all_tokens = list_vercel_tokens(master_token)
     print(f"  {entry['name']}: minting one shared token '{token_name}' for {len(targets)} target(s)")
     try:
         new_id, new_value = create_vercel_token(master_token, token_name)
@@ -379,12 +405,10 @@ def _generate_shared_vercel_token(
             print(f"FAILED - {exc}")
             errors.append(f"{label}: {exc}")
             wrote_all = False
-    old_id = existing.get(token_name)
-    if old_id and old_id != new_id:
-        if wrote_all:
-            delete_vercel_token(master_token, old_id)
-        else:
-            print(f"  keeping previous '{token_name}' (id={old_id}) — a write failed, so both tokens stay valid.")
+    if wrote_all:
+        _reap_old_vercel_tokens(master_token, all_tokens, token_name, new_id, errors, entry["name"])
+    else:
+        print(f"  keeping previous '{token_name}' token(s) — a write failed, so they stay valid.")
     return errors
 
 
