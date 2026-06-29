@@ -82,7 +82,7 @@ jobs:
           VERCEL_MASTER_TOKEN: ${{ secrets.VERCEL_MASTER_TOKEN }}
           # Scopes minted tokens to the Vercel team (the VERCEL_ORG_ID value) — without it the tokens
           # are personal-scoped and Vercel rejects them for team projects.
-          VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
+          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
           SECRETS_FILTER: ${{ inputs.secrets || 'VERCEL_TOKEN,VERCEL_API_TOKEN' }}
         run: |
