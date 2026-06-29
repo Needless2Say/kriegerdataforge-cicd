@@ -7,14 +7,14 @@ automation that every tenant repo calls instead of maintaining its own pipelines
 + `secrets: inherit`) — all the real logic lives here.
 
 This guide gets you from a fresh clone to a green local gate and your first PR. For the *why* behind
-the platform, read [`AGENTS.md`](../AGENTS.md) first; for the task loop, read
-[`WORKFLOW.md`](../WORKFLOW.md). This doc is the practical setup layer underneath both.
+the platform, read [`AGENTS.md`](../../AGENTS.md) first; for the task loop, read
+[`WORKFLOW.md`](../../WORKFLOW.md). This doc is the practical setup layer underneath both.
 
 > **The mindset that matters most here:** every workflow in `.github/workflows/` is consumed **live
 > from `@main`** by three or more tenant repos. There is no staging copy. A change to a reusable
 > workflow's *interface* (inputs, outputs, secrets) can break every consumer's deploy at once. When in
 > doubt, **add, don't change** — and treat interface changes as cross-repo Epics. See the breaking-change
-> rules in [`CONTRIBUTING.md`](../CONTRIBUTING.md).
+> rules in [`CONTRIBUTING.md`](../../CONTRIBUTING.md).
 
 ---
 
@@ -82,7 +82,7 @@ make test        # pytest in scripts/ with coverage
 make check-all   # both of the above — THE local gate
 ```
 
-> **`make check-all` is the gate.** In [`WORKFLOW.md`](../WORKFLOW.md) the universal step is
+> **`make check-all` is the gate.** In [`WORKFLOW.md`](../../WORKFLOW.md) the universal step is
 > `make ci`; **this repo has no `ci` target** — `make ci` maps to **`make check-all`** here. Keep it
 > green before you open a PR.
 
@@ -158,7 +158,7 @@ Implications for how you change things here:
 - **Inputs/outputs/secrets are a public contract.** Adding a `required: true` input, removing or
   renaming an input, changing an input `type:`, renaming a secret, or removing an `output:` **breaks
   callers**. Use `required: false` + `default:`, or coordinate the change across all consumers first
-  (see the breaking-change table in [`CONTRIBUTING.md`](../CONTRIBUTING.md)).
+  (see the breaking-change table in [`CONTRIBUTING.md`](../../CONTRIBUTING.md)).
 - **Pin every third-party action** to a tag or full SHA — never `@main` / `@latest`.
 - **Every deploy workflow sets `environment:`** to activate the GitHub Environment approval gate, and
   sets **minimum `permissions:`** (`id-token: write` only where Vercel OIDC needs it).
@@ -173,7 +173,7 @@ Implications for how you change things here:
 
 ## 6. Pick a lane → plan → approve → PR
 
-Every task follows the tiered loop in [`WORKFLOW.md`](../WORKFLOW.md). Size the ceremony to the work:
+Every task follows the tiered loop in [`WORKFLOW.md`](../../WORKFLOW.md). Size the ceremony to the work:
 
 - **Quick** — a typo, comment, or a one-file no-behavior fix → implement → `make check-all` → bump →
   branch → PR.
@@ -182,14 +182,14 @@ Every task follows the tiered loop in [`WORKFLOW.md`](../WORKFLOW.md). Size the 
 - **Epic** — complex/novel design, or anything spanning more than one repo. **Touching a reusable
   workflow's interface counts as an Epic** even though the edit is in this one repo, because it ripples
   into every consumer. Follow the design gate in
-  [`docs/agent/DESIGN_AND_EPICS.md`](agent/DESIGN_AND_EPICS.md) and the breaking-change rules in
-  [`CONTRIBUTING.md`](../CONTRIBUTING.md).
+  [`docs/agent/DESIGN_AND_EPICS.md`](../agent/DESIGN_AND_EPICS.md) and the breaking-change rules in
+  [`CONTRIBUTING.md`](../../CONTRIBUTING.md).
 
 Non-negotiables: **don't skip the plan-approval gate; don't self-merge.** Branch off `main`
 (`{type}/{short-description}`), use Conventional-Commit messages, stage files **explicitly** (never
 `git add -A`), self-review your diff, and fill in the PR template
-([`.github/PULL_REQUEST_TEMPLATE.md`](../.github/PULL_REQUEST_TEMPLATE.md)). The full bar is in
-[`docs/agent/DEFINITION_OF_DONE.md`](agent/DEFINITION_OF_DONE.md).
+([`.github/PULL_REQUEST_TEMPLATE.md`](../../.github/PULL_REQUEST_TEMPLATE.md)). The full bar is in
+[`docs/agent/DEFINITION_OF_DONE.md`](../agent/DEFINITION_OF_DONE.md).
 
 ### Before you open a PR (this repo)
 
@@ -208,8 +208,8 @@ Non-negotiables: **don't skip the plan-approval gate; don't self-merge.** Branch
 
 Before any security-sensitive change — supply-chain/action pinning, the privileged ops/rotation
 workflows, secret handling, the deployer gate, or CI/CD changes — open the ecosystem security playbook
-[`skills.md`](../skills.md) and follow the scenario that matches your task. The disclosure process for
-vulnerabilities is in [`SECURITY.md`](../SECURITY.md). Core rules: **fail closed**, **least
+[`skills.md`](../../skills.md) and follow the scenario that matches your task. The disclosure process for
+vulnerabilities is in [`SECURITY.md`](../../SECURITY.md). Core rules: **fail closed**, **least
 privilege**, and **secrets never touch git or logs** — real values live only in GitHub Environment
 secrets, and the owner rotates them. If you find a security issue, **verify it's real, then flag it**,
 and pause for owner approval before any behavior-changing edit.
@@ -220,13 +220,13 @@ and pause for owner approval before any behavior-changing edit.
 
 - **Don't understand the purpose or how your task fits the goal?** Stop and ask — that's step 1 of the
   Standard lane, not a failure.
-- **Workflow inputs / secrets / caller pattern?** → [`docs/WORKFLOWS.md`](WORKFLOWS.md).
+- **Workflow inputs / secrets / caller pattern?** → [`docs/WORKFLOWS.md`](../reference/WORKFLOWS.md).
 - **Environments, secrets, PAT/token setup, tenant onboarding, org migration?** → [`docs/MANUAL_SETUP.md`](MANUAL_SETUP.md).
 - **Who can deploy what?** → `scripts/deployer_registry.json`. **Rotation registries** →
   `scripts/vercel_token_registry.json`, `scripts/gh_pat_registry.json`. **Kit distribution** →
   `scripts/kit_registry.json`.
-- **What belongs here vs. a tenant repo?** → the two-tier table in [`CONTRIBUTING.md`](../CONTRIBUTING.md).
-- **Past architectural decisions?** → [`docs/CHANGELOG_AND_DECISION_LOG.md`](CHANGELOG_AND_DECISION_LOG.md).
+- **What belongs here vs. a tenant repo?** → the two-tier table in [`CONTRIBUTING.md`](../../CONTRIBUTING.md).
+- **Past architectural decisions?** → [`docs/CHANGELOG_AND_DECISION_LOG.md`](../CHANGELOG_AND_DECISION_LOG.md).
 - **`actionlint` flags YAML you didn't write?** Re-run `make lint`; fix the reported line, or ask if
   the rule conflicts with a deliberate pattern.
 - Still stuck? Open a question issue (the bug/feature templates are in `.github/ISSUE_TEMPLATE/`) or

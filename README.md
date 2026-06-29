@@ -60,7 +60,7 @@ jobs:
     secrets: inherit
 ```
 
-For full input/output references and available secrets for each workflow, see [docs/WORKFLOWS.md](docs/WORKFLOWS.md).
+For full input/output references and available secrets for each workflow, see [docs/WORKFLOWS.md](docs/reference/WORKFLOWS.md).
 
 ---
 
@@ -104,5 +104,5 @@ This runs actionlint against all workflow files in `.github/workflows/`. Fix any
 
 ## Further Reading
 
-- [docs/WORKFLOWS.md](docs/WORKFLOWS.md) — complete workflow reference, inputs, outputs, and secrets for each reusable workflow
-- [docs/MANUAL_SETUP.md](docs/MANUAL_SETUP.md) — initial setup instructions for environments, secrets, and PAT configuration in a new consumer repo
+- [docs/WORKFLOWS.md](docs/reference/WORKFLOWS.md) — complete workflow reference, inputs, outputs, and secrets for each reusable workflow
+- [docs/MANUAL_SETUP.md](docs/guides/MANUAL_SETUP.md) — initial setup instructions for environments, secrets, and PAT configuration in a new consumer repo
