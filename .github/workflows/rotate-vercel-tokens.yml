@@ -68,6 +68,8 @@ jobs:
           APPS_FILTER: ${{ inputs.apps || 'all' }}
           ENVS_FILTER: ${{ inputs.envs || 'all' }}
         run: |
-          python scripts/rotate_vercel_tokens.py \
+          python scripts/rotate_secret.py \
+            --mode generate \
+            --secrets VERCEL_TOKEN \
             --apps "$APPS_FILTER" \
             --envs "$ENVS_FILTER"

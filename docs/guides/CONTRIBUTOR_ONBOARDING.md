@@ -122,7 +122,7 @@ workflow-interface change → major.
 | `.github/workflows/issue-create-repo.yml` | Auto-provision a new repo from the `new-repo` issue template |
 | `.github/ISSUE_TEMPLATE/` | `new-repo.yml`, the owner ops templates (`ops-*.yml`), plus the standard bug/feature templates |
 | `scripts/check_deployer.py` + `deployer_registry.json` | Per-repo/per-env **deployer authorization gate** (fail closed) |
-| `scripts/rotate_vercel_tokens.py`, `rotate_gh_pat.py` | Token/PAT rotation logic (registries: `vercel_token_registry.json`, `gh_pat_registry.json`) |
+| `scripts/rotate_secret.py` + `secret_registry.json` | Unified CI-plane secret rotation engine (modes: generate / paste / check; env-aware) |
 | `scripts/distribute_kit.py` + `kit_registry.json` | Agentic-kit distribution to tenant repos |
 | `scripts/common/bump_version.py`, `check_version.py` | Version bump + CI consistency/increment check |
 | `scripts/<tenant>/db_backup.py` | Per-tenant Neon DB backup |
@@ -222,8 +222,8 @@ and pause for owner approval before any behavior-changing edit.
   Standard lane, not a failure.
 - **Workflow inputs / secrets / caller pattern?** → [`docs/WORKFLOWS.md`](../reference/WORKFLOWS.md).
 - **Environments, secrets, PAT/token setup, tenant onboarding, org migration?** → [`docs/MANUAL_SETUP.md`](MANUAL_SETUP.md).
-- **Who can deploy what?** → `scripts/deployer_registry.json`. **Rotation registries** →
-  `scripts/vercel_token_registry.json`, `scripts/gh_pat_registry.json`. **Kit distribution** →
+- **Who can deploy what?** → `scripts/deployer_registry.json`. **Rotation registry** →
+  `scripts/secret_registry.json`. **Kit distribution** →
   `scripts/kit_registry.json`.
 - **What belongs here vs. a tenant repo?** → the two-tier table in [`CONTRIBUTING.md`](../../CONTRIBUTING.md).
 - **Past architectural decisions?** → [`docs/CHANGELOG_AND_DECISION_LOG.md`](../CHANGELOG_AND_DECISION_LOG.md).
