@@ -121,14 +121,20 @@ def _vercel_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
 
-def create_vercel_token(master_token: str, name: str) -> tuple[str, str]:
-    """Create a new Vercel API token (TOKEN_EXPIRY_DAYS expiry). Returns (token_id, token_value)."""
+def create_vercel_token(master_token: str, name: str, team_id: str = "") -> tuple[str, str]:
+    """Create a new Vercel API token (TOKEN_EXPIRY_DAYS expiry). Returns (token_id, token_value).
+
+    When ``team_id`` is set, the token is scoped to that Vercel team (the ``teamId`` query param) so it
+    can deploy/manage the team's projects. A token minted WITHOUT a team is personal-account-scoped, and
+    Vercel rejects it ("The specified token is not valid") the moment the CLI targets a team project.
+    """
     expires_at_ms = int(
         (datetime.now(timezone.utc) + timedelta(days=TOKEN_EXPIRY_DAYS)).timestamp() * 1000
     )
     resp = requests.post(
         f"{VERCEL_API}/v3/user/tokens",
         headers=_vercel_headers(master_token),
+        params={"teamId": team_id} if team_id else None,
         json={"name": name, "expiresAt": expires_at_ms},
         timeout=30,
     )
@@ -333,16 +339,18 @@ def _reap_old_vercel_tokens(
 
 
 def _generate_vercel_token_secret(
-    entry: dict, apps: frozenset[str], envs: frozenset[str], master_token: str, gh_token: str
+    entry: dict, apps: frozenset[str], envs: frozenset[str], master_token: str, gh_token: str,
+    team_id: str = "",
 ) -> list[str]:
     """Mint Vercel token(s) and write them to the GitHub env secret targets.
 
     A ``"shared": true`` entry mints ONE token (entry-level ``vercel_token_name``) and writes the
     same value to every target — easier to manage than one token per repo. Otherwise the default
-    is one unique token per target (keyed by each target's ``vercel_token_name``).
+    is one unique token per target (keyed by each target's ``vercel_token_name``). ``team_id`` scopes
+    the minted token to a Vercel team (required for team projects).
     """
     if entry.get("shared"):
-        return _generate_shared_vercel_token(entry, apps, envs, master_token, gh_token)
+        return _generate_shared_vercel_token(entry, apps, envs, master_token, gh_token, team_id)
 
     errors: list[str] = []
     targets = _gh_targets(entry, apps, envs)
@@ -355,7 +363,7 @@ def _generate_vercel_token_secret(
         label = f"{token_name} -> {t['repo']} [{t['environment']}] {t['secret_name']}"
         print(f"  {label}", end=" ... ", flush=True)
         try:
-            new_id, new_value = create_vercel_token(master_token, token_name)
+            new_id, new_value = create_vercel_token(master_token, token_name, team_id)
             update_github_env_secret(gh_token, t["repo"], t["environment"], t["secret_name"], new_value)
             print("OK")
         except Exception as exc:  # noqa: BLE001
@@ -368,7 +376,8 @@ def _generate_vercel_token_secret(
 
 
 def _generate_shared_vercel_token(
-    entry: dict, apps: frozenset[str], envs: frozenset[str], master_token: str, gh_token: str
+    entry: dict, apps: frozenset[str], envs: frozenset[str], master_token: str, gh_token: str,
+    team_id: str = "",
 ) -> list[str]:
     """Mint ONE Vercel token and fan the same value out to every target.
 
@@ -376,6 +385,7 @@ def _generate_shared_vercel_token(
     would leave repos out of sync). The previous token(s) of the same name are deleted only if EVERY
     write succeeded — on any failure both the old and new tokens stay valid, so no repo is left
     holding a revoked token. Cleanup is best-effort (a delete failure is a soft error, never a crash).
+    ``team_id`` scopes the minted token to a Vercel team (required for team projects).
     """
     errors: list[str] = []
     targets = entry.get("github_env_secrets", [])
@@ -390,7 +400,7 @@ def _generate_shared_vercel_token(
     all_tokens = list_vercel_tokens(master_token)
     print(f"  {entry['name']}: minting one shared token '{token_name}' for {len(targets)} target(s)")
     try:
-        new_id, new_value = create_vercel_token(master_token, token_name)
+        new_id, new_value = create_vercel_token(master_token, token_name, team_id)
     except Exception as exc:  # noqa: BLE001
         print(f"  FAILED to mint '{token_name}': {exc}")
         return [f"{entry['name']} mint '{token_name}': {exc}"]
@@ -458,7 +468,8 @@ def _generate_random_secret(
 
 
 def cmd_generate(
-    entries: list[dict], apps: frozenset[str], envs: frozenset[str], gh_token: str, master_token: str
+    entries: list[dict], apps: frozenset[str], envs: frozenset[str], gh_token: str, master_token: str,
+    team_id: str = "",
 ) -> int:
     if not gh_token:
         sys.exit("Error: GH_TOKEN not set.")
@@ -470,7 +481,7 @@ def cmd_generate(
         if generator == "vercel_token":
             if not master_token:
                 sys.exit("Error: VERCEL_MASTER_TOKEN not set (required for vercel_token generation).")
-            errors += _generate_vercel_token_secret(entry, apps, envs, master_token, gh_token)
+            errors += _generate_vercel_token_secret(entry, apps, envs, master_token, gh_token, team_id)
         elif generator == "random_urlsafe":
             errors += _generate_random_secret(entry, envs, gh_token, master_token)
         else:
@@ -581,6 +592,7 @@ def main(argv: list[str] | None = None) -> None:
 
     gh_token = os.environ.get("GH_TOKEN", "").strip()
     master_token = os.environ.get("VERCEL_MASTER_TOKEN", "").strip()
+    team_id = os.environ.get("VERCEL_TEAM_ID", "").strip()
     staged_value = os.environ.get("STAGED_SECRET_VALUE", "")
 
     entries = _select_secrets(registry, names)
@@ -589,7 +601,15 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(cmd_check(entries))
 
     if args.mode == "generate":
-        sys.exit(cmd_generate(entries, apps, envs, gh_token, master_token))
+        # A Vercel token minted without a team is personal-account-scoped, and Vercel rejects it
+        # ("The specified token is not valid") for team projects — so require the team id up front.
+        if any(e.get("generator") == "vercel_token" for e in entries) and not team_id:
+            sys.exit(
+                "Error: VERCEL_TEAM_ID not set — required to mint team-scoped Vercel tokens (a "
+                "personal-scoped token is rejected by Vercel for team projects). Set the VERCEL_TEAM_ID "
+                "repo variable to your Vercel team id (the same value as VERCEL_ORG_ID)."
+            )
+        sys.exit(cmd_generate(entries, apps, envs, gh_token, master_token, team_id))
 
     # paste
     if len(entries) != 1:
