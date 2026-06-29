@@ -83,7 +83,7 @@ These are in `scripts/secret_registry.json`, so the engine rotates them across e
 
 | Secret | Mode | Lives in (env secret) |
 |---|---|---|
-| `VERCEL_TOKEN` / `VERCEL_API_TOKEN` | **generate** (Vercel API) | each app repo's `prod`/`dev`/`infra` env |
+| `VERCEL_TOKEN` (shared deploy) / `VERCEL_API_TOKEN` (terraform) | **generate** (Vercel API) | one shared token → every app repo's `prod`/`dev` env; the terraform `infra` env |
 | `GH_PACKAGES_PAT` | **paste** (GitHub can't mint PATs) | backend repos' `prod`/`dev` env + non-Terraform Vercel project vars |
 
 ### Environment secrets — NOT engine-managed (rotate by hand §5, or via Terraform)
@@ -107,7 +107,7 @@ Two ways to drive the engine: the **issue form** (no checkout needed) or the **C
    - **Secret(s)** — one or more (e.g. `VERCEL_TOKEN`, or `ALL`). For `paste`, pick exactly one.
    - **Mode** — `generate` (auto-mint), `paste` (distribute a staged value), or `check` (expiry report).
    - **Environment(s)** — `prod` / `dev` / `infra` / `ALL`. Per-env secrets get a **distinct value per env**.
-   - **Vercel apps** — optional filter for `VERCEL_TOKEN` generation.
+   - **Vercel apps** — legacy; ignored for the shared `VERCEL_TOKEN`. Leave it `ALL`.
    - **Confirm** — must be **Yes** for `generate`/`paste`.
 3. **For `paste` only:** first store the new value in the **`SECRET_VALUE_NEW`** repository secret
    (Settings → Secrets and variables → Actions → New repository secret). **Never paste a secret value
@@ -130,7 +130,7 @@ export VERCEL_MASTER_TOKEN="<full-account Vercel token>"          # generate / v
 python scripts/rotate_secret.py --mode check --secrets all
 
 # auto-mint fresh Vercel tokens for the fitness frontend, prod only:
-python scripts/rotate_secret.py --mode generate --secrets VERCEL_TOKEN --apps fitness-frontend --envs prod
+python scripts/rotate_secret.py --mode generate --secrets VERCEL_TOKEN,VERCEL_API_TOKEN
 
 # distribute an owner-supplied value (paste) to every GH_PACKAGES_PAT target:
 export STAGED_SECRET_VALUE="<the new PAT value>"
@@ -142,8 +142,9 @@ Or trigger the scheduled workflows from the Actions tab: **Rotate Vercel Tokens*
 
 ### What "generate" vs "paste" means per secret
 
-- **`VERCEL_TOKEN` → generate.** The engine mints a *unique* token per target via the Vercel API,
-  writes it to that repo's environment secret, then deletes the old token. No value to supply.
+- **`VERCEL_TOKEN` → generate.** The engine mints **one shared** deploy token via the Vercel API and
+  writes the same value to every app repo's environment secret, then deletes the old shared token. The
+  terraform management token (`VERCEL_API_TOKEN`) is a separate generate entry. No value to supply.
 - **`GH_PACKAGES_PAT` → paste.** GitHub cannot mint PATs via API, so you create the fine-grained PAT in
   the GitHub UI, stage it, and the engine distributes that one value to every target.
 
@@ -257,14 +258,26 @@ gotchas, and point to the **terraform `SECRETS_ROTATION` / `SECRETS_ROTATION_QUI
 
 ### CI-plane — engine-managed environment secrets
 
-#### 8.1 `VERCEL_TOKEN` / `VERCEL_API_TOKEN` (per app + env)
-- **When:** monthly schedule, or a deploy token leaked.
-- **Steps:** issue form → secret `VERCEL_TOKEN`, mode **generate**, pick environments (and optionally apps),
-  Confirm = Yes, add the label. *(Or: Actions → **Rotate Vercel Tokens**; or `rotate_secret.py --mode
-  generate --secrets VERCEL_TOKEN --apps <app> --envs <env>`.)* The engine mints a unique token per target,
-  writes the env secret, and **deletes the old token automatically**.
-- **Verify:** trigger a `dev` deploy of an affected app; or Vercel → Tokens shows a fresh expiry.
-- **🚨 If leaked:** delete that specific token in Vercel first (containment), then **generate**.
+#### 8.1 `VERCEL_TOKEN` (shared deploy) + `VERCEL_API_TOKEN` (terraform)
+Two separate Vercel secrets, both engine-minted:
+- **`VERCEL_TOKEN`** — **one shared deploy token** (`kdf-deploy-shared`) used by *every* app repo's CI.
+  The engine mints a single token and writes the same value to all app env secrets, then deletes the old
+  shared token **only if every write succeeds** (a partial failure keeps both valid). App/env filters are
+  ignored — it's one value everywhere.
+- **`VERCEL_API_TOKEN`** — the **separate** token the terraform repo uses to *manage* Vercel
+  (`kdf-infra`). Rotated on its own so it can carry management scope without over-permissioning deploys.
+
+- **When:** monthly schedule (the cron rotates both), or a token leaked.
+- **Steps:** issue form → secret `VERCEL_TOKEN` and/or `VERCEL_API_TOKEN`, mode **generate**, Confirm =
+  Yes, add the label. *(Or: Actions → **Rotate Vercel Tokens** → pick the secret; or `rotate_secret.py
+  --mode generate --secrets VERCEL_TOKEN,VERCEL_API_TOKEN`.)*
+- **Verify:** trigger a `dev` deploy of any app; or Vercel → Tokens shows a fresh `kdf-deploy-shared` /
+  `kdf-infra` expiry.
+- **🚨 If leaked:** delete that token in Vercel first (containment), then **generate**. The shared deploy
+  token has account-wide deploy reach, so treat a leak as affecting every app.
+- **One-time cutover:** the first shared `generate` leaves the old per-app tokens (`kdf-auth-backend-*`,
+  `kdf-fitness-frontend-*`, `kdf-tiffanys-frontend-*`) orphaned in Vercel — delete them manually, or let
+  them expire (≤45 days). The engine no longer tracks them.
 
 #### 8.2 `GH_PACKAGES_PAT` (env secret in the backend repos + non-Terraform Vercel vars)
 - **When:** the `check` workflow warns of expiry, scheduled, or leaked.
@@ -388,7 +401,7 @@ where the credential can be minted by a machine, reminder-driven where it can't.
 
 | Credential | Cadence | Mechanism |
 |---|---|---|
-| Per-app `VERCEL_TOKEN` / `VERCEL_API_TOKEN` | monthly | **Auto-generate** — `Rotate Vercel Tokens` (cron, 1st of the month). Hands-off. |
+| Shared `VERCEL_TOKEN` + terraform `VERCEL_API_TOKEN` | monthly | **Auto-generate** — `Rotate Vercel Tokens` (cron, 1st of the month) rotates both. Hands-off. |
 | `GH_PACKAGES_PAT` | monthly\* | **Auto-issue reminder** → mint by hand, then §8.2. |
 | `CICD_PAT`, `CICD_REGISTRY_PAT` | monthly\* | **Auto-issue reminder** → §8.3 / §8.5. |
 | `VERCEL_MASTER_TOKEN` | monitored | **Auto-issue reminder** → §8.4. Auto-rotation is a planned enhancement. |

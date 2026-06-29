@@ -89,6 +89,18 @@ def sample_registry():
                 ],
             },
             {
+                "name": "VERCEL_SHARED",
+                "kind": "generate",
+                "generator": "vercel_token",
+                "shared": True,
+                "vercel_token_name": "kdf-deploy-shared",
+                "github_env_secrets": [
+                    {"app": "a", "repo": "Needless2Say/r1", "environment": "prod", "secret_name": "VERCEL_TOKEN"},
+                    {"app": "a", "repo": "Needless2Say/r1", "environment": "dev", "secret_name": "VERCEL_TOKEN"},
+                    {"app": "b", "repo": "Needless2Say/r2", "environment": "prod", "secret_name": "VERCEL_TOKEN"},
+                ],
+            },
+            {
                 "name": "CI_HMAC",
                 "kind": "generate",
                 "generator": "random_urlsafe",
@@ -235,7 +247,7 @@ class TestParseFilter:
 
 class TestSelectSecrets:
     def test_empty_selects_all(self, sample_registry):
-        assert len(_select_secrets(sample_registry, ALL)) == 4
+        assert len(_select_secrets(sample_registry, ALL)) == 5
 
     def test_named_subset(self, sample_registry):
         got = _select_secrets(sample_registry, frozenset({"vercel_token"}))
@@ -308,6 +320,9 @@ class TestRealRegistry:
         names = {e["name"] for e in entries}
         assert {"GH_PACKAGES_PAT", "VERCEL_TOKEN", "CICD_PAT", "CICD_REGISTRY_PAT", "VERCEL_MASTER_TOKEN"} <= names
         assert "KDF_APP_PRIVATE_KEY" in names  # the GitHub App private key is monitored too
+        assert "VERCEL_API_TOKEN" in names  # terraform mgmt token, split out from the shared deploy token
+        vercel = next(e for e in entries if e["name"] == "VERCEL_TOKEN")
+        assert vercel.get("shared") is True and vercel.get("vercel_token_name") == "kdf-deploy-shared"
         # the manual tokens carry a check block (monitored) and no engine targets
         for name in ("CICD_PAT", "CICD_REGISTRY_PAT", "VERCEL_MASTER_TOKEN", "KDF_APP_PRIVATE_KEY"):
             e = next(x for x in entries if x["name"] == name)
@@ -373,6 +388,104 @@ class TestGenerateVercelToken:
     def test_missing_gh_token_exits(self, sample_registry):
         with pytest.raises(SystemExit, match="GH_TOKEN"):
             cmd_generate(self._entry(sample_registry), ALL, ALL, "", "m")
+
+
+# ── generate: vercel_token (shared) ──────────────────────────────────────────────
+
+
+class TestGenerateSharedVercelToken:
+    def _entry(self, sample_registry):
+        return [e for e in sample_registry["secrets"] if e["name"] == "VERCEL_SHARED"]
+
+    def test_mints_once_and_fans_out_same_value(self, sample_registry):
+        with patch.object(rs, "list_vercel_tokens", return_value=[]), \
+             patch.object(rs, "create_vercel_token", return_value=("nid", "shared-val")) as create, \
+             patch.object(rs, "update_github_env_secret") as upd, \
+             patch.object(rs, "delete_vercel_token") as dele:
+            rc = cmd_generate(self._entry(sample_registry), ALL, ALL, "gh", "master")
+        assert rc == 0
+        assert create.call_count == 1                       # ONE token minted...
+        assert create.call_args[0][1] == "kdf-deploy-shared"
+        assert upd.call_count == 3                          # ...written to all 3 targets...
+        assert {c[0][4] for c in upd.call_args_list} == {"shared-val"}  # ...with the SAME value
+        dele.assert_not_called()                            # no prior token to delete
+
+    def test_ignores_app_and_env_filters(self, sample_registry):
+        with patch.object(rs, "list_vercel_tokens", return_value=[]), \
+             patch.object(rs, "create_vercel_token", return_value=("nid", "v")) as create, \
+             patch.object(rs, "update_github_env_secret") as upd, \
+             patch.object(rs, "delete_vercel_token"):
+            cmd_generate(self._entry(sample_registry), frozenset({"a"}), frozenset({"dev"}), "gh", "m")
+        assert create.call_count == 1
+        assert upd.call_count == 3                          # all targets, despite the filters
+
+    def test_deletes_old_shared_token_when_all_writes_succeed(self, sample_registry):
+        with patch.object(rs, "list_vercel_tokens", return_value=[{"name": "kdf-deploy-shared", "id": "old"}]), \
+             patch.object(rs, "create_vercel_token", return_value=("new", "v")), \
+             patch.object(rs, "update_github_env_secret"), \
+             patch.object(rs, "delete_vercel_token") as dele:
+            rc = cmd_generate(self._entry(sample_registry), ALL, ALL, "gh", "m")
+        assert rc == 0
+        dele.assert_called_once_with("m", "old")
+
+    def test_keeps_old_token_when_a_write_fails(self, sample_registry):
+        # middle write fails -> old token must NOT be deleted, so both stay valid (no dead repo)
+        with patch.object(rs, "list_vercel_tokens", return_value=[{"name": "kdf-deploy-shared", "id": "old"}]), \
+             patch.object(rs, "create_vercel_token", return_value=("new", "v")), \
+             patch.object(rs, "update_github_env_secret", side_effect=[None, Exception("boom"), None]), \
+             patch.object(rs, "delete_vercel_token") as dele:
+            rc = cmd_generate(self._entry(sample_registry), ALL, ALL, "gh", "m")
+        assert rc == 1
+        dele.assert_not_called()
+
+    def test_mint_failure_writes_nothing(self, sample_registry):
+        with patch.object(rs, "list_vercel_tokens", return_value=[]), \
+             patch.object(rs, "create_vercel_token", side_effect=Exception("mint boom")), \
+             patch.object(rs, "update_github_env_secret") as upd, \
+             patch.object(rs, "delete_vercel_token") as dele:
+            rc = cmd_generate(self._entry(sample_registry), ALL, ALL, "gh", "m")
+        assert rc == 1
+        upd.assert_not_called()
+        dele.assert_not_called()
+
+    def test_delete_failure_is_soft_error_not_a_crash(self, sample_registry):
+        # all writes succeed, then the cleanup DELETE raises -> must return 1 (soft error), NOT crash,
+        # and every target must still have been written (the new token is already live).
+        with patch.object(rs, "list_vercel_tokens", return_value=[{"name": "kdf-deploy-shared", "id": "old"}]), \
+             patch.object(rs, "create_vercel_token", return_value=("new", "v")), \
+             patch.object(rs, "update_github_env_secret") as upd, \
+             patch.object(rs, "delete_vercel_token", side_effect=Exception("delete boom")) as dele:
+            rc = cmd_generate(self._entry(sample_registry), ALL, ALL, "gh", "m")
+        assert rc == 1                      # soft error, surfaced via _summary — not a traceback
+        assert upd.call_count == 3          # every target still written
+        dele.assert_called_once_with("m", "old")  # cleanup was attempted
+
+    def test_reaps_all_duplicate_old_tokens(self, sample_registry):
+        # two pre-existing tokens share the name -> BOTH must be deleted (a name->id map would miss one)
+        with patch.object(rs, "list_vercel_tokens", return_value=[
+                 {"name": "kdf-deploy-shared", "id": "old1"},
+                 {"name": "kdf-deploy-shared", "id": "old2"},
+                 {"name": "unrelated", "id": "keep"}]), \
+             patch.object(rs, "create_vercel_token", return_value=("new", "v")), \
+             patch.object(rs, "update_github_env_secret"), \
+             patch.object(rs, "delete_vercel_token") as dele:
+            rc = cmd_generate(self._entry(sample_registry), ALL, ALL, "gh", "m")
+        assert rc == 0
+        deleted = {c[0][1] for c in dele.call_args_list}
+        assert deleted == {"old1", "old2"}  # both duplicates reaped, unrelated token untouched
+
+    def test_missing_entry_token_name_errors_without_minting(self):
+        entry = [{
+            "name": "BAD_SHARED", "kind": "generate", "generator": "vercel_token", "shared": True,
+            "github_env_secrets": [{"repo": "Needless2Say/x", "environment": "prod", "secret_name": "VERCEL_TOKEN"}],
+        }]  # no entry-level vercel_token_name
+        with patch.object(rs, "list_vercel_tokens", return_value=[]), \
+             patch.object(rs, "create_vercel_token") as create, \
+             patch.object(rs, "update_github_env_secret"), \
+             patch.object(rs, "delete_vercel_token"):
+            rc = cmd_generate(entry, ALL, ALL, "gh", "m")
+        assert rc == 1                       # clean error, not a KeyError traceback
+        create.assert_not_called()           # bailed before minting any token
 
 
 # ── generate: random_urlsafe (per-env) ──────────────────────────────────────────
