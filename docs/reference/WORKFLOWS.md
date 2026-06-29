@@ -45,9 +45,9 @@ authorization gate** as its first job.
    `needs:`. `arthurs-portfolio` (self-contained GitHub Pages deploy) has the same job,
    gating its `build`.
 2. `authorize` checks out this repo (sparse — `scripts/` only) and runs
-   [`scripts/check_deployer.py`](../scripts/check_deployer.py).
+   [`scripts/check_deployer.py`](../../scripts/check_deployer.py).
 3. The script looks up `github.triggering_actor` (the user who clicked **Run workflow**)
-   against [`scripts/deployer_registry.json`](../scripts/deployer_registry.json), keyed by
+   against [`scripts/deployer_registry.json`](../../scripts/deployer_registry.json), keyed by
    `github.repository` and the target environment. Username matching is case-insensitive.
 4. **Not authorized → the job fails → the deploy job never runs.** Because `authorize`
    has **no `environment:`**, it runs *before* the Environment approval is even requested —

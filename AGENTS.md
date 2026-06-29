@@ -93,9 +93,9 @@ agent workflows (`agents/`, skeleton only) so automation scales with the platfor
 ## Required reading
 
 1. [`README.md`](./README.md) — what this library is, the workflow catalog, deployment + environment-gate model.
-2. [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md) — full per-workflow reference: inputs, secrets, caller patterns,
+2. [`docs/WORKFLOWS.md`](docs/reference/WORKFLOWS.md) — full per-workflow reference: inputs, secrets, caller patterns,
    the **deployer authorization gate**, and the consumer-repo summary.
-3. [`docs/MANUAL_SETUP.md`](docs/MANUAL_SETUP.md) — the runbook for everything that can't be automated:
+3. [`docs/MANUAL_SETUP.md`](docs/guides/MANUAL_SETUP.md) — the runbook for everything that can't be automated:
    GitHub Environments, environment secrets, PAT/token creation + rotation, tenant onboarding, org migration.
 4. [`CONTRIBUTING.md`](./CONTRIBUTING.md) — the two-tier model (what belongs here vs. a tenant repo) and the
    breaking-change rules for modifying a reusable workflow.
