@@ -1,35 +1,25 @@
 name: Rotate Vercel Tokens
 
 on:
-  # Monthly auto-rotation: first of every month at 09:00 UTC. The per-app Vercel tokens are
-  # created with a 35-day expiry, so a ~30-day cadence leaves ~5 days of slack if a run is missed.
+  # Monthly auto-rotation: first of every month at 09:00 UTC. New Vercel tokens are created with a
+  # 35-day expiry, so a ~30-day cadence leaves ~5 days of slack if a run is missed. This rotates the
+  # one shared deploy token (VERCEL_TOKEN, fanned out to every app repo) and the separate terraform
+  # management token (VERCEL_API_TOKEN).
   schedule:
     - cron: "0 9 1 * *"
 
-  # allow manual trigger — optionally scope to specific apps and/or environments
+  # allow manual trigger — optionally scope to just one of the two Vercel secrets
   workflow_dispatch:
     inputs:
-      apps:
-        description: "App to rotate, or 'all' to rotate everything."
+      secrets:
+        description: "Which Vercel secret(s) to rotate."
         required: false
-        default: "all"
+        default: "VERCEL_TOKEN,VERCEL_API_TOKEN"
         type: choice
         options:
-          - all
-          - auth-backend
-          - fitness-frontend
-          - tiffanys-frontend
-          - infra
-      envs:
-        description: "Environment to rotate, or 'all'."
-        required: false
-        default: "all"
-        type: choice
-        options:
-          - all
-          - prod
-          - dev
-          - infra
+          - "VERCEL_TOKEN,VERCEL_API_TOKEN"
+          - "VERCEL_TOKEN"
+          - "VERCEL_API_TOKEN"
 
 permissions:
   contents: read
@@ -79,11 +69,8 @@ jobs:
         env:
           VERCEL_MASTER_TOKEN: ${{ secrets.VERCEL_MASTER_TOKEN }}
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
-          APPS_FILTER: ${{ inputs.apps || 'all' }}
-          ENVS_FILTER: ${{ inputs.envs || 'all' }}
+          SECRETS_FILTER: ${{ inputs.secrets || 'VERCEL_TOKEN,VERCEL_API_TOKEN' }}
         run: |
           python scripts/rotate_secret.py \
             --mode generate \
-            --secrets VERCEL_TOKEN \
-            --apps "$APPS_FILTER" \
-            --envs "$ENVS_FILTER"
+            --secrets "$SECRETS_FILTER"

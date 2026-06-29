@@ -311,7 +311,15 @@ def _gen_value() -> str:
 def _generate_vercel_token_secret(
     entry: dict, apps: frozenset[str], envs: frozenset[str], master_token: str, gh_token: str
 ) -> list[str]:
-    """One fresh Vercel token per target: create -> write GitHub env secret -> delete old."""
+    """Mint Vercel token(s) and write them to the GitHub env secret targets.
+
+    A ``"shared": true`` entry mints ONE token (entry-level ``vercel_token_name``) and writes the
+    same value to every target — easier to manage than one token per repo. Otherwise the default
+    is one unique token per target (keyed by each target's ``vercel_token_name``).
+    """
+    if entry.get("shared"):
+        return _generate_shared_vercel_token(entry, apps, envs, master_token, gh_token)
+
     errors: list[str] = []
     targets = _gh_targets(entry, apps, envs)
     if not targets:
@@ -332,6 +340,51 @@ def _generate_vercel_token_secret(
         except Exception as exc:  # noqa: BLE001
             print(f"FAILED - {exc}")
             errors.append(f"{label}: {exc}")
+    return errors
+
+
+def _generate_shared_vercel_token(
+    entry: dict, apps: frozenset[str], envs: frozenset[str], master_token: str, gh_token: str
+) -> list[str]:
+    """Mint ONE Vercel token and fan the same value out to every target.
+
+    A shared token is a single value everywhere, so app/env filters are ignored (a partial write
+    would leave repos out of sync). The previous token (same name) is deleted only if EVERY write
+    succeeded — on any failure both the old and new tokens stay valid, so no repo is left holding a
+    revoked token.
+    """
+    errors: list[str] = []
+    targets = entry.get("github_env_secrets", [])
+    if not targets:
+        print(f"  {entry['name']}: no targets — skipped.")
+        return errors
+    if apps or envs:
+        print(f"  {entry['name']}: shared token — ignoring app/env filter; writing all {len(targets)} target(s).")
+    token_name = entry["vercel_token_name"]
+    existing = {t["name"]: t["id"] for t in list_vercel_tokens(master_token)}
+    print(f"  {entry['name']}: minting one shared token '{token_name}' for {len(targets)} target(s)")
+    try:
+        new_id, new_value = create_vercel_token(master_token, token_name)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  FAILED to mint '{token_name}': {exc}")
+        return [f"{entry['name']} mint '{token_name}': {exc}"]
+    wrote_all = True
+    for t in targets:
+        label = f"{t['repo']} [{t['environment']}] {t['secret_name']}"
+        print(f"    {label}", end=" ... ", flush=True)
+        try:
+            update_github_env_secret(gh_token, t["repo"], t["environment"], t["secret_name"], new_value)
+            print("OK")
+        except Exception as exc:  # noqa: BLE001
+            print(f"FAILED - {exc}")
+            errors.append(f"{label}: {exc}")
+            wrote_all = False
+    old_id = existing.get(token_name)
+    if old_id and old_id != new_id:
+        if wrote_all:
+            delete_vercel_token(master_token, old_id)
+        else:
+            print(f"  keeping previous '{token_name}' (id={old_id}) — a write failed, so both tokens stay valid.")
     return errors
 
 

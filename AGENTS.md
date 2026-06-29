@@ -21,8 +21,8 @@ The owner's vision is **safe, uniform, least-privilege automation that one perso
 collaborators into**: every deploy is manual (`workflow_dispatch` only — Vercel git auto-deploy is off),
 pauses at a GitHub Environment approval gate before any secret loads, and is fenced by a per-repo
 **deployer authorization gate** that fails closed. Credentials never live in `.env` or code — only in
-GitHub Environment secrets — and per-app Vercel tokens plus the `GH_PACKAGES_PAT` are rotated on a
-schedule by scripts in this repo. As KDF grows, this library is also the planned home for AI-driven
+GitHub Environment secrets — and the shared Vercel deploy token plus the `GH_PACKAGES_PAT` are rotated on
+a schedule by scripts in this repo. As KDF grows, this library is also the planned home for AI-driven
 agent workflows (`agents/`, skeleton only) so automation scales with the platform.
 
 ## Tech stack

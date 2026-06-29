@@ -25,9 +25,16 @@ Before starting, make sure you have:
 - [X] Your Vercel Team ID handy (Vercel Dashboard → Settings → General → scroll to "Team ID")
 - [X] Per-app Vercel tokens created (see step below)
 
-### Create per-app Vercel tokens
+### Create the Vercel deploy + management tokens
 
-> **ONCE** — Each app gets its own uniquely-named Vercel API token. If one token leaks you revoke only that one; the rest of the ecosystem keeps deploying. Tokens are team-scoped on Vercel's end (project-scoped tokens require separate Vercel teams), so the isolation benefit is independent revocation and a clean audit trail in Vercel logs — not hard project-level ACLs.
+> **UPDATED — one shared deploy token.** The ecosystem now uses **one** shared Vercel deploy token
+> (`kdf-deploy-shared`) for *all* app repos, plus a **separate** terraform management token (`kdf-infra`).
+> The per-app tokens (`kdf-auth-backend-*`, `kdf-fitness-frontend-*`, `kdf-tiffanys-frontend-*`) are
+> retired — on a personal Vercel account every token can already deploy every project, so the per-app
+> split gave naming/audit separation, not hard ACLs, and was a pain to manage. The engine **auto-mints**
+> the shared token, so for first-time setup you only need to bootstrap the three tokens in the table
+> below; after the first `Rotate Vercel Tokens` run the engine owns `kdf-deploy-shared` and you can delete
+> any leftover per-app tokens.
 
 Go to **Vercel Dashboard → Settings → Tokens → Create Token** and create the following tokens.
 
@@ -43,16 +50,14 @@ For the **per-app deployment tokens** in the table below, use these settings:
 
 | Token name to enter in Vercel | Used by |
 |---|---|
-| `kdf-auth-backend-prod` | `kriegerdataforge` repo, `prod` environment |
-| `kdf-auth-backend-dev` | `kriegerdataforge` repo, `dev` environment |
-| `kdf-fitness-frontend-prod` | `fitness-app-frontend` repo, `prod` environment |
-| `kdf-fitness-frontend-dev` | `fitness-app-frontend` repo, `dev` environment |
-| `kdf-tiffanys-frontend-prod` | `tiffanys_space` repo, `prod` environment |
-| `kdf-infra` | `kriegerdataforge-terraform` repo, **both** `dev` and `prod` environments (the Vercel API token Terraform uses to manage projects is account-level — the same value in both) |
+| `kdf-deploy-shared` | **all** app repos' `prod`/`dev` deploys — the one shared `VERCEL_TOKEN` (engine re-mints it on the first rotation; you only seed it so the first deploys work) |
+| `kdf-infra` | `kriegerdataforge-terraform` repo `infra` env — the separate `VERCEL_API_TOKEN` Terraform uses to *manage* Vercel (account-level) |
 
 Copy each token value immediately — Vercel shows it only once. Keep them in a secure location (e.g. 1Password) until you add them to GitHub Environments in Phase 4.
 
-> **Future apps:** When a new app is provisioned, create tokens `kdf-{app}-{layer}-prod` and `kdf-{app}-{layer}-dev` with scope "Arthur's projects", add them to GitHub, then add the two `VERCEL_TOKEN` entries in `scripts/secret_registry.json` in this repo. The rotation workflow picks them up automatically on the next run.
+> **Future apps:** When a new app is provisioned, just add its repo+env to the `VERCEL_TOKEN` entry's
+> `github_env_secrets` in `scripts/secret_registry.json` — no new token to create. The next
+> `Rotate Vercel Tokens` run writes the shared token into the new repo's environment secret automatically.
 
 ---
 
@@ -222,6 +227,10 @@ Environment named `dev` and one named `prod` (matching the `environments/<env>/`
 > **MANUAL** — Secrets live in GitHub Environments, never in the repo. Add them via **Settings → Environments → [environment name] → Add secret**.
 >
 > **Prerequisite:** Phase 1 (Terraform) must be done before you can fill in the `dev` environment secrets — you need the dev project IDs from its output and the Neon dev branch connection string. You can add the `prod` secrets now and come back for `dev` after Phase 1.
+>
+> **`VERCEL_TOKEN` everywhere = the one shared `kdf-deploy-shared` value** (Phase 0). The per-app token
+> names shown in the rows below are historical — use the **same** shared token for *every* `VERCEL_TOKEN`
+> secret. The terraform repo's `VERCEL_API_TOKEN` uses the separate `kdf-infra` token.
 
 ### kriegerdataforge
 
@@ -743,12 +752,8 @@ Key things to communicate:
 
 | Value | Where to find it |
 |---|---|
-| `kdf-auth-backend-prod` token | Vercel Dashboard → Settings → Tokens (copy when created in Phase 0) |
-| `kdf-auth-backend-dev` token | Same |
-| `kdf-fitness-frontend-prod` token | Same |
-| `kdf-fitness-frontend-dev` token | Same |
-| `kdf-tiffanys-frontend-prod` token | Same |
-| `kdf-infra` token | Same |
+| `kdf-deploy-shared` token (the shared `VERCEL_TOKEN`, all app repos) | Vercel Dashboard → Settings → Tokens (copy when created in Phase 0) |
+| `kdf-infra` token (the terraform `VERCEL_API_TOKEN`) | Same |
 | `kdf-master-rotation` token (`VERCEL_MASTER_TOKEN`) | Vercel Dashboard → Settings → Tokens (created in Phase 6.1) |
 | Vercel Team ID (`VERCEL_ORG_ID`) | Vercel Dashboard → Settings → General → Team ID |
 | Prod backend project ID | `prj_3kiJpapxo5G4Syd4j6i6LkeWXS9s` (hardcoded) |
