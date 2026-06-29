@@ -130,7 +130,11 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
       - name: Install Vercel CLI
-        run: npm install -g vercel
+        # Pin the Vercel CLI to an exact version: this job holds VERCEL_TOKEN,
+        # GH_PACKAGES_PAT and (on migrations) DB_DATABASE_URL, so an unpinned
+        # install floating to the latest registry tarball is a poisoned-pipeline
+        # / dependency-chain risk (CICD-SEC-3 / SLSA). Bump via Dependabot.
+        run: npm install -g vercel@48.0.0
 
       - name: Deploy to Vercel
         working-directory: vercel_api

@@ -5,6 +5,20 @@ home for reusable GitHub Actions workflows that every tenant repo calls.
 
 ---
 
+## Local Setup
+
+Install the pre-commit hooks once per clone so a secret is caught before it lands
+(the CI `secret-scan` job is the post-push backstop — see PL-027):
+
+```
+pip install pre-commit
+pre-commit install
+```
+
+Then run `make check-all` (actionlint + pytest in `scripts/`) before opening a PR.
+
+---
+
 ## Two-Tier Model
 
 ```

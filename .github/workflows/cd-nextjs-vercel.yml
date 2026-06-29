@@ -110,8 +110,15 @@ jobs:
         env:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
+      - name: Install Vercel CLI
+        # Pin the Vercel CLI to an exact version instead of `npx vercel`, which
+        # resolves "latest" from the registry at deploy time. This job holds
+        # VERCEL_TOKEN, so floating the CLI is a poisoned-pipeline / dependency-
+        # chain risk (CICD-SEC-3 / SLSA). Bump via Dependabot.
+        run: npm install -g vercel@48.0.0
+
       - name: Deploy to Vercel
-        run: npx vercel --prod --yes
+        run: vercel --prod --yes
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
