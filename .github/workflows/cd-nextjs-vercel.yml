@@ -118,7 +118,18 @@ jobs:
         run: npm install -g vercel@48.0.0
 
       - name: Deploy to Vercel
-        run: vercel --prod --yes
+        run: |
+          # A VERCEL_TOKEN env secret pasted by hand often carries a trailing newline/space, which the
+          # Vercel CLI rejects ("The specified token is not valid") even though the token itself is valid.
+          # Strip whitespace, fail fast if empty, and pass it explicitly via --token. (Only the LENGTH is
+          # logged for debugging — the token value is never printed.)
+          TOKEN="$(printf '%s' "$VERCEL_TOKEN" | tr -d '[:space:]')"
+          if [ -z "$TOKEN" ]; then
+            echo "::error::VERCEL_TOKEN is empty in the '${{ inputs.environment }}' environment — set the VERCEL_TOKEN environment secret on this repo (correct environment)."
+            exit 1
+          fi
+          echo "VERCEL_TOKEN trimmed length=${#TOKEN}; org=${VERCEL_ORG_ID}; project=${VERCEL_PROJECT_ID}"
+          vercel --prod --yes --token "$TOKEN"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
