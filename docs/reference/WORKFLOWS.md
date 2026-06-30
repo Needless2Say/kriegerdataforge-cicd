@@ -25,7 +25,7 @@ Deployment flow:
 | `production` | Owner only | `main` only |
 | `infrastructure` | Owner only | `main` only |
 
-**Key security property:** `VERCEL_TOKEN`, `DB_DATABASE_URL`, and all other deploy credentials
+**Key security property:** `VERCEL_DEPLOYMENT_TOKEN`, `DB_DATABASE_URL`, and all other deploy credentials
 live only in GitHub Environment secrets. They are never exposed to collaborators, never
 in `.env` files, and never visible in logs.
 
@@ -75,12 +75,11 @@ Environment keys must match the value the caller passes to the reusable workflow
 `environment` input (`dev`/`prod` for Vercel + Terraform; `github-pages` for
 `arthurs-portfolio`).
 
-**Repo access for the gate:** the `authorize` job checks out `kriegerdataforge-cicd` with
-`token: ${{ secrets.CICD_REGISTRY_PAT || github.token }}`. If this repo is **public**, the
-default `github.token` clones it — nothing to configure. If it is **private**, add a
-read-only fine-grained PAT as a repo/org secret named `CICD_REGISTRY_PAT` (it reaches the
-reusable workflow via the caller's `secrets: inherit`); without it the checkout — and thus
-every deploy — will fail closed.
+**Repo access for the gate:** the `authorize` job checks out `kriegerdataforge-cicd` with the
+default `github.token`. Because this repo is **public**, that built-in token clones it — nothing
+to configure. If `kriegerdataforge-cicd` is ever made private (after the org move), this checkout
+would need a read-only token with access to it; that is tracked in the central roadmap
+(`KDF docs/engineering/GITHUB_FUTURE_ENHANCEMENTS.md`).
 
 **To change who can deploy:** edit `scripts/deployer_registry.json` and commit. No workflow
 edits are needed — all consumers read the registry live from `main` at deploy time.
@@ -98,7 +97,7 @@ Local dev uses Docker — **no Vercel credentials needed**:
 make docker-up     # starts all services locally
 ```
 
-There is no path to deploy locally. The Vercel CLI cannot run without `VERCEL_TOKEN`, which
+There is no path to deploy locally. The Vercel CLI cannot run without `VERCEL_DEPLOYMENT_TOKEN`, which
 only exists inside GitHub Environments.
 
 ---
@@ -142,7 +141,7 @@ jobs:
 
 | Secret | Description |
 |---|---|
-| `VERCEL_TOKEN` | Vercel API token |
+| `VERCEL_DEPLOYMENT_TOKEN` | Shared Vercel deploy/management token |
 | `VERCEL_ORG_ID` | Vercel team / org ID |
 | `VERCEL_PROJECT_ID` | Vercel project ID — **different per environment** (dev vs prod project) |
 
@@ -196,7 +195,7 @@ jobs:
 
 | Secret | Description |
 |---|---|
-| `VERCEL_TOKEN` | Vercel API token |
+| `VERCEL_DEPLOYMENT_TOKEN` | Shared Vercel deploy/management token |
 | `VERCEL_ORG_ID` | Vercel team / org ID |
 | `VERCEL_PROJECT_ID` | Vercel project ID — different per environment |
 | `DB_DATABASE_URL` | SQLAlchemy-compatible Neon psycopg2 connection string |
@@ -263,7 +262,7 @@ jobs:
 
 | Secret | Maps to Terraform variable |
 |---|---|
-| `VERCEL_API_TOKEN` | `TF_VAR_vercel_api_token` |
+| `VERCEL_DEPLOYMENT_TOKEN` | `TF_VAR_vercel_api_token` |
 | `BACKEND_AUTH_PRIVATE_KEY` | `TF_VAR_backend_auth_private_key` (RSA PEM, PKCS#8) |
 | `BACKEND_AUTH_PUBLIC_KEY` | `TF_VAR_backend_auth_public_key` |
 | `FRONTEND_AUTH_PUBLIC_KEY` | `TF_VAR_frontend_auth_public_key` (== `BACKEND_AUTH_PUBLIC_KEY`) |
@@ -420,10 +419,13 @@ jobs:
 
 ### `CICD_PAT` required permissions
 
-The fine-grained PAT used by `issue-create-repo.yml` requires:
+The fine-grained PAT used by `issue-create-repo.yml` (and the rotation/kit engine) requires, over
+**All repositories (incl. future)**:
 - **Repository:** Administration (R/W), Contents (R/W), Environments (R/W),
-  Secrets (R/W), Variables (R/W), Actions (R/W), Issues (R/W)
-- **Account:** Members (Read)
+  Secrets (R/W), Variables (R/W), Actions (R/W), Issues (R/W), Pull requests (R/W)
+- **Metadata:** Read
+
+It is a manual/hand-rotated PAT on a tracked **30-day expiry** (next: `2026-07-30`).
 
 ---
 

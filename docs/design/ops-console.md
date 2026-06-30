@@ -75,8 +75,10 @@ the registries). The engine's `--repos` already ignores unknown tokens, so a sta
 GitHub-env-secret / non-Terraform-Vercel target). The form picks **secret(s)** (multi-select), a **mode**,
 and **environments** (multi):
 
-- **`generate`:** auto-mint fresh value(s). `VERCEL_TOKEN` mints a unique Vercel token per target via the
-  Vercel API (`VERCEL_MASTER_TOKEN` required); per-environment secrets get a distinct value per env.
+- **`generate`:** auto-mint fresh value(s). `VERCEL_DEPLOYMENT_TOKEN` mints **one** shared Vercel token via
+  the Vercel API (`VERCEL_MASTER_TOKEN` required) and writes that same value to every target — all app
+  repos' `prod`/`dev` env secrets and the terraform repo's `prod`/`dev`; per-environment secrets that are
+  not the shared token get a distinct value per env.
 - **`paste`:** distribute an owner-supplied value. GitHub can't generate PATs, so `GH_PACKAGES_PAT` is
   paste-only — the owner stages the value in the `SECRET_VALUE_NEW` repo secret first (never in the public
   issue body); the engine reads `STAGED_SECRET_VALUE` and fans it to every target. Single secret only.

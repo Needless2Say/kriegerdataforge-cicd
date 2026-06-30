@@ -1,13 +1,14 @@
-name: Rotate Vercel Tokens
+name: Rotate Vercel Deployment Token
 
 on:
-  # Monthly auto-rotation: first of every month at 09:00 UTC. New Vercel tokens are created with a
+  # Monthly auto-rotation: first of every month at 09:00 UTC. The new Vercel token is created with a
   # 45-day expiry, so a monthly cadence (worst-case 31-day gap) leaves ~2 weeks of slack — a single
-  # missed run never expires the one shared deploy token. This rotates the shared deploy token
-  # (VERCEL_TOKEN, fanned out to every app repo) and the separate terraform management token
-  # (VERCEL_API_TOKEN).
+  # missed run never expires the token. This rotates the ONE shared Vercel token
+  # (VERCEL_DEPLOYMENT_TOKEN) used by every app repo's CI to deploy AND by the terraform repo to
+  # manage Vercel — consolidated 2026-06-30 from the former VERCEL_TOKEN + VERCEL_API_TOKEN split
+  # because both were the same account-scoped token.
   #
-  # NOTE (verified 2026-06-30): tokens ARE minted team-scoped via the teamId query param
+  # NOTE (verified 2026-06-30): the token is minted team-scoped via the teamId query param
   # (VERCEL_TEAM_ID, = VERCEL_ORG_ID). An API-minted teamId token authenticates AND deploys team
   # projects (curl /v2/user + /v9/projects both 200). The earlier "Vercel can't auto-mint team tokens"
   # belief was wrong — it was a deploy-script bug (the CLI needs an explicit --token, fixed in
@@ -15,18 +16,8 @@ on:
   schedule:
     - cron: "0 9 1 * *"
 
-  # allow manual trigger — optionally scope to just one of the two Vercel secrets
+  # allow manual trigger (no inputs — there is a single token to rotate)
   workflow_dispatch:
-    inputs:
-      secrets:
-        description: "Which Vercel secret(s) to rotate."
-        required: false
-        default: "VERCEL_TOKEN,VERCEL_API_TOKEN"
-        type: choice
-        options:
-          - "VERCEL_TOKEN,VERCEL_API_TOKEN"
-          - "VERCEL_TOKEN"
-          - "VERCEL_API_TOKEN"
 
 permissions:
   contents: read
@@ -41,7 +32,7 @@ jobs:
     uses: ./.github/workflows/_authorize-owner.yml
 
   rotate:
-    name: Rotate Vercel tokens
+    name: Rotate Vercel deployment token
     needs: authorize
     # Fail-closed owner gate for dispatches (PL-076 parity); the read-only/trusted cron path has no
     # authorize job (skipped), so allow it through. always() lets this job evaluate even when
@@ -70,9 +61,9 @@ jobs:
         run: pip install -r scripts/requirements.txt
 
       # Short-lived GitHub App installation token (auto-revoked at job end; effective lifetime =
-      # job runtime, not the 1-hour nominal TTL). Downscoped to environments:write — the VERCEL_TOKEN
-      # environment secrets are gated by the "Environments" permission, NOT "Secrets". Gated on
-      # USE_GITHUB_APP, falls back to CICD_PAT.
+      # job runtime, not the 1-hour nominal TTL). Downscoped to environments:write — the
+      # VERCEL_DEPLOYMENT_TOKEN environment secrets are gated by the "Environments" permission, NOT
+      # "Secrets". Gated on USE_GITHUB_APP, falls back to CICD_PAT.
       - name: Mint GitHub App token
         id: app-token
         if: vars.USE_GITHUB_APP == 'true'
@@ -83,15 +74,14 @@ jobs:
           owner: ${{ github.repository_owner }}
           permission-environments: write
 
-      - name: Rotate tokens
+      - name: Rotate token
         env:
           VERCEL_MASTER_TOKEN: ${{ secrets.VERCEL_MASTER_TOKEN }}
-          # Scopes minted tokens to the Vercel team (the VERCEL_ORG_ID value) — without it the tokens
-          # are personal-scoped and Vercel rejects them for team projects.
+          # Scopes the minted token to the Vercel team (the VERCEL_ORG_ID value) — without it the token
+          # is personal-scoped and Vercel rejects it for team projects.
           VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
-          SECRETS_FILTER: ${{ inputs.secrets || 'VERCEL_TOKEN,VERCEL_API_TOKEN' }}
         run: |
           python scripts/rotate_secret.py \
             --mode generate \
-            --secrets "$SECRETS_FILTER"
+            --secrets VERCEL_DEPLOYMENT_TOKEN

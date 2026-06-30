@@ -3,8 +3,12 @@
 **Status: ACCEPTED — Phase 1 implemented.** The owner approved retiring the long-lived GitHub PATs in
 favour of a GitHub App that mints ephemeral, scoped installation tokens. **Phase 1** (the `CICD_PAT`
 automation surface) is wired in code, behind a feature flag, and ready to switch on once the owner creates
-the App. **Phase 2** (the CI-runner + Vercel-build `GH_PACKAGES_PAT` / `CICD_REGISTRY_PAT`) is scoped below
+the App. **Phase 2** (the CI-runner + Vercel-build `GH_PACKAGES_PAT`) is scoped below
 and deferred until Phase 1 is validated in production.
+
+> **Note:** the former dormant registry-checkout PAT was **retired/removed on 2026-06-30**. It was only a
+> `|| github.token` fallback for checking out the **public** cicd repo, which `github.token` already
+> covers — it was never App-ified, just deleted from the registry. It plays no part in this migration.
 
 ## Decisions (resolved)
 
@@ -55,7 +59,6 @@ The ecosystem authenticates GitHub automation with **fine-grained Personal Acces
 |---|---|---|
 | `CICD_PAT` | issue assistant + the rotation engine | `secrets: write` + `administration` across the org repos |
 | `GH_PACKAGES_PAT` | CI runners + Vercel builds | `contents: read` on the private SDK repo (to `pip install kdf-auth-sdk`) |
-| `CICD_REGISTRY_PAT` | package registry access | registry read/write |
 
 These are **long-lived (yearly)** and **GitHub has no API to mint a PAT** — so:
 
@@ -87,7 +90,6 @@ narrowly-scoped tokens. GitHub Apps support **multiple private keys**, enabling 
 |---|---|---|
 | `CICD_PAT` → write env secrets | **Environments: read/write** (environment secrets are gated by "Environments", NOT "Secrets") | all consumer repos |
 | `GH_PACKAGES_PAT` → install the SDK | **Contents: read** | the private SDK repo |
-| `CICD_REGISTRY_PAT` → packages | **Packages: read/write** (if still needed) | the relevant repos |
 
 The rotation engine writes **environment** secrets via the REST API with whatever token it's given — an
 App installation token with `Environments: write` works unchanged (environment secrets are gated by the
@@ -104,7 +106,7 @@ Vercel builds don't run in GitHub Actions, so they can't call `create-github-app
 3. **Mint a short-lived App token in a pre-deploy GitHub Action** and pass it to the Vercel build as a
    one-shot env (more moving parts).
 
-> The GitHub-Actions-side PATs (`CICD_PAT`, `CICD_REGISTRY_PAT`) are easy to App-ify. The Vercel-build-side
+> The GitHub-Actions-side PAT (`CICD_PAT`) is easy to App-ify. The Vercel-build-side
 > `GH_PACKAGES_PAT` is the part that needs a decision — option 2 (registry) is the cleanest long-term.
 
 ---
@@ -117,7 +119,7 @@ Vercel builds don't run in GitHub Actions, so they can't call `create-github-app
    **Pull requests: R/W**; generate a private key; install it on the consumer repos.
 2. Add `KDF_APP_ID` + `KDF_APP_PRIVATE_KEY` as `kriegerdataforge-cicd` repo secrets, then set the repo
    **variable** `USE_GITHUB_APP=true`.
-3. **Verify** by running a flow (e.g. *Check Secret Expiry*, or a *Rotate Vercel Tokens* dry run). If
+3. **Verify** by running a flow (e.g. *Check Secret Expiry*, or a *Rotate Vercel Deployment Token* dry run). If
    anything misbehaves, unset `USE_GITHUB_APP` for an instant rollback to `CICD_PAT`.
 4. Once confident, **revoke** the standalone `CICD_PAT` *capabilities the App now covers* — but keep the
    PAT itself until the org move (it still backs `issue-create-repo.yml`).
@@ -127,7 +129,7 @@ Vercel builds don't run in GitHub Actions, so they can't call `create-github-app
 (monitored); `SECRET_ROTATION.md` §8.3a + `MANUAL_SETUP.md` Phase 6.7 setup written.
 
 **Phase 2 (deferred):** App-ify the CI-runner SDK install (`ci-python-*.yml`) and pick the Vercel
-SDK-install path (option 1 now / option 2 long-term) to retire `GH_PACKAGES_PAT` and `CICD_REGISTRY_PAT`.
+SDK-install path (option 1 now / option 2 long-term) to retire `GH_PACKAGES_PAT`.
 This needs the App secrets plumbed into every consumer repo (reusable-workflow `secrets: inherit`) and the
 Vercel-build decision, so it is staged after Phase 1 is proven.
 
