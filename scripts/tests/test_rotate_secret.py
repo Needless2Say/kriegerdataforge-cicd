@@ -220,6 +220,18 @@ class TestVercelTokenApi:
             create_vercel_token("m", "n")
         assert p.call_args[1]["params"] is None
 
+    def test_create_403_raises_master_scope_error(self):
+        r = MagicMock(); r.status_code = 403
+        with patch("requests.post", return_value=r):
+            with pytest.raises(rs.VercelMasterScopeError, match="FULL ACCOUNT"):
+                create_vercel_token("m", "n", "team_x")
+
+    def test_list_403_raises_master_scope_error(self):
+        r = MagicMock(); r.status_code = 403
+        with patch("requests.get", return_value=r):
+            with pytest.raises(rs.VercelMasterScopeError, match="FULL ACCOUNT"):
+                list_vercel_tokens("m")
+
 
 class TestUpsertVercelEnvVar:
     def test_post_when_absent(self):
@@ -449,6 +461,12 @@ class TestGenerateSharedVercelToken:
             rc = cmd_generate(self._entry(sample_registry), ALL, ALL, "gh", "m")
         assert rc == 1
         dele.assert_not_called()
+
+    def test_master_scope_error_exits_cleanly(self, sample_registry):
+        # a non-Full-Account master 403s on /v3/user/tokens -> clean SystemExit, not a traceback
+        with patch.object(rs, "list_vercel_tokens", side_effect=rs.VercelMasterScopeError("needs FULL ACCOUNT")):
+            with pytest.raises(SystemExit, match="FULL ACCOUNT"):
+                cmd_generate(self._entry(sample_registry), ALL, ALL, "gh", "m", "team_z")
 
     def test_mint_failure_writes_nothing(self, sample_registry):
         with patch.object(rs, "list_vercel_tokens", return_value=[]), \
