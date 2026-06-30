@@ -27,38 +27,37 @@ Before starting, make sure you have:
 
 ### Create the Vercel deploy + management tokens
 
-> **UPDATED — one shared, hand-created team token (paste, not auto-mint).** The ecosystem uses **one**
-> shared Vercel deploy token for *all* app repos (`VERCEL_TOKEN`), plus a **separate** terraform
-> management token (`VERCEL_API_TOKEN`). They must be **team-scoped** ("Arthur's projects"), and Vercel's
-> token API can only mint *personal* tokens — which Vercel rejects (*"token is not valid"*) for team
-> projects, **even with a `teamId`** (verified). So you **create them by hand in the Vercel UI** and
-> distribute them via **paste** (`Distribute Vercel token` workflow), exactly like `GH_PACKAGES_PAT`.
-> There is no auto-mint/cron. (The old per-app tokens `kdf-auth-backend-*` etc. are retired.)
+> **UPDATED — one shared deploy token.** The ecosystem now uses **one** shared Vercel deploy token
+> (`kdf-deploy-shared`) for *all* app repos, plus a **separate** terraform management token (`kdf-infra`).
+> The per-app tokens (`kdf-auth-backend-*`, `kdf-fitness-frontend-*`, `kdf-tiffanys-frontend-*`) are
+> retired — on a personal Vercel account every token can already deploy every project, so the per-app
+> split gave naming/audit separation, not hard ACLs, and was a pain to manage. The engine **auto-mints**
+> the shared token, so for first-time setup you only need to bootstrap the three tokens in the table
+> below; after the first `Rotate Vercel Tokens` run the engine owns `kdf-deploy-shared` and you can delete
+> any leftover per-app tokens.
 
 Go to **Vercel Dashboard → Settings → Tokens → Create Token** and create the following tokens.
 
-For the **deployment tokens** in the table below, use these settings:
+For the **per-app deployment tokens** in the table below, use these settings:
 
 | Field | Value |
 |---|---|
 | **Token Name** | see table below |
-| **Scope** | **Arthur's projects** — the **team** (required: a personal-scoped token is rejected for these projects). |
-| **Expiration** | Custom — ~45–90 days. The weekly monitor reminds you to create + re-distribute before expiry. |
+| **Scope** | **Arthur's projects** — this restricts the token to your Vercel team's projects only, following least-privilege. |
+| **Expiration** | Custom — set ~45 days out. The monthly rotation workflow (Phase 6) re-mints them (45-day expiry) automatically after initial setup. |
 
-> **`kdf-master-rotation` is the exception — see Phase 6.1.** It must use **Full Account** scope because
-> `/v3/user/tokens` is a personal-account API. (It's no longer used to mint deploy tokens — those are
-> created by hand — but the rotation tooling may still use it for token listing/cleanup.)
+> **`kdf-master-rotation` is the exception — see Phase 6.1.** That token must use **Full Account** scope because the Vercel API endpoint for creating/deleting tokens (`/v3/user/tokens`) is a personal account API, not a team API. Tokens scoped to "Arthur's projects" receive a 403 Forbidden when calling it. The per-app tokens here never call that endpoint — they only make deployment calls, so team scope is sufficient and correct.
 
-| Token name to enter in Vercel | Used by | Distribute via |
-|---|---|---|
-| (any name, e.g. `kdf-deploy-shared`) | the shared `VERCEL_TOKEN` for **all** app repos' `prod`/`dev` deploys | stage in `VERCEL_TOKEN_NEW` → `Distribute Vercel token` |
-| (any name, e.g. `kdf-infra`) | the terraform `VERCEL_API_TOKEN` (`dev`/`prod`) | stage in `VERCEL_API_TOKEN_NEW` → `Distribute Vercel token` |
+| Token name to enter in Vercel | Used by |
+|---|---|
+| `kdf-deploy-shared` | **all** app repos' `prod`/`dev` deploys — the one shared `VERCEL_TOKEN` (engine re-mints it on the first rotation; you only seed it so the first deploys work) |
+| `kdf-infra` | `kriegerdataforge-terraform` repo `infra` env — the separate `VERCEL_API_TOKEN` Terraform uses to *manage* Vercel (account-level) |
 
-Copy each token value immediately — Vercel shows it only once. Keep them in a secure location (e.g. 1Password) until you stage + distribute them.
+Copy each token value immediately — Vercel shows it only once. Keep them in a secure location (e.g. 1Password) until you add them to GitHub Environments in Phase 4.
 
 > **Future apps:** When a new app is provisioned, just add its repo+env to the `VERCEL_TOKEN` entry's
 > `github_env_secrets` in `scripts/secret_registry.json` — no new token to create. The next
-> `Distribute Vercel token` paste writes the shared token into the new repo's environment secret.
+> `Rotate Vercel Tokens` run writes the shared token into the new repo's environment secret automatically.
 
 ---
 
@@ -367,14 +366,18 @@ This is a long-lived "meta-token" whose only job is to create and delete the per
 
 > `CICD_PAT` (added in Phase 3) already has `secrets:write` on all repos — no additional PAT is needed for the rotation script.
 
-### 6.2a — Vercel deploy tokens are **paste**, not generate (no `VERCEL_TEAM_ID` needed)
+### 6.2a — Add the `VERCEL_TEAM_ID` repo **secret** (required for generate)
 
-> **Important.** Vercel deploy/management tokens must be scoped to your **team** ("Arthur's projects"),
-> and Vercel's token API (`/v3/user/tokens`) can **only** mint personal-account tokens — Vercel rejects
-> them (*"The specified token is not valid"*) for team projects, **even with a `teamId`** (verified). So
-> `VERCEL_TOKEN` and `VERCEL_API_TOKEN` are **created by hand in the Vercel UI and distributed via paste**
-> (like `GH_PACKAGES_PAT`) — see Phase 0 and §8.1 of `SECRET_ROTATION.md`. The `VERCEL_TEAM_ID` secret is
-> **no longer used** (it only mattered for the abandoned auto-mint path) — you can delete it.
+The engine mints tokens via `POST /v3/user/tokens`; **without a team id the minted token is
+personal-account-scoped, and Vercel rejects it ("The specified token is not valid") for team projects.**
+So the engine scopes every minted token to your team via the `teamId` param, and refuses to run a
+`generate` without it.
+
+1. `kriegerdataforge-cicd` → **Settings → Secrets and variables → Actions → Secrets → New repository
+   secret**.
+2. Name: `VERCEL_TEAM_ID`. Value: your Vercel **team id** — the **same value as `VERCEL_ORG_ID`** in the
+   consumer repos' environment secrets (Vercel Dashboard → Settings → General → Team ID, looks like
+   `team_…`).
 
 ### 6.3 — Verify the rotation workflow runs
 
@@ -441,8 +444,8 @@ For each backend Vercel project that uses `kdf-auth-sdk` and hasn't had the vari
 The `Check Secret Expiry` workflow runs every Monday. It checks every monitored credential's
 `check.expiry` and, when any is within its warn window (or expired/undated), **opens a single
 deduplicated tracking issue** (label `ops:secret-expiry`) listing what to rotate and the recipe; the
-issue **auto-closes** once everything is healthy. Nothing auto-rotates — `VERCEL_TOKEN` /
-`VERCEL_API_TOKEN` are team-scoped (UI-created) and distributed by hand via *Distribute Vercel token*.
+issue **auto-closes** once everything is healthy. (Per-app `VERCEL_TOKEN`s auto-rotate via *Rotate
+Vercel Tokens* and aren't part of this nudge.)
 
 **To rotate `GH_PACKAGES_PAT`:**
 1. Create a new fine-grained PAT with the same settings as 6.5.1

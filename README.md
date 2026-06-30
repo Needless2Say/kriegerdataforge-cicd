@@ -24,7 +24,7 @@ Keeping CI/CD logic in one place means deploy behavior is consistent across all 
 | `ci-python-security.yml` | Bandit SAST + pip-audit CVE scan for Python repos | kriegerdataforge, kriegerdataforge-sdk |
 | `ci-codeql.yml` | CodeQL static analysis (gated by `ENABLE_CODEQL`; needs public repo or Code Security) | kriegerdataforge, kriegerdataforge-sdk |
 | `issue-create-repo.yml` | Auto-provision new repositories from an issue template | Internal |
-| `rotate-vercel-tokens.yml` | Distribute a hand-created **team-scoped** Vercel token (paste) | Internal |
+| `rotate-vercel-tokens.yml` | Scheduled rotation of Vercel tokens | Internal |
 | `distribute-gh-pat.yml` | Distribute a staged `GH_PACKAGES_PAT` to all targets | Internal |
 | `check-secret-expiry.yml` | Weekly credential-expiry monitor → opens/closes a deduped rotation issue | Internal |
 | `ops-rotate-secrets.yml` | Owner-only on-demand secret rotation (driven by the `Ops · Rotate a secret` issue form) | Internal |
