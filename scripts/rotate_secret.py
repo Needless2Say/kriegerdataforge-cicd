@@ -31,6 +31,7 @@ Usage
   python rotate_secret.py --mode check    --secrets all
   python rotate_secret.py --mode generate --secrets VERCEL_DEPLOYMENT_TOKEN
   python rotate_secret.py --mode paste    --secrets GH_PACKAGES_PAT          # value from STAGED_SECRET_VALUE
+  python rotate_secret.py --mode record-expiry --secrets VERCEL_DEPLOYMENT_TOKEN  # stamp today+45d into the registry
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import secrets as _secrets
 import sys
 from datetime import datetime, timedelta, timezone
@@ -328,6 +330,77 @@ def cmd_check(entries: list[dict]) -> int:
 
 
 # ============================================================
+# Mode: record-expiry
+# ============================================================
+
+
+def set_registry_expiry(text: str, secret_name: str, new_expiry: str) -> tuple[str, str | None]:
+    """Replace one secret's ``check.expiry`` value in the raw registry JSON *text*.
+
+    The edit is SCOPED to ``secret_name``'s entry (bounded by the next entry's ``"name":`` key) so
+    a string replacement can't bleed into another secret that happens to share the same expiry date.
+    The raw text is edited in place — rather than ``json.dump`` of the parsed dict — to preserve the
+    registry's hand-aligned formatting, keeping the auto-generated PR's diff to a single line.
+
+    Returns ``(new_text, old_expiry)``; ``old_expiry`` is ``None`` (text unchanged) when the secret
+    or its ``expiry`` field isn't found.
+    """
+    marker = f'"name": "{secret_name}"'
+    start = text.find(marker)
+    if start == -1:
+        return text, None
+    nxt = text.find('"name":', start + len(marker))
+    end = nxt if nxt != -1 else len(text)
+    segment = text[start:end]
+    m = re.search(r'("expiry":\s*")([^"]*)(")', segment)
+    if not m:
+        return text, None
+    old = m.group(2)
+    new_segment = segment[: m.start()] + m.group(1) + new_expiry + m.group(3) + segment[m.end():]
+    return text[:start] + new_segment + text[end:], old
+
+
+def cmd_record_expiry(
+    entries: list[dict], days: int = TOKEN_EXPIRY_DAYS, today: datetime | None = None
+) -> int:
+    """Write ``check.expiry = today + days`` into the registry for the given auto-minted Vercel
+    token entries. Run by the rotation workflow right after a successful mint so the expiry the
+    monitor sees matches the freshly issued token. Prints ``REGISTRY_UPDATED: true|false`` for the
+    workflow to decide whether to open a PR.
+    """
+    today = today or datetime.now(timezone.utc)
+    new_expiry = (today + timedelta(days=days)).strftime("%Y-%m-%d")
+    text = REGISTRY_FILE.read_text(encoding="utf-8")
+    print(f"Recording expiry {new_expiry} (today + {days}d) for {len(entries)} selected secret(s):")
+    changed = False
+    for entry in entries:
+        name = entry["name"]
+        # Only auto-minted Vercel tokens have the 45-day lifetime this computes; PATs / manual
+        # tokens carry their own hand-set expiry and must never be stamped with today+45.
+        if entry.get("generator") != "vercel_token":
+            print(f"  {name}: not an auto-minted Vercel token — skipped.")
+            continue
+        if not entry.get("check"):
+            print(f"  {name}: no check block in the registry — skipped (nothing to update).")
+            continue
+        new_text, old = set_registry_expiry(text, name, new_expiry)
+        if old is None:
+            print(f"  {name}: WARNING — could not locate an expiry field to update.")
+            continue
+        if old == new_expiry:
+            print(f"  {name}: expiry already {new_expiry} — no change.")
+            continue
+        text = new_text
+        changed = True
+        print(f"  {name}: expiry {old} -> {new_expiry}")
+    if changed:
+        REGISTRY_FILE.write_text(text, encoding="utf-8")
+    print()
+    print(f"REGISTRY_UPDATED: {'true' if changed else 'false'}")
+    return 0
+
+
+# ============================================================
 # Mode: generate
 # ============================================================
 
@@ -600,7 +673,9 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Rotate CI-plane secrets across GitHub env secrets + Vercel projects.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--mode", required=True, choices=["generate", "paste", "check"])
+    parser.add_argument(
+        "--mode", required=True, choices=["generate", "paste", "check", "record-expiry"]
+    )
     parser.add_argument(
         "--secrets",
         default="all",
@@ -627,6 +702,11 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.mode == "check":
         sys.exit(cmd_check(entries))
+
+    if args.mode == "record-expiry":
+        # Stamp the registry with the just-minted Vercel token's expiry (today + 45d). No live
+        # credentials touched — it only edits scripts/secret_registry.json for the follow-on PR.
+        sys.exit(cmd_record_expiry(entries))
 
     if args.mode == "generate":
         # A Vercel token minted without a team is personal-account-scoped, and Vercel rejects it

@@ -279,6 +279,10 @@ A single engine-minted, account-scoped Vercel token that both **deploys** and **
   --mode generate --secrets VERCEL_DEPLOYMENT_TOKEN`.)*
 - **Verify:** trigger a `dev` deploy of any app; or Vercel → Tokens shows a fresh `VERCEL_DEPLOYMENT_TOKEN`
   expiry.
+- **Expiry tracking (automatic):** after each successful mint the **Rotate Vercel Deployment Token**
+  workflow runs `--mode record-expiry` and opens a small PR bumping this entry's `check.expiry` (today +
+  45d). Just review and merge it — no manual edit. If the rotation cron ever stops, the stale expiry trips
+  the weekly monitor as a watchdog.
 - **🚨 If leaked:** delete that token in Vercel first (containment), then **generate**. The shared token
   has account-wide deploy **and** management reach, so treat a leak as affecting every app and the
   terraform plane.
@@ -408,7 +412,7 @@ where the credential can be minted by a machine, reminder-driven where it can't.
 
 | Credential | Cadence | Mechanism |
 |---|---|---|
-| Shared `VERCEL_DEPLOYMENT_TOKEN` | monthly | **Auto-generate** — `Rotate Vercel Deployment Token` (cron, 1st of the month). Hands-off. |
+| Shared `VERCEL_DEPLOYMENT_TOKEN` | monthly | **Auto-generate** — `Rotate Vercel Deployment Token` (cron, 1st of the month), then auto-opens a PR bumping `check.expiry`. Hands-off (just merge the bot PR). |
 | `GH_PACKAGES_PAT` | monthly\* | **Auto-issue reminder** → mint by hand, then §8.2. |
 | `CICD_PAT` | monthly\* | **Auto-issue reminder** → §8.3. |
 | `VERCEL_MASTER_TOKEN` | monitored | **Auto-issue reminder** → §8.4. Auto-rotation is a planned enhancement. |

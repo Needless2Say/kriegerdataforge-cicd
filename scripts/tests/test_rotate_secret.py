@@ -350,12 +350,72 @@ class TestRealRegistry:
         vercel = next(e for e in entries if e["name"] == "VERCEL_DEPLOYMENT_TOKEN")
         assert vercel.get("shared") is True and vercel.get("vercel_token_name") == "VERCEL_DEPLOYMENT_TOKEN"
         assert len(vercel["github_env_secrets"]) == 14  # 12 app targets + 2 terraform
+        assert vercel.get("check", {}).get("expiry")  # auto-maintained expiry is tracked (record-expiry bot)
         # the manual tokens carry a check block (monitored) and no engine targets
         for name in ("CICD_PAT", "VERCEL_MASTER_TOKEN", "KDF_APP_PRIVATE_KEY"):
             e = next(x for x in entries if x["name"] == name)
             assert e.get("kind") == "manual" and "check" in e
             assert not e.get("github_env_secrets") and not e.get("vercel_env_vars")
         assert cmd_check(entries) in (0, 1)
+
+
+# ── record-expiry ───────────────────────────────────────────────────────────────
+
+
+class TestRecordExpiry:
+    def test_set_registry_expiry_is_scoped(self):
+        # Two secrets share the SAME expiry; updating one must not bleed into the other.
+        text = (
+            '{ "secrets": [\n'
+            '  { "name": "A", "check": { "expiry": "2026-07-30" } },\n'
+            '  { "name": "B", "check": { "expiry": "2026-07-30" } }\n'
+            "] }"
+        )
+        new, old = rs.set_registry_expiry(text, "B", "2026-09-15")
+        assert old == "2026-07-30"
+        got = {s["name"]: s["check"]["expiry"] for s in json.loads(new)["secrets"]}
+        assert got == {"A": "2026-07-30", "B": "2026-09-15"}
+
+    def test_set_registry_expiry_absent_secret_is_noop(self):
+        text = '{ "secrets": [ { "name": "A", "check": { "expiry": "2026-07-30" } } ] }'
+        new, old = rs.set_registry_expiry(text, "ZZZ", "2026-09-15")
+        assert old is None and new == text
+
+    def _write_reg(self, tmp_path, monkeypatch):
+        # All three share 2026-07-30, but only the vercel_token-with-check entry may be touched.
+        text = (
+            "{\n"
+            '  "secrets": [\n'
+            '    { "name": "GH_PACKAGES_PAT", "kind": "paste", "check": { "expiry": "2026-07-30", "warn_days_before_expiry": 7 } },\n'
+            '    { "name": "VERCEL_DEPLOYMENT_TOKEN", "kind": "generate", "generator": "vercel_token", "shared": true, "check": { "expiry": "2026-07-30", "warn_days_before_expiry": 10 } },\n'
+            '    { "name": "CICD_PAT", "kind": "manual", "check": { "expiry": "2026-07-30", "warn_days_before_expiry": 14 } }\n'
+            "  ]\n}"
+        )
+        f = tmp_path / "reg.json"
+        f.write_text(text, encoding="utf-8")
+        monkeypatch.setattr(rs, "REGISTRY_FILE", f)
+        return f
+
+    def test_stamps_only_vercel_token_with_check(self, tmp_path, monkeypatch, capsys):
+        f = self._write_reg(tmp_path, monkeypatch)
+        entries = json.loads(f.read_text())["secrets"]
+        rc = rs.cmd_record_expiry(entries, today=datetime(2026, 6, 30, tzinfo=timezone.utc))
+        assert rc == 0
+        assert "REGISTRY_UPDATED: true" in capsys.readouterr().out
+        got = {s["name"]: s["check"]["expiry"] for s in json.loads(f.read_text())["secrets"]}
+        assert got["VERCEL_DEPLOYMENT_TOKEN"] == "2026-08-14"  # 2026-06-30 + 45d
+        assert got["GH_PACKAGES_PAT"] == "2026-07-30"  # paste (no generator) -> skipped
+        assert got["CICD_PAT"] == "2026-07-30"  # manual -> skipped
+
+    def test_noop_when_expiry_already_current(self, tmp_path, monkeypatch, capsys):
+        f = self._write_reg(tmp_path, monkeypatch)
+        entries = json.loads(f.read_text())["secrets"]
+        before = f.read_text()
+        # 2026-06-15 + 45d == 2026-07-30, the value already in the registry → no write.
+        rc = rs.cmd_record_expiry(entries, today=datetime(2026, 6, 15, tzinfo=timezone.utc))
+        assert rc == 0
+        assert "REGISTRY_UPDATED: false" in capsys.readouterr().out
+        assert f.read_text() == before
 
 
 # ── generate: vercel_token ──────────────────────────────────────────────────────
@@ -638,6 +698,13 @@ class TestMain:
             with pytest.raises(SystemExit) as e:
                 rs.main()
         assert e.value.code == 0 and c.called
+
+    def test_record_expiry_dispatch(self, monkeypatch, mock_registry_file):
+        monkeypatch.setattr(sys, "argv", ["x", "--mode", "record-expiry", "--secrets", "VERCEL_TOKEN"])
+        with patch.object(rs, "cmd_record_expiry", return_value=0) as r:
+            with pytest.raises(SystemExit) as e:
+                rs.main()
+        assert e.value.code == 0 and r.called
 
     def test_generate_dispatch(self, monkeypatch, mock_registry_file):
         monkeypatch.setattr(sys, "argv", ["x", "--mode", "generate", "--secrets", "VERCEL_TOKEN"])
