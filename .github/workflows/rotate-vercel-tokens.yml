@@ -1,55 +1,49 @@
-name: Rotate Vercel Tokens
+name: Distribute Vercel token (paste)
+
+# Vercel deploy/management tokens must be scoped to the team ("Arthur's projects"), and Vercel's token
+# API (/v3/user/tokens) can ONLY mint personal-account tokens — which Vercel rejects ("token is not
+# valid") for team projects, even when created with a teamId. So these tokens are created BY HAND in the
+# Vercel UI and distributed here (paste), exactly like GH_PACKAGES_PAT. There is no auto-rotation cron for
+# the same reason — the expiry monitor reminds you to rotate.
+#
+# Flow:
+#   1. Vercel UI → Settings → Tokens → Create Token, **Scope = your team** ("Arthur's projects").
+#   2. Stage it as the matching kriegerdataforge-cicd repo secret:
+#        VERCEL_TOKEN      -> VERCEL_TOKEN_NEW
+#        VERCEL_API_TOKEN  -> VERCEL_API_TOKEN_NEW
+#   3. Run this workflow, picking the secret. It writes the staged token to every target in
+#      scripts/secret_registry.json for that secret.
+#   4. Update that secret's check.expiry in scripts/secret_registry.json; delete the *_NEW slot.
 
 on:
-  # Monthly auto-rotation: first of every month at 09:00 UTC. New Vercel tokens are created with a
-  # 45-day expiry, so a monthly cadence (worst-case 31-day gap) leaves ~2 weeks of slack — a single
-  # missed run never expires the one shared deploy token. This rotates the shared deploy token
-  # (VERCEL_TOKEN, fanned out to every app repo) and the separate terraform management token
-  # (VERCEL_API_TOKEN).
-  schedule:
-    - cron: "0 9 1 * *"
-
-  # allow manual trigger — optionally scope to just one of the two Vercel secrets
   workflow_dispatch:
     inputs:
-      secrets:
-        description: "Which Vercel secret(s) to rotate."
-        required: false
-        default: "VERCEL_TOKEN,VERCEL_API_TOKEN"
+      secret:
+        description: "Which Vercel secret to distribute (stage its value in <SECRET>_NEW first)."
+        required: true
+        default: "VERCEL_TOKEN"
         type: choice
         options:
-          - "VERCEL_TOKEN,VERCEL_API_TOKEN"
-          - "VERCEL_TOKEN"
-          - "VERCEL_API_TOKEN"
+          - VERCEL_TOKEN
+          - VERCEL_API_TOKEN
 
 permissions:
   contents: read
 
 jobs:
   authorize:
-    # Only dispatched runs have a human actor to authorize. A scheduled (cron) run's
-    # github.triggering_actor is the last editor/enabler of the schedule, NOT necessarily the owner,
-    # so gating the cron on the owner check would fail-closed and silently skip the rotation —
-    # eventually expiring the one shared deploy token. Gate dispatches only (same as distribute-kit).
-    if: github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/_authorize-owner.yml
 
-  rotate:
-    name: Rotate Vercel tokens
+  distribute:
+    name: Distribute Vercel token
     needs: authorize
-    # Fail-closed owner gate for dispatches (PL-076 parity); the read-only/trusted cron path has no
-    # authorize job (skipped), so allow it through. always() lets this job evaluate even when
-    # authorize is skipped on schedule; the explicit success() check preserves fail-closed on dispatch.
-    if: >-
-      always() &&
-      github.repository == 'Needless2Say/kriegerdataforge-cicd' &&
-      (github.event_name != 'workflow_dispatch' ||
-        (needs.authorize.result == 'success' && needs.authorize.outputs.authorized == 'true'))
+    # Fail-closed owner gate (PL-076 parity): the reusable gate exit 1s on a non-owner (so the implicit
+    # needs-success requirement skips this job) AND we re-assert its explicit output.
+    if: needs.authorize.outputs.authorized == 'true'
     runs-on: ubuntu-slim
 
-    # No GitHub Environment — uses repo-level secrets only
-    # VERCEL_MASTER_TOKEN and CICD_PAT are stored as repo-level secrets
-    # on kriegerdataforge-cicd (Settings → Secrets and variables → Actions)
+    # No GitHub Environment — uses repo-level secrets only (VERCEL_TOKEN_NEW / VERCEL_API_TOKEN_NEW
+    # staged by the owner; the App token or CICD_PAT writes the consumer repos' environment secrets).
 
     steps:
       - name: Checkout
@@ -60,13 +54,11 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install rotation dependencies
+      - name: Install dependencies
         run: pip install -r scripts/requirements.txt
 
-      # Short-lived GitHub App installation token (auto-revoked at job end; effective lifetime =
-      # job runtime, not the 1-hour nominal TTL). Downscoped to environments:write — the VERCEL_TOKEN
-      # environment secrets are gated by the "Environments" permission, NOT "Secrets". Gated on
-      # USE_GITHUB_APP, falls back to CICD_PAT.
+      # Short-lived GitHub App installation token (auto-revoked at job end). Downscoped to
+      # environments:write — env secrets are gated by "Environments", not "Secrets". Falls back to CICD_PAT.
       - name: Mint GitHub App token
         id: app-token
         if: vars.USE_GITHUB_APP == 'true'
@@ -77,15 +69,21 @@ jobs:
           owner: ${{ github.repository_owner }}
           permission-environments: write
 
-      - name: Rotate tokens
+      - name: Distribute the staged token
         env:
-          VERCEL_MASTER_TOKEN: ${{ secrets.VERCEL_MASTER_TOKEN }}
-          # Scopes minted tokens to the Vercel team (the VERCEL_ORG_ID value) — without it the tokens
-          # are personal-scoped and Vercel rejects them for team projects.
-          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
-          SECRETS_FILTER: ${{ inputs.secrets || 'VERCEL_TOKEN,VERCEL_API_TOKEN' }}
+          SECRET: ${{ inputs.secret }}
+          # The staged team-scoped token (created in the Vercel UI). Only the matching one is read.
+          VERCEL_TOKEN_NEW: ${{ secrets.VERCEL_TOKEN_NEW }}
+          VERCEL_API_TOKEN_NEW: ${{ secrets.VERCEL_API_TOKEN_NEW }}
         run: |
-          python scripts/rotate_secret.py \
-            --mode generate \
-            --secrets "$SECRETS_FILTER"
+          if [ "$SECRET" = "VERCEL_API_TOKEN" ]; then
+            STAGED="$VERCEL_API_TOKEN_NEW"
+          else
+            STAGED="$VERCEL_TOKEN_NEW"
+          fi
+          if [ -z "$STAGED" ]; then
+            echo "::error::Stage the team-scoped token in the ${SECRET}_NEW repo secret first."
+            exit 1
+          fi
+          STAGED_SECRET_VALUE="$STAGED" python scripts/rotate_secret.py --mode paste --secrets "$SECRET"
