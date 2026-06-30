@@ -332,9 +332,14 @@ class TestRealRegistry:
         names = {e["name"] for e in entries}
         assert {"GH_PACKAGES_PAT", "VERCEL_TOKEN", "CICD_PAT", "CICD_REGISTRY_PAT", "VERCEL_MASTER_TOKEN"} <= names
         assert "KDF_APP_PRIVATE_KEY" in names  # the GitHub App private key is monitored too
-        assert "VERCEL_API_TOKEN" in names  # terraform mgmt token, split out from the shared deploy token
+        assert "VERCEL_API_TOKEN" in names  # terraform mgmt token, separate from the shared deploy token
+        # Vercel team-scoped tokens can't be API-minted, so VERCEL_TOKEN/VERCEL_API_TOKEN are paste (not
+        # generate), monitored for expiry, and fan one staged value out to all their targets.
         vercel = next(e for e in entries if e["name"] == "VERCEL_TOKEN")
-        assert vercel.get("shared") is True and vercel.get("vercel_token_name") == "kdf-deploy-shared"
+        assert vercel.get("kind") == "paste" and "check" in vercel
+        assert len(vercel.get("github_env_secrets", [])) == 12
+        vapi = next(e for e in entries if e["name"] == "VERCEL_API_TOKEN")
+        assert vapi.get("kind") == "paste" and len(vapi.get("github_env_secrets", [])) == 2
         # the manual tokens carry a check block (monitored) and no engine targets
         for name in ("CICD_PAT", "CICD_REGISTRY_PAT", "VERCEL_MASTER_TOKEN", "KDF_APP_PRIVATE_KEY"):
             e = next(x for x in entries if x["name"] == name)
