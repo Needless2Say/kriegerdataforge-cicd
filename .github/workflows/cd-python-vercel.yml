@@ -5,7 +5,7 @@
 # which in turn:
 #   1. Requires approval from the configured reviewers (prod: owner only,
 #      dev: owner + collaborator)
-#   2. Loads the environment-scoped secrets (VERCEL_TOKEN, VERCEL_PROJECT_ID,
+#   2. Loads the environment-scoped secrets (VERCEL_DEPLOYMENT_TOKEN, VERCEL_PROJECT_ID,
 #      DB_DATABASE_URL) into the job
 #
 # Deploy steps:
@@ -14,7 +14,7 @@
 #   3. Optionally run Alembic migrations against DB_DATABASE_URL
 #
 # Required environment secrets (set per environment in the caller repo):
-#   VERCEL_TOKEN       — Vercel API token
+#   VERCEL_DEPLOYMENT_TOKEN — shared Vercel deploy/management token
 #   VERCEL_ORG_ID      — Vercel team / org ID
 #   VERCEL_PROJECT_ID  — Vercel project ID for the target environment
 #   DB_DATABASE_URL    — SQLAlchemy connection string (required if run_migrations=true)
@@ -67,10 +67,10 @@ jobs:
           ref: main
           sparse-checkout: scripts
           path: _kdf_cicd
-          # Default token works when this cicd repo is public. If it is private,
-          # add a repo/org secret CICD_REGISTRY_PAT (read-only) — it is picked up
-          # via the caller's `secrets: inherit`; otherwise we fall back to github.token.
-          token: ${{ secrets.CICD_REGISTRY_PAT || github.token }}
+          # The cicd repo is public, so the caller's default github.token can read it.
+          # (If cicd ever goes private, this checkout needs a read-only token with access
+          # to it — see KDF docs/engineering/GITHUB_FUTURE_ENHANCEMENTS.md.)
+          token: ${{ github.token }}
 
       - name: Verify deployer is approved
         run: python3 _kdf_cicd/scripts/check_deployer.py
@@ -130,7 +130,7 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
       - name: Install Vercel CLI
-        # Pin the Vercel CLI to an exact version: this job holds VERCEL_TOKEN,
+        # Pin the Vercel CLI to an exact version: this job holds VERCEL_DEPLOYMENT_TOKEN,
         # GH_PACKAGES_PAT and (on migrations) DB_DATABASE_URL, so an unpinned
         # install floating to the latest registry tarball is a poisoned-pipeline
         # / dependency-chain risk (CICD-SEC-3 / SLSA). Bump via Dependabot.
@@ -139,21 +139,21 @@ jobs:
       - name: Deploy to Vercel
         working-directory: vercel_api
         run: |
-          # A VERCEL_TOKEN env secret pasted by hand often carries a trailing newline/space, which the
-          # Vercel CLI rejects ("The specified token is not valid") even though the token itself is valid.
+          # A VERCEL_DEPLOYMENT_TOKEN env secret pasted by hand often carries a trailing newline/space, which
+          # the Vercel CLI rejects ("The specified token is not valid") even though the token itself is valid.
           # Strip whitespace, fail fast if empty, and pass it explicitly via --token. (Only the LENGTH is
           # logged for debugging — the token value is never printed.)
-          TOKEN="$(printf '%s' "$VERCEL_TOKEN" | tr -d '[:space:]')"
+          TOKEN="$(printf '%s' "$VERCEL_DEPLOYMENT_TOKEN" | tr -d '[:space:]')"
           if [ -z "$TOKEN" ]; then
-            echo "::error::VERCEL_TOKEN is empty in the '${{ inputs.environment }}' environment — set the VERCEL_TOKEN environment secret on this repo (correct environment)."
+            echo "::error::VERCEL_DEPLOYMENT_TOKEN is empty in the '${{ inputs.environment }}' environment — set the VERCEL_DEPLOYMENT_TOKEN environment secret on this repo (correct environment)."
             exit 1
           fi
-          echo "VERCEL_TOKEN trimmed length=${#TOKEN}; org=${VERCEL_ORG_ID}; project=${VERCEL_PROJECT_ID}"
+          echo "VERCEL_DEPLOYMENT_TOKEN trimmed length=${#TOKEN}; org=${VERCEL_ORG_ID}; project=${VERCEL_PROJECT_ID}"
           NODE_OPTIONS="--require ./dns-preload.js" vercel --prod --yes \
             --token "$TOKEN" \
             --build-env "GH_PACKAGES_PAT=$GH_PACKAGES_PAT"
         env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_DEPLOYMENT_TOKEN: ${{ secrets.VERCEL_DEPLOYMENT_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           GH_PACKAGES_PAT: ${{ secrets.GH_PACKAGES_PAT }}

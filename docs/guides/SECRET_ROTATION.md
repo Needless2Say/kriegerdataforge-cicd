@@ -33,12 +33,12 @@ Work top to bottom: **contain → rotate → verify → record.**
 ### Blast-radius triage
 | Leaked secret | Severity | Also rotate | Recipe |
 |---|---|---|---|
-| `CICD_PAT` | 🔴 can write **every** secret | Treat all engine-written secrets as suspect: after §8.3, re-`generate` every `VERCEL_TOKEN` and re-`paste` `GH_PACKAGES_PAT` | §8.3 → §8.1 → §8.2 |
-| `VERCEL_MASTER_TOKEN` | 🔴 full Vercel account | Re-`generate` all `VERCEL_TOKEN`s (it can mint/delete them) | §8.4 → §8.1 |
+| `CICD_PAT` | 🔴 can write **every** secret | Treat all engine-written secrets as suspect: after §8.3, re-`generate` the `VERCEL_DEPLOYMENT_TOKEN` and re-`paste` `GH_PACKAGES_PAT` | §8.3 → §8.1 → §8.2 |
+| `VERCEL_MASTER_TOKEN` | 🔴 full Vercel account | Re-`generate` the `VERCEL_DEPLOYMENT_TOKEN` (it can mint/delete tokens) | §8.4 → §8.1 |
 | `AUTH_PRIVATE_KEY` | 🔴 signs every JWT | The whole RS256 group via Terraform, using an overlap window | §8.8 |
 | `DB_DATABASE_URL` | 🔴 direct data access | The DB credential (Neon) + Terraform | §8.9 |
 | `STRIPE_*` | 🔴 payments | Roll in Stripe + both consumers | §8.11 |
-| `VERCEL_TOKEN` (one app/env) | 🟠 deploy access to one project | Just that token | §8.1 |
+| `VERCEL_DEPLOYMENT_TOKEN` | 🟠 deploy + manage access across the account | The shared token (re-`generate`) | §8.1 |
 | `GH_PACKAGES_PAT` | 🟠 read access to the private SDK repo | The PAT everywhere | §8.2 |
 | `*_SERVICE_KEY` | 🟠 service-to-service auth | The key **and** the composite `SERVICE_API_KEYS` (one apply) | §8.10 |
 | `KDF_OIDC_CLIENT_SECRET` | 🟠 one client's code exchange | Re-register that client | §8.12 |
@@ -71,7 +71,6 @@ only *repository* secrets are the ops-plane control creds below.
 | Secret | What it is | Notes |
 |---|---|---|
 | `CICD_PAT` | Fine-grained PAT with `secrets:write` (+ admin) across the org repos | The engine **uses** this to write every other secret. Rotate by hand. |
-| `CICD_REGISTRY_PAT` | PAT for GitHub Packages / registry access | By hand. |
 | `VERCEL_MASTER_TOKEN` | Vercel **Full Account** token (`kdf-master-rotation`) that can create/delete tokens + set project env | The engine uses this for `generate`. Rotate by hand. |
 | `TF_TOKEN_APP_TERRAFORM_IO` | Terraform Cloud API token (deferred) | By hand. |
 | `GH_PACKAGES_PAT_NEW` | **Staging slot** for the dedicated `Distribute GH_PACKAGES_PAT` workflow | Set only during a PAT rotation, then delete. |
@@ -83,7 +82,7 @@ These are in `scripts/secret_registry.json`, so the engine rotates them across e
 
 | Secret | Mode | Lives in (env secret) |
 |---|---|---|
-| `VERCEL_TOKEN` (shared deploy) / `VERCEL_API_TOKEN` (terraform) | **generate** (Vercel API) | one shared token → every app repo's `prod`/`dev` env; the terraform `infra` env |
+| `VERCEL_DEPLOYMENT_TOKEN` | **generate** (Vercel API) | one shared token that both deploys and manages → every app repo's `prod`/`dev` env **and** the terraform repo's `prod`/`dev` env (feeds `TF_VAR_vercel_api_token`) |
 | `GH_PACKAGES_PAT` | **paste** (GitHub can't mint PATs) | backend repos' `prod`/`dev` env + non-Terraform Vercel project vars |
 
 ### Environment secrets — NOT engine-managed (rotate by hand §5, or via Terraform)
@@ -104,10 +103,10 @@ Two ways to drive the engine: the **issue form** (no checkout needed) or the **C
 
 1. **New issue → "Ops · Rotate a secret"** template.
 2. Fill in:
-   - **Secret(s)** — one or more (e.g. `VERCEL_TOKEN`, or `ALL`). For `paste`, pick exactly one.
+   - **Secret(s)** — one or more (e.g. `VERCEL_DEPLOYMENT_TOKEN`, or `ALL`). For `paste`, pick exactly one.
    - **Mode** — `generate` (auto-mint), `paste` (distribute a staged value), or `check` (expiry report).
-   - **Environment(s)** — `prod` / `dev` / `infra` / `ALL`. Per-env secrets get a **distinct value per env**.
-   - **Vercel apps** — legacy; ignored for the shared `VERCEL_TOKEN`. Leave it `ALL`.
+   - **Environment(s)** — `prod` / `dev` / `ALL`. Per-env secrets get a **distinct value per env**.
+   - **Vercel apps** — legacy; ignored for the shared `VERCEL_DEPLOYMENT_TOKEN`. Leave it `ALL`.
    - **Confirm** — must be **Yes** for `generate`/`paste`.
 3. **For `paste` only:** first store the new value in the **`SECRET_VALUE_NEW`** repository secret
    (Settings → Secrets and variables → Actions → New repository secret). **Never paste a secret value
@@ -129,22 +128,24 @@ export VERCEL_MASTER_TOKEN="<full-account Vercel token>"          # generate / v
 # expiry report (no creds needed):
 python scripts/rotate_secret.py --mode check --secrets all
 
-# auto-mint fresh Vercel tokens for the fitness frontend, prod only:
-python scripts/rotate_secret.py --mode generate --secrets VERCEL_TOKEN,VERCEL_API_TOKEN
+# auto-mint a fresh shared Vercel deployment token (written to every target):
+python scripts/rotate_secret.py --mode generate --secrets VERCEL_DEPLOYMENT_TOKEN
 
 # distribute an owner-supplied value (paste) to every GH_PACKAGES_PAT target:
 export STAGED_SECRET_VALUE="<the new PAT value>"
 python scripts/rotate_secret.py --mode paste --secrets GH_PACKAGES_PAT
 ```
 
-Or trigger the scheduled workflows from the Actions tab: **Rotate Vercel Tokens** (generate),
+Or trigger the scheduled workflows from the Actions tab: **Rotate Vercel Deployment Token** (generate),
 **Distribute GH_PACKAGES_PAT** (paste, reads `GH_PACKAGES_PAT_NEW`), **Check Secret Expiry** (the weekly monitor — see §9).
 
 ### What "generate" vs "paste" means per secret
 
-- **`VERCEL_TOKEN` → generate.** The engine mints **one shared** deploy token via the Vercel API and
-  writes the same value to every app repo's environment secret, then deletes the old shared token. The
-  terraform management token (`VERCEL_API_TOKEN`) is a separate generate entry. No value to supply.
+- **`VERCEL_DEPLOYMENT_TOKEN` → generate.** The engine mints **one shared** account-scoped token via the
+  Vercel API and writes the same value to every target — every app repo's `prod`/`dev` environment secret
+  **and** the terraform repo's `prod`/`dev` (where it feeds `TF_VAR_vercel_api_token`) — then deletes the
+  old shared token. This single token both deploys and manages; there is no separate management token. No
+  value to supply.
 - **`GH_PACKAGES_PAT` → paste.** GitHub cannot mint PATs via API, so you create the fine-grained PAT in
   the GitHub UI, stage it, and the engine distributes that one value to every target.
 
@@ -152,7 +153,7 @@ Or trigger the scheduled workflows from the Actions tab: **Rotate Vercel Tokens*
 
 ## 4. Rotate a repository secret (by hand)
 
-For the ops-plane creds in §2 (`CICD_PAT`, `VERCEL_MASTER_TOKEN`, `CICD_REGISTRY_PAT`, `TF_TOKEN_*`).
+For the ops-plane creds in §2 (`CICD_PAT`, `VERCEL_MASTER_TOKEN`, `TF_TOKEN_*`).
 **Order matters: create the new credential, set it, verify, *then* revoke the old one** (so nothing
 breaks mid-rotation).
 
@@ -236,7 +237,7 @@ To bring a new **CI-plane** environment secret under the engine, add an entry to
 - For a deploy credential, trigger a `dev` deploy of an affected repo and confirm it succeeds with the new value.
 - `gh secret list ... ` shows the **Updated** timestamp moved (values themselves are never readable).
 
-**Rollback:** re-`paste` the previous value (repo/env secret), or for `VERCEL_TOKEN` re-run `generate`
+**Rollback:** re-`paste` the previous value (repo/env secret), or for `VERCEL_DEPLOYMENT_TOKEN` re-run `generate`
 (it always mints fresh). Keep the old credential alive until you've verified the new one.
 
 **Troubleshooting:**
@@ -258,28 +259,29 @@ gotchas, and point to the **terraform `SECRETS_ROTATION` / `SECRETS_ROTATION_QUI
 
 ### CI-plane — engine-managed environment secrets
 
-#### 8.1 `VERCEL_TOKEN` (shared deploy) + `VERCEL_API_TOKEN` (terraform)
-Two separate Vercel secrets, both engine-minted:
-- **`VERCEL_TOKEN`** — **one shared deploy token** (`kdf-deploy-shared`) used by *every* app repo's CI.
-  The engine mints a single token and writes the same value to all app env secrets, then deletes the old
-  shared token **only if every write succeeds** (a partial failure keeps both valid). App/env filters are
-  ignored — it's one value everywhere.
-- **`VERCEL_API_TOKEN`** — the **separate** token the terraform repo uses to *manage* Vercel
-  (`kdf-infra`). Rotated on its own so it can carry management scope without over-permissioning deploys.
+#### 8.1 `VERCEL_DEPLOYMENT_TOKEN` (one shared deploy + management token)
+A single engine-minted, account-scoped Vercel token that both **deploys** and **manages**:
+- **`VERCEL_DEPLOYMENT_TOKEN`** — **one shared token** used by *every* app repo's CI **and** the terraform
+  repo. The engine mints a single token and writes the same value to all 14 targets — every app repo's
+  `prod`/`dev` env secret (12) plus the terraform repo's `prod`/`dev` (2, where it feeds
+  `TF_VAR_vercel_api_token`) — then deletes the old shared token **only if every write succeeds** (a partial
+  failure keeps both valid). App/env filters are ignored — it's one value everywhere. There is no longer a
+  separate terraform management token.
 
 > **Requires `VERCEL_TEAM_ID`.** The engine scopes minted tokens to your Vercel team via the `teamId`
 > param — a personal-scoped token is rejected ("token is not valid") for team projects. The
 > `VERCEL_TEAM_ID` repo **secret** must be set (= `VERCEL_ORG_ID`); generate fails fast without it.
 > Setup: `MANUAL_SETUP.md` §6.2a.
 
-- **When:** monthly schedule (the cron rotates both), or a token leaked.
-- **Steps:** issue form → secret `VERCEL_TOKEN` and/or `VERCEL_API_TOKEN`, mode **generate**, Confirm =
-  Yes, add the label. *(Or: Actions → **Rotate Vercel Tokens** → pick the secret; or `rotate_secret.py
-  --mode generate --secrets VERCEL_TOKEN,VERCEL_API_TOKEN`.)*
-- **Verify:** trigger a `dev` deploy of any app; or Vercel → Tokens shows a fresh `kdf-deploy-shared` /
-  `kdf-infra` expiry.
-- **🚨 If leaked:** delete that token in Vercel first (containment), then **generate**. The shared deploy
-  token has account-wide deploy reach, so treat a leak as affecting every app.
+- **When:** monthly schedule (the cron rotates it), or the token leaked.
+- **Steps:** issue form → secret `VERCEL_DEPLOYMENT_TOKEN`, mode **generate**, Confirm =
+  Yes, add the label. *(Or: Actions → **Rotate Vercel Deployment Token**; or `rotate_secret.py
+  --mode generate --secrets VERCEL_DEPLOYMENT_TOKEN`.)*
+- **Verify:** trigger a `dev` deploy of any app; or Vercel → Tokens shows a fresh `VERCEL_DEPLOYMENT_TOKEN`
+  expiry.
+- **🚨 If leaked:** delete that token in Vercel first (containment), then **generate**. The shared token
+  has account-wide deploy **and** management reach, so treat a leak as affecting every app and the
+  terraform plane.
 - **One-time cutover:** the first shared `generate` leaves the old per-app tokens (`kdf-auth-backend-*`,
   `kdf-fitness-frontend-*`, `kdf-tiffanys-frontend-*`) orphaned in Vercel — delete them manually, or let
   them expire (≤45 days). The engine no longer tracks them.
@@ -301,16 +303,20 @@ Two separate Vercel secrets, both engine-minted:
 ### CI-plane — repository (control-plane) secrets, by hand
 
 #### 8.3 `CICD_PAT` 🔴 (the engine's own write credential)
+The fine-grained PAT the engine uses to write every other secret. It is hand-rotated (GitHub has no PAT-mint
+API) and tracked with a **30-day expiry (next: 2026-07-30)**. Its permissions over **All repositories (incl.
+future)** are: Repository **Administration, Contents, Environments, Secrets, Variables, Actions, Issues,
+Pull requests** (all read/write), plus **Metadata: read**.
 - **When:** leaked, near expiry, or scope change.
 - **Steps:**
-  1. Create a new fine-grained PAT with the same scope the current one has (`secrets: write` +
-     `administration` across the org repos — see `MANUAL_SETUP.md` Phase 3 for the exact permission set).
+  1. Create a new fine-grained PAT with the same scope the current one has (the permission set above — see
+     `MANUAL_SETUP.md` Phase 3 for the exact list).
   2. `gh secret set CICD_PAT --repo Needless2Say/kriegerdataforge-cicd` (prompt for the value — no `--body`).
   3. **Verify it authenticates** before revoking the old one: run `rotate_secret.py --mode check` (issue
      form or CLI), or a single-target `generate`.
   4. **Revoke** the old PAT.
-- **🚨 If leaked:** it can overwrite **every** secret. After 1–4, assume tampering: re-`generate` all
-  `VERCEL_TOKEN`s (§8.1) and re-`paste` `GH_PACKAGES_PAT` (§8.2). Review recent Actions runs for unexpected activity.
+- **🚨 If leaked:** it can overwrite **every** secret. After 1–4, assume tampering: re-`generate` the
+  `VERCEL_DEPLOYMENT_TOKEN` (§8.1) and re-`paste` `GH_PACKAGES_PAT` (§8.2). Review recent Actions runs for unexpected activity.
 
 #### 8.3a `KDF_APP_PRIVATE_KEY` 🔴 (GitHub App — the engine's new write credential)
 The GitHub App that mints the rotation/kit workflows' short-lived tokens. Setup: `MANUAL_SETUP.md`
@@ -320,12 +326,12 @@ Phase 6.7. The non-secret `KDF_APP_ID` never needs rotation; this `.pem` private
   1. App → **General → Private keys → Generate a private key** (the App now has *two* valid keys).
   2. Update the `KDF_APP_PRIVATE_KEY` repo secret in `kriegerdataforge-cicd` with the new `.pem`
      contents (`gh secret set KDF_APP_PRIVATE_KEY --repo Needless2Say/kriegerdataforge-cicd < new.pem`).
-  3. **Verify** a flow on the new key (Actions → *Check Secret Expiry*, or a scoped *Rotate Vercel Tokens*).
+  3. **Verify** a flow on the new key (Actions → *Check Secret Expiry*, or a scoped *Rotate Vercel Deployment Token*).
   4. App → **Delete** the old private key. Securely delete the local `.pem` files.
   5. Update this entry's `check.expiry` in `secret_registry.json` to the next reminder date; commit.
 - **🚨 If leaked:** the key can mint installation tokens with the App's granted scopes (Secrets +
   Contents + PR write) → delete that key immediately (step 4), rotate as above, and assume any secret the
-  engine can write is suspect — re-`generate` all `VERCEL_TOKEN`s (§8.1) and re-`paste` `GH_PACKAGES_PAT`
+  engine can write is suspect — re-`generate` the `VERCEL_DEPLOYMENT_TOKEN` (§8.1) and re-`paste` `GH_PACKAGES_PAT`
   (§8.2). If `USE_GITHUB_APP` is on, you can also unset it to fall back to `CICD_PAT` while you rotate.
 
 #### 8.4 `VERCEL_MASTER_TOKEN` 🔴 (full Vercel account)
@@ -333,13 +339,9 @@ Phase 6.7. The non-secret `KDF_APP_ID` never needs rotation; this `.pem` private
   1. Vercel → **Account → Tokens** → create `kdf-master-rotation` with **Full Account** scope (team scope
      gets a 403 on `/v3/user/tokens`).
   2. `gh secret set VERCEL_MASTER_TOKEN --repo Needless2Say/kriegerdataforge-cicd` (prompt).
-  3. **Verify:** run a single-target `VERCEL_TOKEN` generate (§8.1).
+  3. **Verify:** run a `VERCEL_DEPLOYMENT_TOKEN` generate (§8.1).
   4. **Delete** the old master token in Vercel.
-- **🚨 If leaked:** it can mint/delete any Vercel token → re-`generate` all `VERCEL_TOKEN`s (§8.1).
-
-#### 8.5 `CICD_REGISTRY_PAT`
-- Create a new PAT with the GitHub Packages scope it needs → `gh secret set CICD_REGISTRY_PAT --repo
-  Needless2Say/kriegerdataforge-cicd` → verify the workflow that consumes it → revoke the old PAT.
+- **🚨 If leaked:** it can mint/delete any Vercel token → re-`generate` the `VERCEL_DEPLOYMENT_TOKEN` (§8.1).
 
 #### 8.6 `TF_TOKEN_APP_TERRAFORM_IO` (deferred)
 - Terraform Cloud → **User Settings → Tokens** → create → `gh secret set TF_TOKEN_APP_TERRAFORM_IO
@@ -406,9 +408,9 @@ where the credential can be minted by a machine, reminder-driven where it can't.
 
 | Credential | Cadence | Mechanism |
 |---|---|---|
-| Shared `VERCEL_TOKEN` + terraform `VERCEL_API_TOKEN` | monthly | **Auto-generate** — `Rotate Vercel Tokens` (cron, 1st of the month) rotates both. Hands-off. |
+| Shared `VERCEL_DEPLOYMENT_TOKEN` | monthly | **Auto-generate** — `Rotate Vercel Deployment Token` (cron, 1st of the month). Hands-off. |
 | `GH_PACKAGES_PAT` | monthly\* | **Auto-issue reminder** → mint by hand, then §8.2. |
-| `CICD_PAT`, `CICD_REGISTRY_PAT` | monthly\* | **Auto-issue reminder** → §8.3 / §8.5. |
+| `CICD_PAT` | monthly\* | **Auto-issue reminder** → §8.3. |
 | `VERCEL_MASTER_TOKEN` | monitored | **Auto-issue reminder** → §8.4. Auto-rotation is a planned enhancement. |
 | `KDF_APP_PRIVATE_KEY` | ~6-monthly | **Auto-issue reminder** → §8.3a (zero-downtime multi-key rotation). |
 

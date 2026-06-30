@@ -17,7 +17,7 @@
 # secrets/variables are loaded below.
 #
 # ── Required secrets (per GitHub Environment: dev, prod) ───────────────────────
-#   VERCEL_API_TOKEN                       → TF_VAR_vercel_api_token
+#   VERCEL_DEPLOYMENT_TOKEN                → TF_VAR_vercel_api_token
 #   BACKEND_AUTH_ADMIN_EMAIL               → TF_VAR_backend_auth_admin_email
 #   BACKEND_AUTH_ADMIN_EMAIL_PASSWORD      → TF_VAR_backend_auth_admin_email_password
 #   BACKEND_AUTH_PRIVATE_KEY               → TF_VAR_backend_auth_private_key  (RSA PEM, PKCS#8)
@@ -92,10 +92,10 @@ jobs:
           ref: main
           sparse-checkout: scripts
           path: _kdf_cicd
-          # Default token works when this cicd repo is public. If it is private,
-          # add a repo/org secret CICD_REGISTRY_PAT (read-only) — it is picked up
-          # via the caller's `secrets: inherit`; otherwise we fall back to github.token.
-          token: ${{ secrets.CICD_REGISTRY_PAT || github.token }}
+          # The cicd repo is public, so the caller's default github.token can read it.
+          # (If cicd ever goes private, this checkout needs a read-only token with access
+          # to it — see KDF docs/engineering/GITHUB_FUTURE_ENHANCEMENTS.md.)
+          token: ${{ github.token }}
 
       - name: Verify deployer is approved
         run: python3 _kdf_cicd/scripts/check_deployer.py
@@ -120,7 +120,9 @@ jobs:
     env:
       TF_DIR: environments/${{ inputs.environment }}
       # ── Credentials / secrets ─────────────────────────────────────────────
-      TF_VAR_vercel_api_token: ${{ secrets.VERCEL_API_TOKEN }}
+      # The shared VERCEL_DEPLOYMENT_TOKEN feeds the provider's variable (its name,
+      # vercel_api_token, is the Terraform/provider contract and stays unchanged).
+      TF_VAR_vercel_api_token: ${{ secrets.VERCEL_DEPLOYMENT_TOKEN }}
       TF_VAR_backend_auth_admin_email: ${{ secrets.BACKEND_AUTH_ADMIN_EMAIL }}
       TF_VAR_backend_auth_admin_email_password: ${{ secrets.BACKEND_AUTH_ADMIN_EMAIL_PASSWORD }}
       TF_VAR_backend_auth_private_key: ${{ secrets.BACKEND_AUTH_PRIVATE_KEY }}

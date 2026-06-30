@@ -279,13 +279,13 @@ jobs:
           **Environment secrets** (Settings → Environments → [env] → Add secret):
 
           \`prod\` environment:
-          - [ ] \`VERCEL_TOKEN\` — your Vercel API token
+          - [ ] \`VERCEL_DEPLOYMENT_TOKEN\` — the shared Vercel deploy/management token
           - [ ] \`VERCEL_ORG_ID\` — your Vercel team ID
           - [ ] \`VERCEL_PROJECT_ID\` — Vercel project ID for the **prod** deployment
           $([ "$REPO_TYPE" = "fastapi" ] && echo "- [ ] \`DB_DATABASE_URL\` — prod Neon connection string")
 
           \`dev\` environment:
-          - [ ] \`VERCEL_TOKEN\` — your Vercel API token
+          - [ ] \`VERCEL_DEPLOYMENT_TOKEN\` — the shared Vercel deploy/management token
           - [ ] \`VERCEL_ORG_ID\` — your Vercel team ID
           - [ ] \`VERCEL_PROJECT_ID\` — Vercel project ID for the **dev** deployment
           $([ "$REPO_TYPE" = "fastapi" ] && echo "- [ ] \`DB_DATABASE_URL\` — dev Neon connection string")

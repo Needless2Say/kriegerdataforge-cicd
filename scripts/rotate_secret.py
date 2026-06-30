@@ -29,7 +29,7 @@ Environment variables
 
 Usage
   python rotate_secret.py --mode check    --secrets all
-  python rotate_secret.py --mode generate --secrets VERCEL_TOKEN --apps fitness-frontend --envs prod
+  python rotate_secret.py --mode generate --secrets VERCEL_DEPLOYMENT_TOKEN
   python rotate_secret.py --mode paste    --secrets GH_PACKAGES_PAT          # value from STAGED_SECRET_VALUE
 """
 

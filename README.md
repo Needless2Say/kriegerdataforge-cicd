@@ -78,7 +78,7 @@ All **deployment/runtime** credentials are stored as GitHub **Environment** secr
 GitHub secrets come in two scopes and rotate differently:
 
 - **Environment secrets** (`prod` / `dev` / `infra`) — all deploy/runtime credentials. The ones in
-  [`scripts/secret_registry.json`](scripts/secret_registry.json) (`VERCEL_TOKEN`, `GH_PACKAGES_PAT`) are
+  [`scripts/secret_registry.json`](scripts/secret_registry.json) (`VERCEL_DEPLOYMENT_TOKEN`, `GH_PACKAGES_PAT`) are
   rotated by the **engine** ([`scripts/rotate_secret.py`](scripts/rotate_secret.py)) in two modes —
   `generate` (auto-mint) or `paste` (distribute an owner-staged value) — selectable per environment.
   Drive it from the **`Ops · Rotate a secret`** issue form (add the `ops:rotate-secrets` label) or the CLI.

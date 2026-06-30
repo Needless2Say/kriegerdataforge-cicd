@@ -342,13 +342,16 @@ class TestRealRegistry:
         reg = rs._load_registry()  # reads the real REGISTRY_FILE
         entries = _select_secrets(reg, ALL)
         names = {e["name"] for e in entries}
-        assert {"GH_PACKAGES_PAT", "VERCEL_TOKEN", "CICD_PAT", "CICD_REGISTRY_PAT", "VERCEL_MASTER_TOKEN"} <= names
+        assert {"GH_PACKAGES_PAT", "VERCEL_DEPLOYMENT_TOKEN", "CICD_PAT", "VERCEL_MASTER_TOKEN"} <= names
         assert "KDF_APP_PRIVATE_KEY" in names  # the GitHub App private key is monitored too
-        assert "VERCEL_API_TOKEN" in names  # terraform mgmt token, split out from the shared deploy token
-        vercel = next(e for e in entries if e["name"] == "VERCEL_TOKEN")
-        assert vercel.get("shared") is True and vercel.get("vercel_token_name") == "kdf-deploy-shared"
+        # consolidated 2026-06-30: the VERCEL_TOKEN + VERCEL_API_TOKEN split collapsed into one
+        # account-scoped token, and the dormant CICD_REGISTRY_PAT entry was removed.
+        assert not ({"VERCEL_TOKEN", "VERCEL_API_TOKEN", "CICD_REGISTRY_PAT"} & names)
+        vercel = next(e for e in entries if e["name"] == "VERCEL_DEPLOYMENT_TOKEN")
+        assert vercel.get("shared") is True and vercel.get("vercel_token_name") == "VERCEL_DEPLOYMENT_TOKEN"
+        assert len(vercel["github_env_secrets"]) == 14  # 12 app targets + 2 terraform
         # the manual tokens carry a check block (monitored) and no engine targets
-        for name in ("CICD_PAT", "CICD_REGISTRY_PAT", "VERCEL_MASTER_TOKEN", "KDF_APP_PRIVATE_KEY"):
+        for name in ("CICD_PAT", "VERCEL_MASTER_TOKEN", "KDF_APP_PRIVATE_KEY"):
             e = next(x for x in entries if x["name"] == name)
             assert e.get("kind") == "manual" and "check" in e
             assert not e.get("github_env_secrets") and not e.get("vercel_env_vars")

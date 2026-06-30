@@ -25,39 +25,37 @@ Before starting, make sure you have:
 - [X] Your Vercel Team ID handy (Vercel Dashboard → Settings → General → scroll to "Team ID")
 - [X] Per-app Vercel tokens created (see step below)
 
-### Create the Vercel deploy + management tokens
+### Create the Vercel deployment token
 
-> **UPDATED — one shared deploy token.** The ecosystem now uses **one** shared Vercel deploy token
-> (`kdf-deploy-shared`) for *all* app repos, plus a **separate** terraform management token (`kdf-infra`).
-> The per-app tokens (`kdf-auth-backend-*`, `kdf-fitness-frontend-*`, `kdf-tiffanys-frontend-*`) are
-> retired — on a personal Vercel account every token can already deploy every project, so the per-app
+> **UPDATED — one shared deployment token.** The ecosystem now uses **one** shared Vercel token,
+> `VERCEL_DEPLOYMENT_TOKEN`, that both **deploys** (all app repos) **and manages** (the terraform repo).
+> The old two-token split (a separate shared deploy token plus a separate terraform management token) and
+> the per-app tokens (`kdf-auth-backend-*`, `kdf-fitness-frontend-*`, `kdf-tiffanys-frontend-*`) are
+> retired — on a personal Vercel account every token can already deploy and manage every project, so the
 > split gave naming/audit separation, not hard ACLs, and was a pain to manage. The engine **auto-mints**
-> the shared token, so for first-time setup you only need to bootstrap the three tokens in the table
-> below; after the first `Rotate Vercel Tokens` run the engine owns `kdf-deploy-shared` and you can delete
-> any leftover per-app tokens.
+> the shared token, so for first-time setup you only need to bootstrap the one token below; after the first
+> `Rotate Vercel Deployment Token` run the engine owns `VERCEL_DEPLOYMENT_TOKEN` and you can delete any
+> leftover per-app tokens.
 
-Go to **Vercel Dashboard → Settings → Tokens → Create Token** and create the following tokens.
-
-For the **per-app deployment tokens** in the table below, use these settings:
+Go to **Vercel Dashboard → Settings → Tokens → Create Token** and create the token below.
 
 | Field | Value |
 |---|---|
-| **Token Name** | see table below |
+| **Token Name** | `VERCEL_DEPLOYMENT_TOKEN` |
 | **Scope** | **Arthur's projects** — this restricts the token to your Vercel team's projects only, following least-privilege. |
-| **Expiration** | Custom — set ~45 days out. The monthly rotation workflow (Phase 6) re-mints them (45-day expiry) automatically after initial setup. |
+| **Expiration** | Custom — set ~45 days out. The monthly rotation workflow (Phase 6) re-mints it (45-day expiry) automatically after initial setup. |
 
-> **`kdf-master-rotation` is the exception — see Phase 6.1.** That token must use **Full Account** scope because the Vercel API endpoint for creating/deleting tokens (`/v3/user/tokens`) is a personal account API, not a team API. Tokens scoped to "Arthur's projects" receive a 403 Forbidden when calling it. The per-app tokens here never call that endpoint — they only make deployment calls, so team scope is sufficient and correct.
+> **`kdf-master-rotation` is the exception — see Phase 6.1.** That token must use **Full Account** scope because the Vercel API endpoint for creating/deleting tokens (`/v3/user/tokens`) is a personal account API, not a team API. Tokens scoped to "Arthur's projects" receive a 403 Forbidden when calling it. The `VERCEL_DEPLOYMENT_TOKEN` here never calls that endpoint — it only makes deployment/management calls, so team scope is sufficient and correct.
 
 | Token name to enter in Vercel | Used by |
 |---|---|
-| `kdf-deploy-shared` | **all** app repos' `prod`/`dev` deploys — the one shared `VERCEL_TOKEN` (engine re-mints it on the first rotation; you only seed it so the first deploys work) |
-| `kdf-infra` | `kriegerdataforge-terraform` repo `infra` env — the separate `VERCEL_API_TOKEN` Terraform uses to *manage* Vercel (account-level) |
+| `VERCEL_DEPLOYMENT_TOKEN` | **all** app repos' `prod`/`dev` deploys **and** the `kriegerdataforge-terraform` repo's `prod`/`dev` (where it feeds `TF_VAR_vercel_api_token`) — the one shared token (engine re-mints it on the first rotation; you only seed it so the first deploys work) |
 
-Copy each token value immediately — Vercel shows it only once. Keep them in a secure location (e.g. 1Password) until you add them to GitHub Environments in Phase 4.
+Copy the token value immediately — Vercel shows it only once. Keep it in a secure location (e.g. 1Password) until you add it to GitHub Environments in Phase 4.
 
-> **Future apps:** When a new app is provisioned, just add its repo+env to the `VERCEL_TOKEN` entry's
+> **Future apps:** When a new app is provisioned, just add its repo+env to the `VERCEL_DEPLOYMENT_TOKEN` entry's
 > `github_env_secrets` in `scripts/secret_registry.json` — no new token to create. The next
-> `Rotate Vercel Tokens` run writes the shared token into the new repo's environment secret automatically.
+> `Rotate Vercel Deployment Token` run writes the shared token into the new repo's environment secret automatically.
 
 ---
 
@@ -146,19 +144,21 @@ reference them in Phase 5.
 2. Click **Generate new token**
 3. Configure:
    - **Token name:** `CICD_REPO_ASSISTANT`
-   - **Expiration:** 1 year (set a calendar reminder to rotate it)
+   - **Expiration:** 30 days (next: `2026-07-30`) — the weekly expiry monitor reminds you to re-mint it
    - **Resource owner:** `Needless2Say`
-   - **Repository access:** All repositories
+   - **Repository access:** All repositories (incl. future)
 4. **Repository permissions:**
    | Permission | Access |
    |---|---|
-   | Actions | Read and write |
    | Administration | Read and write |
    | Contents | Read and write |
    | Environments | Read and write |
-   | Issues | Read and write |
    | Secrets | Read and write |
    | Variables | Read and write |
+   | Actions | Read and write |
+   | Issues | Read and write |
+   | Pull requests | Read and write |
+   | Metadata | Read |
 5. Click **Generate token** → copy the token immediately (shown only once)
 6. Add it as a repo-level secret in `kriegerdataforge-cicd`:
    - Settings → Secrets and variables → Actions → New repository secret
@@ -228,16 +228,16 @@ Environment named `dev` and one named `prod` (matching the `environments/<env>/`
 >
 > **Prerequisite:** Phase 1 (Terraform) must be done before you can fill in the `dev` environment secrets — you need the dev project IDs from its output and the Neon dev branch connection string. You can add the `prod` secrets now and come back for `dev` after Phase 1.
 >
-> **`VERCEL_TOKEN` everywhere = the one shared `kdf-deploy-shared` value** (Phase 0). The per-app token
-> names shown in the rows below are historical — use the **same** shared token for *every* `VERCEL_TOKEN`
-> secret. The terraform repo's `VERCEL_API_TOKEN` uses the separate `kdf-infra` token.
+> **`VERCEL_DEPLOYMENT_TOKEN` everywhere = the one shared token** (Phase 0). Use the **same** shared
+> `VERCEL_DEPLOYMENT_TOKEN` value for *every* environment — every app repo's `prod`/`dev` **and** the
+> terraform repo's `prod`/`dev`. There is no separate terraform token.
 
 ### kriegerdataforge
 
 **`prod` environment secrets:**
 | Secret Name | Value |
 |---|---|
-| `VERCEL_TOKEN` | The `kdf-auth-backend-prod` token value from Phase 0 |
+| `VERCEL_DEPLOYMENT_TOKEN` | The same shared `VERCEL_DEPLOYMENT_TOKEN` value from Phase 0 |
 | `VERCEL_ORG_ID` | Your Vercel Team ID |
 | `VERCEL_PROJECT_ID` | `prj_3kiJpapxo5G4Syd4j6i6LkeWXS9s` (prod backend) |
 | `DB_DATABASE_URL` | Your production Neon psycopg2 connection string |
@@ -245,7 +245,7 @@ Environment named `dev` and one named `prod` (matching the `environments/<env>/`
 **`dev` environment secrets:**
 | Secret Name | Value |
 |---|---|
-| `VERCEL_TOKEN` | The `kdf-auth-backend-dev` token value from Phase 0 |
+| `VERCEL_DEPLOYMENT_TOKEN` | The same shared `VERCEL_DEPLOYMENT_TOKEN` value from Phase 0 |
 | `VERCEL_ORG_ID` | Your Vercel Team ID |
 | `VERCEL_PROJECT_ID` | `terraform -chdir=environments/dev output kdf_auth_service_project_id` |
 | `DB_DATABASE_URL` | The dev Neon branch connection string from Phase 1.1 |
@@ -255,14 +255,14 @@ Environment named `dev` and one named `prod` (matching the `environments/<env>/`
 **`prod` environment secrets:**
 | Secret Name | Value |
 |---|---|
-| `VERCEL_TOKEN` | The `kdf-fitness-frontend-prod` token value from Phase 0 |
+| `VERCEL_DEPLOYMENT_TOKEN` | The same shared `VERCEL_DEPLOYMENT_TOKEN` value from Phase 0 |
 | `VERCEL_ORG_ID` | Your Vercel Team ID |
 | `VERCEL_PROJECT_ID` | `prj_cqvUqHUTI2peopP8ZQalqPE3um7u` (prod fitness app) |
 
 **`dev` environment secrets:**
 | Secret Name | Value |
 |---|---|
-| `VERCEL_TOKEN` | The `kdf-fitness-frontend-dev` token value from Phase 0 |
+| `VERCEL_DEPLOYMENT_TOKEN` | The same shared `VERCEL_DEPLOYMENT_TOKEN` value from Phase 0 |
 | `VERCEL_ORG_ID` | Your Vercel Team ID |
 | `VERCEL_PROJECT_ID` | `terraform -chdir=environments/dev output fitness_app_frontend_project_id` |
 
@@ -271,14 +271,14 @@ Environment named `dev` and one named `prod` (matching the `environments/<env>/`
 **`prod` environment secrets:**
 | Secret Name | Value |
 |---|---|
-| `VERCEL_TOKEN` | The `kdf-tiffanys-frontend-prod` token value from Phase 0 |
+| `VERCEL_DEPLOYMENT_TOKEN` | The same shared `VERCEL_DEPLOYMENT_TOKEN` value from Phase 0 |
 | `VERCEL_ORG_ID` | Your Vercel Team ID |
 | `VERCEL_PROJECT_ID` | `prj_Vwlw8Nts7rFo2Apq25ZhXN3K6fw9` (prod tiffanys) |
 
 **`dev` environment secrets:**
 | Secret Name | Value |
 |---|---|
-| `VERCEL_TOKEN` | *(No dev project for tiffanys yet — skip. When provisioned in Terraform, create `kdf-tiffanys-frontend-dev` in Vercel, add it here, and add the `VERCEL_TOKEN` entry in `scripts/secret_registry.json`)* |
+| `VERCEL_DEPLOYMENT_TOKEN` | *(No dev project for tiffanys yet — skip. When provisioned in Terraform, add this repo's `dev` env to the `VERCEL_DEPLOYMENT_TOKEN` entry in `scripts/secret_registry.json`; then seed the same shared token value here)* |
 | `VERCEL_ORG_ID` | *(skip until dev project exists)* |
 | `VERCEL_PROJECT_ID` | *(skip until dev project exists)* |
 
@@ -297,7 +297,7 @@ put in that env's local files under `environments/<env>/` (the source column say
 **Secrets (Settings → Environments → [dev|prod] → Add secret):**
 | Secret Name | Source file → variable |
 |---|---|
-| `VERCEL_API_TOKEN` | `credentials.auto.tfvars` → `vercel_api_token` |
+| `VERCEL_DEPLOYMENT_TOKEN` | the same shared token from Phase 0 → feeds `TF_VAR_vercel_api_token` (provider var `vercel_api_token` unchanged) |
 | `BACKEND_AUTH_ADMIN_EMAIL` | `credentials.auto.tfvars` → `backend_auth_admin_email` |
 | `BACKEND_AUTH_ADMIN_EMAIL_PASSWORD` | `credentials.auto.tfvars` → `backend_auth_admin_email_password` |
 | `BACKEND_AUTH_PRIVATE_KEY` | `kdf-platform.secrets.auto.tfvars` → `backend_auth_private_key` |
@@ -381,14 +381,12 @@ So the engine scopes every minted token to your team via the `teamId` param, and
 
 ### 6.3 — Verify the rotation workflow runs
 
-1. Go to `kriegerdataforge-cicd` → **Actions → Rotate Vercel Tokens**
-2. Click **Run workflow** → **Run workflow** (manual trigger, no filter inputs needed — rotates all)
-3. The workflow will create a new token for each `VERCEL_TOKEN` entry in `scripts/secret_registry.json`, push it to the corresponding GitHub environment secret, and delete the old token
-4. After it completes, confirm in Vercel Dashboard → Settings → Tokens that the old tokens are gone and new ones with fresh expiry dates appear
+1. Go to `kriegerdataforge-cicd` → **Actions → Rotate Vercel Deployment Token**
+2. Click **Run workflow** → **Run workflow** (manual trigger, no inputs needed — rotates the single shared token)
+3. The workflow mints one fresh `VERCEL_DEPLOYMENT_TOKEN`, pushes it to every target environment secret listed in `scripts/secret_registry.json` (all app repos' `prod`/`dev` plus the terraform repo's `prod`/`dev`), and deletes the old token
+4. After it completes, confirm in Vercel Dashboard → Settings → Tokens that the old token is gone and a new one with a fresh expiry date appears
 
-> **Schedule:** The workflow runs automatically on the 1st of every month at 09:00 UTC. You will receive a GitHub Actions failure notification if any rotation fails.
->
-> **Targeted rotation:** You can also trigger it for a single app/env after a suspected leak — use the `apps` and `envs` inputs when running manually. See `scripts/rotate_secret.py --help` for examples.
+> **Schedule:** The workflow runs automatically on the 1st of every month at 09:00 UTC. You will receive a GitHub Actions failure notification if rotation fails.
 
 ---
 
@@ -444,8 +442,8 @@ For each backend Vercel project that uses `kdf-auth-sdk` and hasn't had the vari
 The `Check Secret Expiry` workflow runs every Monday. It checks every monitored credential's
 `check.expiry` and, when any is within its warn window (or expired/undated), **opens a single
 deduplicated tracking issue** (label `ops:secret-expiry`) listing what to rotate and the recipe; the
-issue **auto-closes** once everything is healthy. (Per-app `VERCEL_TOKEN`s auto-rotate via *Rotate
-Vercel Tokens* and aren't part of this nudge.)
+issue **auto-closes** once everything is healthy. (The shared `VERCEL_DEPLOYMENT_TOKEN` auto-rotates via
+*Rotate Vercel Deployment Token* and isn't part of this nudge.)
 
 **To rotate `GH_PACKAGES_PAT`:**
 1. Create a new fine-grained PAT with the same settings as 6.5.1
@@ -519,7 +517,7 @@ In `kriegerdataforge-cicd` → **Settings → Secrets and variables → Actions*
 
 1. Run a workflow that **writes an environment secret** so you actually exercise the `Environments`
    permission — *Check Secret Expiry alone is read-only and will NOT catch a missing-permission `403`.*
-   Use **Actions → Rotate Vercel Tokens → Run workflow** scoped to one app, or **Distribute
+   Use **Actions → Rotate Vercel Deployment Token → Run workflow**, or **Distribute
    GH_PACKAGES_PAT**. A `403 ... environments/.../secrets/public-key` means the App is missing
    **Environments: Read and write** (or isn't installed on that repo) — see the callout below.
 2. In `scripts/secret_registry.json`, set the `KDF_APP_PRIVATE_KEY` entry's `check.expiry` to a relaxed
@@ -627,7 +625,7 @@ For `kriegerdataforge`, `fitness-app-frontend`, `tiffanys_space`:
 
 1. Go to **Settings → Secrets and variables → Actions**
 2. Delete any of these if they exist at the repo level (not environment level):
-   - `VERCEL_TOKEN`
+   - `VERCEL_DEPLOYMENT_TOKEN` (and any legacy deploy-token copy)
    - `VERCEL_PROJECT_ID`
    - `VERCEL_ORG_ID`
 
@@ -688,9 +686,9 @@ Run through this checklist to confirm the setup is working end-to-end.
 
 ### Token rotation
 
-- [X] Go to `kriegerdataforge-cicd` → Actions → Rotate Vercel Tokens → Run workflow
+- [X] Go to `kriegerdataforge-cicd` → Actions → Rotate Vercel Deployment Token → Run workflow
 - [X] Workflow completes without errors ✅
-- [X] Vercel Dashboard shows fresh token expiry dates on all `kdf-*` tokens ✅
+- [X] Vercel Dashboard shows a fresh `VERCEL_DEPLOYMENT_TOKEN` expiry date ✅
 
 ### Terraform CD
 
@@ -776,7 +774,7 @@ Share these docs with your friend:
 Key things to communicate:
 - Local dev uses `make docker-up` — no Vercel credentials needed
 - To deploy to dev, they trigger the CD workflow in GitHub Actions UI and approve it
-- They **cannot** deploy locally — `VERCEL_TOKEN` is only in GitHub Environments
+- They **cannot** deploy locally — `VERCEL_DEPLOYMENT_TOKEN` is only in GitHub Environments
 - They push feature branches, open PRs to `main`, CI must pass before merging
 
 ---
@@ -785,8 +783,7 @@ Key things to communicate:
 
 | Value | Where to find it |
 |---|---|
-| `kdf-deploy-shared` token (the shared `VERCEL_TOKEN`, all app repos) | Vercel Dashboard → Settings → Tokens (copy when created in Phase 0) |
-| `kdf-infra` token (the terraform `VERCEL_API_TOKEN`) | Same |
+| `VERCEL_DEPLOYMENT_TOKEN` (the one shared deploy/management token — all app repos + terraform) | Vercel Dashboard → Settings → Tokens (copy when created in Phase 0) |
 | `kdf-master-rotation` token (`VERCEL_MASTER_TOKEN`) | Vercel Dashboard → Settings → Tokens (created in Phase 6.1) |
 | Vercel Team ID (`VERCEL_ORG_ID`) | Vercel Dashboard → Settings → General → Team ID |
 | Prod backend project ID | `prj_3kiJpapxo5G4Syd4j6i6LkeWXS9s` (hardcoded) |
