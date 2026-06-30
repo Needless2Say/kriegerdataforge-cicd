@@ -85,3 +85,89 @@ jobs:
           python scripts/rotate_secret.py \
             --mode generate \
             --secrets VERCEL_DEPLOYMENT_TOKEN
+
+  # After a successful mint, record the new token's expiry (today + 45d) in the registry and open a
+  # PR on this repo so the weekly expiry monitor stays accurate without anyone editing the registry by
+  # hand. Uses a SEPARATE App token scoped to contents+pull-requests:write (the rotate job's token is
+  # environments:write only). The PR is opened with the App token — NOT GITHUB_TOKEN — so its CI runs
+  # (a GITHUB_TOKEN-authored PR does not trigger workflows). Only the auto-minted Vercel token is
+  # stamped; the manual PATs keep their hand-set expiry.
+  open-expiry-pr:
+    name: Open expiry-bump PR
+    needs: rotate
+    if: >-
+      needs.rotate.result == 'success' &&
+      github.repository == 'Needless2Say/kriegerdataforge-cicd'
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read # the branch push + PR are done with the App token (or CICD_PAT), not GITHUB_TOKEN
+
+    steps:
+      - name: Mint GitHub App token (PR scope)
+        id: app-token
+        if: vars.USE_GITHUB_APP == 'true'
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.KDF_APP_ID }}
+          private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Checkout main
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: main
+          fetch-depth: 0
+          # push the bot branch as the App (or CICD_PAT) so the PR's CI is triggered
+          token: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Install rotation dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Stamp today+45d into the registry
+        run: python scripts/rotate_secret.py --mode record-expiry --secrets VERCEL_DEPLOYMENT_TOKEN
+
+      - name: Open a PR if the expiry changed
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet scripts/secret_registry.json; then
+            echo "Registry expiry already current — no PR needed."
+            exit 0
+          fi
+
+          # The bot PR must satisfy version-check (VERSION = main + 1 patch).
+          git fetch origin main --depth=1
+          BASE="$(git show origin/main:VERSION | tr -d '[:space:]')"
+          IFS=. read -r MA MI PA <<< "$BASE"
+          NEW_VER="${MA}.${MI}.$((PA + 1))"
+          printf '%s\n' "$NEW_VER" > VERSION
+
+          BRANCH="bot/vercel-expiry-${{ github.run_id }}"
+          git config user.name "kdf-rotation-bot"
+          git config user.email "rotation-bot@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add scripts/secret_registry.json VERSION
+          git commit -m "chore(secrets): record rotated VERCEL_DEPLOYMENT_TOKEN expiry"
+          git push origin "$BRANCH"
+
+          # Close older still-open expiry-bump PRs (matched by branch prefix) so they don't pile up.
+          # Runs before `pr create`, and the new branch has no PR yet, so it is never matched here.
+          for n in $(gh pr list --state open --json number,headRefName \
+                       --jq '.[] | select(.headRefName | startswith("bot/vercel-expiry-")) | .number'); do
+            gh pr close "$n" --delete-branch --comment "Superseded by a newer expiry-bump PR." || true
+          done
+
+          PR_URL="$(gh pr create --base main --head "$BRANCH" \
+            --title "chore(secrets): record rotated VERCEL_DEPLOYMENT_TOKEN expiry" \
+            --body "Automated by **Rotate Vercel Deployment Token**. The shared \`VERCEL_DEPLOYMENT_TOKEN\` was just re-minted (45-day life); this stamps the new \`check.expiry\` into \`scripts/secret_registry.json\` so the weekly monitor stays accurate (and trips as a watchdog if the cron ever stops). VERSION bumped to \`${NEW_VER}\`. No secret values are touched — review and merge.")"
+          echo "Opened $PR_URL"
+          # Cosmetic, best-effort (don't fail the run if the label/assignee can't be applied):
+          gh pr edit "$PR_URL" --add-label ops --add-assignee Needless2Say || true
