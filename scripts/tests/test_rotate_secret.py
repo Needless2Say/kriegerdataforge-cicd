@@ -220,6 +220,18 @@ class TestVercelTokenApi:
             create_vercel_token("m", "n")
         assert p.call_args[1]["params"] is None
 
+    def test_create_403_raises_master_scope_error(self):
+        r = MagicMock(); r.status_code = 403
+        with patch("requests.post", return_value=r):
+            with pytest.raises(rs.VercelMasterScopeError, match="FULL ACCOUNT"):
+                create_vercel_token("m", "n", "team_x")
+
+    def test_list_403_raises_master_scope_error(self):
+        r = MagicMock(); r.status_code = 403
+        with patch("requests.get", return_value=r):
+            with pytest.raises(rs.VercelMasterScopeError, match="FULL ACCOUNT"):
+                list_vercel_tokens("m")
+
 
 class TestUpsertVercelEnvVar:
     def test_post_when_absent(self):
@@ -332,14 +344,9 @@ class TestRealRegistry:
         names = {e["name"] for e in entries}
         assert {"GH_PACKAGES_PAT", "VERCEL_TOKEN", "CICD_PAT", "CICD_REGISTRY_PAT", "VERCEL_MASTER_TOKEN"} <= names
         assert "KDF_APP_PRIVATE_KEY" in names  # the GitHub App private key is monitored too
-        assert "VERCEL_API_TOKEN" in names  # terraform mgmt token, separate from the shared deploy token
-        # Vercel team-scoped tokens can't be API-minted, so VERCEL_TOKEN/VERCEL_API_TOKEN are paste (not
-        # generate), monitored for expiry, and fan one staged value out to all their targets.
+        assert "VERCEL_API_TOKEN" in names  # terraform mgmt token, split out from the shared deploy token
         vercel = next(e for e in entries if e["name"] == "VERCEL_TOKEN")
-        assert vercel.get("kind") == "paste" and "check" in vercel
-        assert len(vercel.get("github_env_secrets", [])) == 12
-        vapi = next(e for e in entries if e["name"] == "VERCEL_API_TOKEN")
-        assert vapi.get("kind") == "paste" and len(vapi.get("github_env_secrets", [])) == 2
+        assert vercel.get("shared") is True and vercel.get("vercel_token_name") == "kdf-deploy-shared"
         # the manual tokens carry a check block (monitored) and no engine targets
         for name in ("CICD_PAT", "CICD_REGISTRY_PAT", "VERCEL_MASTER_TOKEN", "KDF_APP_PRIVATE_KEY"):
             e = next(x for x in entries if x["name"] == name)
@@ -454,6 +461,12 @@ class TestGenerateSharedVercelToken:
             rc = cmd_generate(self._entry(sample_registry), ALL, ALL, "gh", "m")
         assert rc == 1
         dele.assert_not_called()
+
+    def test_master_scope_error_exits_cleanly(self, sample_registry):
+        # a non-Full-Account master 403s on /v3/user/tokens -> clean SystemExit, not a traceback
+        with patch.object(rs, "list_vercel_tokens", side_effect=rs.VercelMasterScopeError("needs FULL ACCOUNT")):
+            with pytest.raises(SystemExit, match="FULL ACCOUNT"):
+                cmd_generate(self._entry(sample_registry), ALL, ALL, "gh", "m", "team_z")
 
     def test_mint_failure_writes_nothing(self, sample_registry):
         with patch.object(rs, "list_vercel_tokens", return_value=[]), \

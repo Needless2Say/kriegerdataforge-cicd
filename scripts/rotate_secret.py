@@ -121,6 +121,27 @@ def _vercel_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
 
+class VercelMasterScopeError(RuntimeError):
+    """Raised when the Vercel token API returns 403 — VERCEL_MASTER_TOKEN lacks Full Account scope."""
+
+
+def _raise_for_token_api(resp: requests.Response) -> None:
+    """``raise_for_status`` for the ``/v3/user/tokens`` calls, with a clear hint on 403.
+
+    The token-management API is personal-account-only: a team / "all projects" scoped
+    VERCEL_MASTER_TOKEN is rejected there with 403. Surface that as an actionable message instead of a
+    bare HTTP error (this is the #1 misconfiguration for the rotation engine).
+    """
+    if resp.status_code == 403:
+        raise VercelMasterScopeError(
+            "Vercel returned 403 from /v3/user/tokens — VERCEL_MASTER_TOKEN must be a FULL ACCOUNT "
+            "scoped token to mint/list/delete tokens. A team / 'all projects' token (the kind used for "
+            "deploys) is rejected here. Create a Full Account token in Vercel and update the "
+            "VERCEL_MASTER_TOKEN repo secret."
+        )
+    resp.raise_for_status()
+
+
 def create_vercel_token(master_token: str, name: str, team_id: str = "") -> tuple[str, str]:
     """Create a new Vercel API token (TOKEN_EXPIRY_DAYS expiry). Returns (token_id, token_value).
 
@@ -138,7 +159,7 @@ def create_vercel_token(master_token: str, name: str, team_id: str = "") -> tupl
         json={"name": name, "expiresAt": expires_at_ms},
         timeout=30,
     )
-    resp.raise_for_status()
+    _raise_for_token_api(resp)
     data = resp.json()
     return data["token"]["id"], data["bearerToken"]
 
@@ -149,7 +170,7 @@ def list_vercel_tokens(master_token: str) -> list[dict]:
         headers=_vercel_headers(master_token),
         timeout=30,
     )
-    resp.raise_for_status()
+    _raise_for_token_api(resp)
     return resp.json().get("tokens", [])
 
 
@@ -159,7 +180,7 @@ def delete_vercel_token(master_token: str, token_id: str) -> None:
         headers=_vercel_headers(master_token),
         timeout=30,
     )
-    resp.raise_for_status()
+    _raise_for_token_api(resp)
 
 
 def _list_vercel_env_vars(master_token: str, project_id: str) -> list[dict]:
@@ -366,6 +387,8 @@ def _generate_vercel_token_secret(
             new_id, new_value = create_vercel_token(master_token, token_name, team_id)
             update_github_env_secret(gh_token, t["repo"], t["environment"], t["secret_name"], new_value)
             print("OK")
+        except VercelMasterScopeError:
+            raise  # surfaced cleanly by cmd_generate — a config error, not a per-target failure
         except Exception as exc:  # noqa: BLE001
             print(f"FAILED - {exc}")
             errors.append(f"{label}: {exc}")
@@ -401,6 +424,8 @@ def _generate_shared_vercel_token(
     print(f"  {entry['name']}: minting one shared token '{token_name}' for {len(targets)} target(s)")
     try:
         new_id, new_value = create_vercel_token(master_token, token_name, team_id)
+    except VercelMasterScopeError:
+        raise  # surfaced cleanly by cmd_generate — a config error, not a per-target failure
     except Exception as exc:  # noqa: BLE001
         print(f"  FAILED to mint '{token_name}': {exc}")
         return [f"{entry['name']} mint '{token_name}': {exc}"]
@@ -481,7 +506,10 @@ def cmd_generate(
         if generator == "vercel_token":
             if not master_token:
                 sys.exit("Error: VERCEL_MASTER_TOKEN not set (required for vercel_token generation).")
-            errors += _generate_vercel_token_secret(entry, apps, envs, master_token, gh_token, team_id)
+            try:
+                errors += _generate_vercel_token_secret(entry, apps, envs, master_token, gh_token, team_id)
+            except VercelMasterScopeError as exc:
+                sys.exit(f"Error: {exc}")
         elif generator == "random_urlsafe":
             errors += _generate_random_secret(entry, envs, gh_token, master_token)
         else:
