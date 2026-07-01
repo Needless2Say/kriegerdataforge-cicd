@@ -22,6 +22,7 @@ import rotate_secret as rs
 from rotate_secret import (
     _encrypt_secret,
     _get_env_public_key,
+    _get_repo_public_key,
     _github_headers,
     _list_vercel_env_vars,
     _parse_filter,
@@ -35,6 +36,7 @@ from rotate_secret import (
     delete_vercel_token,
     list_vercel_tokens,
     update_github_env_secret,
+    update_github_repo_secret,
     upsert_vercel_env_var,
 )
 
@@ -188,6 +190,43 @@ class TestUpdateGitHubEnvSecret:
         with patch("requests.get", return_value=gr), patch("requests.put", return_value=pr):
             with pytest.raises(Exception, match="HTTP 422"):
                 update_github_env_secret("gh", "o/r", "prod", "S", "v")
+
+
+class TestGetRepoPublicKey:
+    def test_returns_key(self):
+        r = MagicMock(); r.json.return_value = {"key_id": "k", "key": "v=="}
+        with patch("requests.get", return_value=r):
+            assert _get_repo_public_key("gh", "o", "rp") == ("k", "v==")
+
+    def test_url_is_repo_level_actions_not_environment(self):
+        r = MagicMock(); r.json.return_value = {"key_id": "k", "key": "v"}
+        with patch("requests.get", return_value=r) as g:
+            _get_repo_public_key("gh", "Own", "Rep")
+        url = g.call_args[0][0]
+        assert "Own/Rep/actions/secrets/public-key" in url
+        assert "environments" not in url  # repository-level, NOT an environment box
+
+
+class TestUpdateGitHubRepoSecret:
+    def test_puts_encrypted_value_to_repo_actions(self, nacl_keypair):
+        private, pub = nacl_keypair
+        gr = MagicMock(); gr.json.return_value = {"key_id": "kid", "key": pub}
+        with patch("requests.get", return_value=gr), patch("requests.put") as put:
+            update_github_repo_secret("gh", "o/r", "S", "val")
+        url = put.call_args[0][0]
+        assert "o/r/actions/secrets/S" in url
+        assert "environments" not in url  # repo-level store, not env
+        body = put.call_args[1]["json"]
+        assert body["key_id"] == "kid"
+        assert SealedBox(private).decrypt(base64.b64decode(body["encrypted_value"])).decode() == "val"
+
+    def test_raises_on_put_failure(self, nacl_keypair):
+        _, pub = nacl_keypair
+        gr = MagicMock(); gr.json.return_value = {"key_id": "k", "key": pub}
+        pr = MagicMock(); pr.raise_for_status.side_effect = Exception("HTTP 422")
+        with patch("requests.get", return_value=gr), patch("requests.put", return_value=pr):
+            with pytest.raises(Exception, match="HTTP 422"):
+                update_github_repo_secret("gh", "o/r", "S", "v")
 
 
 class TestVercelTokenApi:
@@ -344,6 +383,15 @@ class TestRealRegistry:
         names = {e["name"] for e in entries}
         assert {"GH_PACKAGES_PAT", "VERCEL_DEPLOYMENT_TOKEN", "CICD_PAT", "VERCEL_MASTER_TOKEN"} <= names
         assert "KDF_APP_PRIVATE_KEY" in names  # the GitHub App private key is monitored too
+        # GH_PACKAGES_PAT must fan out to the repository-level CI secret in every backend
+        # that installs the SDK in CI (a job with no `environment:` can't read env secrets).
+        gh_pat = next(e for e in entries if e["name"] == "GH_PACKAGES_PAT")
+        repo_targets = {t["repo"] for t in gh_pat.get("github_repo_secrets", [])}
+        assert {
+            "Needless2Say/kriegerdataforge",
+            "Needless2Say/fitness-app-backend",
+            "Needless2Say/tiffanys-space-backend",
+        } <= repo_targets
         # consolidated 2026-06-30: the VERCEL_TOKEN + VERCEL_API_TOKEN split collapsed into one
         # account-scoped token, and the dormant CICD_REGISTRY_PAT entry was removed.
         assert not ({"VERCEL_TOKEN", "VERCEL_API_TOKEN", "CICD_REGISTRY_PAT"} & names)
@@ -644,6 +692,57 @@ class TestPaste:
             cmd_paste(self._entry(sample_registry), frozenset({"prod"}), "gh", "master", "v")
         assert gh.call_count == 1
         assert gh.call_args[0][1] == "Needless2Say/kriegerdataforge"
+
+    def _entry_with_repo_secrets(self):
+        # mirrors the real GH_PACKAGES_PAT shape: env secrets (deploy) + repo secrets (CI)
+        return {
+            "name": "GH_PACKAGES_PAT", "kind": "paste", "per_env": False,
+            "github_env_secrets": [
+                {"repo": "Needless2Say/a", "environment": "prod", "secret_name": "GH_PACKAGES_PAT"},
+                {"repo": "Needless2Say/a", "environment": "dev", "secret_name": "GH_PACKAGES_PAT"},
+            ],
+            "github_repo_secrets": [
+                {"repo": "Needless2Say/a", "secret_name": "GH_PACKAGES_PAT"},
+                {"repo": "Needless2Say/b", "secret_name": "GH_PACKAGES_PAT"},
+            ],
+        }
+
+    def test_also_fans_to_repo_level_ci_secrets(self):
+        with patch.object(rs, "update_github_env_secret") as env, \
+             patch.object(rs, "update_github_repo_secret") as repo, \
+             patch.object(rs, "upsert_vercel_env_var"):
+            rc = cmd_paste(self._entry_with_repo_secrets(), ALL, "gh", "", "the-value")
+        assert rc == 0
+        assert env.call_count == 2  # both environment secrets (deploy) still written
+        assert repo.call_count == 2  # BOTH repository-level CI secrets written
+        # signature: update_github_repo_secret(gh_token, owner_repo, secret_name, value)
+        assert {c[0][1] for c in repo.call_args_list} == {"Needless2Say/a", "Needless2Say/b"}
+        assert all(c[0][3] == "the-value" for c in repo.call_args_list)
+
+    def test_repo_secrets_ignore_env_filter(self):
+        # a repo secret is a single global value CI reads regardless of environment,
+        # so an --envs filter must NOT drop it (only env secrets are narrowed)
+        with patch.object(rs, "update_github_env_secret") as env, \
+             patch.object(rs, "update_github_repo_secret") as repo, \
+             patch.object(rs, "upsert_vercel_env_var"):
+            cmd_paste(self._entry_with_repo_secrets(), frozenset({"prod"}), "gh", "", "v")
+        assert env.call_count == 1  # env secrets narrowed to prod
+        assert repo.call_count == 2  # repo secrets always written
+
+    def test_repo_secret_failure_surfaces_rc_1_but_attempts_all(self):
+        n = [0]
+
+        def flaky(*a, **k):
+            n[0] += 1
+            if n[0] == 1:
+                raise Exception("repo write boom")
+
+        with patch.object(rs, "update_github_env_secret"), \
+             patch.object(rs, "update_github_repo_secret", side_effect=flaky) as repo, \
+             patch.object(rs, "upsert_vercel_env_var"):
+            rc = cmd_paste(self._entry_with_repo_secrets(), ALL, "gh", "", "v")
+        assert rc == 1  # a failed repo-secret write is a hard error, not swallowed
+        assert repo.call_count == 2  # both attempted despite the first failing
 
     def test_missing_value_exits(self, sample_registry):
         with pytest.raises(SystemExit, match="STAGED_SECRET_VALUE"):
