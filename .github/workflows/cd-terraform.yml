@@ -31,6 +31,9 @@
 #   TIFFANYS_SPACE_BACKEND_DB_DATABASE_URL → TF_VAR_tiffanys_space_backend_db_database_url
 #   FITNESS_APP_SERVICE_KEY                → TF_VAR_fitness_app_service_key   (openssl rand -hex 32)
 #   TIFFANYS_SPACE_SERVICE_KEY             → TF_VAR_tiffanys_space_service_key (openssl rand -hex 32)
+#   KDF_AUTH_UI_SERVICE_KEY                → TF_VAR_kdf_auth_ui_service_key   (openssl rand -hex 32)
+#   FITNESS_OIDC_CLIENT_SECRET             → TF_VAR_fitness_oidc_client_secret     (one-time value from OIDC client registration)
+#   TIFFANYS_SPACE_OIDC_CLIENT_SECRET      → TF_VAR_tiffanys_space_oidc_client_secret (one-time value from OIDC client registration)
 #
 # ── Optional secrets (unset = use default / disable feature) ──────────────────
 #   TIFFANYS_SPACE_CRON_SECRET             → TF_VAR_tiffanys_space_cron_secret
@@ -47,6 +50,31 @@
 #   FITNESS_APP_BACKEND_PROJECT_NAME       → TF_VAR_fitness_app_backend_project_name
 #   TIFFANYS_SPACE_PROJECT_NAME            → TF_VAR_tiffanys_space_project_name
 #   TIFFANYS_SPACE_BACKEND_PROJECT_NAME    → TF_VAR_tiffanys_space_backend_project_name
+#   KDF_AUTH_UI_URL                        → TF_VAR_kdf_auth_ui_url               (auth-UI origin, NO trailing slash)
+#   FITNESS_OIDC_CLIENT_ID                 → TF_VAR_fitness_oidc_client_id
+#   FITNESS_OIDC_REDIRECT_URI              → TF_VAR_fitness_oidc_redirect_uri
+#   TIFFANYS_SPACE_OIDC_CLIENT_ID          → TF_VAR_tiffanys_space_oidc_client_id
+#   TIFFANYS_SPACE_OIDC_REDIRECT_URI       → TF_VAR_tiffanys_space_oidc_redirect_uri
+#
+# ── KDF/tenant identity contract (the 8 vars above) → environments/prod/main.tf ┐
+#   These 8 values wire the KDF auth-UI and each tenant's OIDC login. They have
+#   NO other source (the *.auto.tfvars are gitignored), so a CI-driven
+#   `terraform plan` fails closed without them. Where they land in prod/main.tf:
+#     kdf_auth_ui_url        → BOTH tenants' kdf_oidc_issuer (:131 fitness, :184 tiffanys)
+#                              + the auth-UI's own auth_ui_url (:81)
+#     kdf_auth_ui_service_key→ composite SERVICE_API_KEYS (:98)
+#                              + the auth-UI's KDF_SERVICE_KEY (:83)
+#     fitness_oidc_client_id / _redirect_uri / _client_secret
+#                            → the fitness OIDC client (:132-134)
+#     tiffanys_space_oidc_client_id / _redirect_uri / _client_secret
+#                            → the tiffanys OIDC client (:185-187)
+#
+#   ⚠ PREPARATORY: CD-driven apply is DEFERRED (remote state is not yet
+#   configured — see the STATE note at the bottom). Before CD apply is enabled,
+#   the OWNER must set all 8 of these values in EACH GitHub Environment (dev AND
+#   prod) — the 3 secrets under Environment secrets, the 5 non-secret vars under
+#   Environment variables — or the plan will fail closed on the missing inputs.
+# ──────────────────────────────────────────────────────────────────────────────┘
 #
 # ── Optional environment variables ────────────────────────────────────────────
 #   KDF_AUTH_CORS_ORIGINS                  → TF_VAR_kdf_auth_cors_origins
@@ -136,6 +164,12 @@ jobs:
       TF_VAR_tiffanys_space_backend_db_database_url: ${{ secrets.TIFFANYS_SPACE_BACKEND_DB_DATABASE_URL }}
       TF_VAR_fitness_app_service_key: ${{ secrets.FITNESS_APP_SERVICE_KEY }}
       TF_VAR_tiffanys_space_service_key: ${{ secrets.TIFFANYS_SPACE_SERVICE_KEY }}
+      # KDF/tenant identity secrets consumed by environments/prod/main.tf:
+      #   auth-UI service key → composite SERVICE_API_KEYS (:98) + auth-UI KDF_SERVICE_KEY (:83)
+      #   each tenant's OIDC client_secret → that tenant's OIDC client (:134 fitness / :187 tiffanys)
+      TF_VAR_kdf_auth_ui_service_key: ${{ secrets.KDF_AUTH_UI_SERVICE_KEY }}
+      TF_VAR_fitness_oidc_client_secret: ${{ secrets.FITNESS_OIDC_CLIENT_SECRET }}
+      TF_VAR_tiffanys_space_oidc_client_secret: ${{ secrets.TIFFANYS_SPACE_OIDC_CLIENT_SECRET }}
       # ── Optional secrets ──────────────────────────────────────────────────
       TF_VAR_tiffanys_space_cron_secret: ${{ secrets.TIFFANYS_SPACE_CRON_SECRET }}
       TF_VAR_backend_stripe_secret_key: ${{ secrets.BACKEND_STRIPE_SECRET_KEY }}
@@ -149,6 +183,16 @@ jobs:
       TF_VAR_fitness_app_backend_project_name: ${{ vars.FITNESS_APP_BACKEND_PROJECT_NAME }}
       TF_VAR_tiffanys_space_project_name: ${{ vars.TIFFANYS_SPACE_PROJECT_NAME }}
       TF_VAR_tiffanys_space_backend_project_name: ${{ vars.TIFFANYS_SPACE_BACKEND_PROJECT_NAME }}
+      # KDF/tenant identity (non-secret) consumed by environments/prod/main.tf:
+      #   auth-UI URL → BOTH tenants' kdf_oidc_issuer (:131 fitness / :184 tiffanys),
+      #                 plus the auth-UI's own auth_ui_url (:81)
+      #   each tenant's OIDC client_id + redirect_uri → that tenant's OIDC client
+      #                 (:132-133 fitness / :185-186 tiffanys)
+      TF_VAR_kdf_auth_ui_url: ${{ vars.KDF_AUTH_UI_URL }}
+      TF_VAR_fitness_oidc_client_id: ${{ vars.FITNESS_OIDC_CLIENT_ID }}
+      TF_VAR_fitness_oidc_redirect_uri: ${{ vars.FITNESS_OIDC_REDIRECT_URI }}
+      TF_VAR_tiffanys_space_oidc_client_id: ${{ vars.TIFFANYS_SPACE_OIDC_CLIENT_ID }}
+      TF_VAR_tiffanys_space_oidc_redirect_uri: ${{ vars.TIFFANYS_SPACE_OIDC_REDIRECT_URI }}
       # ── Optional non-secret variables ─────────────────────────────────────
       TF_VAR_kdf_auth_cors_origins: ${{ vars.KDF_AUTH_CORS_ORIGINS }}
       TF_VAR_fitness_app_backend_cors_origins: ${{ vars.FITNESS_APP_BACKEND_CORS_ORIGINS }}
