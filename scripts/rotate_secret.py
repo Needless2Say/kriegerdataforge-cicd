@@ -2,9 +2,10 @@
 Unified CI-plane secret rotation engine.
 
 One registry (scripts/secret_registry.json) maps each rotatable secret to every place
-its value lives — GitHub Actions ENVIRONMENT secrets and/or non-Terraform Vercel project
-env vars. This script is the single front-end behind both the scheduled rotation workflows
-and the owner-only `ops:rotate-secrets` issue form.
+its value lives — GitHub Actions ENVIRONMENT secrets (github_env_secrets), GitHub Actions
+REPOSITORY secrets (github_repo_secrets — what CI reads when a job declares no environment),
+and/or non-Terraform Vercel project env vars. This script is the single front-end behind both
+the scheduled rotation workflows and the owner-only `ops:rotate-secrets` issue form.
 
 SCOPE — CI-plane credentials only. App secrets owned by Terraform (SECRETS_INVENTORY:
 DB URLs, the RS256 keypair, KDF_SERVICE_KEY, STRIPE_*, OIDC client secrets, CRON_SECRET …)
@@ -107,6 +108,46 @@ def update_github_env_secret(
     encrypted = _encrypt_secret(pub_key_b64, secret_value)
     resp = requests.put(
         f"{GITHUB_API}/repos/{owner}/{repo}/environments/{environment}/secrets/{secret_name}",
+        headers=_github_headers(gh_token),
+        json={"encrypted_value": encrypted, "key_id": key_id},
+        timeout=30,
+    )
+    resp.raise_for_status()
+
+
+def _get_repo_public_key(gh_token: str, owner: str, repo: str) -> tuple[str, str]:
+    """Return (key_id, base64_public_key) for a repo's REPOSITORY (Actions) secret box."""
+    resp = requests.get(
+        f"{GITHUB_API}/repos/{owner}/{repo}/actions/secrets/public-key",
+        headers=_github_headers(gh_token),
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    return data["key_id"], data["key"]
+
+
+def update_github_repo_secret(
+    gh_token: str,
+    owner_repo: str,
+    secret_name: str,
+    secret_value: str,
+) -> None:
+    """Encrypt + PUT a value into repo `owner_repo`'s REPOSITORY (Actions) secret.
+
+    Repository secrets are a DIFFERENT store from environment secrets. A CI job that
+    does NOT declare `environment:` (e.g. the reusable ci-python-*.yml SDK-install step,
+    triggered on pull_request) can only read repository/organization secrets — never
+    environment secrets. A value pasted solely into an environment is therefore invisible
+    to CI, which is why a GH_PACKAGES_PAT rotation used to leave CI on a dead token even
+    after every environment secret was refreshed. Targets are declared per registry entry
+    under `github_repo_secrets`.
+    """
+    owner, repo = owner_repo.split("/", 1)
+    key_id, pub_key_b64 = _get_repo_public_key(gh_token, owner, repo)
+    encrypted = _encrypt_secret(pub_key_b64, secret_value)
+    resp = requests.put(
+        f"{GITHUB_API}/repos/{owner}/{repo}/actions/secrets/{secret_name}",
         headers=_github_headers(gh_token),
         json={"encrypted_value": encrypted, "key_id": key_id},
         timeout=30,
@@ -273,6 +314,16 @@ def _gh_targets(entry: dict, apps: frozenset[str], envs: frozenset[str]) -> list
             continue
         out.append(t)
     return out
+
+
+def _gh_repo_targets(entry: dict) -> list[dict]:
+    """Repository-level (Actions) secret targets.
+
+    Unlike environment secrets these are NOT env-scoped — a repository secret is a single
+    global value read by CI jobs that declare no `environment:` — so the app/env filters
+    do not apply and every listed target is always written on a distribution.
+    """
+    return list(entry.get("github_repo_secrets", []))
 
 
 def _vercel_targets(entry: dict, envs: frozenset[str]) -> list[dict]:
@@ -626,6 +677,22 @@ def cmd_paste(entry: dict, envs: frozenset[str], gh_token: str, master_token: st
         except Exception as exc:  # noqa: BLE001
             print(f"FAILED - {exc}")
             errors.append(f"GitHub {label}: {exc}")
+
+    # Repository-level (Actions) secrets — the ones CI reads when a job declares no
+    # `environment:`. Distinct store from the env secrets above; both must be written or
+    # CI is stranded on the old token while deploys use the new one (see github_repo_secrets).
+    repo_targets = _gh_repo_targets(entry)
+    if repo_targets:
+        print(f"\nPasting {entry['name']} to {len(repo_targets)} GitHub repository (CI) secret(s):")
+        for t in repo_targets:
+            label = f"{t['repo']} [repo] {t['secret_name']}"
+            print(f"  {label}", end=" ... ", flush=True)
+            try:
+                update_github_repo_secret(gh_token, t["repo"], t["secret_name"], value)
+                print("OK")
+            except Exception as exc:  # noqa: BLE001
+                print(f"FAILED - {exc}")
+                errors.append(f"GitHub {label}: {exc}")
 
     vc = _vercel_targets(entry, envs)
     if vc:
