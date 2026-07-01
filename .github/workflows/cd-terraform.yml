@@ -16,8 +16,11 @@
 # matching GitHub Environment gate (owner-only approval) whose scoped
 # secrets/variables are loaded below.
 #
-# ── Required secrets (per GitHub Environment: dev, prod) ───────────────────────
+# ── Required secrets ──────────────────────────────────────────────────────────
+# The job runs with `environment:`, so it reads repository + environment secrets together.
+#   Repository secret (one global value, NOT per environment):
 #   VERCEL_DEPLOYMENT_TOKEN                → TF_VAR_vercel_api_token
+#   Per-environment secrets (dev, prod):
 #   BACKEND_AUTH_ADMIN_EMAIL               → TF_VAR_backend_auth_admin_email
 #   BACKEND_AUTH_ADMIN_EMAIL_PASSWORD      → TF_VAR_backend_auth_admin_email_password
 #   BACKEND_AUTH_PRIVATE_KEY               → TF_VAR_backend_auth_private_key  (RSA PEM, PKCS#8)

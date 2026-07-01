@@ -155,6 +155,31 @@ def update_github_repo_secret(
     resp.raise_for_status()
 
 
+def delete_github_env_secret(
+    gh_token: str,
+    owner_repo: str,
+    environment: str,
+    secret_name: str,
+) -> None:
+    """DELETE a repo ENVIRONMENT secret.
+
+    Used to reap the environment-level copy of a secret that has migrated to repository-level
+    (see `retired_github_env_secrets`). A leftover env copy shadows the repo value — an env
+    secret takes precedence over a same-named repo secret — so the migration is not complete
+    until the env copy is gone. Idempotent: a 404 (already absent) is treated as success so a
+    re-run is a clean no-op.
+    """
+    owner, repo = owner_repo.split("/", 1)
+    resp = requests.delete(
+        f"{GITHUB_API}/repos/{owner}/{repo}/environments/{environment}/secrets/{secret_name}",
+        headers=_github_headers(gh_token),
+        timeout=30,
+    )
+    if resp.status_code == 404:
+        return
+    resp.raise_for_status()
+
+
 # ============================================================
 # Vercel helpers
 # ============================================================
@@ -324,6 +349,35 @@ def _gh_repo_targets(entry: dict) -> list[dict]:
     do not apply and every listed target is always written on a distribution.
     """
     return list(entry.get("github_repo_secrets", []))
+
+
+def _delete_retired_env_secrets(entry: dict, gh_token: str, errors: list[str]) -> int:
+    """Reap the environment-level copies a secret has migrated away from (repository-level now).
+
+    A secret that moved from `github_env_secrets` to `github_repo_secrets` (e.g. the single shared
+    VERCEL_DEPLOYMENT_TOKEN / GH_PACKAGES_PAT) leaves stale env copies that SHADOW the repo value —
+    an environment secret wins over a same-named repository secret — so CD would keep reading the old
+    value. Deleting them makes the repo-level value authoritative. Returns the number of delete
+    failures (0 = fully clean); appends any to `errors`. Callers gate token revocation on a clean (0)
+    result so a repo whose shadow could not be removed keeps a valid token.
+    """
+    retired = entry.get("retired_github_env_secrets", [])
+    if not retired:
+        return 0
+    failures = 0
+    print(f"\nReaping {len(retired)} retired environment-level copy(ies) of {entry['name']} "
+          "(migrated to repository-level; a leftover env copy would shadow it):")
+    for t in retired:
+        label = f"{t['repo']} [{t['environment']}] {t['secret_name']}"
+        print(f"  delete {label}", end=" ... ", flush=True)
+        try:
+            delete_github_env_secret(gh_token, t["repo"], t["environment"], t["secret_name"])
+            print("OK")
+        except Exception as exc:  # noqa: BLE001
+            print(f"FAILED - {exc}")
+            errors.append(f"delete env {label}: {exc}")
+            failures += 1
+    return failures
 
 
 def _vercel_targets(entry: dict, envs: frozenset[str]) -> list[dict]:
@@ -535,17 +589,19 @@ def _generate_shared_vercel_token(
     ``team_id`` scopes the minted token to a Vercel team (required for team projects).
     """
     errors: list[str] = []
-    targets = entry.get("github_env_secrets", [])
-    if not targets:
+    env_targets = entry.get("github_env_secrets", [])
+    repo_targets = _gh_repo_targets(entry)
+    total = len(env_targets) + len(repo_targets)
+    if total == 0:
         print(f"  {entry['name']}: no targets — skipped.")
         return errors
     if apps or envs:
-        print(f"  {entry['name']}: shared token — ignoring app/env filter; writing all {len(targets)} target(s).")
+        print(f"  {entry['name']}: shared token — ignoring app/env filter; writing all {total} target(s).")
     token_name = entry.get("vercel_token_name")
     if not token_name:
         return [f"{entry['name']}: shared entry is missing the entry-level 'vercel_token_name'."]
     all_tokens = list_vercel_tokens(master_token)
-    print(f"  {entry['name']}: minting one shared token '{token_name}' for {len(targets)} target(s)")
+    print(f"  {entry['name']}: minting one shared token '{token_name}' for {total} target(s)")
     try:
         new_id, new_value = create_vercel_token(master_token, token_name, team_id)
     except VercelMasterScopeError:
@@ -554,7 +610,7 @@ def _generate_shared_vercel_token(
         print(f"  FAILED to mint '{token_name}': {exc}")
         return [f"{entry['name']} mint '{token_name}': {exc}"]
     wrote_all = True
-    for t in targets:
+    for t in env_targets:
         label = f"{t['repo']} [{t['environment']}] {t['secret_name']}"
         print(f"    {label}", end=" ... ", flush=True)
         try:
@@ -564,8 +620,25 @@ def _generate_shared_vercel_token(
             print(f"FAILED - {exc}")
             errors.append(f"{label}: {exc}")
             wrote_all = False
+    for t in repo_targets:
+        label = f"{t['repo']} [repo] {t['secret_name']}"
+        print(f"    {label}", end=" ... ", flush=True)
+        try:
+            update_github_repo_secret(gh_token, t["repo"], t["secret_name"], new_value)
+            print("OK")
+        except Exception as exc:  # noqa: BLE001
+            print(f"FAILED - {exc}")
+            errors.append(f"{label}: {exc}")
+            wrote_all = False
+    # Revoke the old token ONLY once the new value is live at every target AND every retired env
+    # shadow is gone — otherwise a repo still reading a stale env copy would be left holding a
+    # just-revoked token. A failed shadow-delete therefore keeps the previous token valid.
     if wrote_all:
-        _reap_old_vercel_tokens(master_token, all_tokens, token_name, new_id, errors, entry["name"])
+        shadow_failures = _delete_retired_env_secrets(entry, gh_token, errors)
+        if shadow_failures == 0:
+            _reap_old_vercel_tokens(master_token, all_tokens, token_name, new_id, errors, entry["name"])
+        else:
+            print(f"  keeping previous '{token_name}' token(s) — a retired env copy still shadows repo-level.")
     else:
         print(f"  keeping previous '{token_name}' token(s) — a write failed, so they stay valid.")
     return errors
@@ -682,6 +755,7 @@ def cmd_paste(entry: dict, envs: frozenset[str], gh_token: str, master_token: st
     # `environment:`. Distinct store from the env secrets above; both must be written or
     # CI is stranded on the old token while deploys use the new one (see github_repo_secrets).
     repo_targets = _gh_repo_targets(entry)
+    repo_ok = True
     if repo_targets:
         print(f"\nPasting {entry['name']} to {len(repo_targets)} GitHub repository (CI) secret(s):")
         for t in repo_targets:
@@ -693,6 +767,15 @@ def cmd_paste(entry: dict, envs: frozenset[str], gh_token: str, master_token: st
             except Exception as exc:  # noqa: BLE001
                 print(f"FAILED - {exc}")
                 errors.append(f"GitHub {label}: {exc}")
+                repo_ok = False
+
+    # Reap retired env-level copies once the repo-level value is confirmed written — a leftover
+    # env secret would shadow it (env wins over repo). If a repo write failed, keep the env copy.
+    if entry.get("retired_github_env_secrets"):
+        if repo_ok:
+            _delete_retired_env_secrets(entry, gh_token, errors)
+        else:
+            print("  skipping retired env-secret cleanup — a repository write failed; env copy left in place.")
 
     vc = _vercel_targets(entry, envs)
     if vc:
