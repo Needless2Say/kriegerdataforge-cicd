@@ -416,7 +416,8 @@ class TestRealRegistry:
             "Needless2Say/kriegerdataforge-template-fastapi",  # scaffold repo also installs the SDK in CI
         } <= repo_targets
         assert not gh_pat.get("github_env_secrets")  # repo-level only now
-        assert len(gh_pat.get("retired_github_env_secrets", [])) == 6  # old prod/dev copies, reaped
+        # the former env copies were already reaped in the one-time migration -> no retired targets
+        assert not gh_pat.get("retired_github_env_secrets")
         # consolidated 2026-06-30: the VERCEL_TOKEN + VERCEL_API_TOKEN split collapsed into one
         # account-scoped token, and the dormant CICD_REGISTRY_PAT entry was removed.
         assert not ({"VERCEL_TOKEN", "VERCEL_API_TOKEN", "CICD_REGISTRY_PAT"} & names)
