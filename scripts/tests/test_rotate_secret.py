@@ -33,6 +33,7 @@ from rotate_secret import (
     cmd_generate,
     cmd_paste,
     create_vercel_token,
+    delete_github_env_secret,
     delete_vercel_token,
     list_vercel_tokens,
     update_github_env_secret,
@@ -229,6 +230,27 @@ class TestUpdateGitHubRepoSecret:
                 update_github_repo_secret("gh", "o/r", "S", "v")
 
 
+class TestDeleteGitHubEnvSecret:
+    def test_deletes_env_secret_at_correct_url(self):
+        r = MagicMock(); r.status_code = 204
+        with patch("requests.delete", return_value=r) as d:
+            delete_github_env_secret("gh", "o/r", "prod", "S")
+        assert "o/r/environments/prod/secrets/S" in d.call_args[0][0]
+
+    def test_404_already_gone_is_tolerated(self):
+        r = MagicMock(); r.status_code = 404
+        r.raise_for_status.side_effect = Exception("must not be raised on 404")
+        with patch("requests.delete", return_value=r):
+            delete_github_env_secret("gh", "o/r", "prod", "S")  # idempotent no-op, no raise
+
+    def test_other_status_raises(self):
+        r = MagicMock(); r.status_code = 403
+        r.raise_for_status.side_effect = Exception("HTTP 403")
+        with patch("requests.delete", return_value=r):
+            with pytest.raises(Exception, match="HTTP 403"):
+                delete_github_env_secret("gh", "o/r", "prod", "S")
+
+
 class TestVercelTokenApi:
     def test_create_returns_id_and_bearer(self):
         r = MagicMock(); r.json.return_value = {"token": {"id": "tid"}, "bearerToken": "bv"}
@@ -392,12 +414,18 @@ class TestRealRegistry:
             "Needless2Say/fitness-app-backend",
             "Needless2Say/tiffanys-space-backend",
         } <= repo_targets
+        assert not gh_pat.get("github_env_secrets")  # repo-level only now
+        assert len(gh_pat.get("retired_github_env_secrets", [])) == 6  # old prod/dev copies, reaped
         # consolidated 2026-06-30: the VERCEL_TOKEN + VERCEL_API_TOKEN split collapsed into one
         # account-scoped token, and the dormant CICD_REGISTRY_PAT entry was removed.
         assert not ({"VERCEL_TOKEN", "VERCEL_API_TOKEN", "CICD_REGISTRY_PAT"} & names)
         vercel = next(e for e in entries if e["name"] == "VERCEL_DEPLOYMENT_TOKEN")
         assert vercel.get("shared") is True and vercel.get("vercel_token_name") == "VERCEL_DEPLOYMENT_TOKEN"
-        assert len(vercel["github_env_secrets"]) == 14  # 12 app targets + 2 terraform
+        # one global token -> stored ONLY at repository level (no env copies); the former prod/dev
+        # env secrets are listed for deletion so they can't shadow the repo value.
+        assert not vercel.get("github_env_secrets")
+        assert len(vercel["github_repo_secrets"]) == 7  # one repo secret per repo (6 apps + terraform)
+        assert len(vercel["retired_github_env_secrets"]) == 14  # old prod/dev env copies, reaped on rotation
         assert vercel.get("check", {}).get("expiry")  # auto-maintained expiry is tracked (record-expiry bot)
         # the manual tokens carry a check block (monitored) and no engine targets
         for name in ("CICD_PAT", "VERCEL_MASTER_TOKEN", "KDF_APP_PRIVATE_KEY"):
@@ -638,6 +666,65 @@ class TestGenerateSharedVercelToken:
         assert all(c[0][2] == "team_z" for c in create.call_args_list)
 
 
+# ── generate: shared vercel_token → repo-level + retired-env reaping ─────────────
+
+
+class TestGenerateSharedRepoLevel:
+    """The shared VERCEL_DEPLOYMENT_TOKEN writes REPOSITORY secrets and reaps its retired
+    per-environment copies; the old Vercel token is revoked only once the new value is live
+    everywhere AND every env shadow is gone."""
+
+    def _entry(self):
+        return {
+            "name": "VERCEL_DEPLOYMENT_TOKEN", "kind": "generate", "generator": "vercel_token",
+            "shared": True, "vercel_token_name": "kdf-deploy",
+            "github_repo_secrets": [
+                {"repo": "Needless2Say/a", "secret_name": "VERCEL_DEPLOYMENT_TOKEN"},
+                {"repo": "Needless2Say/b", "secret_name": "VERCEL_DEPLOYMENT_TOKEN"},
+            ],
+            "retired_github_env_secrets": [
+                {"repo": "Needless2Say/a", "environment": "prod", "secret_name": "VERCEL_DEPLOYMENT_TOKEN"},
+                {"repo": "Needless2Say/a", "environment": "dev", "secret_name": "VERCEL_DEPLOYMENT_TOKEN"},
+            ],
+        }
+
+    def test_writes_repo_secrets_reaps_shadows_then_revokes_old(self):
+        with patch.object(rs, "list_vercel_tokens", return_value=[{"name": "kdf-deploy", "id": "old"}]), \
+             patch.object(rs, "create_vercel_token", return_value=("new", "val")), \
+             patch.object(rs, "update_github_env_secret") as env, \
+             patch.object(rs, "update_github_repo_secret") as repo, \
+             patch.object(rs, "delete_github_env_secret") as dele_env, \
+             patch.object(rs, "delete_vercel_token") as reap:
+            rc = cmd_generate([self._entry()], ALL, ALL, "gh", "m")
+        assert rc == 0
+        env.assert_not_called()               # no env-secret writes — repo-level only
+        assert repo.call_count == 2            # written to both repo secrets, SAME value
+        assert {c[0][3] for c in repo.call_args_list} == {"val"}  # (gh, repo, secret_name, value)
+        assert dele_env.call_count == 2        # both retired env shadows deleted
+        reap.assert_called_once_with("m", "old")  # old token revoked (writes ok + shadows gone)
+
+    def test_repo_write_failure_keeps_old_token_and_skips_shadow_delete(self):
+        with patch.object(rs, "list_vercel_tokens", return_value=[{"name": "kdf-deploy", "id": "old"}]), \
+             patch.object(rs, "create_vercel_token", return_value=("new", "val")), \
+             patch.object(rs, "update_github_repo_secret", side_effect=[None, Exception("boom")]), \
+             patch.object(rs, "delete_github_env_secret") as dele_env, \
+             patch.object(rs, "delete_vercel_token") as reap:
+            rc = cmd_generate([self._entry()], ALL, ALL, "gh", "m")
+        assert rc == 1
+        dele_env.assert_not_called()  # a write failed -> don't remove the env fallback
+        reap.assert_not_called()      # ...and keep the previous token valid
+
+    def test_shadow_delete_failure_keeps_old_token(self):
+        with patch.object(rs, "list_vercel_tokens", return_value=[{"name": "kdf-deploy", "id": "old"}]), \
+             patch.object(rs, "create_vercel_token", return_value=("new", "val")), \
+             patch.object(rs, "update_github_repo_secret"), \
+             patch.object(rs, "delete_github_env_secret", side_effect=[None, Exception("no perm")]), \
+             patch.object(rs, "delete_vercel_token") as reap:
+            rc = cmd_generate([self._entry()], ALL, ALL, "gh", "m")
+        assert rc == 1              # soft error surfaced
+        reap.assert_not_called()    # a lingering env shadow -> old token must stay valid
+
+
 # ── generate: random_urlsafe (per-env) ──────────────────────────────────────────
 
 
@@ -743,6 +830,36 @@ class TestPaste:
             rc = cmd_paste(self._entry_with_repo_secrets(), ALL, "gh", "", "v")
         assert rc == 1  # a failed repo-secret write is a hard error, not swallowed
         assert repo.call_count == 2  # both attempted despite the first failing
+
+    def _entry_with_retired(self):
+        # one global PAT: repo-level only, with stale env copies to reap
+        return {
+            "name": "GH_PACKAGES_PAT", "kind": "paste", "per_env": False,
+            "github_repo_secrets": [
+                {"repo": "Needless2Say/a", "secret_name": "GH_PACKAGES_PAT"},
+            ],
+            "retired_github_env_secrets": [
+                {"repo": "Needless2Say/a", "environment": "prod", "secret_name": "GH_PACKAGES_PAT"},
+                {"repo": "Needless2Say/a", "environment": "dev", "secret_name": "GH_PACKAGES_PAT"},
+            ],
+        }
+
+    def test_paste_reaps_retired_env_shadows_after_repo_write(self):
+        with patch.object(rs, "update_github_repo_secret") as repo, \
+             patch.object(rs, "delete_github_env_secret") as dele, \
+             patch.object(rs, "upsert_vercel_env_var"):
+            rc = cmd_paste(self._entry_with_retired(), ALL, "gh", "", "v")
+        assert rc == 0
+        assert repo.call_count == 1
+        assert dele.call_count == 2  # both stale env copies deleted so they can't shadow the repo value
+
+    def test_paste_keeps_env_shadow_when_repo_write_fails(self):
+        with patch.object(rs, "update_github_repo_secret", side_effect=Exception("boom")), \
+             patch.object(rs, "delete_github_env_secret") as dele, \
+             patch.object(rs, "upsert_vercel_env_var"):
+            rc = cmd_paste(self._entry_with_retired(), ALL, "gh", "", "v")
+        assert rc == 1
+        dele.assert_not_called()  # repo write failed -> leave the env copy as a working fallback
 
     def test_missing_value_exits(self, sample_registry):
         with pytest.raises(SystemExit, match="STAGED_SECRET_VALUE"):

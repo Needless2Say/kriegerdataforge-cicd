@@ -61,9 +61,12 @@ jobs:
         run: pip install -r scripts/requirements.txt
 
       # Short-lived GitHub App installation token (auto-revoked at job end; effective lifetime =
-      # job runtime, not the 1-hour nominal TTL). Downscoped to environments:write — the
-      # VERCEL_DEPLOYMENT_TOKEN environment secrets are gated by the "Environments" permission, NOT
-      # "Secrets". Gated on USE_GITHUB_APP, falls back to CICD_PAT.
+      # job runtime, not the 1-hour nominal TTL). Two grants:
+      #   * secrets: write      — write the shared VERCEL_DEPLOYMENT_TOKEN as a REPOSITORY secret in
+      #                           every target repo (it is one global value, no longer per-env).
+      #   * environments: write — DELETE the retired per-environment copies so they can't shadow the
+      #                           repo value (env wins over repo).
+      # Gated on USE_GITHUB_APP, falls back to CICD_PAT.
       - name: Mint GitHub App token
         id: app-token
         if: vars.USE_GITHUB_APP == 'true'
@@ -72,6 +75,7 @@ jobs:
           app-id: ${{ secrets.KDF_APP_ID }}
           private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+          permission-secrets: write
           permission-environments: write
 
       - name: Rotate token

@@ -5,11 +5,13 @@
 # which in turn:
 #   1. Requires approval from the configured reviewers (prod: owner only,
 #      dev: owner + collaborator)
-#   2. Loads the environment-scoped secrets (VERCEL_DEPLOYMENT_TOKEN, VERCEL_PROJECT_ID)
-#      into the job
+#   2. Loads its secrets. A job with `environment:` reads repository AND environment
+#      secrets together, so the shared token lives at REPOSITORY level (one value
+#      everywhere) while the per-env values stay environment-scoped.
 #
-# Required environment secrets (set per environment in the caller repo):
+# Repository secret (one global value — set at repo level, NOT per environment):
 #   VERCEL_DEPLOYMENT_TOKEN — shared Vercel deploy/management token
+# Environment secrets (set per environment in the caller repo):
 #   VERCEL_ORG_ID      — Vercel team / org ID
 #   VERCEL_PROJECT_ID  — Vercel project ID for the target environment
 #
