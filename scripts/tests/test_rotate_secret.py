@@ -413,6 +413,7 @@ class TestRealRegistry:
             "Needless2Say/kriegerdataforge",
             "Needless2Say/fitness-app-backend",
             "Needless2Say/tiffanys-space-backend",
+            "Needless2Say/kriegerdataforge-template-fastapi",  # scaffold repo also installs the SDK in CI
         } <= repo_targets
         assert not gh_pat.get("github_env_secrets")  # repo-level only now
         assert len(gh_pat.get("retired_github_env_secrets", [])) == 6  # old prod/dev copies, reaped
