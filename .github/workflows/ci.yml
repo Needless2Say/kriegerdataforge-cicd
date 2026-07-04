@@ -27,9 +27,22 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install actionlint
+        # PL-142: pin the version + verify the binary sha256 instead of piping the
+        # installer script from the mutable `main` ref and installing `latest`. Bump
+        # both ACTIONLINT_VERSION and ACTIONLINT_SHA256 in lockstep from the release's
+        # actionlint_<ver>_checksums.txt.
+        env:
+          ACTIONLINT_VERSION: "1.7.12"
+          ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
         run: |
-          curl -sfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash \
-            | bash -s -- latest /usr/local/bin
+          set -euo pipefail
+          curl -sfL \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+            -o /tmp/actionlint.tar.gz
+          echo "${ACTIONLINT_SHA256}  /tmp/actionlint.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/actionlint.tar.gz -C /usr/local/bin actionlint
+          rm /tmp/actionlint.tar.gz
+          actionlint -version
 
       - name: Run actionlint
         run: actionlint
