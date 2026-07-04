@@ -1,0 +1,104 @@
+name: Python · Integration tests (Postgres)
+
+# Reusable integration-test lane for KDF Python backends.
+#
+# Unlike ci-python-tests.yml (the fast, DB-free UNIT lane), this workflow
+# provisions an ephemeral Postgres service, migrates it to head, optionally
+# seeds app-specific fixtures, and runs the caller's integration suite. It
+# exists because a backend's DB-backed tests (e.g. `-m requires_postgres`)
+# silently green-skip when no `KDF_TEST_DATABASE_URL` is set — the integration
+# guarantees never actually run (finding PL-166).
+#
+# Design notes:
+#   * This file is PUBLIC — it stays schema-free. Anything app-specific (e.g. a
+#     `kdfusers` table that lives only in an auth-owned DB) is provisioned by the
+#     caller via `seed_command`, whose SQL file lives in the caller's PRIVATE
+#     repo and is present at runtime because `checkout` pulls the caller repo.
+#   * The same Postgres URL is exported under two names so both the SDK
+#     (`env_prefix=DB_` → alembic) and the test conftest (`KDF_TEST_DATABASE_URL`)
+#     point at the one ephemeral DB.
+#   * Callers opt in with a separate job; the fast unit lane stays DB-free.
+
+on:
+  workflow_call:
+    inputs:
+      python_version:
+        description: Python version to use
+        type: string
+        default: "3.13"
+      install_command:
+        description: Command to install dependencies before running tests
+        type: string
+        default: "pip install -r requirements.txt"
+      migrate_command:
+        description: Command that migrates the ephemeral DB to head
+        type: string
+        default: "alembic upgrade head"
+      seed_command:
+        description: >-
+          Optional app-specific seed command run after migrate (e.g. create a
+          test-only kdfusers table). The SQL/script it references lives in the
+          caller's private repo. Empty string skips seeding.
+        type: string
+        default: ""
+      test_command:
+        description: Full pytest command to run the integration suite
+        type: string
+        default: "python -m pytest -m requires_postgres -q --tb=short"
+      needs_sdk_auth:
+        description: Configure git credentials for the private SDK (requires GH_PACKAGES_PAT secret)
+        type: boolean
+        default: false
+
+jobs:
+  integration-tests:
+    name: Integration Tests (Postgres)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: kdf
+          POSTGRES_PASSWORD: kdf
+          POSTGRES_DB: kdf_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kdf -d kdf_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+
+    env:
+      # One ephemeral DB, exported under both names: DB_* for the SDK/alembic,
+      # KDF_TEST_DATABASE_URL for the pytest conftest gate.
+      DB_DATABASE_URL: postgresql+psycopg2://kdf:kdf@localhost:5432/kdf_test
+      KDF_TEST_DATABASE_URL: postgresql+psycopg2://kdf:kdf@localhost:5432/kdf_test
+      ENVIRONMENT: development
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Configure private SDK access
+        if: ${{ inputs.needs_sdk_auth }}
+        env:
+          GH_PACKAGES_PAT: ${{ secrets.GH_PACKAGES_PAT }}
+        run: git config --global url."https://__token__:${GH_PACKAGES_PAT}@github.com/".insteadOf "https://github.com/"
+
+      - name: Install dependencies
+        run: ${{ inputs.install_command }}
+
+      - name: Migrate ephemeral DB to head
+        run: ${{ inputs.migrate_command }}
+
+      - name: Seed app-specific fixtures
+        if: ${{ inputs.seed_command != '' }}
+        run: ${{ inputs.seed_command }}
+
+      - name: Run integration tests
+        run: ${{ inputs.test_command }}
