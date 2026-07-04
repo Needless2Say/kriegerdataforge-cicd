@@ -247,9 +247,20 @@ jobs:
         env:
           KDF_TARGET_ENV: ${{ inputs.environment }}
         run: |
+          set -euo pipefail
           CONFTEST_VERSION="0.68.2"
-          curl -sSL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" \
-            | tar -xzf - conftest
+          # PL-108: verify the tarball against a pinned sha256 BEFORE extract/exec.
+          # This step holds prod secrets (RSA PEM, DB URLs, Stripe/Vercel tokens), so a
+          # tampered conftest release must never run. Hash from the pinned release's
+          # checksums.txt (github.com/open-policy-agent/conftest v0.68.2). Bump both
+          # CONFTEST_VERSION and CONFTEST_SHA256 in lockstep from that release.
+          CONFTEST_SHA256="e8144c6d6d2ae0260b869caa60c7c262a1f95ac63ec1e5d2fb19be452d606347"
+          CONFTEST_TARBALL="conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz"
+          curl -sSL --fail \
+            "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/${CONFTEST_TARBALL}" \
+            -o "${CONFTEST_TARBALL}"
+          echo "${CONFTEST_SHA256}  ${CONFTEST_TARBALL}" | sha256sum -c -
+          tar -xzf "${CONFTEST_TARBALL}" conftest
           ./conftest --version
           terraform -chdir="$TF_DIR" show -json tfplan > tfplan.json
           python3 -c "import json, os; d = json.load(open('tfplan.json')); d['environment'] = os.environ['KDF_TARGET_ENV']; json.dump(d, open('tfplan.json', 'w'))"

@@ -51,9 +51,11 @@ jobs:
         run: pip install -r scripts/requirements.txt
 
       # Short-lived GitHub App installation token (auto-revoked at job end; effective lifetime =
-      # job runtime, not the 1-hour nominal TTL). Downscoped to environments:write — environment
-      # secrets are gated by the "Environments" permission, NOT "Secrets". Gated on USE_GITHUB_APP,
-      # falls back to CICD_PAT.
+      # job runtime, not the 1-hour nominal TTL). Downscoped to secrets:write — PL-107:
+      # GH_PACKAGES_PAT now lives ONLY as a REPOSITORY-level Actions secret (github_repo_secrets)
+      # on the four SDK-consuming repos, and repository secrets are gated by the "Secrets"
+      # permission, NOT "Environments" (the registry entry has no github_env_secrets). Gated on
+      # USE_GITHUB_APP, falls back to CICD_PAT.
       - name: Mint GitHub App token
         id: app-token
         if: vars.USE_GITHUB_APP == 'true'
@@ -62,7 +64,7 @@ jobs:
           app-id: ${{ secrets.KDF_APP_ID }}
           private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
-          permission-environments: write
+          permission-secrets: write
 
       - name: Distribute new PAT
         env:
