@@ -6,7 +6,7 @@ on:
       python_version:
         description: Python version to use
         type: string
-        default: "3.13"
+        default: "3.14"
       bandit_paths:
         description: Space-separated paths to pass to bandit -r
         type: string
