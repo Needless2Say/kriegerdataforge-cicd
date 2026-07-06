@@ -40,11 +40,15 @@ test.describe("Fitness OIDC login journey", () => {
     await page.goto("/database");
     await expect(page).toHaveURL(new RegExp(`^${escapeRegExp(AUTH_UI_URL)}/login`));
 
-    // 2. Fill the hosted login form. The auth-UI exposes no data-testid, so use
-    //    stable ids + the accessible button name.
-    await page.locator("#username").fill(USERNAME);
-    await page.locator("#password").fill(PASSWORD);
-    await page.getByRole("button", { name: "Sign in" }).click();
+    // 2. Fill the hosted login form. Prefer the data-testid hooks, falling back
+    //    to stable ids / accessible names so the spec passes whether or not the
+    //    auth-UI/frontend test-id changes are deployed yet.
+    await page.getByTestId("login-username").or(page.locator("#username")).fill(USERNAME);
+    await page.getByTestId("login-password").or(page.locator("#password")).fill(PASSWORD);
+    await page
+      .getByTestId("login-submit")
+      .or(page.getByRole("button", { name: "Sign in" }))
+      .click();
 
     // The login POST + OIDC redirect chain (login → authorize → consent|callback)
     // is async, so wait until it settles on either the consent screen or the app
@@ -59,7 +63,7 @@ test.describe("Fitness OIDC login journey", () => {
     //    (the SSR'd button is visible before React attaches onClick, so a single
     //    early click can no-op) until we've navigated off /consent.
     if (page.url().includes("/consent")) {
-      const allow = page.getByRole("button", { name: "Allow" });
+      const allow = page.getByTestId("consent-approve").or(page.getByRole("button", { name: "Allow" }));
       await allow.waitFor({ state: "visible" });
       await expect(async () => {
         if (page.url().includes("/consent")) {
@@ -73,11 +77,19 @@ test.describe("Fitness OIDC login journey", () => {
     //    rendered on every private page — a reliable "logged in" marker that
     //    doesn't depend on client-side dashboard data.
     await page.waitForURL((url) => url.href.startsWith(BASE_URL), { timeout: 25_000 });
-    await expect(page.getByRole("button", { name: "Open account menu" })).toBeVisible();
+    await expect(
+      page.getByTestId("account-menu").or(page.getByRole("button", { name: "Open account menu" })),
+    ).toBeVisible();
 
     // 5. Protected, server-rendered data from the fitness backend. /database
-    //    lists foods; each item is a link labelled "View food details: <name>".
+    //    lists foods; each item is a link (data-testid="food-result", or the
+    //    "View food details: <name>" aria-label as a fallback).
     await page.goto("/database");
-    await expect(page.locator('a[aria-label^="View food details:"]').first()).toBeVisible();
+    await expect(
+      page
+        .getByTestId("food-result")
+        .or(page.locator('a[aria-label^="View food details:"]'))
+        .first(),
+    ).toBeVisible();
   });
 });
