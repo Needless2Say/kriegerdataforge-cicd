@@ -21,6 +21,7 @@
 .DEFAULT_GOAL := help
 .PHONY: help lint test check-all \
         bump-patch bump-minor bump-major \
+        e2e-install e2e-up e2e-down e2e-seed-user e2e e2e-typecheck \
         codeql-db codeql-scan-security codeql-scan-quality codeql-scan-all \
         codeql-scan-security-csv codeql-scan-quality-csv codeql-scan-csv-all
 
@@ -68,6 +69,29 @@ test: ## Run Python script unit tests with coverage
 
 check-all: lint test ## Run all local checks
 	@printf "$(GREEN)All checks passed!$(NC)\n"
+
+# ── Tier 2 E2E (Playwright) ─────────────────────────────────────────────────────
+# The E2E suite drives the real ecosystem stack in a browser. See e2e/README.md.
+# Kept out of `check-all` so the fast lint+pytest gate stays quick.
+
+e2e-install: ## Install E2E deps + Playwright chromium (in e2e/)
+	cd e2e && npm ci && npx playwright install --with-deps chromium
+
+e2e-up: ## Bring the full local stack up (delegates to fitness-app-frontend)
+	@printf "$(BLUE)Bringing up the full stack (hub + auth-UI + fitness be/fe)...$(NC)\n"
+	cd ../fitness-app-frontend && $(MAKE) --no-print-directory docker-up
+
+e2e-down: ## Stop the full local stack
+	-cd ../fitness-app-frontend && $(MAKE) --no-print-directory docker-stop
+
+e2e-seed-user: ## Seed the deterministic active test user (e2e-user) in the running hub
+	docker exec kdf-api python -c "from api.auth.service import AuthDatabaseService as S; from api.auth.schemas import RegisterRequest as R; svc=S(); print('e2e-user already exists') if svc.get_user_by_username('e2e-user') else print('created id=%s' % svc.create_user(R(username='e2e-user', password='E2eTest123!', email='e2e-user@example.com'), auto_activate=True).id)"
+
+e2e-typecheck: ## Type-check the E2E suite (tsc --noEmit)
+	cd e2e && npx tsc --noEmit
+
+e2e: ## Run the Playwright E2E suite (stack must be up + user seeded)
+	cd e2e && E2E_USERNAME="$${E2E_USERNAME:-e2e-user}" E2E_PASSWORD="$${E2E_PASSWORD:-E2eTest123!}" npm test
 
 # ── Version Bumping ───────────────────────────────────────────────────────────
 # Edits VERSION (and any other version files) then prints next-step instructions.

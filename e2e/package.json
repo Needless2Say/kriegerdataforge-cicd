@@ -1,0 +1,20 @@
+{
+  "name": "kriegerdataforge-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Tier 2 full-stack Playwright E2E for the KriegerDataForge ecosystem (OIDC login journey).",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "report": "playwright show-report",
+    "typecheck": "tsc --noEmit",
+    "install:browsers": "playwright install --with-deps chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.1",
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3"
+  }
+}
