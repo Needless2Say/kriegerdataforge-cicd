@@ -73,21 +73,20 @@ docker exec kdf-api python -c "from api.auth.service import AuthDatabaseService;
 The fitness OIDC client and food catalogue are seeded by the stack's init/seed
 step; `/database` needs ≥ 1 food for the data-render assertion.
 
-## Selectors (no test-ids yet)
+## Selectors (data-testid, with fallbacks)
 
-Neither the auth-UI nor the fitness frontend ships `data-testid` hooks, so the
-spec drives by stable ids / accessible roles:
+The auth-UI and fitness frontend now ship `data-testid` hooks
+(auth-ui#38, fitness-app-frontend#305). The spec targets them via
+`getByTestId(...).or(<legacy id/role>)`, so it stays green **whether or not**
+those frontend PRs are deployed yet — no cross-repo merge-order dependency:
 
-| Step | Selector |
-|---|---|
-| hub login username / password | `#username` / `#password` |
-| hub login submit | `getByRole('button', { name: 'Sign in' })` |
-| consent approve (one-time) | `getByRole('button', { name: 'Allow' })` |
-| logged-in marker (any private page) | `button[aria-label="Open account menu"]` |
-| rendered backend data (`/database`) | `a[aria-label^="View food details:"]` |
-
-**Hardening follow-up:** add `data-testid` to the auth-UI login/consent controls
-and the fitness account menu so the suite is robust to copy/label changes.
+| Step | `data-testid` | Fallback |
+|---|---|---|
+| hub login username / password | `login-username` / `login-password` | `#username` / `#password` |
+| hub login submit | `login-submit` | `getByRole('button', { name: 'Sign in' })` |
+| consent approve (one-time) | `consent-approve` | `getByRole('button', { name: 'Allow' })` |
+| logged-in marker (any private page) | `account-menu` | `button[aria-label="Open account menu"]` |
+| rendered backend data (`/database`) | `food-result` | `a[aria-label^="View food details:"]` |
 
 ## Toward CI
 
