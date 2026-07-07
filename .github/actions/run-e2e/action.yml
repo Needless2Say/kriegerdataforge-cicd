@@ -95,6 +95,11 @@ runs:
           if [ -d "$repo" ]; then echo "present, skipping: $repo"; continue; fi
           echo "cloning $repo"
           git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/${OWNER}/${repo}.git" "$repo"
+          # Strip the credentialed remote so the App token never persists in
+          # <repo>/.git/config — a Docker `COPY . .` build context could otherwise
+          # bake it into an image layer, regressing the BuildKit --mount=type=secret
+          # hardening. The token is only needed for this one shallow clone.
+          git -C "$repo" remote set-url origin "https://github.com/${OWNER}/${repo}.git"
         done <<< "${CLONE_REPOS}"
 
     - name: Set up Python
@@ -134,13 +139,12 @@ runs:
     - name: Run the OIDC login journey
       shell: bash
       working-directory: kriegerdataforge-cicd/e2e
-      env:
-        # The deterministic user ci_stack.py seeds; the driver also writes these to
-        # e2e/.env, but set them here so the spec never skips.
-        E2E_USERNAME: e2e-user
-        E2E_PASSWORD: E2eTest123!
-      # ci_stack.py staged exactly the active journey's specs into staged-tests/, so
-      # `npm test` runs precisely those — no --grep needed.
+      # The login creds (E2E_USERNAME/PASSWORD) come from e2e/.env, which
+      # `ci_stack.py up` writes from its own LOGIN_* constants — the same values the
+      # hub seed registered, so there is a single source of truth (hardcoding them
+      # here too would silently override .env, since loadEnvFile doesn't clobber a
+      # set var, and could drift). playwright.config.ts loads e2e/.env. ci_stack.py
+      # staged exactly the active journey's specs, so `npm test` runs precisely those.
       run: npm test
 
     - name: Dump compose logs on failure

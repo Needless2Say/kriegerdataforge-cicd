@@ -11,8 +11,9 @@ Append as each PR lands; do not rewrite history. Legend: ✅ done · 🔧 in pro
 | 2 | `fitness-api` journey (backend + identity, headless OIDC) + `e2e.yml`; remove `e2e-gate.yml` | fitness-app-backend #44 | ✅ done |
 | 3 | `tiffanys-api` journey + `e2e.yml`; remove `e2e-gate.yml` | tiffanys-space-backend #36 | ✅ done |
 | 4 | `hub` journey (hub + auth-db, extensive) + `e2e.yml` (net-new) | kriegerdataforge #264 | ✅ done |
-| 5 | Delete `e2e-compose.yml` + reconcile stale refs + finish `e2e-cijob-refactor-LOG` | cicd (this PR) | 🔧 in progress |
-| 6 | Fix 3 frontend `e2e/README.md` stale `e2e-gate.yml` lines | fitness-fe / tiffanys / auth-ui | ⬜ pending |
+| 5 | Delete `e2e-compose.yml` + reconcile ALL stale refs (Makefile, `e2e/README` CI blurb + enablement table + journeys overview + `if:` template, `ops-setup-e2e` header, ADR anchors) + finish LOGs | cicd #116 | 🔧 in progress |
+| 6 | Fix 3 frontend `e2e/README.md` stale `e2e-gate.yml` lines | fitness-fe #310 / tiffanys #139 / auth-ui #43 | ✅ done (PRs open) |
+| 7 | Post-merge validation audit (6-dim adversarial) + fix findings + testing docs + CD mode | all repos | 🔧 in progress |
 
 **Each backend/hub journey was proven locally end-to-end** (real Docker stack → spec green) before its PR:
 `fitness-api` 2/2, `tiffanys-api` 2/2, `hub` 4/4 (discovery+JWKS, full auth-code+PKCE flow → access/id/refresh

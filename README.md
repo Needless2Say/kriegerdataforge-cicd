@@ -67,6 +67,24 @@ For full input/output references and available secrets for each workflow, see [d
 
 ---
 
+## End-to-end (E2E) testing
+
+cicd also hosts the ecosystem's reusable **E2E engine** — the `ci_stack.py` driver, the
+shared identity compose, and the **`run-e2e` composite action**. Each repo owns its own
+full-stack journey (an `e2e/manifest.json` + a Playwright spec, in *that* repo) and ships
+a thin `.github/workflows/e2e.yml` that `uses:` the action — cicd holds no per-repo
+content. Every repo runs its journey in one of three modes:
+
+- **CI gate** (`RUN_E2E_GATE=true`) — on every PR (a hard merge gate);
+- **CD / nightly** (`RUN_E2E_CD=true`) — on push-to-`main` + weekly, for teams that
+  **don't** want E2E on every PR;
+- **On demand** — a manual `workflow_dispatch` (always available).
+
+See **[docs/guides/E2E_TESTING.md](docs/guides/E2E_TESTING.md)** for the full model + how
+to enable it, and [e2e/README.md](e2e/README.md) for the engine + local run.
+
+---
+
 ## Security
 
 All **deployment/runtime** credentials are stored as GitHub **Environment** secrets — there are no `.env` files, no hardcoded values, and no repository-level deployment secrets. The environment gate is the enforcement point: secrets only become available after an approved reviewer allows the deployment to proceed. The only **repository-level** secrets are the ops/control-plane credentials this repo uses to *manage* the others (`CICD_PAT`, `VERCEL_MASTER_TOKEN`, and staging slots) — see Secret Rotation below.
