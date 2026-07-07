@@ -59,7 +59,9 @@ enabled by that repo's own GitHub **variable**, rather than a callable-workflow 
     workflow_dispatch:            # owner manual runs (repo write-access gates it)
   jobs:
     e2e:
-      if: vars.RUN_E2E_GATE == 'true'
+      # Auto-gate on PRs via the variable; a manual dispatch always runs (so the
+      # owner can validate on demand without flipping the hard PR gate on).
+      if: github.event_name == 'workflow_dispatch' || vars.RUN_E2E_GATE == 'true'
       runs-on: ubuntu-latest
       steps:
         - uses: actions/checkout@SHA

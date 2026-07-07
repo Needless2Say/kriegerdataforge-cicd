@@ -20,6 +20,7 @@ How-to and operational walkthroughs.
 
 - [Contributor Onboarding — kriegerdataforge-cicd](guides/CONTRIBUTOR_ONBOARDING.md)
 - [Manual Setup Guide](guides/MANUAL_SETUP.md)
+- [End-to-end (E2E) testing — CI gate, CD/nightly, or on demand](guides/E2E_TESTING.md)
 
 ## Design
 

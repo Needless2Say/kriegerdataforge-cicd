@@ -3,13 +3,13 @@
 **Status: APPROVED — owner decided 2026-07-07 (Design Y; maximum-robustness hub testing; `all` unused).**
 Implementation in progress. Live status + PR links: [`e2e-every-repo-journeys-LOG.md`](./e2e-every-repo-journeys-LOG.md).
 
-Third step of the E2E epic. [D-006](../CHANGELOG_AND_DECISION_LOG.md#d-006) relocated each journey's assets
-into its tenant repo and made the driver data-driven; [D-007](../CHANGELOG_AND_DECISION_LOG.md#d-007) turned
+Third step of the E2E epic. [D-006](../CHANGELOG_AND_DECISION_LOG.md) relocated each journey's assets
+into its tenant repo and made the driver data-driven; [D-007](../CHANGELOG_AND_DECISION_LOG.md) turned
 the gate into a per-repo CI job that `uses:` the `run-e2e` composite action (which reads the **caller's**
 `e2e/manifest.json`). This step gives **every** repo its own journey — including the two tenant backends and
 the hub, which had none.
 
-See ADR **D-008** in [`CHANGELOG_AND_DECISION_LOG.md`](../CHANGELOG_AND_DECISION_LOG.md#d-008).
+See ADR **D-008** in [`CHANGELOG_AND_DECISION_LOG.md`](../CHANGELOG_AND_DECISION_LOG.md).
 
 ---
 

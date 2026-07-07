@@ -13,8 +13,8 @@ Unit + integration tests (including the hub OIDC E2E in
 > (`make e2e-up`, reuses each repo's `.env.local` + bind-mounts) and the
 > **self-contained** stack (`make e2e-ci`, builds every image from source with
 > generated secrets, no `.env.local`). The self-contained stack also runs in
-> GitHub Actions via the owner-dispatched `e2e-compose` workflow — see
-> [CI (GitHub Actions)](#ci-github-actions).
+> GitHub Actions via each repo's own `e2e.yml` job (the `run-e2e` composite
+> action) — see [CI (GitHub Actions)](#ci-github-actions).
 
 ## The journeys under test
 
@@ -39,18 +39,35 @@ tiffanys FE (:3001)  gated route "/shop"   (OIDC-only; default-deny proxy)
 A third journey, **`auth`** (`kriegerdataforge-auth-ui/e2e/tests/auth.spec.ts`
 `@auth`), tests the shared identity layer at its own level — auth-UI + hub + db, a
 **synthetic** OIDC client and **no tenant app** (login → consent → an authorization
-code, plus a wrong-password case). The hub's hub+db auth system is separately
-covered by its real-DB integration tests.
+code, plus a wrong-password case).
 
-**Data-driven, tenant-agnostic (ADR D-006).** Each journey is declared by an
-`e2e/manifest.json` the driver *discovers* in its **own tenant repo**
-(`fitness-app-frontend/e2e/`, `tiffanys-space/e2e/`, `kriegerdataforge-auth-ui/e2e/`) —
-nothing tenant-specific lives in cicd, so onboarding a tenant never edits this repo.
-`ci_stack.py up --journey fitness` (or `tiffanys`, `auth`,
-`fitness,tiffanys`, or `all`) reads that manifest, merges the shared compose with
-the journey's fragment, brings up only what it needs, and **stages that journey's
-spec** into `staged-tests/` so `npm test` runs exactly it — no `--grep`. See
-[`docs/design/e2e-test-decoupling.md`](../docs/design/e2e-test-decoupling.md).
+**Per-repo journeys (ADR D-008).** Every repo owns a *distinct* journey scoped to its
+dependency subgraph — the repo plus what it depends on downstream, never its upstream
+consumers. Beyond the three browser journeys above, three **headless** journeys
+(`app: false`, opt-in) exercise the backends + hub directly: the spec itself mints a
+**real** hub token via a headless OIDC login (no frontend BFF), then calls the target's
+API:
+
+```
+hub          (kriegerdataforge)        hub + auth-db — OIDC discovery/JWKS + full
+                                        auth-code+PKCE flow → access/id/refresh tokens,
+                                        userinfo, refresh, and negatives
+fitness-api  (fitness-app-backend)     fitness backend + identity, no frontend →
+                                        protected endpoints serve the seeded catalogue
+tiffanys-api (tiffanys-space-backend)  tiffanys backend + identity, no frontend → a
+                                        protected route (/cart) served WITH the token,
+                                        rejected WITHOUT it
+```
+
+**Data-driven, tenant-agnostic (ADR D-006 / D-008).** Each journey is declared by an
+`e2e/manifest.json` the driver *discovers* in its **own repo** — nothing repo-specific
+lives in cicd, so onboarding a repo never edits this one.
+`ci_stack.py up --journey fitness` (or `tiffanys`, `auth`, `hub`, `fitness-api`,
+`tiffanys-api`, a comma-list, or `all` for the app browser journeys) reads that
+manifest, merges the shared compose with the journey's fragment, brings up only what it
+needs, and **stages that journey's spec** into `staged-tests/` so `npm test` runs
+exactly it — no `--grep`. See
+[`docs/design/e2e-every-repo-journeys.md`](../docs/design/e2e-every-repo-journeys.md).
 
 ## Prerequisites
 
@@ -173,56 +190,74 @@ caller repo is already checked out by the job) → `python e2e/ci_stack.py up --
 <j>` → `npm test` → uploads the report → always tears down. Secrets are auto-masked;
 CI gets headroom via `E2E_BUILD_TIMEOUT` / `E2E_WAIT_TIMEOUT`.
 
-> `e2e-compose.yml` (the old `workflow_call` gate) is **deprecated** and kept only
-> until every tenant has switched to the action; then it is deleted.
+## Enabling E2E in a repo — CI gate, CD/nightly, or on demand
 
-## Enabling the E2E gate in a tenant repo
+Each E2E-journey repo ships a **dormant** CI job, `.github/workflows/e2e.yml`, that
+`uses:` the `run-e2e` action and passes the `journey` the repo owns:
 
-Each E2E-journey repo ships a **dormant** CI job, `.github/workflows/e2e.yml`, gated
-by that repo's own `RUN_E2E_GATE` variable. It passes the `journey` the repo owns:
-
-| Repo | `journey` | Why |
+| Repo | `journey` | What it exercises |
 |---|---|---|
-| `fitness-app-frontend` | `fitness` | fitness tenant |
-| `tiffanys-space` | `tiffanys` | tiffanys tenant |
+| `fitness-app-frontend` | `fitness` | fitness tenant — full browser journey (login → `/database`) |
+| `fitness-app-backend` | `fitness-api` | fitness backend + identity, no frontend — headless OIDC → protected API serves seeded data |
+| `tiffanys-space` | `tiffanys` | tiffanys tenant — full browser journey (login → `/shop`) |
+| `tiffanys-space-backend` | `tiffanys-api` | tiffanys backend + identity, no frontend — headless OIDC → protected `/cart` served with the token, rejected without |
 | `kriegerdataforge-auth-ui` | `auth` | shared identity layer (hosted login/consent + hub + db), a synthetic client, no tenant app |
-| `kriegerdataforge` (hub) | — | **no docker gate** — its real-DB integration tests (`test_oidc_e2e_db.py`, `test_auth_lifecycle_db.py`) already gate hub+db auth |
+| `kriegerdataforge` (hub) | `hub` | shared identity core — OIDC discovery/JWKS + full auth-code+PKCE flow + userinfo + refresh + negatives, vs. the built image + real DB |
+
+### Three run modes (two variables)
+
+The job stays dormant until you opt into a mode. It reacts to two repo **variables**
+(Settings → Secrets and variables → Actions → Variables):
+
+| Mode | Set | When E2E runs | Use it when |
+|---|---|---|---|
+| **CI gate** | `RUN_E2E_GATE = true` | every PR to `main` | you want E2E to **block** merges (hard per-PR gate) |
+| **CD / nightly** | `RUN_E2E_CD = true` | on **push to `main`** (post-merge) + **weekly** | you **don't** want E2E on every PR, but want it before/after deploy + on a schedule |
+| **On demand** | *(neither)* | only a manual **`workflow_dispatch`** | you want to run it yourself, ad hoc |
+
+A manual `workflow_dispatch` **always** runs, regardless of the variables (repo
+write-access is the gate). The two variables are independent — set both for a per-PR
+gate *and* a nightly safety net, or just `RUN_E2E_CD` to keep PRs fast.
 
 ```yaml
-# <tenant repo>/.github/workflows/e2e.yml
+# <repo>/.github/workflows/e2e.yml
 on:
-  pull_request: { branches: [main] }
-  workflow_dispatch:                 # owner manual runs (repo write-access gates it)
+  pull_request: { branches: [main] }   # CI gate  — opt in with RUN_E2E_GATE
+  push: { branches: [main] }           # CD       — opt in with RUN_E2E_CD
+  schedule: [{ cron: "0 6 * * 1" }]    # weekly   — opt in with RUN_E2E_CD
+  workflow_dispatch:                   # manual   — always runs
+permissions: { contents: read }
 jobs:
   e2e:
-    if: vars.RUN_E2E_GATE == 'true'  # dormant until you flip this
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && vars.RUN_E2E_GATE == 'true') ||
+      ((github.event_name == 'push' || github.event_name == 'schedule') && vars.RUN_E2E_CD == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@<sha>
         with: { path: ${{ github.event.repository.name }} }   # sibling layout
       - uses: Needless2Say/kriegerdataforge-cicd/.github/actions/run-e2e@main
         with:
-          journey: fitness
+          journey: fitness   # ← this repo's journey
           app-id: ${{ secrets.KDF_APP_ID }}
           app-private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
 ```
 
-While `RUN_E2E_GATE` is unset the job is **skipped** — a near-instant no-op. To
-**turn it on** in a repo (the `ops-setup-e2e` issue flow does 1–2 for you):
-
-1. **Variable** `RUN_E2E_GATE = true` — activates the job.
-2. **Secrets** `KDF_APP_ID`, `KDF_APP_PRIVATE_KEY` — the action mints its App token
-   from these (they live only on the cicd repo today; an org move would make them
-   org-level and skip this per-repo step).
-3. Add the resulting check (**E2E / …**) to **branch protection** → *Require status
-   checks to pass*.
+**Secrets (needed for any mode that actually runs):** `KDF_APP_ID`,
+`KDF_APP_PRIVATE_KEY` — the action mints its App token from these (they live only on
+the cicd repo today; an org move would make them org-level and skip this per-repo
+step). The `ops-setup-e2e` issue flow copies the secrets and sets `RUN_E2E_GATE=false`;
+set `RUN_E2E_GATE`/`RUN_E2E_CD=true` when ready. For the CI-gate mode, also add the
+resulting **E2E** check to branch protection → *Require status checks to pass*.
 
 > **Caveat — cross-repo lockstep.** A PR that must change two repos together (an
-> OIDC-contract change in the hub *and* the frontend, an SDK bump) can't go green
-> in either repo's gate — each tests against the other's old `main`. So the
-> recommended posture is **merge-to-main + nightly** rather than a hard per-PR
-> gate; adjust the job's `on:` accordingly, keeping the fast in-repo contract
-> tests as the per-PR gate.
+> OIDC-contract change in the hub *and* the frontend, an SDK bump) can't go green in
+> either repo's per-PR gate — each tests against the other's old `main`. So for the
+> tightly-coupled repos the recommended posture is the **CD / nightly** mode
+> (`RUN_E2E_CD`) rather than a hard per-PR gate, keeping the fast in-repo contract
+> tests as the per-PR check.
 
 No org move or public repos are required to run it manually — same-account private
 repos are clonable with the App token.
