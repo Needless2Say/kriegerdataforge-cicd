@@ -6,17 +6,23 @@ each PR lands; do not rewrite history. Legend: ✅ done · 🔧 in progress · �
 ## Status grid
 
 | # | Scope | Repo / PR | Status |
-|---|---|---|---|
-| 1 | Plan + log + ADR D-007 + composite action `run-e2e` + deprecate `e2e-compose.yml` + docs | cicd (this PR) | 🔧 in progress |
-| 2a | `e2e-gate.yml` → thin `e2e.yml` + slim manifest | fitness-app-frontend | ⬜ pending |
-| 2b | `e2e-gate.yml` → thin `e2e.yml` + slim manifest | tiffanys-space | ⬜ pending |
-| 2c | `e2e-gate.yml` → thin `e2e.yml` + slim manifest | kriegerdataforge-auth-ui | ⬜ pending |
-| 3 | Delete `e2e-compose.yml` (once no caller references it) | cicd | ⬜ pending |
+| --- | --- | --- | --- |
+| 1 | Plan + log + ADR D-007 + composite action `run-e2e` + deprecate `e2e-compose.yml` + docs | cicd #114 | ✅ done |
+| 2a | `e2e-gate.yml` → thin `e2e.yml` + slim manifest | fitness-app-frontend #309 | ✅ done |
+| 2b | `e2e-gate.yml` → thin `e2e.yml` + slim manifest | tiffanys-space #138 | ✅ done |
+| 2c | `e2e-gate.yml` → thin `e2e.yml` + slim manifest | kriegerdataforge-auth-ui #42 | ✅ done |
+| 3 | Delete `e2e-compose.yml` (once no caller references it) | cicd | ⬜ deferred → D-008 step 5 |
 | 4 | Validate by first owner dispatch of a tenant `e2e.yml` | (owner) | ⬜ pending |
 
 Merge order: 1 (cicd, additive — keeps `e2e-compose.yml` so the dormant callers still resolve) →
-2a/2b/2c (any order) → 3 (delete the now-unreferenced workflow). Nothing breaks in between: the old
-`e2e-gate.yml` callers stay dormant (skipped) and still point at a workflow that still exists until step 3.
+2a/2b/2c (any order) → 3 (delete the now-unreferenced workflow).
+
+**Update (2026-07-07):** step 3 is **deferred into D-008**. The sweep for the D-007 cleanup found that the
+two tenant **backends** (`fitness-app-backend`, `tiffanys-space-backend`) *also* have dormant `e2e-gate.yml`
+callers of `e2e-compose.yml` — so deleting `e2e-compose.yml` now must wait until they (and the hub) are moved
+onto real `e2e.yml` jobs under [D-008](./e2e-every-repo-journeys.md) (its step 5 = this step 3). Nothing
+breaks meanwhile: every `e2e-gate.yml` caller stays dormant (skipped) and still points at a workflow that
+still exists.
 
 ## Decisions locked (owner, 2026-07-07)
 

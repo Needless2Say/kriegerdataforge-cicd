@@ -333,3 +333,66 @@ names. `KDF_APP_ID`/`KDF_APP_PRIVATE_KEY` must exist as repo secrets (the `ops-s
 them); its `USE_GITHUB_APP` variable becomes vestigial for E2E (the action always uses the App token) — a
 minor future cleanup. Owner manual runs move to `workflow_dispatch` on each tenant `e2e.yml` (repo
 write-access gates them; the old `_authorize-owner` gate was only needed because cicd is public).
+
+---
+
+## D-008 — Every repo owns a distinct E2E journey scoped to its dependency subgraph
+
+- **Date:** 2026-07-07
+- **Status:** Accepted
+- **Tier / scope:** Epic · repos: **all** ecosystem repos gain an `e2e/` journey — the two tenant
+  backends (`fitness-app-backend`, `tiffanys-space-backend`) and the hub (`kriegerdataforge`) join the
+  three that already have one (`fitness-app-frontend`, `tiffanys-space`, `kriegerdataforge-auth-ui`).
+- **Design doc:** [`docs/design/e2e-every-repo-journeys.md`](design/e2e-every-repo-journeys.md) · **Log:**
+  [`docs/design/e2e-every-repo-journeys-LOG.md`](design/e2e-every-repo-journeys-LOG.md) · **Builds on**
+  D-006 (decoupling) + D-007 (composite action; the action already reads the *caller's* manifest, which is
+  what makes this possible with no engine change).
+
+**Context.** D-007 made each repo run the journey defined by its **own** `e2e/manifest.json`. Only the
+three journey-owning repos had one. The owner wants **every** repo — including the two tenant backends and
+the hub — to have a real full-stack E2E that proves *that repo's* robustness, not just the frontends. The
+owner specified, per repo, the exact set of downstream services its journey must stand up.
+
+**Decision.** Every repo owns a **distinct** journey scoped to its **dependency subgraph**: the repo **plus
+everything downstream it depends on** (toward the auth DB), and **never its upstream consumers**. Each repo
+owns its own `manifest.json` + Playwright spec + (where needed) compose fragment. This is **not** duplication
+of D-006's single-ownership rule — each journey is a genuinely *different* stack + assertion, so no two repos
+define the same journey:
+
+| Repo | Stack the journey brings up | Assertion |
+| --- | --- | --- |
+| `kriegerdataforge` (hub) | hub + auth-db | OIDC/auth endpoints against the built image + real DB — extensive |
+| `kriegerdataforge-auth-ui` | auth-ui + hub + auth-db | `auth` browser journey (login → consent → code) — exists |
+| `fitness-app-backend` | fitness-be + fitness-db + auth-ui + hub + auth-db | headless OIDC login → assert backend API (no frontend) |
+| `fitness-app-frontend` | + fitness frontend | full browser journey (login → `/database`) — exists |
+| `tiffanys-space-backend` | tiffanys-be + tiffanys-db + identity | headless OIDC login → assert backend API |
+| `tiffanys-space` | + tiffanys frontend | full browser journey — exists |
+
+The backend/hub specs **reuse the existing Playwright harness**: they perform a headless OIDC login through
+auth-ui to mint a **real** hub token, then use Playwright's API-request context to hit the backend (or the
+hub directly). **Zero changes to `ci_stack.py` or the `run-e2e` action** — it already reads the caller's
+manifest and runs the staged spec. The new journeys are `app: false` (opt-in); `journey: all` is **not
+used** — each repo runs only its own journey.
+
+**Downstream-only is the key property.** A backend PR's gate stands up only the *stable identity layer* it
+depends on, **not** its frontend — so the gate never depends on the frontend's `main` being in lockstep.
+This is the deliberate cross-repo-lockstep escape hatch: gates reach only downstream, never up.
+
+**Alternatives considered.**
+
+- *Backends/hub re-run their tenant's **browser** journey via a shared reference (a `journey-repo` input on
+  the action)* — rejected: it brings up the **consumer** (the frontend) for a backend PR, re-coupling the
+  gate to the frontend's `main`; contradicts the owner's downstream-only dependency graph. Also needless —
+  each repo owning its own (distinct) manifest is simpler and needs no new action input.
+- *Cover backends/hub with pytest integration tests only (no stack E2E)* — rejected: the owner wants
+  full-stack proof per repo (built Docker image + real network + real DB), which in-process integration
+  tests (`test_oidc_e2e_db.py`, etc.) cannot give.
+
+**Trade-offs.** The backend + hub specs are **net-new** tests (headless OIDC + API assertions) and overlap
+somewhat with existing in-process integration tests; accepted for the built-image / real-network coverage
+and the per-repo-ownership the owner wants. Each is proven locally then owner-merged, one repo at a time.
+
+**Consequences.** The `e2e-compose.yml` deletion (D-007's last step) now waits until **all** repos are on
+the action — the two backend `e2e-gate.yml` callers are replaced by real `e2e.yml` jobs first, so nothing
+dangles. Onboarding any future repo = its own `e2e/` subgraph journey + a thin `e2e.yml` — still zero cicd
+edits.
