@@ -40,3 +40,6 @@ e2e/playwright-report/
 e2e/blob-report/
 e2e/playwright/.cache/
 e2e/.last-run.json
+# Self-contained-stack secrets generated per-run by ci_stack.py (RSA keypair,
+# OIDC client creds, DB password) — never commit.
+e2e/.e2e-ci.json

@@ -9,9 +9,12 @@ Unit + integration tests (including the hub OIDC E2E in
 `kriegerdataforge/integration_tests/test_oidc_e2e_db.py`) cover the OIDC
 *protocol*; this covers the *journey*.
 
-> **Status:** local-first. This is the proven local harness + one happy-path
-> spec. The reusable cross-repo CI job (`e2e-compose`) is the next increment —
-> see [Toward CI](#toward-ci).
+> **Status:** two ways to bring the stack up — the **delegated** local stack
+> (`make e2e-up`, reuses each repo's `.env.local` + bind-mounts) and the
+> **self-contained** stack (`make e2e-ci`, builds every image from source with
+> generated secrets, no `.env.local`). The self-contained stack is the CI
+> foundation; the reusable cross-repo GitHub Actions job (`e2e-compose`) that
+> wraps it is the next increment — see [Toward CI](#toward-ci).
 
 ## The journey under test
 
@@ -73,6 +76,42 @@ docker exec kdf-api python -c "from api.auth.service import AuthDatabaseService;
 The fitness OIDC client and food catalogue are seeded by the stack's init/seed
 step; `/database` needs ≥ 1 food for the data-render assertion.
 
+## Self-contained CI stack (no local checkout state)
+
+`make e2e-up` above delegates to `fitness-app-frontend`'s `make docker-up`, which
+bind-mounts each repo's source and reads secrets from each repo's gitignored
+`.env.local`. Great for local iteration, but it **can't run in CI** — a fresh
+runner has no `.env.local` and nothing to bind-mount.
+
+`docker-compose.e2e.yml` + `ci_stack.py` are the hermetic sibling. `ci_stack.py`:
+
+- generates a throwaway RS256 keypair + fixed-per-run OIDC `client_id`/`secret` +
+  session secret + DB password (persisted to `e2e/.e2e-ci.json`, gitignored) and
+  threads them through the compose so the hub, the frontend, and the seed all
+  agree — no capture-and-inject dance;
+- builds every service from source (the `dev` image targets, source COPY'd in,
+  **no** bind-mounts), brings them up on their own network with healthcheck
+  gating, migrates **both** databases to head, then seeds the active login user +
+  the OIDC client (hub) and the food catalogue (fitness);
+- sources `GH_PACKAGES_PAT` from the environment (the CI secret), falling back to
+  `fitness-app-backend/.env.local` locally so you needn't export it by hand.
+
+```bash
+make e2e-ci          # build + up + seed → run Playwright → tear down (one shot)
+# …or keep the stack up to iterate:
+make e2e-ci-up       # build + up + migrate + seed   (leaves it running)
+make e2e             # run the suite against it
+make e2e-ci-logs SERVICE=fitness-app-nextjs   # debug a service
+make e2e-ci-down     # remove containers, volumes, network
+```
+
+The generated keys are ephemeral and never touch your real dev keypair. The
+seeded login user is the same deterministic `e2e-user` / `E2eTest123!` the suite
+defaults to, so no `.env` wiring is needed. It uses the `dev` image targets on
+purpose — the production `runner`/standalone build breaks a plain-http E2E
+(Secure cookies get dropped, CSP upgrades http→https, `NEXT_PUBLIC_*` bake at
+build). MinIO is omitted (not on the login→`/database` path).
+
 ## Selectors (data-testid, with fallbacks)
 
 The auth-UI and fitness frontend now ship `data-testid` hooks
@@ -90,15 +129,15 @@ those frontend PRs are deployed yet — no cross-repo merge-order dependency:
 
 ## Toward CI
 
-The whole-stack compose is currently a loose workspace-root
-`docker-compose.yml` referencing sibling dirs by relative path — not committed to
-any repo. The CI increment will:
+Step 1 — a CI-usable `e2e/docker-compose.e2e.yml` that builds from source with no
+bind-mounts and takes secrets from the environment — is **done** (see
+[Self-contained CI stack](#self-contained-ci-stack-no-local-checkout-state)
+above). The remaining increment is the reusable GitHub Actions job that runs it:
 
-1. Commit a CI-usable `e2e/docker-compose.e2e.yml` (builds images, no source
-   bind-mounts, reads `POSTGRES_PASSWORD` + `GH_PACKAGES_PAT` from CI env).
-2. Add a reusable `.github/workflows/e2e-compose.yml` that `actions/checkout`s
-   the sibling private repos (via `CICD_PAT`), brings the stack up, seeds, runs
-   Playwright, and uploads the HTML report + traces as artifacts.
+- `.github/workflows/e2e-compose.yml` — `actions/checkout`s the sibling private
+  repos (via `CICD_PAT`), runs `python e2e/ci_stack.py up`, installs Playwright,
+  runs the suite, and uploads the HTML report + traces as artifacts, always
+  tearing the stack down.
 
 No org move or public repos are required — same-account private repos are
 clonable with a token.
