@@ -1,0 +1,142 @@
+name: E2E · Full-stack OIDC journey (compose)
+
+# Runs the Tier-2 Playwright OIDC login journey against the REAL ecosystem stack,
+# built from source by e2e/ci_stack.py + e2e/docker-compose.e2e.yml.
+#
+# Manual only (workflow_dispatch): it checks out the four sibling PRIVATE repos
+# with CICD_PAT and builds four images, so it is heavy and owner-gated — the same
+# fail-closed pattern every CICD_PAT workflow uses (_authorize-owner.yml).
+#
+# The stack + driver are proven end-to-end LOCALLY (make e2e-ci: build -> up ->
+# migrate both DBs -> seed -> Playwright ~13s). This workflow wraps that same
+# driver on a runner; the cross-repo checkout + Actions env is the leg that can
+# only be validated by running it here.
+#
+# Layout: every repo is checked out as a SIBLING under $GITHUB_WORKSPACE so the
+# compose build contexts (../../<repo>, relative to e2e/) resolve exactly as they
+# do in a local workspace.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-compose-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Fail closed: only the repo owner may run a CICD_PAT workflow (this repo is public).
+  authorize:
+    uses: ./.github/workflows/_authorize-owner.yml
+
+  e2e:
+    name: Full-stack OIDC E2E
+    needs: authorize
+    if: needs.authorize.outputs.authorized == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      # Registered secrets are auto-masked in logs. GH_PACKAGES_PAT lets the image
+      # build install the private SDK; CICD_PAT (used inline on the sibling
+      # checkouts) clones the private repos.
+      GH_PACKAGES_PAT: ${{ secrets.GH_PACKAGES_PAT }}
+      # CI headroom over the driver's local defaults (slower cold builds + compiles).
+      E2E_BUILD_TIMEOUT: "2400"
+      E2E_WAIT_TIMEOUT: "600"
+      # Playwright login creds — the deterministic user ci_stack.py seeds.
+      E2E_USERNAME: e2e-user
+      E2E_PASSWORD: E2eTest123!
+
+    steps:
+      - name: Free disk space for four image builds
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          df -h /
+
+      - name: Checkout cicd (this repo)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: kriegerdataforge-cicd
+
+      - name: Checkout hub (kriegerdataforge)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Needless2Say/kriegerdataforge
+          path: kriegerdataforge
+          token: ${{ secrets.CICD_PAT }}
+
+      - name: Checkout auth-UI (kriegerdataforge-auth-ui)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Needless2Say/kriegerdataforge-auth-ui
+          path: kriegerdataforge-auth-ui
+          token: ${{ secrets.CICD_PAT }}
+
+      - name: Checkout fitness backend
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Needless2Say/fitness-app-backend
+          path: fitness-app-backend
+          token: ${{ secrets.CICD_PAT }}
+
+      - name: Checkout fitness frontend
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Needless2Say/fitness-app-frontend
+          path: fitness-app-frontend
+          token: ${{ secrets.CICD_PAT }}
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+
+      # Use the proven keygen path (the driver falls back to openssl, but this
+      # matches what was validated locally).
+      - name: Install driver keygen dep
+        run: pip install cryptography
+
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: "22"
+
+      - name: Install Playwright (chromium)
+        working-directory: kriegerdataforge-cicd/e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Build + up + migrate + seed the stack
+        working-directory: kriegerdataforge-cicd
+        run: python e2e/ci_stack.py up
+
+      - name: Run the OIDC login journey
+        working-directory: kriegerdataforge-cicd/e2e
+        run: npm test
+
+      - name: Dump compose logs on failure
+        if: failure()
+        working-directory: kriegerdataforge-cicd
+        run: python e2e/ci_stack.py logs
+
+      - name: Upload Playwright report + traces
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: playwright-report
+          path: |
+            kriegerdataforge-cicd/e2e/playwright-report/
+            kriegerdataforge-cicd/e2e/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Tear down the stack
+        if: always()
+        working-directory: kriegerdataforge-cicd
+        run: python e2e/ci_stack.py down
