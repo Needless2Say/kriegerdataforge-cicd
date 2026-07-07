@@ -130,18 +130,56 @@ those frontend PRs are deployed yet — no cross-repo merge-order dependency:
 ## CI (GitHub Actions)
 
 `.github/workflows/e2e-compose.yml` runs this exact self-contained stack on a
-runner. It is **`workflow_dispatch` only** (Actions tab → *E2E · Full-stack OIDC
-journey* → *Run workflow*) and **owner-gated** (`_authorize-owner.yml`, the same
-fail-closed gate every `CICD_PAT` workflow uses) — it checks out the four sibling
-**private** repos with `CICD_PAT` and builds four images, so it is heavy and not
-run on every PR.
+runner, two ways:
 
-What it does: checks out all five repos as siblings under `$GITHUB_WORKSPACE`
-(so the `../../<repo>` build contexts resolve), then `python e2e/ci_stack.py up`
-→ `npm test` → uploads the HTML report + traces as an artifact → always tears the
-stack down. `GH_PACKAGES_PAT` (private-SDK build) and `CICD_PAT` (private-repo
-checkout) come from repo secrets and are auto-masked in logs. CI gets extra
-build/wait headroom via `E2E_BUILD_TIMEOUT` / `E2E_WAIT_TIMEOUT`.
+- **`workflow_dispatch`** — manual, **owner-gated** (`_authorize-owner.yml`).
+  Actions tab → *E2E · Full-stack OIDC journey* → *Run workflow*. Proven green
+  end-to-end (~4 min).
+- **`workflow_call`** — the app repos call it as a **merge gate** (see below).
 
-No org move or public repos are required — same-account private repos are
-clonable with a token.
+What it does: mints a short-lived GitHub App token (`contents:read`, scoped to the
+four siblings + the SDK repo), checks out all five repos as siblings under
+`$GITHUB_WORKSPACE` (so the `../../<repo>` build contexts resolve), then
+`python e2e/ci_stack.py up` → `npm test` → uploads the HTML report + traces →
+always tears the stack down. Secrets (`KDF_APP_ID` / `KDF_APP_PRIVATE_KEY`) are
+auto-masked; CI gets build/wait headroom via `E2E_BUILD_TIMEOUT` / `E2E_WAIT_TIMEOUT`.
+
+## Promoting the E2E to a merge gate
+
+Each fitness-journey repo (`kriegerdataforge`, `kriegerdataforge-auth-ui`,
+`fitness-app-backend`, `fitness-app-frontend`) ships a **dormant** caller
+workflow, `.github/workflows/e2e-gate.yml`:
+
+```yaml
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  e2e:
+    if: vars.RUN_E2E_GATE == 'true'   # dormant until you flip this
+    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/e2e-compose.yml@main
+    secrets: inherit
+```
+
+While `RUN_E2E_GATE` is unset the job is **skipped** — a near-instant no-op on each
+PR, gating nothing. To **turn it on** in a repo (Settings → Secrets and variables →
+Actions, and Settings → Branches):
+
+1. **Variable** `RUN_E2E_GATE = true` — activates the caller.
+2. **Variable** `USE_GITHUB_APP = true` + **secrets** `KDF_APP_ID`,
+   `KDF_APP_PRIVATE_KEY` — the reusable workflow mints its App token from these
+   (they live only on the cicd repo today; an org move would make them org-level
+   and skip this per-repo step).
+3. Add the resulting check (**E2E merge gate / …**) to **branch protection** →
+   *Require status checks to pass*.
+
+> **Caveat — cross-repo lockstep.** A PR that must change two repos together (an
+> OIDC-contract change in the hub *and* the frontend, an SDK bump) can't go green
+> in either repo's gate — each tests against the other's old `main`. So the
+> recommended posture is **merge-to-main + nightly** rather than a hard per-PR
+> gate; adjust the caller's `on:` accordingly, keeping the fast in-repo contract
+> tests as the per-PR gate. Only tiffanys is excluded — this journey is the
+> *fitness* tenant and wouldn't validate a tiffanys change.
+
+No org move or public repos are required to run it manually — same-account private
+repos are clonable with the App token.

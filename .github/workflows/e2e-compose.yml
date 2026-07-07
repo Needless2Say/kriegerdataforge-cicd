@@ -3,14 +3,17 @@ name: E2E · Full-stack OIDC journey (compose)
 # Runs the Tier-2 Playwright OIDC login journey against the REAL ecosystem stack,
 # built from source by e2e/ci_stack.py + e2e/docker-compose.e2e.yml.
 #
-# Manual only (workflow_dispatch): it checks out the four sibling PRIVATE repos
-# with CICD_PAT and builds four images, so it is heavy and owner-gated — the same
-# fail-closed pattern every CICD_PAT workflow uses (_authorize-owner.yml).
+# Two ways to run:
+#   * workflow_dispatch — manual, OWNER-GATED (it checks out four sibling PRIVATE
+#     repos and mints an App token, so it is heavy + privileged; same fail-closed
+#     pattern every App/CICD_PAT workflow uses via _authorize-owner.yml).
+#   * workflow_call — the app repos call this as a (dormant) PR merge gate; the
+#     owner-gate is skipped because the caller repo controls who can run its PRs.
+#     See e2e/README.md → "Promoting the E2E to a merge gate" for how to enable.
 #
 # The stack + driver are proven end-to-end LOCALLY (make e2e-ci: build -> up ->
-# migrate both DBs -> seed -> Playwright ~13s). This workflow wraps that same
-# driver on a runner; the cross-repo checkout + Actions env is the leg that can
-# only be validated by running it here.
+# migrate both DBs -> seed -> Playwright ~13s) and GREEN on a runner (first
+# owner dispatch). It wraps that same driver.
 #
 # Layout: every repo is checked out as a SIBLING under $GITHUB_WORKSPACE so the
 # compose build contexts (../../<repo>, relative to e2e/) resolve exactly as they
@@ -18,6 +21,9 @@ name: E2E · Full-stack OIDC journey (compose)
 
 on:
   workflow_dispatch:
+  # Reusable: app repos call this as a (dormant) PR merge gate. Callers pass
+  # their secrets with `secrets: inherit` (needs KDF_APP_ID/KDF_APP_PRIVATE_KEY).
+  workflow_call:
 
 permissions:
   contents: read
@@ -27,14 +33,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Fail closed: only the repo owner may run a CICD_PAT workflow (this repo is public).
+  # Fail closed on MANUAL runs: only the repo owner may dispatch this
+  # App-token/CICD_PAT workflow (this repo is public). A workflow_call from a
+  # trusted caller repo (the merge gate) skips this gate — that repo's own
+  # branch-protection controls who can open PRs that trigger it.
   authorize:
+    if: github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/_authorize-owner.yml
 
   e2e:
     name: Full-stack OIDC E2E
     needs: authorize
-    if: needs.authorize.outputs.authorized == 'true'
+    # Run when called as a reusable gate, OR when the owner-gate passed on dispatch.
+    # always() lets this evaluate even though `authorize` is skipped on a call.
+    if: >-
+      always() &&
+      (github.event_name == 'workflow_call' ||
+       (needs.authorize.result == 'success' && needs.authorize.outputs.authorized == 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
