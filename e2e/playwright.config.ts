@@ -11,15 +11,21 @@ try {
 /**
  * Tier 2 full-stack E2E config.
  *
- * The system under test is the real ecosystem stack brought up via
- * `make docker-up` (fitness frontend :3000, hub auth-UI :3002, hub API :8000,
- * fitness backend :8001, + Postgres). Playwright drives a browser across those
- * origins — there is no `webServer` here; the stack is external and long-lived.
+ * The system under test is the real ecosystem stack brought up externally (the
+ * self-contained `ci_stack.py up`, or the delegated `make docker-up`). Playwright
+ * drives a browser across the origins — there is no `webServer` here; the stack
+ * is external and long-lived.
+ *
+ * testDir is `./staged-tests` (gitignored): the driver (ci_stack.py) STAGES the
+ * active journeys' specs there so `npm test` runs exactly the journeys that are
+ * up — no `--grep` needed. Each journey's spec is OWNED by its tenant repo
+ * (transitionally e2e/tenants/<j>/tests/); the driver copies it in per run.
+ * See docs/design/e2e-test-decoupling.md (ADR D-006).
  */
 const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:3000";
 
 export default defineConfig({
-  testDir: "./tests",
+  testDir: "./staged-tests",
   // The OIDC journey mutates shared IdP session + consent state, so keep it serial.
   fullyParallel: false,
   workers: 1,

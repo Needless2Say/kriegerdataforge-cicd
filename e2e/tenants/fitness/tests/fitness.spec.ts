@@ -15,8 +15,9 @@ import { test, expect } from "@playwright/test";
  * (including the hub OIDC E2E in kriegerdataforge/integration_tests) cover the
  * protocol; this covers the *journey*.
  *
- * Requires the full stack up (`make e2e-up` / `make docker-up`) and a seeded,
- * active user — see e2e/README.md. Skips cleanly if credentials are unset.
+ * Runs against the self-contained stack via `ci_stack.py up --journey fitness`
+ * (the driver stages this spec + seeds an active user). Skips cleanly if
+ * credentials are unset.
  */
 
 const AUTH_UI_URL = process.env.E2E_AUTH_UI_URL ?? "http://localhost:3002";

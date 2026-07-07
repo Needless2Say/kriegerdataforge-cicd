@@ -40,6 +40,9 @@ e2e/playwright-report/
 e2e/blob-report/
 e2e/playwright/.cache/
 e2e/.last-run.json
+# staged-tests/ is the Playwright testDir populated per-run by ci_stack.py from
+# each journey's tenant-owned spec — build artifact, never committed.
+e2e/staged-tests/
 # Self-contained-stack secrets generated per-run by ci_stack.py (RSA keypair,
 # OIDC client creds, DB password) — never commit.
 e2e/.e2e-ci.json

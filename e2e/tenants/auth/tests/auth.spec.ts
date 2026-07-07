@@ -1,6 +1,5 @@
 import { test, expect } from "@playwright/test";
 import crypto from "node:crypto";
-import { readFileSync } from "node:fs";
 
 /**
  * Tier 2: the SHARED IDENTITY-layer journey — auth-UI + hub + db, with NO tenant
@@ -10,27 +9,19 @@ import { readFileSync } from "node:fs";
  * is separately covered by its real-DB integration tests
  * (kriegerdataforge/integration_tests/test_oidc_e2e_db.py + test_auth_lifecycle_db.py).
  *
- * Requires `ci_stack.py up --tenants auth` (auth-UI + hub + db + the synthetic
- * client seeded). Skips cleanly if creds are unset.
+ * Requires `ci_stack.py up --journey auth` (auth-UI + hub + db + the synthetic
+ * client seeded; the driver writes E2E_AUTH_CLIENT_ID into e2e/.env). Skips
+ * cleanly if creds are unset — this spec reads only the environment, so it stays
+ * portable when it moves into the auth-UI repo (Phase 2).
  */
 
 const AUTH_UI_URL = process.env.E2E_AUTH_UI_URL ?? "http://localhost:3002";
 const REDIRECT = process.env.E2E_AUTH_REDIRECT_URI ?? "http://localhost:9999/callback";
 const USERNAME = process.env.E2E_USERNAME ?? "";
 const PASSWORD = process.env.E2E_PASSWORD ?? "";
-
-// The synthetic client id is generated per run; prefer the env, else read the
-// driver's gitignored state file (self-contained runs don't export it).
-function authClientId(): string {
-  if (process.env.E2E_AUTH_CLIENT_ID) return process.env.E2E_AUTH_CLIENT_ID;
-  try {
-    const state = JSON.parse(readFileSync(new URL("../.e2e-ci.json", import.meta.url), "utf8"));
-    return state.auth_client_id ?? "";
-  } catch {
-    return "";
-  }
-}
-const CLIENT_ID = authClientId();
+// The synthetic client id is generated per run; the driver (ci_stack.py) writes it
+// to e2e/.env, which playwright.config.ts loads into the environment.
+const CLIENT_ID = process.env.E2E_AUTH_CLIENT_ID ?? "";
 
 function b64url(buf: Buffer): string {
   return buf.toString("base64url");
@@ -59,7 +50,7 @@ function authorizeUrl(): string {
 test.describe("Auth-UI login journey @auth", () => {
   test.skip(
     !USERNAME || !PASSWORD || !CLIENT_ID,
-    "needs E2E_USERNAME/PASSWORD + a seeded synthetic client (E2E_AUTH_CLIENT_ID / .e2e-ci.json)",
+    "needs E2E_USERNAME/PASSWORD + a seeded synthetic client (E2E_AUTH_CLIENT_ID)",
   );
 
   test("synthetic client → auth-UI login → consent → authorization code issued", async ({ page }) => {

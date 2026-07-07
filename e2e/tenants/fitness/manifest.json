@@ -1,0 +1,22 @@
+{
+  "$comment": "Fitness E2E journey, declared as data the driver (ci_stack.py) discovers. All paths are relative to THIS file's directory. Transitional home: cicd/e2e/tenants/fitness/ — Phase 2 relocates to fitness-app-frontend/e2e/ unchanged (ADR D-006).",
+  "journey": "fitness",
+  "app": true,
+  "repos": ["fitness-app-frontend", "fitness-app-backend"],
+  "compose": "docker-compose.e2e.yml",
+  "tests": "tests",
+  "backend": {
+    "service": "fitness-app-api",
+    "migrate": true,
+    "seed": ["python", "-m", "api.seed.fitness", "seed-foods"]
+  },
+  "oidc_client": {
+    "id_env": "E2E_OIDC_CLIENT_ID",
+    "secret_env": "E2E_OIDC_CLIENT_SECRET",
+    "redirect_uri": "http://localhost:3000/api/auth/oidc/callback",
+    "name": "Fitness App (E2E)"
+  },
+  "env": {
+    "E2E_BASE_URL": "http://localhost:3000"
+  }
+}

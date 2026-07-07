@@ -1,0 +1,18 @@
+{
+  "$comment": "Shared-identity `auth` journey: auth-UI + hub + db only, a synthetic OIDC client, NO tenant app. Paths relative to this file's dir. Transitional home: cicd/e2e/tenants/auth/ — Phase 2 relocates to kriegerdataforge-auth-ui/e2e/ unchanged (ADR D-006). `app: false` → NOT part of `journey: all`; opt-in only.",
+  "journey": "auth",
+  "app": false,
+  "repos": [],
+  "compose": null,
+  "tests": "tests",
+  "backend": null,
+  "oidc_client": {
+    "id_env": "E2E_AUTH_CLIENT_ID",
+    "secret_env": "E2E_AUTH_CLIENT_SECRET",
+    "redirect_uri": "http://localhost:9999/callback",
+    "name": "Auth-UI Journey (E2E)"
+  },
+  "env": {
+    "E2E_AUTH_REDIRECT_URI": "http://localhost:9999/callback"
+  }
+}

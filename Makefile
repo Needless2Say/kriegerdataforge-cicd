@@ -91,7 +91,12 @@ e2e-seed-user: ## Seed the deterministic active test user (e2e-user) in the runn
 e2e-typecheck: ## Type-check the E2E suite (tsc --noEmit)
 	cd e2e && npx tsc --noEmit
 
-e2e: ## Run the Playwright E2E suite (stack must be up + user seeded)
+# Which journey's specs to stage for `make e2e` (delegated stack = fitness).
+# Override, e.g.:  make e2e JOURNEY=tiffanys
+JOURNEY ?= fitness
+
+e2e: ## Run the Playwright E2E suite (stack must be up; stages JOURNEY's specs first)
+	$(PY3) e2e/ci_stack.py stage --journey "$(JOURNEY)"
 	cd e2e && E2E_USERNAME="$${E2E_USERNAME:-e2e-user}" E2E_PASSWORD="$${E2E_PASSWORD:-E2eTest123!}" npm test
 
 # ── Self-contained E2E stack (CI-usable; no .env.local, no bind-mounts) ──────────
