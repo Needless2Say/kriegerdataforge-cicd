@@ -1,0 +1,60 @@
+name: "Ops · Set up E2E gate for a repo"
+description: "Owner-only: provision a fitness-journey repo to run the full-stack E2E merge gate."
+title: "[Ops] Set up E2E gate: "
+labels:
+  - ops
+assignees:
+  - Needless2Say
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Set up a repo for the full-stack E2E merge gate
+        Pick the repo, submit, then **add the `ops:setup-e2e` label** to run. Owner-only — the
+        backing workflow fails closed otherwise.
+
+        **What it writes to the target repo** (the gate stays dormant — nothing runs on PRs yet):
+        - variable `RUN_E2E_GATE` = `false` — the on/off switch (flip to `true` when ready)
+        - variable `USE_GITHUB_APP` = `true` — so the copied App secrets are actually used
+        - secrets `KDF_APP_ID` + `KDF_APP_PRIVATE_KEY` — copied from this repo (the gate mints its
+          App token from these)
+
+        > **Pre-org-move stopgap.** After an org move these become org secrets (visible to all repos,
+        > no copy) and the secret-copy is obsolete — remove the per-repo copies then. Only the four
+        > fitness-journey repos are valid: the E2E is the *fitness* tenant.
+        >
+        > **One-time prerequisite:** the KDF App must be granted repository **Secrets: write** +
+        > **Variables: write** (App settings → Permissions).
+
+  - type: dropdown
+    id: repo
+    attributes:
+      label: Target repository
+      description: "The fitness-journey repo to provision."
+      options:
+        - kriegerdataforge
+        - kriegerdataforge-auth-ui
+        - fitness-app-backend
+        - fitness-app-frontend
+    validations:
+      required: true
+
+  - type: dropdown
+    id: confirm
+    attributes:
+      label: Confirm
+      description: "This copies the KDF App secrets into the target repo."
+      options:
+        - "No — do not run"
+        - "Yes — copy the App secrets + set the variables"
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        ▶ **To run:** add the **`ops:setup-e2e`** label to this issue.
+        Afterward, flip `RUN_E2E_GATE = true` + add the check to branch protection when ready —
+        see `e2e/README.md` → *Promoting the E2E to a merge gate*.

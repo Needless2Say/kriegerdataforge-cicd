@@ -1,0 +1,160 @@
+name: Ops · Set up E2E gate for a repo (issue-triggered)
+
+# Issue-form front-end that provisions a fitness-journey repo to run the full-stack
+# E2E merge gate (its dormant .github/workflows/e2e-gate.yml). Triggered ONLY when
+# the `ops:setup-e2e` label is added — a deliberate, owner-applied "go". Owner-gated
+# via the reusable fail-closed gate; this repo is public, so authorization (not
+# obscurity) is the control.
+#
+# What it writes to the TARGET repo:
+#   * variable RUN_E2E_GATE   = false  — the dormant on/off switch; flip to true when ready
+#   * variable USE_GITHUB_APP = true   — so the copied App secrets are actually used by the gate
+#   * secret   KDF_APP_ID           ) copied from THIS repo — the gate's reusable workflow mints
+#   * secret   KDF_APP_PRIVATE_KEY  ) its App token from these (the caller passes them via inherit)
+#
+# PRE-ORG-MOVE STOPGAP: after an org move, KDF_APP_* become ORG secrets (visible to every repo
+# with no copy) and the secret-copy here is obsolete — remove the per-repo copies then.
+#
+# SECURITY:
+#   * Owner-only (fail-closed gate). The target repo is validated against a FIXED allow-list (the
+#     four fitness-journey repos), so the App secrets are never written anywhere else.
+#   * Secret VALUES never touch the issue or a comment. GitHub masks registered secrets in the
+#     (public) Actions log; the completion comment is metadata-only.
+#   * The untrusted issue body is read as awk DATA via an env var, never inlined into a shell string.
+#
+# PREREQUISITE (config, one-time): the KDF App must be granted repository **Secrets: write** and
+# **Variables: write** (App settings → Permissions), and be installed on the target repos.
+
+on:
+  issues:
+    types:
+      - labeled
+
+permissions:
+  contents: read
+
+jobs:
+  authorize:
+    if: github.event.action == 'labeled' && github.event.label.name == 'ops:setup-e2e'
+    uses: ./.github/workflows/_authorize-owner.yml
+
+  setup:
+    name: Provision repo for the E2E gate
+    needs: authorize
+    if: >-
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'ops:setup-e2e' &&
+      needs.authorize.outputs.authorized == 'true'
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Extract and validate the issue form
+        id: fields
+        env:
+          # Untrusted issue-form body — read only as awk DATA, never inlined into a command.
+          BODY: ${{ github.event.issue.body }}
+        run: |
+          field() {
+            awk -v lbl="### $1" '
+              { sub(/\r$/, "") }
+              $0 == lbl { cap = 1; next }
+              /^### / { cap = 0 }
+              cap && NF { print }
+            ' <<< "$BODY"
+          }
+          REPO="$(field "Target repository" | head -1 | tr -d '\r')"
+          CONFIRM="$(field "Confirm" | head -1)"
+
+          # Allow-list: only the fitness-journey repos the E2E actually validates. The App
+          # secrets must never be copied anywhere else.
+          case "$REPO" in
+            kriegerdataforge|kriegerdataforge-auth-ui|fitness-app-backend|fitness-app-frontend) ;;
+            *) echo "::error::Target repository must be one of the four fitness-journey repos (got '${REPO}')."; exit 1 ;;
+          esac
+          case "$CONFIRM" in
+            "Yes"*) ;;
+            *) echo "::error::This copies live App secrets — set Confirm = 'Yes' to run."; exit 1 ;;
+          esac
+
+          echo "repo=$REPO" >> "$GITHUB_OUTPUT"
+
+      # App token scoped to JUST the target repo, with the two grants needed to write its Actions
+      # variables + secrets. Auto-revoked at job end. Gated on USE_GITHUB_APP (this repo), falling
+      # back to CICD_PAT.
+      - name: Mint GitHub App token (secrets + variables write on the target)
+        id: app-token
+        if: vars.USE_GITHUB_APP == 'true'
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.KDF_APP_ID }}
+          private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.fields.outputs.repo }}
+          permission-secrets: write
+          permission-variables: write
+
+      - name: Set repo variables (gate OFF; App path armed)
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
+          TARGET: Needless2Say/${{ steps.fields.outputs.repo }}
+        run: |
+          gh variable set RUN_E2E_GATE   --repo "$TARGET" --body "false"
+          gh variable set USE_GITHUB_APP --repo "$TARGET" --body "true"
+
+      - name: Copy the App secrets into the target repo
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
+          TARGET: Needless2Say/${{ steps.fields.outputs.repo }}
+          # Read from THIS repo's secrets (masked in logs); `gh` encrypts them against the target's
+          # public key. Passed via stdin so the multi-line PEM is preserved and never argv-visible.
+          KDF_APP_ID: ${{ secrets.KDF_APP_ID }}
+          KDF_APP_PRIVATE_KEY: ${{ secrets.KDF_APP_PRIVATE_KEY }}
+        run: |
+          printf '%s' "$KDF_APP_ID"          | gh secret set KDF_APP_ID          --repo "$TARGET"
+          printf '%s' "$KDF_APP_PRIVATE_KEY" | gh secret set KDF_APP_PRIVATE_KEY --repo "$TARGET"
+
+      - name: Comment completion checklist and close
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          TARGET: ${{ steps.fields.outputs.repo }}
+        run: |
+          {
+            echo "## E2E gate provisioned for \`${TARGET}\`"
+            echo
+            echo "Done (nothing runs on PRs yet — the gate stays dormant):"
+            echo "- [x] variable \`RUN_E2E_GATE\` = \`false\`  (the on/off switch)"
+            echo "- [x] variable \`USE_GITHUB_APP\` = \`true\`"
+            echo "- [x] secret \`KDF_APP_ID\` copied"
+            echo "- [x] secret \`KDF_APP_PRIVATE_KEY\` copied"
+            echo
+            echo "### Turn the gate ON when you're ready"
+            echo "1. Set variable \`RUN_E2E_GATE\` = \`true\` (Settings → Secrets and variables → Actions → Variables)."
+            echo "2. Add the **E2E merge gate** check to branch protection (Settings → Branches → \`main\`)."
+            echo
+            echo "> Mind the cross-repo-lockstep caveat before making it a hard per-PR gate — see"
+            echo "> \`e2e/README.md\` → *Promoting the E2E to a merge gate* (merge-to-main + nightly recommended)."
+            echo "> The reusable workflow's \`workflow_call\` support (cicd #108) must be on \`main\` for the gate to run."
+          } > comment.md
+          gh issue comment "$ISSUE" --repo "$REPO" --body-file comment.md
+          gh issue close "$ISSUE" --repo "$REPO" --comment "Provisioning complete — see the checklist above."
+
+      - name: Comment failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "### Setup did not complete"
+            echo
+            echo "A step failed (denied, invalid form, or the App lacks Secrets/Variables:write on the target)."
+            echo "See the secret-masked [Actions run](${RUN_URL}). Re-add the \`ops:setup-e2e\` label to retry."
+          } > comment.md
+          gh issue comment "$ISSUE" --repo "$REPO" --body-file comment.md
