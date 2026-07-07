@@ -22,6 +22,7 @@
 .PHONY: help lint test check-all \
         bump-patch bump-minor bump-major \
         e2e-install e2e-up e2e-down e2e-seed-user e2e e2e-typecheck \
+        e2e-ci-up e2e-ci e2e-ci-down e2e-ci-logs \
         codeql-db codeql-scan-security codeql-scan-quality codeql-scan-all \
         codeql-scan-security-csv codeql-scan-quality-csv codeql-scan-csv-all
 
@@ -92,6 +93,22 @@ e2e-typecheck: ## Type-check the E2E suite (tsc --noEmit)
 
 e2e: ## Run the Playwright E2E suite (stack must be up + user seeded)
 	cd e2e && E2E_USERNAME="$${E2E_USERNAME:-e2e-user}" E2E_PASSWORD="$${E2E_PASSWORD:-E2eTest123!}" npm test
+
+# ── Self-contained E2E stack (CI-usable; no .env.local, no bind-mounts) ──────────
+# ci_stack.py builds every service from source, generates ephemeral keys + OIDC
+# creds, migrates + seeds both DBs. This is what the e2e-compose CI workflow runs.
+
+e2e-ci-up: ## Build+up the SELF-CONTAINED stack from source, migrate + seed (leaves it up)
+	$(PY3) e2e/ci_stack.py up
+
+e2e-ci: e2e-ci-up ## Self-contained stack: build+up+seed, run Playwright, then tear down
+	cd e2e && E2E_USERNAME="e2e-user" E2E_PASSWORD="E2eTest123!" npm test; status=$$?; $(PY3) ci_stack.py down; exit $$status
+
+e2e-ci-down: ## Tear down the self-contained stack (containers, volumes, network)
+	$(PY3) e2e/ci_stack.py down
+
+e2e-ci-logs: ## Tail logs from the self-contained stack (SERVICE=<name> optional)
+	$(PY3) e2e/ci_stack.py logs $(SERVICE)
 
 # ── Version Bumping ───────────────────────────────────────────────────────────
 # Edits VERSION (and any other version files) then prints next-step instructions.
