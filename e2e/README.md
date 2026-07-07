@@ -19,9 +19,9 @@ Unit + integration tests (including the hub OIDC E2E in
 ## The journeys under test
 
 Two tenants share the hub + auth-UI, each with a **distinct OIDC client** — the
-same browser-only integration, proven per tenant
-(`e2e/tenants/fitness/tests/fitness.spec.ts` `@fitness`,
-`e2e/tenants/tiffanys/tests/tiffanys.spec.ts` `@tiffanys`):
+same browser-only integration, proven per tenant. Each journey's spec lives in
+**its own repo** (`fitness-app-frontend/e2e/tests/fitness.spec.ts` `@fitness`,
+`tiffanys-space/e2e/tests/tiffanys.spec.ts` `@tiffanys`):
 
 ```
 fitness FE (:3000)  gated route "/database"
@@ -36,16 +36,17 @@ tiffanys FE (:3001)  gated route "/shop"   (OIDC-only; default-deny proxy)
     → "/"  account menu visible → "/shop"  products from tiffanys backend (:8002)
 ```
 
-A third journey, **`auth`** (`e2e/tenants/auth/tests/auth.spec.ts` `@auth`), tests
-the shared identity layer at its own level — auth-UI + hub + db, a **synthetic**
-OIDC client and **no tenant app** (login → consent → an authorization code, plus a
-wrong-password case). The hub's hub+db auth system is separately covered by its
-real-DB integration tests.
+A third journey, **`auth`** (`kriegerdataforge-auth-ui/e2e/tests/auth.spec.ts`
+`@auth`), tests the shared identity layer at its own level — auth-UI + hub + db, a
+**synthetic** OIDC client and **no tenant app** (login → consent → an authorization
+code, plus a wrong-password case). The hub's hub+db auth system is separately
+covered by its real-DB integration tests.
 
 **Data-driven, tenant-agnostic (ADR D-006).** Each journey is declared by an
-`e2e/manifest.json` the driver *discovers* — it lives in `e2e/tenants/<journey>/`
-today (the transitional home) and moves to its own tenant repo in Phase 2, with
-**no cicd change**. `ci_stack.py up --journey fitness` (or `tiffanys`, `auth`,
+`e2e/manifest.json` the driver *discovers* in its **own tenant repo**
+(`fitness-app-frontend/e2e/`, `tiffanys-space/e2e/`, `kriegerdataforge-auth-ui/e2e/`) —
+nothing tenant-specific lives in cicd, so onboarding a tenant never edits this repo.
+`ci_stack.py up --journey fitness` (or `tiffanys`, `auth`,
 `fitness,tiffanys`, or `all`) reads that manifest, merges the shared compose with
 the journey's fragment, brings up only what it needs, and **stages that journey's
 spec** into `staged-tests/` so `npm test` runs exactly it — no `--grep`. See
@@ -108,7 +109,7 @@ bind-mounts each repo's source and reads secrets from each repo's gitignored
 runner has no `.env.local` and nothing to bind-mount.
 
 `docker-compose.shared.yml` (db + hub + auth-UI) + each journey's fragment
-(`e2e/tenants/<j>/docker-compose.e2e.yml`) + `ci_stack.py` are the hermetic
+(`<tenant-repo>/e2e/docker-compose.e2e.yml`) + `ci_stack.py` are the hermetic
 sibling. `ci_stack.py`:
 
 - **discovers** each journey's `manifest.json` (no hardcoded tenant list) and, for

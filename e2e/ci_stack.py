@@ -417,13 +417,17 @@ def cmd_up(raw_journeys: str, regen: bool) -> None:
     )
 
 
-def cmd_stage(raw_journeys: str) -> None:
-    """Stage specs only (no docker, no state, no .env write) — for the delegated
-    local stack (`make e2e-up` + `make e2e`), which brings the stack up its own way
-    and provides E2E_* via the Makefile / the dev's own e2e/.env."""
+def cmd_stage(raw_journeys: str, all_journeys: bool = False) -> None:
+    """Stage specs only (no docker, no state, no .env write). Two uses:
+      * the delegated local stack (`make e2e-up` + `make e2e`) stages ONE journey
+        to run it (E2E_* come from the Makefile / the dev's own e2e/.env);
+      * `make e2e-typecheck` stages EVERY discovered journey (--all, app + non-app)
+        so tsc can type-check all the tenant specs the engine runs.
+    --all tolerates an empty set (a bare cicd checkout with no sibling journeys is
+    fine — tsc then just checks playwright.config.ts); an explicit --journey does not."""
     registry = discover()
-    journeys = resolve_journeys(raw_journeys, registry)
-    if _stage_specs(journeys, registry) == 0:
+    journeys = sorted(registry) if all_journeys else resolve_journeys(raw_journeys, registry)
+    if _stage_specs(journeys, registry) == 0 and not all_journeys:
         sys.exit(f"[ci_stack] no spec files staged for: {', '.join(journeys)}")
 
 
@@ -475,8 +479,10 @@ def main() -> None:
                          "Discovered from e2e/manifest.json files.")
     up.add_argument("--regen", action="store_true",
                     help="regenerate secrets (default: reuse e2e/.e2e-ci.json)")
-    st = sub.add_parser("stage", help="stage specs + write .env only (no docker)")
-    st.add_argument("--journey", default="all", help="journeys to stage, or 'all'")
+    st = sub.add_parser("stage", help="stage specs only (no docker)")
+    st.add_argument("--journey", default="all", help="journeys to stage, or 'all' (app journeys)")
+    st.add_argument("--all", action="store_true",
+                    help="stage EVERY discovered journey (app + non-app) — for typecheck")
     sub.add_parser("down", help="stop + remove containers, volumes, network")
     lg = sub.add_parser("logs", help="tail compose logs")
     lg.add_argument("service", nargs="?", help="one service, or all if omitted")
@@ -485,7 +491,7 @@ def main() -> None:
     if args.command == "up":
         cmd_up(args.journey, args.regen)
     elif args.command == "stage":
-        cmd_stage(args.journey)
+        cmd_stage(args.journey, args.all)
     elif args.command == "down":
         cmd_down()
     elif args.command == "logs":
