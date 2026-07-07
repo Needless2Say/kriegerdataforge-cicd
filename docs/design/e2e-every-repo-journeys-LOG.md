@@ -7,12 +7,18 @@ Append as each PR lands; do not rewrite history. Legend: ✅ done · 🔧 in pro
 
 | # | Scope | Repo / PR | Status |
 | --- | --- | --- | --- |
-| 1 | Plan + LOG + ADR D-008 + docs index + engine tweak (`_write_env_file` also emits `secret_env`) | cicd #115 | 🔧 in progress |
-| 2 | `fitness-api` journey (backend + identity, headless OIDC) + `e2e.yml`; remove `e2e-gate.yml` | fitness-app-backend | ⬜ pending |
-| 3 | `tiffanys-api` journey + `e2e.yml`; remove `e2e-gate.yml` | tiffanys-space-backend | ⬜ pending |
-| 4 | `hub` journey (hub + auth-db, extensive) + `e2e.yml` (net-new) | kriegerdataforge | ⬜ pending |
-| 5 | Delete `e2e-compose.yml` + reconcile stale refs + finish `e2e-cijob-refactor-LOG` | cicd | ⬜ pending |
+| 1 | Plan + LOG + ADR D-008 + docs index + engine tweak (`_write_env_file` also emits `secret_env`) | cicd #115 | ✅ done |
+| 2 | `fitness-api` journey (backend + identity, headless OIDC) + `e2e.yml`; remove `e2e-gate.yml` | fitness-app-backend #44 | ✅ done |
+| 3 | `tiffanys-api` journey + `e2e.yml`; remove `e2e-gate.yml` | tiffanys-space-backend #36 | ✅ done |
+| 4 | `hub` journey (hub + auth-db, extensive) + `e2e.yml` (net-new) | kriegerdataforge #264 | ✅ done |
+| 5 | Delete `e2e-compose.yml` + reconcile stale refs + finish `e2e-cijob-refactor-LOG` | cicd (this PR) | 🔧 in progress |
 | 6 | Fix 3 frontend `e2e/README.md` stale `e2e-gate.yml` lines | fitness-fe / tiffanys / auth-ui | ⬜ pending |
+
+**Each backend/hub journey was proven locally end-to-end** (real Docker stack → spec green) before its PR:
+`fitness-api` 2/2, `tiffanys-api` 2/2, `hub` 4/4 (discovery+JWKS, full auth-code+PKCE flow → access/id/refresh
++ userinfo + refresh, wrong-password, bad-token + PKCE-enforcement). The one engine gap the recon surfaced —
+the driver injected each journey's client id but not its secret — was fixed in #115 (`_write_env_file` now
+emits `secret_env`), which the in-spec confidential token exchange needs.
 
 Merge order: 1 → 2/3/4 (any order) → 5 (must be last: it deletes the workflow the backend `e2e-gate.yml`
 callers still point at, so those must be replaced first) → 6 (independent, any time).

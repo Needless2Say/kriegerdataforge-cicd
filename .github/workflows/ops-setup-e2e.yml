@@ -1,16 +1,16 @@
 name: Ops · Set up E2E gate for a repo (issue-triggered)
 
-# Issue-form front-end that provisions a fitness-journey repo to run the full-stack
-# E2E merge gate (its dormant .github/workflows/e2e-gate.yml). Triggered ONLY when
-# the `ops:setup-e2e` label is added — a deliberate, owner-applied "go". Owner-gated
+# Issue-form front-end that provisions an E2E-journey repo to run its full-stack
+# E2E job (its dormant .github/workflows/e2e.yml). Triggered ONLY when the
+# `ops:setup-e2e` label is added — a deliberate, owner-applied "go". Owner-gated
 # via the reusable fail-closed gate; this repo is public, so authorization (not
 # obscurity) is the control.
 #
 # What it writes to the TARGET repo:
 #   * variable RUN_E2E_GATE   = false  — the dormant on/off switch; flip to true when ready
-#   * variable USE_GITHUB_APP = true   — so the copied App secrets are actually used by the gate
-#   * secret   KDF_APP_ID           ) copied from THIS repo — the gate's reusable workflow mints
-#   * secret   KDF_APP_PRIVATE_KEY  ) its App token from these (the caller passes them via inherit)
+#   * variable USE_GITHUB_APP = true   — kept for parity with other App-token workflows
+#   * secret   KDF_APP_ID           ) copied from THIS repo — the e2e.yml job passes these to
+#   * secret   KDF_APP_PRIVATE_KEY  ) the run-e2e composite action, which mints its App token
 #
 # PRE-ORG-MOVE STOPGAP: after an org move, KDF_APP_* become ORG secrets (visible to every repo
 # with no copy) and the secret-copy here is obsolete — remove the per-repo copies then.
@@ -138,11 +138,10 @@ jobs:
             echo
             echo "### Turn the gate ON when you're ready"
             echo "1. Set variable \`RUN_E2E_GATE\` = \`true\` (Settings → Secrets and variables → Actions → Variables)."
-            echo "2. Add the **E2E merge gate** check to branch protection (Settings → Branches → \`main\`)."
+            echo "2. Add the **E2E** check to branch protection (Settings → Branches → \`main\`)."
             echo
             echo "> Mind the cross-repo-lockstep caveat before making it a hard per-PR gate — see"
-            echo "> \`e2e/README.md\` → *Promoting the E2E to a merge gate* (merge-to-main + nightly recommended)."
-            echo "> The reusable workflow's \`workflow_call\` support (cicd #108) must be on \`main\` for the gate to run."
+            echo "> \`e2e/README.md\` → *Caveat — cross-repo lockstep* (merge-to-main + nightly recommended)."
           } > comment.md
           gh issue comment "$ISSUE" --repo "$REPO" --body-file comment.md
           gh issue close "$ISSUE" --repo "$REPO" --comment "Provisioning complete — see the checklist above."

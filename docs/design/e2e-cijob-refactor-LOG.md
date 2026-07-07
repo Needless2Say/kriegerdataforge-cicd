@@ -11,7 +11,7 @@ each PR lands; do not rewrite history. Legend: ✅ done · 🔧 in progress · �
 | 2a | `e2e-gate.yml` → thin `e2e.yml` + slim manifest | fitness-app-frontend #309 | ✅ done |
 | 2b | `e2e-gate.yml` → thin `e2e.yml` + slim manifest | tiffanys-space #138 | ✅ done |
 | 2c | `e2e-gate.yml` → thin `e2e.yml` + slim manifest | kriegerdataforge-auth-ui #42 | ✅ done |
-| 3 | Delete `e2e-compose.yml` (once no caller references it) | cicd | ⬜ deferred → D-008 step 5 |
+| 3 | Delete `e2e-compose.yml` (once no caller references it) | cicd (D-008 step 5) | ✅ done |
 | 4 | Validate by first owner dispatch of a tenant `e2e.yml` | (owner) | ⬜ pending |
 
 Merge order: 1 (cicd, additive — keeps `e2e-compose.yml` so the dormant callers still resolve) →

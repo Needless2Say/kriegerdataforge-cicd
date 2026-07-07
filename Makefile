@@ -102,7 +102,8 @@ e2e: ## Run the Playwright E2E suite (stack must be up; stages JOURNEY's specs f
 
 # ── Self-contained E2E stack (CI-usable; no .env.local, no bind-mounts) ──────────
 # ci_stack.py builds every service from source, generates ephemeral keys + OIDC
-# creds, migrates + seeds both DBs. This is what the e2e-compose CI workflow runs.
+# creds, migrates + seeds the DBs. This is what each repo's e2e.yml CI job runs
+# (via the run-e2e composite action).
 
 e2e-ci-up: ## Build+up the SELF-CONTAINED stack from source, migrate + seed (leaves it up)
 	$(PY3) e2e/ci_stack.py up

@@ -13,8 +13,8 @@ Unit + integration tests (including the hub OIDC E2E in
 > (`make e2e-up`, reuses each repo's `.env.local` + bind-mounts) and the
 > **self-contained** stack (`make e2e-ci`, builds every image from source with
 > generated secrets, no `.env.local`). The self-contained stack also runs in
-> GitHub Actions via the owner-dispatched `e2e-compose` workflow — see
-> [CI (GitHub Actions)](#ci-github-actions).
+> GitHub Actions via each repo's own `e2e.yml` job (the `run-e2e` composite
+> action) — see [CI (GitHub Actions)](#ci-github-actions).
 
 ## The journeys under test
 
@@ -172,9 +172,6 @@ out cicd + those repos as siblings under `$GITHUB_WORKSPACE` (a token clone loop
 caller repo is already checked out by the job) → `python e2e/ci_stack.py up --journey
 <j>` → `npm test` → uploads the report → always tears down. Secrets are auto-masked;
 CI gets headroom via `E2E_BUILD_TIMEOUT` / `E2E_WAIT_TIMEOUT`.
-
-> `e2e-compose.yml` (the old `workflow_call` gate) is **deprecated** and kept only
-> until every tenant has switched to the action; then it is deleted.
 
 ## Enabling the E2E gate in a tenant repo
 
