@@ -49,9 +49,14 @@ repo**:
 - `.github/workflows/e2e.yml` — the thin job (same template as D-007), `journey: <its own>`,
 - `tsconfig.json` → `exclude: ["node_modules", "e2e"]` (so `tsc`/`next build` skips the spec's `@playwright/test` import).
 
-No new `ci_stack.py` field and no new action input are required. *(If a backend spec turns out to need a
-knob the manifest can't express — e.g. "run this journey with no browser page" — that would be a small,
-additive `ci_stack.py` change, called out in the LOG if it happens.)*
+No new manifest field and no new action input are required. **One small, additive engine tweak *is*
+included** (the "additive `ci_stack.py` change, recorded in the LOG" this plan anticipated): the driver now
+also writes the generated **client *secret*** (`oidc_client.secret_env`) to `e2e/.env`, symmetric to the
+client id it already wrote. The browser-app journeys never read it, but a backend/hub spec — which performs
+the OIDC code→token exchange **itself** (no frontend BFF) — needs it to authenticate at the token endpoint
+(the seeded clients are `confidential` / `client_secret_basic`). It is an ephemeral per-run secret for a
+throwaway client in a disposable DB, and `e2e/.env` is gitignored. Tenant-agnostic — a generic engine
+capability, not tenant content.
 
 ## How the backend / hub specs get a real token (headless OIDC)
 
