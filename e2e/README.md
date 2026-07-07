@@ -158,65 +158,70 @@ those frontend PRs are deployed yet — no cross-repo merge-order dependency:
 | logged-in marker (any private page) | `account-menu` | `button[aria-label="Open account menu"]` |
 | rendered backend data (`/database`) | `food-result` | `a[aria-label^="View food details:"]` |
 
-## CI (GitHub Actions)
+## CI (GitHub Actions) — a per-repo job, via a composite action (ADR D-007)
 
-`.github/workflows/e2e-compose.yml` runs this exact self-contained stack on a
-runner, two ways:
+The E2E is **not** a callable workflow. cicd ships a reusable **composite action**,
+[`.github/actions/run-e2e`](../.github/actions/run-e2e/action.yml), and each tenant
+repo owns a thin CI job (`.github/workflows/e2e.yml`) that `uses:` it. The action is
+tenant-agnostic — it reads the **calling repo's `e2e/manifest.json`** for the sibling
+repos, so cicd never learns tenant names.
 
-- **`workflow_dispatch`** — manual, **owner-gated** (`_authorize-owner.yml`).
-  Actions tab → *E2E · Full-stack OIDC journey* → *Run workflow*. Proven green
-  end-to-end (~4 min).
-- **`workflow_call`** — the app repos call it as a **merge gate** (see below).
+What the action does: reads the caller's manifest → mints a short-lived App token
+(`contents:read`, scoped to `{hub, auth-ui, sdk}` + the manifest's `repos`) → checks
+out cicd + those repos as siblings under `$GITHUB_WORKSPACE` (a token clone loop; the
+caller repo is already checked out by the job) → `python e2e/ci_stack.py up --journey
+<j>` → `npm test` → uploads the report → always tears down. Secrets are auto-masked;
+CI gets headroom via `E2E_BUILD_TIMEOUT` / `E2E_WAIT_TIMEOUT`.
 
-What it does: mints a short-lived GitHub App token (`contents:read`, scoped to the
-four siblings + the SDK repo), checks out all five repos as siblings under
-`$GITHUB_WORKSPACE` (so the `../../<repo>` build contexts resolve), then
-`python e2e/ci_stack.py up` → `npm test` → uploads the HTML report + traces →
-always tears the stack down. Secrets (`KDF_APP_ID` / `KDF_APP_PRIVATE_KEY`) are
-auto-masked; CI gets build/wait headroom via `E2E_BUILD_TIMEOUT` / `E2E_WAIT_TIMEOUT`.
+> `e2e-compose.yml` (the old `workflow_call` gate) is **deprecated** and kept only
+> until every tenant has switched to the action; then it is deleted.
 
-## Promoting the E2E to a merge gate
+## Enabling the E2E gate in a tenant repo
 
-Each E2E-journey repo ships a **dormant** caller workflow,
-`.github/workflows/e2e-gate.yml`, that passes the `journey` its changes affect:
+Each E2E-journey repo ships a **dormant** CI job, `.github/workflows/e2e.yml`, gated
+by that repo's own `RUN_E2E_GATE` variable. It passes the `journey` the repo owns:
 
 | Repo | `journey` | Why |
 |---|---|---|
-| `fitness-app-backend` / `fitness-app-frontend` | `fitness` | fitness-only change |
-| `tiffanys-space` / `tiffanys-space-backend` | `tiffanys` | tiffanys-only change |
-| `kriegerdataforge-auth-ui` | `auth` | tests its layer (hosted login/consent + hub + db), a synthetic client, no tenant app |
+| `fitness-app-frontend` | `fitness` | fitness tenant |
+| `tiffanys-space` | `tiffanys` | tiffanys tenant |
+| `kriegerdataforge-auth-ui` | `auth` | shared identity layer (hosted login/consent + hub + db), a synthetic client, no tenant app |
 | `kriegerdataforge` (hub) | — | **no docker gate** — its real-DB integration tests (`test_oidc_e2e_db.py`, `test_auth_lifecycle_db.py`) already gate hub+db auth |
 
 ```yaml
+# <tenant repo>/.github/workflows/e2e.yml
 on:
-  pull_request:
-    branches: [main]
+  pull_request: { branches: [main] }
+  workflow_dispatch:                 # owner manual runs (repo write-access gates it)
 jobs:
   e2e:
-    if: vars.RUN_E2E_GATE == 'true'   # dormant until you flip this
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/e2e-compose.yml@main
-    with:
-      journey: fitness                # fitness | tiffanys | all (default)
-    secrets: inherit
+    if: vars.RUN_E2E_GATE == 'true'  # dormant until you flip this
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@<sha>
+        with: { path: ${{ github.event.repository.name }} }   # sibling layout
+      - uses: Needless2Say/kriegerdataforge-cicd/.github/actions/run-e2e@main
+        with:
+          journey: fitness
+          app-id: ${{ secrets.KDF_APP_ID }}
+          app-private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
 ```
 
-While `RUN_E2E_GATE` is unset the job is **skipped** — a near-instant no-op on each
-PR, gating nothing. To **turn it on** in a repo (Settings → Secrets and variables →
-Actions, and Settings → Branches):
+While `RUN_E2E_GATE` is unset the job is **skipped** — a near-instant no-op. To
+**turn it on** in a repo (the `ops-setup-e2e` issue flow does 1–2 for you):
 
-1. **Variable** `RUN_E2E_GATE = true` — activates the caller.
-2. **Variable** `USE_GITHUB_APP = true` + **secrets** `KDF_APP_ID`,
-   `KDF_APP_PRIVATE_KEY` — the reusable workflow mints its App token from these
-   (they live only on the cicd repo today; an org move would make them org-level
-   and skip this per-repo step).
-3. Add the resulting check (**E2E merge gate / …**) to **branch protection** →
-   *Require status checks to pass*.
+1. **Variable** `RUN_E2E_GATE = true` — activates the job.
+2. **Secrets** `KDF_APP_ID`, `KDF_APP_PRIVATE_KEY` — the action mints its App token
+   from these (they live only on the cicd repo today; an org move would make them
+   org-level and skip this per-repo step).
+3. Add the resulting check (**E2E / …**) to **branch protection** → *Require status
+   checks to pass*.
 
 > **Caveat — cross-repo lockstep.** A PR that must change two repos together (an
 > OIDC-contract change in the hub *and* the frontend, an SDK bump) can't go green
 > in either repo's gate — each tests against the other's old `main`. So the
 > recommended posture is **merge-to-main + nightly** rather than a hard per-PR
-> gate; adjust the caller's `on:` accordingly, keeping the fast in-repo contract
+> gate; adjust the job's `on:` accordingly, keeping the fast in-repo contract
 > tests as the per-PR gate.
 
 No org move or public repos are required to run it manually — same-account private

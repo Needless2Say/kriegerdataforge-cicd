@@ -1,5 +1,12 @@
 name: E2E · Full-stack OIDC journey (compose)
 
+# ⚠️ DEPRECATED (ADR D-007) — being replaced by the composite action
+# `.github/actions/run-e2e`, which tenant repos invoke from a repo-owned CI job
+# (`e2e.yml`) gated by `vars.RUN_E2E_GATE`. This `workflow_call` gate is kept only
+# so the tenants' still-present `e2e-gate.yml` callers keep resolving during the
+# migration; it is deleted once every tenant has switched to the action. Do NOT
+# add new callers. See docs/design/e2e-cijob-refactor.md.
+#
 # Runs the Tier-2 Playwright OIDC login journey against the REAL ecosystem stack,
 # built from source by e2e/ci_stack.py + e2e/docker-compose.e2e.yml.
 #

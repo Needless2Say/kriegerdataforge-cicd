@@ -51,9 +51,9 @@ is a thin caller — all deploy logic lives in this repo.
 | App-specific Docker / Makefile | — | `Dockerfile`, `Makefile` |
 | Issue templates for repo provisioning | `.github/ISSUE_TEMPLATE/` | — |
 | Onboarding and setup docs | `docs/MANUAL_SETUP.md` | — |
-| **Reusable E2E engine** (driver `ci_stack.py`, `docker-compose.shared.yml`, `e2e-compose.yml` workflow, Playwright harness) | `e2e/` | — |
+| **Reusable E2E engine** (driver `ci_stack.py`, `docker-compose.shared.yml`, the `run-e2e` composite action, Playwright harness) | `e2e/` + `.github/actions/run-e2e/` | — |
 | **A tenant's E2E journey** (its Playwright spec, its compose service fragment, its seed data, its `e2e/manifest.json`) | — | `e2e/` in that tenant repo |
-| **E2E gate caller** | — | `.github/workflows/e2e-gate.yml` |
+| **E2E gate job** (a thin CI job that `uses:` the `run-e2e` action, gated by `RUN_E2E_GATE`) | — | `.github/workflows/e2e.yml` |
 
 **Rule of thumb:** if the same logic would need to exist in more than one tenant repo,
 it belongs here. If it's specific to one app's stack, it stays in that tenant repo.

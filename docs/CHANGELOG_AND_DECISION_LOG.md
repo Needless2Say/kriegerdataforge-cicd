@@ -279,3 +279,57 @@ Phase 1's fallback keeps everything green until each tenant lands.
 never enumerate them. Future tenant onboarding = **one PR in that tenant's repo** (add `e2e/` + the
 `e2e-gate.yml` caller), **zero cicd edits**. The `e2e/README.md` "Promoting the E2E to a merge gate" routing
 table and `MANUAL_SETUP.md` tenant-onboarding steps are updated as the phases land (tracked in the log).
+
+---
+
+## D-007 — E2E as a per-repo CI job (composite action), not a callable workflow
+
+- **Date:** 2026-07-07
+- **Status:** Accepted
+- **Tier / scope:** Epic · repos: `kriegerdataforge-cicd` (composite action) + `fitness-app-frontend`,
+  `tiffanys-space`, `kriegerdataforge-auth-ui` (thin per-repo jobs)
+- **Design doc:** [`docs/design/e2e-cijob-refactor.md`](design/e2e-cijob-refactor.md) · **Log:**
+  [`docs/design/e2e-cijob-refactor-LOG.md`](design/e2e-cijob-refactor-LOG.md) · **Supersedes** the
+  `e2e-compose.yml` `workflow_call` gate from D-006's completion.
+
+**Context.** D-006 relocated each journey's *test assets* into its tenant repo and made the driver
+data-driven, but left the **reusable workflow** `e2e-compose.yml` (`workflow_call`) still hardcoding
+per-tenant content that grows on every onboard: the journey dropdown enum, the App-token `repositories:`
+list, and 6 fixed `actions/checkout` steps. So the *gate* path still required a cicd edit per tenant — the
+scope creep the epic set out to kill, relocated to the workflow. The owner also wanted the E2E to be a
+**real CI job** in each tenant repo, toggled by that repo's own GitHub **variable**, not a callable-workflow
+indirection.
+
+**Decision.** Replace the reusable workflow with a **cicd composite action** `.github/actions/run-e2e`
+(a reusable *step*, not `workflow_call`) that carries the whole run-logic **generically**: it reads the
+**calling repo's `e2e/manifest.json`** for the sibling repos, mints an App token scoped to
+`{hub, auth-ui, sdk}` + those repos, checks them out via a token-authenticated clone loop (replacing the
+fixed checkout steps), and runs `ci_stack.py up --journey X` → `npm test`. Each tenant repo owns a thin
+`.github/workflows/e2e.yml` job gated by `vars.RUN_E2E_GATE` that checks itself out into the sibling layout
+and `uses:` the action (passing `journey` + the App secrets as inputs, since composite actions can't read
+`secrets`). **No central registry** — control is fully per-repo (the variable + the repo's own manifest);
+cicd keeps **no tenant list anywhere**. `e2e-compose.yml` is deleted. Tenant manifests drop the
+non-functional `$comment`.
+
+**Alternatives considered.**
+
+- *Keep the reusable `workflow_call` workflow, make it generic via a `repos` input / a cicd registry* —
+  rejected by the owner: still a callable-workflow indirection; the owner wants a real repo-owned CI job.
+- *Fully self-contained per-repo job (inline checkout + run, no cicd action)* — rejected: duplicates ~40
+  lines of orchestration YAML into every tenant repo, which drifts; the composite action keeps the logic
+  reusable in cicd (its purpose) while still being a repo-owned job.
+- *Central `e2e/registry.json` in cicd as the control plane* — rejected: with a per-repo `RUN_E2E_GATE`
+  variable + the manifest as SoT, a registry is a redundant second control surface that must agree with
+  the variable.
+
+**Trade-offs.** A composite action is a slightly less common pattern than the ecosystem's reusable
+workflows, and the dynamic checkout leg (clone loop + runtime token scope) is only provable on a runner
+(validated by the first owner dispatch). Accepted: it's the only shape that is simultaneously a real
+repo-owned CI job, reusable (no per-tenant cicd growth), and registry-free.
+
+**Consequences.** Onboarding a tenant = its own `e2e/` assets + a ~15-line `e2e.yml` + flipping
+`RUN_E2E_GATE` — **zero cicd edits**, because the action reads the tenant's manifest and never learns tenant
+names. `KDF_APP_ID`/`KDF_APP_PRIVATE_KEY` must exist as repo secrets (the `ops-setup-e2e` flow provides
+them); its `USE_GITHUB_APP` variable becomes vestigial for E2E (the action always uses the App token) — a
+minor future cleanup. Owner manual runs move to `workflow_dispatch` on each tenant `e2e.yml` (repo
+write-access gates them; the old `_authorize-owner` gate was only needed because cicd is public).
