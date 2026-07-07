@@ -226,3 +226,56 @@ identity single-sourced in the hub.
 **Consequences.** The `GET /users/public` batch endpoint is **hub work to implement** when the first
 cross-user-display feature is built: display fields only (no PII beyond the public profile), rate-limited, and
 consumed **read-only** by tenant backends.
+
+---
+
+## D-006 — Decouple the Tier-2 E2E tests out of cicd into each tenant repo
+
+- **Date:** 2026-07-07
+- **Status:** Accepted
+- **Tier / scope:** Epic · repos: `kriegerdataforge-cicd` (engine) + `fitness-app-frontend`,
+  `tiffanys-space`, `kriegerdataforge-auth-ui` (journeys), referencing the two app backends
+- **Design doc:** [`docs/design/e2e-test-decoupling.md`](design/e2e-test-decoupling.md) · **Log:**
+  [`docs/design/e2e-test-decoupling-LOG.md`](design/e2e-test-decoupling-LOG.md)
+
+**Context.** The Tier-2 full-stack E2E was first built entirely under `kriegerdataforge-cicd/e2e/` — including
+every *tenant-specific* part. Onboarding one tenant edits cicd in **five** places (a new Playwright spec in
+`tests/`, a `profiles:` service block in `docker-compose.e2e.yml`, a `TENANTS` entry + client-cred keys in
+`ci_stack.py`, a `CLIENTS` entry in `seed_e2e.py`, and a `journey` enum/`case` in `e2e-compose.yml`). This
+directly violates the repo's Tier-1 scope (`CONTRIBUTING.md`): cicd is the **reusable** platform library, but
+the `e2e/tests/` folder was becoming a per-tenant graveyard and three engine files carried a hardcoded tenant
+registry — so cicd bloats **linearly** with non-reusable content as the platform scales to N tenants. Root
+cause: an E2E journey is inherently cross-repo, and the first cut co-located the reusable *engine* with the
+tenant-specific *content*.
+
+**Decision.** **Separate the reusable engine from tenant content.** cicd keeps a **tenant-agnostic** engine —
+the driver (`ci_stack.py`, made **data-driven**: it discovers each sibling repo's `e2e/manifest.json` instead
+of a hardcoded `TENANTS` dict), a `docker-compose.shared.yml` (db + hub + auth-UI only), a generic
+`seed_shared.py`, the reusable `e2e-compose.yml` workflow (generic `journey` + `repos` inputs, no enum/repo
+list), and the Playwright harness. **Each tenant repo owns its journey as data + a spec** — an `e2e/`
+directory with `tests/<tenant>.spec.ts`, a compose **fragment** (only its services, absolute
+`${E2E_WORKSPACE}/<repo>` build contexts so multi-`-f` merge resolves correctly — Phase-0-validated), and an
+`e2e/manifest.json` the engine reads. **Onboarding a new tenant then touches only that tenant's repo.** Also
+added a **scope guardrail** (`AGENTS.md` critical rule #12 + `CONTRIBUTING.md` two-tier rows + a "scope smell
+test") so a future model does not re-introduce tenant content here. Migration is phased and
+backward-compatible: cicd engine ships additively with the old path kept as a fallback (Phase 1), tenants move
+one at a time (Phase 2), then the fallback is deleted (Phase 3) — gates stay dormant throughout.
+
+**Alternatives considered.**
+
+- *Leave the E2E in cicd as-is* — rejected: unbounded per-tenant bloat; violates Tier-1 scope.
+- *Fully self-contained per repo (cicd holds nothing E2E-related)* — rejected (owner, 2026-07-07): duplicates
+  the ~350-line driver + compose-merge logic + harness into every tenant, which then drift independently —
+  *more* total maintenance, and it discards the reusable-workflow benefit that is precisely cicd's purpose.
+- *Relative cross-repo compose contexts* — rejected: multi-`-f` merge resolves relative paths against the
+  first file's directory (the wrong repo); absolute `${E2E_WORKSPACE}` contexts avoid the trap.
+
+**Trade-offs.** Each tenant carries only its spec, compose fragment, and manifest (the Playwright
+config/`package.json` stay shared via the cicd checkout), plus a brief migration window where a
+moved-but-not-yet-wired journey must be verified by dispatch — accepted, because the gates are dormant and
+Phase 1's fallback keeps everything green until each tenant lands.
+
+**Consequences.** The tenant contract is a declarative `e2e/manifest.json`; cicd must **discover** tenants,
+never enumerate them. Future tenant onboarding = **one PR in that tenant's repo** (add `e2e/` + the
+`e2e-gate.yml` caller), **zero cicd edits**. The `e2e/README.md` "Promoting the E2E to a merge gate" routing
+table and `MANUAL_SETUP.md` tenant-onboarding steps are updated as the phases land (tracked in the log).
