@@ -55,8 +55,8 @@ services:
       context: ../../kriegerdataforge
       dockerfile: Dockerfile
       target: dev
-      args:
-        GH_PACKAGES_PAT: ${GH_PACKAGES_PAT:-}
+      secrets:
+        - gh_packages_pat
     # DNS name kdf-api → matches KDF_AUTH_INTERNAL_URL / KDF_AUTH_BASE_URL.
     environment:
       ENVIRONMENT: development
@@ -144,8 +144,8 @@ services:
       context: ../../fitness-app-backend
       dockerfile: Dockerfile
       target: dev
-      args:
-        GH_PACKAGES_PAT: ${GH_PACKAGES_PAT:-}
+      secrets:
+        - gh_packages_pat
     # DNS name fitness-app-api → matches fitness-fe API_BASE_URL.
     environment:
       ENVIRONMENT: development
@@ -212,6 +212,13 @@ services:
       retries: 40
       start_period: 30s
     networks: [e2e-net]
+
+secrets:
+  # Private-SDK token for the two Python image builds, sourced from the
+  # GH_PACKAGES_PAT env var (ci_stack.py sets it) and mounted (tmpfs) into the
+  # build — never an image layer or a build-log line.
+  gh_packages_pat:
+    environment: GH_PACKAGES_PAT
 
 networks:
   e2e-net:
