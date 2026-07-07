@@ -7,11 +7,14 @@ fresh CI database lacks (both are gitignored out of a clean checkout):
 
   1. An ACTIVE login user  — `seed-all-users` reads gitignored JSON fixtures, so
      it creates zero users in CI; we create one programmatically instead.
-  2. The Fitness App OIDC client — the `seed oauth_clients` CLI mints a RANDOM
-     client_id/secret and prints the secret once (unrecoverable). For a
-     repeatable stack we direct-insert the row with the run's FIXED creds — the
-     same values the compose injects into the frontend — so there is no
-     capture-and-inject dance. This mirrors integration_tests/test_oidc_e2e_db.py.
+  2. One OIDC client PER TENANT — the `seed oauth_clients` CLI mints RANDOM creds
+     and prints the secret once (unrecoverable). For a repeatable stack we
+     direct-insert each row with the run's FIXED creds — the same values the
+     compose injects into that tenant's frontend/backend. Mirrors
+     integration_tests/test_oidc_e2e_db.py.
+
+A client is seeded only when its client_id env is present, so a single-tenant run
+(`ci_stack.py up --tenants fitness`) seeds just that tenant's client.
 
 Idempotent: re-running is a no-op if the user / client already exist. Exits
 non-zero on any failure so the driver surfaces it.
@@ -32,11 +35,25 @@ USERNAME = os.environ.get("E2E_LOGIN_USERNAME", "e2e-user")
 PASSWORD = os.environ.get("E2E_LOGIN_PASSWORD", "E2eTest123!")
 EMAIL = os.environ.get("E2E_LOGIN_EMAIL", "e2e-user@example.com")
 
-CLIENT_ID = os.environ["E2E_OIDC_CLIENT_ID"]
-CLIENT_SECRET = os.environ["E2E_OIDC_CLIENT_SECRET"]
-REDIRECT_URI = os.environ.get(
-    "E2E_OIDC_REDIRECT_URI", "http://localhost:3000/api/auth/oidc/callback"
-)
+# One entry per tenant. Seeded only when the *_ID + *_SECRET envs are both set.
+CLIENTS = [
+    {
+        "env_id": "E2E_OIDC_CLIENT_ID",
+        "env_secret": "E2E_OIDC_CLIENT_SECRET",
+        "redirect": os.environ.get(
+            "E2E_OIDC_REDIRECT_URI", "http://localhost:3000/api/auth/oidc/callback"
+        ),
+        "name": "Fitness App (E2E)",
+    },
+    {
+        "env_id": "E2E_TIFFANYS_CLIENT_ID",
+        "env_secret": "E2E_TIFFANYS_CLIENT_SECRET",
+        "redirect": os.environ.get(
+            "E2E_TIFFANYS_REDIRECT_URI", "http://localhost:3001/api/auth/oidc/callback"
+        ),
+        "name": "Tiffany's Space (E2E)",
+    },
+]
 
 
 def seed_user() -> None:
@@ -51,36 +68,44 @@ def seed_user() -> None:
     print(f"[seed] created active user {USERNAME!r} id={user.id}")
 
 
-def seed_oidc_client() -> None:
+def seed_oidc_client(client_id: str, client_secret: str, redirect: str, name: str) -> None:
     with Session(get_engine()) as s:
         exists = s.exec(
-            select(OAuthClient).where(OAuthClient.client_id == CLIENT_ID)
+            select(OAuthClient).where(OAuthClient.client_id == client_id)
         ).first()
         if exists is not None:
-            print(f"[seed] OIDC client {CLIENT_ID!r} already present — skip")
+            print(f"[seed] OIDC client {client_id!r} already present — skip")
             return
         s.add(
             OAuthClient(
-                client_id=CLIENT_ID,
-                client_secret_hash=hash_client_secret(CLIENT_SECRET),
-                client_name="Fitness App (E2E)",
+                client_id=client_id,
+                client_secret_hash=hash_client_secret(client_secret),
+                client_name=name,
                 client_type=OAuthClientType.confidential,
-                redirect_uris=[REDIRECT_URI],
+                redirect_uris=[redirect],
                 allowed_scopes=["openid", "profile", "email", "offline_access"],
                 grant_types=["authorization_code", "refresh_token"],
                 response_types=["code"],
                 token_endpoint_auth_method="client_secret_basic",
-                audience=CLIENT_ID,  # per-client aud == client_id
+                audience=client_id,  # per-client aud == client_id
                 is_active=True,
             )
         )
         s.commit()
-    print(f"[seed] inserted OIDC client {CLIENT_ID!r} redirect={REDIRECT_URI}")
+    print(f"[seed] inserted OIDC client {name!r} ({client_id!r}) redirect={redirect}")
 
 
 def main() -> None:
     seed_user()
-    seed_oidc_client()
+    seeded = 0
+    for c in CLIENTS:
+        client_id = os.environ.get(c["env_id"])
+        client_secret = os.environ.get(c["env_secret"])
+        if client_id and client_secret:
+            seed_oidc_client(client_id, client_secret, c["redirect"], c["name"])
+            seeded += 1
+    if seeded == 0:
+        print("[seed] WARNING: no OIDC client env provided — seeded none", file=sys.stderr)
     print("[seed] hub seed complete")
 
 

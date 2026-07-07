@@ -67,11 +67,13 @@ jobs:
           REPO="$(field "Target repository" | head -1 | tr -d '\r')"
           CONFIRM="$(field "Confirm" | head -1)"
 
-          # Allow-list: only the fitness-journey repos the E2E actually validates. The App
-          # secrets must never be copied anywhere else.
+          # Allow-list: only the repos in an E2E journey (fitness + tiffanys tenants +
+          # the shared hub/auth-UI). The App secrets must never be copied elsewhere.
           case "$REPO" in
-            kriegerdataforge|kriegerdataforge-auth-ui|fitness-app-backend|fitness-app-frontend) ;;
-            *) echo "::error::Target repository must be one of the four fitness-journey repos (got '${REPO}')."; exit 1 ;;
+            kriegerdataforge|kriegerdataforge-auth-ui) ;;
+            fitness-app-backend|fitness-app-frontend) ;;
+            tiffanys-space|tiffanys-space-backend) ;;
+            *) echo "::error::Target repository must be one of the E2E-journey repos (got '${REPO}')."; exit 1 ;;
           esac
           case "$CONFIRM" in
             "Yes"*) ;;
@@ -80,9 +82,13 @@ jobs:
 
           echo "repo=$REPO" >> "$GITHUB_OUTPUT"
 
-      # App token scoped to JUST the target repo, with the two grants needed to write its Actions
-      # variables + secrets. Auto-revoked at job end. Gated on USE_GITHUB_APP (this repo), falling
-      # back to CICD_PAT.
+      # App token scoped to JUST the target repo. It needs to write that repo's
+      # Actions secrets AND variables — but create-github-app-token@v2.2.2 has NO
+      # `permission-variables` input (only `permission-secrets`), so a per-permission
+      # filter can't cover variables. We therefore omit the filter: the token
+      # inherits the App's GRANTED permissions (Secrets + Variables write — the
+      # one-time prerequisite), limited to the single target repo via `repositories:`.
+      # Auto-revoked at job end. Gated on USE_GITHUB_APP; falls back to CICD_PAT.
       - name: Mint GitHub App token (secrets + variables write on the target)
         id: app-token
         if: vars.USE_GITHUB_APP == 'true'
@@ -92,8 +98,6 @@ jobs:
           private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ steps.fields.outputs.repo }}
-          permission-secrets: write
-          permission-variables: write
 
       - name: Set repo variables (gate OFF; App path armed)
         env:
