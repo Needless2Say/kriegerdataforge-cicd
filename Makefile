@@ -88,7 +88,8 @@ e2e-down: ## Stop the full local stack
 e2e-seed-user: ## Seed the deterministic active test user (e2e-user) in the running hub
 	docker exec kdf-api python -c "from api.auth.service import AuthDatabaseService as S; from api.auth.schemas import RegisterRequest as R; svc=S(); print('e2e-user already exists') if svc.get_user_by_username('e2e-user') else print('created id=%s' % svc.create_user(R(username='e2e-user', password='E2eTest123!', email='e2e-user@example.com'), auto_activate=True).id)"
 
-e2e-typecheck: ## Type-check the E2E suite (tsc --noEmit)
+e2e-typecheck: ## Type-check the E2E suite (stages every journey's spec, then tsc)
+	$(PY3) e2e/ci_stack.py stage --all
 	cd e2e && npx tsc --noEmit
 
 # Which journey's specs to stage for `make e2e` (delegated stack = fitness).

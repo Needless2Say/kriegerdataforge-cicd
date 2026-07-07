@@ -1,7 +1,9 @@
 # Design note — decouple the Tier-2 E2E tests out of cicd into each tenant repo
 
-**Status: APPROVED — owner approved 2026-07-07; Phase 0 spike validated. Phased, backward-compatible
-implementation in progress.** Live status + PR links: [`e2e-test-decoupling-LOG.md`](./e2e-test-decoupling-LOG.md).
+**Status: COMPLETE (2026-07-07).** All phases landed — engine in cicd (#112), each journey relocated to its
+tenant repo (fitness-fe #308, tiffanys-space #137, auth-ui #41), and the transitional `e2e/tenants/` removed
+from cicd (Phase 3). Onboarding a future tenant now touches only its own repo. Full history + PR links:
+[`e2e-test-decoupling-LOG.md`](./e2e-test-decoupling-LOG.md).
 
 > **One-line intent.** `kriegerdataforge-cicd` must hold **only the reusable E2E engine**. Each tenant's
 > browser journey — its spec, its stack services, its seed data — belongs in **that tenant's repo**.

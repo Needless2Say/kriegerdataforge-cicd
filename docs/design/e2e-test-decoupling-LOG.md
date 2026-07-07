@@ -10,10 +10,10 @@ each phase lands; do not rewrite history. Status legend: ✅ done · 🔧 in pro
 | 0 | Spike: cross-repo compose merge | — (throwaway) | ✅ done — 2026-07-07 |
 | 0.5 | Scope guardrail + plan + log + ADR | cicd **#111** (merged) | ✅ done — 2026-07-07 |
 | 1 | cicd engine: data-driven driver + shared compose + generic seed/workflow; tenant defs restructured into transitional `e2e/tenants/<j>/` | cicd (this PR) | 🔧 in progress |
-| 2a | Relocate `tenants/fitness/` → `fitness-app-frontend/e2e/` | fitness-fe | ⬜ pending |
-| 2b | Relocate `tenants/tiffanys/` → `tiffanys-space/e2e/` | tiffanys-fe | ⬜ pending |
-| 2c | Relocate `tenants/auth/` → `kriegerdataforge-auth-ui/e2e/` | auth-ui | ⬜ pending |
-| 3 | cicd cleanup: delete the `e2e/tenants/` transitional dir | cicd | ⬜ pending |
+| 2a | Relocate `tenants/fitness/` → `fitness-app-frontend/e2e/` | fitness-fe **#308** (merged) | ✅ done |
+| 2b | Relocate `tenants/tiffanys/` → `tiffanys-space/e2e/` | tiffanys-space **#137** (merged) | ✅ done |
+| 2c | Relocate `tenants/auth/` → `kriegerdataforge-auth-ui/e2e/` | auth-ui **#41** (merged) | ✅ done |
+| 3 | cicd cleanup: delete the `e2e/tenants/` transitional dir | cicd (this PR) | 🔧 in progress |
 
 Merge order: 0.5 → 1 → (2a/2b/2c in any order) → 3. Phase 1 keeps the E2E green with **zero** tenant
 changes; each Phase-2 PR is independently verifiable by dispatching that journey; Phase 3 only lands once
@@ -103,6 +103,43 @@ DB migrate + catalogue seed driven by the manifest's `backend` block; `down` tea
   read-write), correctly discarded by the verify pass.
 
 ---
+
+## Phase 2 — relocate each journey into its tenant repo (✅ #308 / #137 / #41, merged)
+
+Moved each `e2e/tenants/<j>/` out of cicd and INTO its own repo — **zero cicd edits**:
+`fitness-app-frontend` **#308** (`e2e/` = manifest + fragment + spec + README), `tiffanys-space`
+**#137** (same), `kriegerdataforge-auth-ui` **#41** (manifest + spec + README, **no** fragment,
+`app:false`). Assets relocated byte-identical. Verified `ci_stack.py discover()` then finds all three
+`source=sibling` — the tenant-repo manifests win over the still-present cicd `e2e/tenants/` copies (which
+this Phase-3 PR deletes).
+
+**Per-repo CI gotcha (a 3-repo recon workflow found it, uniform across all three):** each repo's
+`tsconfig.json` `include: ["**/*.ts"]` would type-check the relocated `e2e/*.spec.ts` and **fail** on its
+`@playwright/test` import in both `ci-typecheck` (`tsc --noEmit`) and `ci-build` (`next build`, no
+`ignoreBuildErrors`) — because that dep is intentionally **not** in the tenant repo (the cicd engine
+supplies Playwright). Fix = one edit per repo: add `"e2e"` to `tsconfig` `exclude`. eslint (`eslint src/`)
+and jest (roots=`src`, `*.test` only) already ignore `e2e/`; frontends need no vercel-compact. All three
+merged CI-green (the load-bearing lint-and-typecheck + build jobs pass; the `e2e` gate skips, dormant).
+
+## Phase 3 — cicd cleanup + the tenant-spec typecheck decision (🔧 this PR)
+
+- **Deleted `e2e/tenants/`** — cicd's `e2e/` is now the pure reusable engine (shared compose, driver,
+  seed, Playwright harness, README). Discovery is now purely sibling-based (the driver already guarded
+  `if LOCAL_TENANTS.is_dir()`, so no driver logic changed for the deletion).
+- **Who type-checks the tenant specs now?** (the open question from Phase 2.) cicd's `tsconfig` used to
+  `include: ["tenants"]` → it type-checked the local copies; those are gone. **Decision: cicd — the
+  harness owner — type-checks the specs it runs, on demand.** `make e2e-typecheck` now runs
+  `ci_stack.py stage --all` (a new flag that stages EVERY discovered journey's spec, app + non-app, from
+  the sibling repos) then `tsc` over `staged-tests/`; `tsconfig include` → `["staged-tests",
+  "playwright.config.ts"]` (config always present → no "no inputs" error on a bare checkout). So all
+  tenant specs get static type-checking from cicd with the real `@playwright/test` types, and the gate
+  still validates them at runtime. Rejected pure runtime-only validation (cheap to keep the static check)
+  and per-tenant playwright deps (would re-introduce the harness in every repo).
+- Updated `e2e/README.md` to point at the sibling-repo homes; VERSION bump.
+
+**Net (epic complete):** cicd was touched exactly twice for tenant content — engine IN (#112), transitional
+defs OUT (this PR). Onboarding a future tenant = one PR in its own repo (`e2e/{manifest,fragment,spec}` +
+the `"e2e"` tsconfig exclude + a dormant `e2e-gate.yml`), **zero cicd edits**.
 
 ## Decisions & gotchas discovered during implementation
 
