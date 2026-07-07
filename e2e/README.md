@@ -19,8 +19,9 @@ Unit + integration tests (including the hub OIDC E2E in
 ## The journeys under test
 
 Two tenants share the hub + auth-UI, each with a **distinct OIDC client** — the
-same browser-only integration, proven per tenant (`tests/oidc-login.spec.ts`
-`@fitness`, `tests/tiffanys-login.spec.ts` `@tiffanys`):
+same browser-only integration, proven per tenant
+(`e2e/tenants/fitness/tests/fitness.spec.ts` `@fitness`,
+`e2e/tenants/tiffanys/tests/tiffanys.spec.ts` `@tiffanys`):
 
 ```
 fitness FE (:3000)  gated route "/database"
@@ -35,15 +36,20 @@ tiffanys FE (:3001)  gated route "/shop"   (OIDC-only; default-deny proxy)
     → "/"  account menu visible → "/shop"  products from tiffanys backend (:8002)
 ```
 
-A third journey, **`auth`** (`tests/auth-login.spec.ts` `@auth`), tests the shared
-identity layer at its own level — auth-UI + hub + db, a **synthetic** OIDC client
-and **no tenant app** (login → consent → an authorization code, plus a
+A third journey, **`auth`** (`e2e/tenants/auth/tests/auth.spec.ts` `@auth`), tests
+the shared identity layer at its own level — auth-UI + hub + db, a **synthetic**
+OIDC client and **no tenant app** (login → consent → an authorization code, plus a
 wrong-password case). The hub's hub+db auth system is separately covered by its
 real-DB integration tests.
 
-The stack is journey-profiled: `ci_stack.py up --tenants fitness` (or `tiffanys`,
-`auth`, or `fitness,tiffanys`) brings up only what that journey needs (+ the shared
-hub/auth-UI), and Playwright selects the matching spec by tag (`--grep @fitness`).
+**Data-driven, tenant-agnostic (ADR D-006).** Each journey is declared by an
+`e2e/manifest.json` the driver *discovers* — it lives in `e2e/tenants/<journey>/`
+today (the transitional home) and moves to its own tenant repo in Phase 2, with
+**no cicd change**. `ci_stack.py up --journey fitness` (or `tiffanys`, `auth`,
+`fitness,tiffanys`, or `all`) reads that manifest, merges the shared compose with
+the journey's fragment, brings up only what it needs, and **stages that journey's
+spec** into `staged-tests/` so `npm test` runs exactly it — no `--grep`. See
+[`docs/design/e2e-test-decoupling.md`](../docs/design/e2e-test-decoupling.md).
 
 ## Prerequisites
 
@@ -101,16 +107,22 @@ bind-mounts each repo's source and reads secrets from each repo's gitignored
 `.env.local`. Great for local iteration, but it **can't run in CI** — a fresh
 runner has no `.env.local` and nothing to bind-mount.
 
-`docker-compose.e2e.yml` + `ci_stack.py` are the hermetic sibling. `ci_stack.py`:
+`docker-compose.shared.yml` (db + hub + auth-UI) + each journey's fragment
+(`e2e/tenants/<j>/docker-compose.e2e.yml`) + `ci_stack.py` are the hermetic
+sibling. `ci_stack.py`:
 
-- generates a throwaway RS256 keypair + fixed-per-run OIDC `client_id`/`secret` +
-  session secret + DB password (persisted to `e2e/.e2e-ci.json`, gitignored) and
-  threads them through the compose so the hub, the frontend, and the seed all
-  agree — no capture-and-inject dance;
-- builds every service from source (the `dev` image targets, source COPY'd in,
-  **no** bind-mounts), brings them up on their own network with healthcheck
-  gating, migrates **both** databases to head, then seeds the active login user +
-  the OIDC client (hub) and the food catalogue (fitness);
+- **discovers** each journey's `manifest.json` (no hardcoded tenant list) and, for
+  the requested `--journey`, generates a throwaway RS256 keypair + session secret +
+  DB password (shared) and a fixed-per-run OIDC `client_id`/`secret` **per journey**
+  (persisted to `e2e/.e2e-ci.json`, gitignored), threading them through the compose
+  so the hub, each frontend, and the seed all agree — no capture-and-inject dance;
+- merges `-f docker-compose.shared.yml` with the active journeys' fragments, builds
+  every service from source (the `dev` image targets, source COPY'd in, **no**
+  bind-mounts), brings them up on their own network with healthcheck gating,
+  migrates the hub DB + each journey's backend, then seeds the active login user +
+  one OIDC client per journey (hub) and each catalogue;
+- **stages** the active journeys' specs into `e2e/staged-tests/` (the Playwright
+  `testDir`) and writes `e2e/.env`, so `npm test` runs exactly those journeys;
 - sources `GH_PACKAGES_PAT` from the environment (the CI secret), falling back to
   `fitness-app-backend/.env.local` locally so you needn't export it by hand.
 

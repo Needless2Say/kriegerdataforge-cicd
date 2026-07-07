@@ -1,0 +1,124 @@
+# =============================================================================
+# Shared identity layer for the self-contained Tier-2 E2E — the ALWAYS-UP base.
+# =============================================================================
+# db + hub (kdf-api) + auth-UI. There is exactly one hub and one auth-UI in the
+# ecosystem, so this file does NOT grow as tenants are onboarded — it is the
+# reusable base every journey brings up. Each tenant contributes its own services
+# as a SEPARATE fragment (its repo's e2e/docker-compose.e2e.yml) that the driver
+# (ci_stack.py) merges on top with `-f docker-compose.shared.yml -f <fragment>`.
+#
+# Cross-repo build contexts are ABSOLUTE via ${E2E_WORKSPACE} (the workspace root
+# holding all sibling repos) so a multi-`-f` merge resolves them unambiguously —
+# Docker resolves *relative* contexts against the first `-f` file's dir, which
+# would be the wrong repo. ci_stack.py sets E2E_WORKSPACE; do not run this with a
+# bare `docker compose up` (the ${VAR}s would be empty). See e2e/README.md.
+#
+# TOPOLOGY (mirrors the proven-green local stack's issuer/URL wiring exactly):
+#   browser → <tenant fe> ─(gated)→ auth-UI :3002 (issuer origin) → hub
+#   (back-channel kdf-api:8000) → tenant fe callback → token exchange
+#   (back-channel kdf-auth-ui:3000). Issuer is http://localhost:3002 EVERYWHERE.
+# =============================================================================
+
+name: kriegerdataforge-e2e
+
+services:
+  kdf-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: kdf_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set by ci_stack.py}
+    expose: ["5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d kdf_db || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    networks: [e2e-net]
+
+  kdf-api:
+    build:
+      context: ${E2E_WORKSPACE:?set by ci_stack.py}/kriegerdataforge
+      dockerfile: Dockerfile
+      target: dev
+      secrets:
+        - gh_packages_pat
+    # DNS name kdf-api → matches KDF_AUTH_INTERNAL_URL / KDF_AUTH_BASE_URL.
+    environment:
+      ENVIRONMENT: development
+      DB_DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD}@kdf-db:5432/kdf_db
+      AUTH_PRIVATE_KEY: ${AUTH_PRIVATE_KEY:?set by ci_stack.py}
+      AUTH_PUBLIC_KEY: ${AUTH_PUBLIC_KEY:?set by ci_stack.py}
+      AUTH_ALGORITHM: RS256
+      AUTH_ACCESS_TOKEN_EXPIRE_MINUTES: "60"
+      AUTH_ADMIN_EMAIL: e2e-admin@example.com
+      # SMTP is never exercised by the OIDC journey — placeholder, not a secret.
+      AUTH_ADMIN_EMAIL_PASSWORD: e2e-smtp-unused
+      AUTH_JWT_ISSUER: KriegerDataForge
+      AUTH_JWT_AUDIENCE: KDFUsers
+      # OIDC issuer origin = the browser-facing auth-UI (proven-green value).
+      OIDC_ISSUER: http://localhost:3002
+      OIDC_LOGIN_URL: http://localhost:3002/login
+      OIDC_CONSENT_URL: http://localhost:3002/consent
+      OIDC_SESSION_SECRET: ${OIDC_SESSION_SECRET:?set by ci_stack.py}
+      OIDC_REQUIRE_SESSION_SECRET: "false"
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:3002
+      # SERVICE_API_KEYS intentionally unset → ServiceKeyMiddleware disabled.
+      # MinIO not deployed; dummies keep StorageSettings construction happy.
+      MINIO_ENDPOINT: minio.invalid:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: kdf
+      MINIO_USE_SSL: "false"
+      MINIO_PUBLIC_URL: http://localhost:9002
+    depends_on:
+      kdf-db:
+        condition: service_healthy
+    healthcheck:
+      # 127.0.0.1 (not localhost): the app binds IPv4 0.0.0.0; localhost can
+      # resolve to IPv6 ::1 in-container and the probe would be refused.
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/healthz || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 40
+      start_period: 20s
+    networks: [e2e-net]
+
+  kdf-auth-ui:
+    build:
+      context: ${E2E_WORKSPACE:?set by ci_stack.py}/kriegerdataforge-auth-ui
+      dockerfile: Dockerfile
+      target: dev
+    # DNS name kdf-auth-ui → matches each tenant FE's KDF_OIDC_INTERNAL_URL.
+    ports:
+      - "3002:3000" # browser-facing OIDC issuer origin (E2E_AUTH_UI_URL)
+    environment:
+      NODE_ENV: development
+      ENVIRONMENT: development
+      KDF_AUTH_INTERNAL_URL: http://kdf-api:8000
+      OIDC_ISSUER: http://localhost:3002
+      KDF_SERVICE_KEY: "" # blank — hub runs middleware disabled
+    depends_on:
+      kdf-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/ || exit 1"]
+      interval: 10s
+      timeout: 15s
+      retries: 40
+      start_period: 30s
+    networks: [e2e-net]
+
+secrets:
+  # Private-SDK token for the Python image builds, sourced from the
+  # GH_PACKAGES_PAT env var (ci_stack.py sets it) and mounted (tmpfs) into the
+  # build — never an image layer or a build-log line. Tenant fragments whose
+  # backend clones the SDK reference this same secret id.
+  gh_packages_pat:
+    environment: GH_PACKAGES_PAT
+
+networks:
+  e2e-net:
+    name: kdf-e2e-net
+    driver: bridge

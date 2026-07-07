@@ -10,5 +10,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["tests", "playwright.config.ts"]
+  "include": ["tenants", "playwright.config.ts"]
 }

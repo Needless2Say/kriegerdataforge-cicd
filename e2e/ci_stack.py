@@ -1,33 +1,33 @@
 #!/usr/bin/env python3
-"""Driver for the self-contained Tier-2 E2E stack (docker-compose.e2e.yml).
+"""Driver for the self-contained Tier-2 E2E stack — DATA-DRIVEN, tenant-agnostic.
 
 One entry point for both `make e2e-ci*` locally and the CI workflow. It owns the
-parts a bare `docker compose up` can't do:
+parts a bare `docker compose up` can't do, and it is **discovery-based**: it never
+hardcodes a tenant list. Each journey is declared by an `e2e/manifest.json` that
+the driver finds in a sibling repo (the Phase-2 home) or in `e2e/tenants/<j>/`
+(the Phase-1 transitional home) — see ADR D-006 + docs/design/e2e-test-decoupling.md.
+Onboarding a journey adds a manifest in ITS repo; this file never changes.
 
-  * generates a throwaway RS256 keypair + fixed-per-run OIDC client_id/secret PER
-    TENANT + session secret + DB password, and threads them into the compose via
-    the process env (so the hub, each frontend, and the seed all agree — no
-    capture-and-inject). Secrets persist to e2e/.e2e-ci.json (gitignored) so
-    re-running `up` reuses them instead of churning containers; `--regen` forces
-    a fresh set.
-  * sources GH_PACKAGES_PAT (env → fitness-app-backend/.env.local fallback) so
-    the private-SDK image build works locally without exporting it by hand. In
-    CI it comes from the GH_PACKAGES_PAT secret. Never printed.
-  * builds, brings the selected TENANTS up (via compose profiles) with healthcheck
-    gating, migrates the hub + each tenant DB, and seeds the active login user +
-    each tenant's OIDC client (hub) and catalogue, in the one correct order.
-
-The stack is TWO tenants sharing the hub + auth-UI: `fitness` (FE :3000, BE :8001)
-and `tiffanys` (FE :3001, BE :8002), tagged with docker-compose profiles. `up
---tenants fitness` brings up only the fitness tenant (+ shared hub/auth-UI), so a
-single-tenant gate doesn't build the other tenant's images.
+What it does:
+  * generates a throwaway RS256 keypair + session secret + DB password (shared),
+    plus a fixed-per-run OIDC client_id/secret PER ACTIVE JOURNEY, threaded into
+    the compose via the process env so the hub, each frontend, and the seed all
+    agree. Persisted to e2e/.e2e-ci.json (gitignored); `--regen` forces fresh.
+  * sources GH_PACKAGES_PAT (env → fitness-app-backend/.env.local fallback) for
+    the private-SDK image build. Never printed.
+  * merges the shared identity compose (docker-compose.shared.yml) with each
+    active journey's fragment (`-f shared -f <fragment>`), brings them up with
+    healthcheck gating, migrates the hub + each journey's backend, seeds the
+    active login user + one OIDC client per journey.
+  * STAGES the active journeys' Playwright specs into e2e/staged-tests/ (the
+    testDir) and writes e2e/.env so `npm test` runs exactly those specs — no
+    `--grep` plumbing needed.
 
 Commands:
-  up      build + up --wait + migrate + seed        (idempotent; leaves it up)
-  down    stop + remove containers, volumes, network (all tenants)
-  logs    tail compose logs (debug)
-
-Then run Playwright (`make e2e` / `cd e2e && npm test`).
+  up      build + up --wait + migrate + seed + stage specs   (idempotent)
+  stage   only stage specs + write .env (no docker)           (for the delegated stack)
+  down    stop + remove containers, volumes, network          (all journeys)
+  logs    tail compose logs                                    (debug)
 
 Generated keys are ephemeral and never touch a developer's real dev keypair.
 """
@@ -37,71 +37,98 @@ import argparse
 import json
 import os
 import secrets
+import shutil
 import subprocess
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 WORKSPACE = HERE.parent.parent  # e2e/ → cicd repo → workspace root (siblings)
-COMPOSE = HERE / "docker-compose.e2e.yml"
-SEED = HERE / "seed_e2e.py"
-STATE = HERE / ".e2e-ci.json"  # gitignored — persisted per-run secrets
+SHARED_COMPOSE = HERE / "docker-compose.shared.yml"
+LOCAL_TENANTS = HERE / "tenants"     # Phase-1 transitional journey homes
+SEED = HERE / "seed_shared.py"
+STAGED = HERE / "staged-tests"       # gitignored Playwright testDir (populated per run)
+STATE = HERE / ".e2e-ci.json"        # gitignored — persisted per-run secrets
+ENV_FILE = HERE / ".env"             # gitignored — loaded by playwright.config.ts
 
 # Fixed login creds: match e2e/.env.example + Playwright's E2E_* defaults so the
 # suite needs no wiring. Not sensitive (throwaway account in an ephemeral DB).
 LOGIN_USERNAME = "e2e-user"
 LOGIN_PASSWORD = "E2eTest123!"
 LOGIN_EMAIL = "e2e-user@example.com"
-
-# Per-journey wiring. `id/secret_key` are the .e2e-ci.json state keys; the *_env
-# are the env names seed_e2e.py + the compose read. `profile` is the compose
-# profile to activate (None → only the always-up shared hub/auth-UI/db); `service`
-# is the BE container to migrate/seed (None → no app backend); `url` is the entry.
-# `auth` is the shared-identity journey: auth-UI + hub + db, a synthetic OIDC
-# client, and NO tenant app (the hub's own DB integration tests cover hub+db).
-TENANTS = {
-    "fitness": {
-        "profile": "fitness",
-        "service": "fitness-app-api",
-        "seed": ("python", "-m", "api.seed.fitness", "seed-foods"),
-        "seed_label": "seed fitness food catalogue",
-        "id_key": "oidc_client_id",
-        "secret_key": "oidc_client_secret",
-        "id_env": "E2E_OIDC_CLIENT_ID",
-        "secret_env": "E2E_OIDC_CLIENT_SECRET",
-        "url": "http://localhost:3000",
-    },
-    "tiffanys": {
-        "profile": "tiffanys",
-        "service": "tiffanys-space-api",
-        "seed": ("python", "-m", "api.seed.tiffanys", "seed-products"),
-        "seed_label": "seed tiffanys product catalogue",
-        "id_key": "tiffanys_client_id",
-        "secret_key": "tiffanys_client_secret",
-        "id_env": "E2E_TIFFANYS_CLIENT_ID",
-        "secret_env": "E2E_TIFFANYS_CLIENT_SECRET",
-        "url": "http://localhost:3001",
-    },
-    "auth": {
-        "profile": None,   # only the shared hub + auth-UI + db (no tenant app)
-        "service": None,   # no app backend to migrate/seed
-        "seed": None,
-        "seed_label": "",
-        "id_key": "auth_client_id",
-        "secret_key": "auth_client_secret",
-        "id_env": "E2E_AUTH_CLIENT_ID",
-        "secret_env": "E2E_AUTH_CLIENT_SECRET",
-        "url": "http://localhost:3002",
-    },
-}
-# The app tenants — `journey: all` and the bare `up` default (auth is opt-in).
-DEFAULT_TENANTS = ("fitness", "tiffanys")
-APP_PROFILES = ("fitness", "tiffanys")
+AUTH_UI_URL = "http://localhost:3002"
 
 # Env-tunable so CI (slower cold `next dev` compiles, image builds) can grant
 # headroom without editing the driver. Defaults suit local runs.
-BUILD_TIMEOUT = int(os.environ.get("E2E_BUILD_TIMEOUT", "1800"))  # cold build: SDK clone + npm ci
-WAIT_TIMEOUT = int(os.environ.get("E2E_WAIT_TIMEOUT", "420"))  # healthcheck gate; next dev compiles on first hit
+BUILD_TIMEOUT = int(os.environ.get("E2E_BUILD_TIMEOUT", "1800"))  # cold: SDK clone + npm ci
+WAIT_TIMEOUT = int(os.environ.get("E2E_WAIT_TIMEOUT", "420"))  # healthcheck gate
+
+# Shared secrets (not per-journey) + their byte sizes for token_urlsafe.
+_SHARED_RANDOMS = {"oidc_session_secret": 48, "postgres_password": 18}
+
+
+# ── journey registry (discovered from manifests) ─────────────────────────────
+
+
+@dataclass
+class Journey:
+    name: str
+    app: bool                     # part of `journey: all`? (auth is opt-in → False)
+    repos: list[str]              # sibling repos this journey's fragment builds from
+    compose: Path | None          # tenant compose fragment (None → shared only)
+    tests_dir: Path               # dir whose *.spec.ts are staged
+    backend: dict | None          # {service, migrate, seed} or None
+    oidc_client: dict             # {id_env, secret_env, redirect_uri, name}
+    env: dict = field(default_factory=dict)  # extra E2E_* to write to .env
+    source: str = "local"         # "sibling" | "local"
+
+
+def _load_manifest(path: Path, source: str) -> Journey:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    base = path.parent
+    compose = (base / data["compose"]).resolve() if data.get("compose") else None
+    return Journey(
+        name=data["journey"],
+        app=data.get("app", True),
+        repos=data.get("repos", []),
+        compose=compose,
+        tests_dir=(base / data.get("tests", "tests")).resolve(),
+        backend=data.get("backend"),
+        oidc_client=data["oidc_client"],
+        env=data.get("env", {}),
+        source=source,
+    )
+
+
+def discover() -> dict[str, Journey]:
+    """Build the journey registry. Sibling-repo manifests (Phase-2 homes) take
+    precedence over the cicd-local transitional ones, so a moved journey is
+    picked up from its repo with no cicd change."""
+    registry: dict[str, Journey] = {}
+    # 1. cicd-local transitional homes (lower precedence).
+    if LOCAL_TENANTS.is_dir():
+        for mf in sorted(LOCAL_TENANTS.glob("*/manifest.json")):
+            j = _load_manifest(mf, "local")
+            registry[j.name] = j
+    # 2. sibling repos (higher precedence — the Phase-2 homes win on collision).
+    for mf in sorted(WORKSPACE.glob("*/e2e/manifest.json")):
+        if mf.parent == HERE:  # never treat cicd/e2e itself as a tenant
+            continue
+        j = _load_manifest(mf, "sibling")
+        registry[j.name] = j
+    return registry
+
+
+def resolve_journeys(raw: str, registry: dict[str, Journey]) -> list[str]:
+    if raw in ("", "all"):
+        return sorted(n for n, j in registry.items() if j.app)
+    names = [t.strip() for t in raw.split(",") if t.strip()]
+    bad = [n for n in names if n not in registry]
+    if bad:
+        sys.exit(f"[ci_stack] unknown journey(s): {', '.join(bad)} "
+                 f"(discovered: {', '.join(sorted(registry)) or 'none'})")
+    return names
 
 
 # ── secret material ──────────────────────────────────────────────────────────
@@ -143,28 +170,39 @@ def _generate_keypair() -> tuple[str, str]:
         return priv, pub
 
 
-def _load_or_make_state(regen: bool) -> dict:
-    """Load e2e/.e2e-ci.json, filling any missing keys (so an older state file
-    gains the tenant client creds without a --regen). Rewrites only if changed."""
-    state = {} if (regen or not STATE.exists()) else json.loads(STATE.read_text(encoding="utf-8"))
+def load_or_make_state(journeys: list[str], regen: bool) -> dict:
+    """Load e2e/.e2e-ci.json, filling any missing keys (shared secrets + a client
+    id/secret for each requested journey). An OLD flat-schema file (pre-D-006) is
+    discarded and regenerated — the creds are throwaway. Rewrites only if changed."""
+    state: dict = {}
+    if not regen and STATE.exists():
+        try:
+            loaded = json.loads(STATE.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            loaded = {}  # corrupt/truncated (e.g. an interrupted write) → regenerate
+        if isinstance(loaded, dict) and "shared" in loaded:  # new schema; else regen
+            state = loaded
+    state.setdefault("shared", {})
+    state.setdefault("clients", {})
     changed = False
-    if not state.get("auth_private_key") or not state.get("auth_public_key"):
-        state["auth_private_key"], state["auth_public_key"] = _generate_keypair()
+
+    sh = state["shared"]
+    if not sh.get("auth_private_key") or not sh.get("auth_public_key"):
+        sh["auth_private_key"], sh["auth_public_key"] = _generate_keypair()
         changed = True
-    randoms = {
-        "oidc_session_secret": 48,
-        "postgres_password": 18,
-        "oidc_client_id": 24,
-        "oidc_client_secret": 48,
-        "tiffanys_client_id": 24,
-        "tiffanys_client_secret": 48,
-        "auth_client_id": 24,
-        "auth_client_secret": 48,
-    }
-    for key, nbytes in randoms.items():
-        if not state.get(key):
-            state[key] = secrets.token_urlsafe(nbytes)
+    for key, nbytes in _SHARED_RANDOMS.items():
+        if not sh.get(key):
+            sh[key] = secrets.token_urlsafe(nbytes)
             changed = True
+
+    for j in journeys:
+        if j not in state["clients"]:
+            state["clients"][j] = {
+                "id": secrets.token_urlsafe(24),
+                "secret": secrets.token_urlsafe(48),
+            }
+            changed = True
+
     if changed:
         STATE.write_text(json.dumps(state, indent=2), encoding="utf-8")
         print(f"[ci_stack] wrote secrets -> {STATE.name}")
@@ -173,45 +211,61 @@ def _load_or_make_state(regen: bool) -> dict:
 
 def _resolve_gh_pat() -> str:
     """GH_PACKAGES_PAT for the private-SDK image build. Env first (CI secret),
-    then the local fitness-app-backend/.env.local as a dev convenience. The value
-    is never logged."""
+    then the local fitness-app-backend/.env.local as a dev convenience. Never logged."""
     pat = os.environ.get("GH_PACKAGES_PAT", "").strip()
     if pat:
         return pat
     env_local = WORKSPACE / "fitness-app-backend" / ".env.local"
     if env_local.exists():
         # errors=replace: only the ASCII GH_PACKAGES_PAT= line matters; a stray
-        # non-UTF-8 byte elsewhere in the file must not crash the read (Windows).
+        # non-UTF-8 byte elsewhere must not crash the read (Windows).
         for line in env_local.read_text(encoding="utf-8", errors="replace").splitlines():
             if line.startswith("GH_PACKAGES_PAT="):
                 return line.split("=", 1)[1].strip().strip('"').strip("'")
     return ""
 
 
-def _compose_env(state: dict, profiles: tuple[str, ...] = APP_PROFILES) -> dict:
+def _base_env(state: dict) -> dict:
+    """Env common to every compose invocation: workspace root (for the absolute
+    ${E2E_WORKSPACE} build contexts) + the shared identity secrets + the PAT."""
+    sh = state["shared"]
     env = dict(os.environ)
     env.update(
-        COMPOSE_PROFILES=",".join(profiles),
-        POSTGRES_PASSWORD=state["postgres_password"],
-        AUTH_PRIVATE_KEY=state["auth_private_key"],
-        AUTH_PUBLIC_KEY=state["auth_public_key"],
-        OIDC_SESSION_SECRET=state["oidc_session_secret"],
-        E2E_OIDC_CLIENT_ID=state["oidc_client_id"],
-        E2E_OIDC_CLIENT_SECRET=state["oidc_client_secret"],
-        E2E_TIFFANYS_CLIENT_ID=state["tiffanys_client_id"],
-        E2E_TIFFANYS_CLIENT_SECRET=state["tiffanys_client_secret"],
-        E2E_AUTH_CLIENT_ID=state["auth_client_id"],
-        E2E_AUTH_CLIENT_SECRET=state["auth_client_secret"],
+        E2E_WORKSPACE=WORKSPACE.as_posix(),  # forward slashes — Docker-friendly on Windows
+        POSTGRES_PASSWORD=sh["postgres_password"],
+        AUTH_PRIVATE_KEY=sh["auth_private_key"],
+        AUTH_PUBLIC_KEY=sh["auth_public_key"],
+        OIDC_SESSION_SECRET=sh["oidc_session_secret"],
         GH_PACKAGES_PAT=_resolve_gh_pat(),
     )
+    return env
+
+
+def _compose_env(state: dict, journeys: list[str], registry: dict[str, Journey]) -> dict:
+    """Base env + each active journey's client id/secret under the var names its
+    fragment/spec expect (manifest oidc_client.id_env / secret_env)."""
+    env = _base_env(state)
+    for j in journeys:
+        oc = registry[j].oidc_client
+        env[oc["id_env"]] = state["clients"][j]["id"]
+        env[oc["secret_env"]] = state["clients"][j]["secret"]
     return env
 
 
 # ── compose helpers ──────────────────────────────────────────────────────────
 
 
-def _compose(*args: str) -> list[str]:
-    return ["docker", "compose", "-f", str(COMPOSE), *args]
+def _compose_files(journeys: list[str], registry: dict[str, Journey]) -> list[str]:
+    files = ["-f", str(SHARED_COMPOSE)]
+    for j in journeys:
+        frag = registry[j].compose
+        if frag:
+            files += ["-f", str(frag)]
+    return files
+
+
+def _compose(files: list[str], *args: str) -> list[str]:
+    return ["docker", "compose", *files, *args]
 
 
 def _run(cmd: list[str], env: dict, *, timeout: int | None = None,
@@ -225,95 +279,183 @@ def _run(cmd: list[str], env: dict, *, timeout: int | None = None,
         sys.exit(result.returncode)
 
 
-def cmd_up(tenants: tuple[str, ...], regen: bool) -> None:
-    if not COMPOSE.exists():
-        sys.exit(f"[ci_stack] missing {COMPOSE}")
-    state = _load_or_make_state(regen)
-    # `auth` contributes no compose profile (only the always-up hub/auth-UI/db).
-    profiles = tuple(TENANTS[t]["profile"] for t in tenants if TENANTS[t]["profile"])
-    env = _compose_env(state, profiles=profiles)
+def _stage_specs(journeys: list[str], registry: dict[str, Journey]) -> int:
+    """Copy the active journeys' *.spec.ts into e2e/staged-tests/ (the testDir).
+    Journey-prefixed to avoid name collisions across tenants. Cleared each run.
+    Returns the number of spec files staged (0 → the caller should fail loudly,
+    else `npm test` dies later with a confusing Playwright 'no tests found')."""
+    if STAGED.exists():
+        shutil.rmtree(STAGED)
+    STAGED.mkdir(parents=True)
+    total = 0
+    for j in journeys:
+        tests_dir = registry[j].tests_dir
+        if not tests_dir.is_dir():
+            print(f"\033[1;33m[ci_stack] WARNING: {j} tests dir not found: {tests_dir}\033[0m")
+            continue
+        specs = sorted(tests_dir.glob("*.spec.ts"))
+        if not specs:
+            print(f"\033[1;33m[ci_stack] WARNING: {j} has no *.spec.ts in {tests_dir}\033[0m")
+        for spec in specs:
+            shutil.copy2(spec, STAGED / f"{j}-{spec.name}")
+            total += 1
+    print(f"[ci_stack] staged {total} spec file(s) for: {', '.join(journeys)}")
+    return total
+
+
+def _write_env_file(state: dict, journeys: list[str], registry: dict[str, Journey]) -> None:
+    """Write e2e/.env (gitignored) so `npm test` picks up the login creds + each
+    journey's URLs + its generated client id (playwright.config.ts loads it)."""
+    lines = [
+        "# Generated by ci_stack.py for the self-contained stack — gitignored.",
+        "# Loaded by playwright.config.ts via process.loadEnvFile().",
+        f"E2E_USERNAME={LOGIN_USERNAME}",
+        f"E2E_PASSWORD={LOGIN_PASSWORD}",
+        f"E2E_AUTH_UI_URL={AUTH_UI_URL}",
+    ]
+    for j in journeys:
+        d = registry[j]
+        lines.append(f"{d.oidc_client['id_env']}={state['clients'][j]['id']}")
+        for k, v in d.env.items():
+            lines.append(f"{k}={v}")
+    ENV_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"[ci_stack] wrote {ENV_FILE.name} for: {', '.join(journeys)}")
+
+
+def _check_repos(journeys: list[str], registry: dict[str, Journey]) -> None:
+    """Friendly pre-flight: warn if a journey's build-context repos aren't checked
+    out as siblings (the ${E2E_WORKSPACE}/<repo> contexts would fail to build)."""
+    missing = set()
+    for j in journeys:
+        for repo in registry[j].repos:
+            if not (WORKSPACE / repo).is_dir():
+                missing.add(repo)
+    if missing:
+        print(f"\033[1;33m[ci_stack] WARNING: sibling repo(s) not found under "
+              f"{WORKSPACE}: {', '.join(sorted(missing))} — their image builds will "
+              f"fail. Check them out next to kriegerdataforge-cicd.\033[0m")
+
+
+# ── commands ─────────────────────────────────────────────────────────────────
+
+
+def cmd_up(raw_journeys: str, regen: bool) -> None:
+    if not SHARED_COMPOSE.exists():
+        sys.exit(f"[ci_stack] missing {SHARED_COMPOSE}")
+    registry = discover()
+    journeys = resolve_journeys(raw_journeys, registry)
+    if not journeys:
+        sys.exit("[ci_stack] no journeys resolved (no manifests discovered?)")
+    _check_repos(journeys, registry)
+    state = load_or_make_state(journeys, regen)
+    env = _compose_env(state, journeys, registry)
+    files = _compose_files(journeys, registry)
     if not env["GH_PACKAGES_PAT"]:
         print("\033[1;33m[ci_stack] WARNING: no GH_PACKAGES_PAT — the private-SDK "
               "image build will fail unless the layer is cached.\033[0m")
-    print(f"[ci_stack] tenants: {', '.join(tenants)}")
+    print(f"[ci_stack] journeys: {', '.join(journeys)}")
 
-    _run(_compose("build"), env, timeout=BUILD_TIMEOUT, step="build images")
-    _run(_compose("up", "-d", "--wait", "--wait-timeout", str(WAIT_TIMEOUT)),
+    _run(_compose(files, "build"), env, timeout=BUILD_TIMEOUT, step="build images")
+    _run(_compose(files, "up", "-d", "--wait", "--wait-timeout", str(WAIT_TIMEOUT)),
          env, step="up + wait for healthchecks")
 
-    # Hub: migrate, then seed the login user + the OIDC client of EACH active
-    # tenant (seed_e2e.py inserts a client only for the creds it's handed).
-    _run(_compose("exec", "-T", "kdf-api", "alembic", "upgrade", "head"),
+    # Hub: migrate, then seed the login user + one OIDC client per active journey.
+    _run(_compose(files, "exec", "-T", "kdf-api", "alembic", "upgrade", "head"),
          env, step="migrate hub DB → head")
-    seed_flags = [
-        "-e", f"E2E_LOGIN_USERNAME={LOGIN_USERNAME}",
-        "-e", f"E2E_LOGIN_PASSWORD={LOGIN_PASSWORD}",
-        "-e", f"E2E_LOGIN_EMAIL={LOGIN_EMAIL}",
+    seed_clients = [
+        {
+            "client_id": state["clients"][j]["id"],
+            "client_secret": state["clients"][j]["secret"],
+            "redirect": registry[j].oidc_client["redirect_uri"],
+            "name": registry[j].oidc_client["name"],
+        }
+        for j in journeys
     ]
-    for t in tenants:
-        cfg = TENANTS[t]
-        seed_flags += [
-            "-e", f"{cfg['id_env']}={state[cfg['id_key']]}",
-            "-e", f"{cfg['secret_env']}={state[cfg['secret_key']]}",
-        ]
+    # Pass the seed inputs via the ENVIRONMENT (bare `-e NAME`, which docker reads
+    # from this process's env), NOT `-e NAME=value` — so the generated client
+    # secrets never land in argv. _run() echoes the command on failure, and this
+    # runtime-generated secret is NOT a registered Actions secret (unmasked), so a
+    # value in argv would leak to the CI log (SEC-1). Keeping it in the env is safe:
+    # _run prints the command, never the environment.
+    seed_env = dict(env)
+    seed_env.update(
+        E2E_LOGIN_USERNAME=LOGIN_USERNAME,
+        E2E_LOGIN_PASSWORD=LOGIN_PASSWORD,
+        E2E_LOGIN_EMAIL=LOGIN_EMAIL,
+        E2E_SEED_CLIENTS=json.dumps(seed_clients),
+    )
+    seed_flags = ["-e", "E2E_LOGIN_USERNAME", "-e", "E2E_LOGIN_PASSWORD",
+                  "-e", "E2E_LOGIN_EMAIL", "-e", "E2E_SEED_CLIENTS"]
     with open(SEED, "rb") as fh:
-        _run(_compose("exec", "-T", *seed_flags, "kdf-api", "python", "-"),
-             env, stdin=fh, step="seed hub: active user + OIDC client(s)")
+        _run(_compose(files, "exec", "-T", *seed_flags, "kdf-api", "python", "-"),
+             seed_env, stdin=fh, step="seed hub: active user + OIDC client(s)")
 
-    # Each app tenant: migrate its DB + seed its catalogue (auth has no backend).
-    for t in tenants:
-        cfg = TENANTS[t]
-        if not cfg["service"]:
+    # Each app journey's backend: migrate its DB + seed its catalogue.
+    for j in journeys:
+        be = registry[j].backend
+        if not be:
             continue
-        _run(_compose("exec", "-T", cfg["service"], "alembic", "upgrade", "head"),
-             env, step=f"migrate {t} DB → head")
-        _run(_compose("exec", "-T", cfg["service"], *cfg["seed"]),
-             env, step=cfg["seed_label"])
+        if be.get("migrate"):
+            _run(_compose(files, "exec", "-T", be["service"], "alembic", "upgrade", "head"),
+                 env, step=f"migrate {j} DB → head")
+        if be.get("seed"):
+            _run(_compose(files, "exec", "-T", be["service"], *be["seed"]),
+                 env, step=f"seed {j} catalogue")
 
-    urls = "\n".join(f"  {t:8} : {TENANTS[t]['url']}" for t in tenants)
+    if _stage_specs(journeys, registry) == 0:
+        sys.exit(f"[ci_stack] no spec files staged for: {', '.join(journeys)} — "
+                 f"check each journey manifest's 'tests' dir")
+    _write_env_file(state, journeys, registry)
+
     print(
         "\n\033[0;32m[ci_stack] stack up + seeded.\033[0m\n"
-        f"{urls}\n"
-        f"  hub auth-UI: http://localhost:3002  (E2E_AUTH_UI_URL)\n"
+        f"  journeys   : {', '.join(journeys)}\n"
+        f"  hub auth-UI: {AUTH_UI_URL}  (E2E_AUTH_UI_URL)\n"
         f"  login as   : {LOGIN_USERNAME} / {LOGIN_PASSWORD}\n"
         "  run tests  : make e2e   (or: cd e2e && npm test)\n"
         "  tear down  : make e2e-ci-down\n"
     )
 
 
-def _interp_env() -> dict:
-    """Env for compose commands that only PARSE the file (down/logs) across ALL
-    profiles. The ${VAR:?} refs must resolve or interpolation errors — use real
-    values if a state file exists, else harmless placeholders."""
-    if STATE.exists():
-        # Backfill any keys an older state file lacks (e.g. the tenant client
-        # creds) so _compose_env never KeyErrors on down/logs.
-        return _compose_env(_load_or_make_state(regen=False))
-    env = dict(os.environ, COMPOSE_PROFILES=",".join(APP_PROFILES))
+def cmd_stage(raw_journeys: str) -> None:
+    """Stage specs only (no docker, no state, no .env write) — for the delegated
+    local stack (`make e2e-up` + `make e2e`), which brings the stack up its own way
+    and provides E2E_* via the Makefile / the dev's own e2e/.env."""
+    registry = discover()
+    journeys = resolve_journeys(raw_journeys, registry)
+    if _stage_specs(journeys, registry) == 0:
+        sys.exit(f"[ci_stack] no spec files staged for: {', '.join(journeys)}")
+
+
+def _interp_env(registry: dict[str, Journey]) -> dict:
+    """Env for compose commands that only PARSE the merged files (down/logs) across
+    ALL discovered journeys. Every ${VAR:?} ref must resolve or interpolation errors;
+    the values are never used to build/run, so harmless placeholders suffice — and
+    we never generate/persist secrets just to tear down."""
+    env = dict(os.environ)
+    env["E2E_WORKSPACE"] = WORKSPACE.as_posix()
     for var in ("POSTGRES_PASSWORD", "AUTH_PRIVATE_KEY", "AUTH_PUBLIC_KEY",
-                "OIDC_SESSION_SECRET", "E2E_OIDC_CLIENT_ID", "E2E_OIDC_CLIENT_SECRET",
-                "E2E_TIFFANYS_CLIENT_ID", "E2E_TIFFANYS_CLIENT_SECRET",
-                "E2E_AUTH_CLIENT_ID", "E2E_AUTH_CLIENT_SECRET"):
+                "OIDC_SESSION_SECRET", "GH_PACKAGES_PAT"):
         env.setdefault(var, "placeholder")
+    for j in registry.values():
+        env.setdefault(j.oidc_client["id_env"], "placeholder")
+        env.setdefault(j.oidc_client["secret_env"], "placeholder")
     return env
 
 
 def cmd_down() -> None:
-    _run(_compose("down", "-v", "--remove-orphans"), _interp_env(), step="down + clean")
+    registry = discover()
+    files = _compose_files(sorted(registry), registry)
+    _run(_compose(files, "down", "-v", "--remove-orphans"),
+         _interp_env(registry), step="down + clean")
 
 
 def cmd_logs(service: str | None) -> None:
+    registry = discover()
+    files = _compose_files(sorted(registry), registry)
     tail = ["--tail", "200"]
     svc = [service] if service else []
-    subprocess.run(_compose("logs", *tail, *svc), env=_interp_env())
-
-
-def _parse_tenants(raw: str) -> tuple[str, ...]:
-    tenants = tuple(t.strip() for t in raw.split(",") if t.strip())
-    bad = [t for t in tenants if t not in TENANTS]
-    if bad:
-        sys.exit(f"[ci_stack] unknown tenant(s): {', '.join(bad)} (valid: {', '.join(TENANTS)})")
-    return tenants or DEFAULT_TENANTS
+    subprocess.run(_compose(files, "logs", *tail, *svc), env=_interp_env(registry))
 
 
 def main() -> None:
@@ -325,21 +467,25 @@ def main() -> None:
         except (AttributeError, ValueError):
             pass
 
-    parser = argparse.ArgumentParser(description="Self-contained E2E stack driver")
+    parser = argparse.ArgumentParser(description="Self-contained E2E stack driver (data-driven)")
     sub = parser.add_subparsers(dest="command", required=True)
-    up = sub.add_parser("up", help="build + up + migrate + seed")
-    up.add_argument("--tenants", default=",".join(DEFAULT_TENANTS),
-                    help=f"comma-separated journeys to bring up: {', '.join(TENANTS)} "
-                         f"(default: {','.join(DEFAULT_TENANTS)})")
+    up = sub.add_parser("up", help="build + up + migrate + seed + stage specs")
+    up.add_argument("--journey", default="all",
+                    help="comma-separated journeys to bring up, or 'all' (app journeys). "
+                         "Discovered from e2e/manifest.json files.")
     up.add_argument("--regen", action="store_true",
                     help="regenerate secrets (default: reuse e2e/.e2e-ci.json)")
+    st = sub.add_parser("stage", help="stage specs + write .env only (no docker)")
+    st.add_argument("--journey", default="all", help="journeys to stage, or 'all'")
     sub.add_parser("down", help="stop + remove containers, volumes, network")
     lg = sub.add_parser("logs", help="tail compose logs")
     lg.add_argument("service", nargs="?", help="one service, or all if omitted")
     args = parser.parse_args()
 
     if args.command == "up":
-        cmd_up(tenants=_parse_tenants(args.tenants), regen=args.regen)
+        cmd_up(args.journey, args.regen)
+    elif args.command == "stage":
+        cmd_stage(args.journey)
     elif args.command == "down":
         cmd_down()
     elif args.command == "logs":

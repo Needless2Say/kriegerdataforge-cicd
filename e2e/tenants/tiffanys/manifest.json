@@ -1,0 +1,22 @@
+{
+  "$comment": "Tiffany's E2E journey, declared as data. Paths relative to this file's dir. Transitional home: cicd/e2e/tenants/tiffanys/ — Phase 2 relocates to tiffanys-space/e2e/ unchanged (ADR D-006).",
+  "journey": "tiffanys",
+  "app": true,
+  "repos": ["tiffanys-space", "tiffanys-space-backend"],
+  "compose": "docker-compose.e2e.yml",
+  "tests": "tests",
+  "backend": {
+    "service": "tiffanys-space-api",
+    "migrate": true,
+    "seed": ["python", "-m", "api.seed.tiffanys", "seed-products"]
+  },
+  "oidc_client": {
+    "id_env": "E2E_TIFFANYS_CLIENT_ID",
+    "secret_env": "E2E_TIFFANYS_CLIENT_SECRET",
+    "redirect_uri": "http://localhost:3001/api/auth/oidc/callback",
+    "name": "Tiffany's Space (E2E)"
+  },
+  "env": {
+    "E2E_TIFFANYS_BASE_URL": "http://localhost:3001"
+  }
+}

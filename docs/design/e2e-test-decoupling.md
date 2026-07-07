@@ -213,5 +213,3 @@ tenant = one PR in its own repo, zero cicd edits.**
 See also the scope guardrail added to [`AGENTS.md`](../../AGENTS.md) and
 [`CONTRIBUTING.md`](../../CONTRIBUTING.md), and ADR **D-006** in
 [`CHANGELOG_AND_DECISION_LOG.md`](../CHANGELOG_AND_DECISION_LOG.md).
-</content>
-</invoke>

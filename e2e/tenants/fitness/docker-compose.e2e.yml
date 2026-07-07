@@ -1,0 +1,101 @@
+# =============================================================================
+# Fitness tenant fragment — merged onto docker-compose.shared.yml by ci_stack.py.
+# =============================================================================
+# Owns ONLY the fitness tenant's services (db + api + nextjs); the shared hub +
+# auth-UI + network + gh_packages_pat secret come from docker-compose.shared.yml.
+# Cross-repo build contexts are absolute via ${E2E_WORKSPACE} so the multi-`-f`
+# merge resolves them regardless of which file they came from.
+#
+# TRANSITIONAL LOCATION: this fragment lives in cicd/e2e/tenants/fitness/ for now;
+# Phase 2 of the E2E-decoupling epic (ADR D-006) relocates it to
+# fitness-app-frontend/e2e/docker-compose.e2e.yml. The driver discovers it either
+# place — no cicd edit needed when it moves.
+services:
+  fitness-app-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: fitness_app_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set by ci_stack.py}
+    expose: ["5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d fitness_app_db || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    networks: [e2e-net]
+
+  fitness-app-api:
+    build:
+      context: ${E2E_WORKSPACE:?set by ci_stack.py}/fitness-app-backend
+      dockerfile: Dockerfile
+      target: dev
+      secrets:
+        - gh_packages_pat
+    # DNS name fitness-app-api → matches fitness-fe API_BASE_URL.
+    environment:
+      ENVIRONMENT: development
+      DB_DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD}@fitness-app-db:5432/fitness_app_db
+      KDF_AUTH_BASE_URL: http://kdf-api:8000
+      KDF_JWT_ISSUER: http://localhost:3002
+      # aud == the Fitness App client_id the hub seed inserts (per-client aud).
+      KDF_JWT_AUDIENCE: ${E2E_OIDC_CLIENT_ID:?set by ci_stack.py}
+      CORS_ORIGINS: http://localhost:3000,https://localhost:3000
+      MINIO_ENDPOINT: minio.invalid:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: fitness-app-images
+      MINIO_USE_SSL: "false"
+      MINIO_PUBLIC_URL: http://localhost:9002
+    depends_on:
+      fitness-app-db:
+        condition: service_healthy
+      kdf-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8001/healthz || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 40
+      start_period: 20s
+    networks: [e2e-net]
+
+  fitness-app-nextjs:
+    build:
+      context: ${E2E_WORKSPACE:?set by ci_stack.py}/fitness-app-frontend
+      dockerfile: Dockerfile
+      target: dev
+      args:
+        INSTALL_DEV: "true"
+        NODE_ENV: development
+    ports:
+      - "3000:3000" # system-under-test entry point (E2E_BASE_URL); also the
+        #             CSRF allowed-origin + OIDC redirect_uri host — must be :3000
+    environment:
+      NODE_ENV: development
+      ENVIRONMENT: development
+      API_BASE_URL: http://fitness-app-api:8001
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8001
+      AUTH_PUBLIC_KEY: ${AUTH_PUBLIC_KEY}
+      AUTH_ALGORITHM: RS256
+      AUTH_FLOW: oidc
+      KDF_OIDC_ISSUER: http://localhost:3002
+      KDF_OIDC_INTERNAL_URL: http://kdf-auth-ui:3000
+      KDF_OIDC_REDIRECT_URI: http://localhost:3000/api/auth/oidc/callback
+      KDF_OIDC_CLIENT_ID: ${E2E_OIDC_CLIENT_ID}
+      KDF_OIDC_CLIENT_SECRET: ${E2E_OIDC_CLIENT_SECRET:?set by ci_stack.py}
+      KDF_SERVICE_KEY: "" # blank — fitness-be runs middleware disabled
+    depends_on:
+      fitness-app-api:
+        condition: service_healthy
+      kdf-auth-ui:
+        condition: service_healthy
+    healthcheck:
+      # /login renders 200 without auth ( / 307-redirects to OIDC → poor probe).
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/login || exit 1"]
+      interval: 10s
+      timeout: 15s
+      retries: 40
+      start_period: 30s
+    networks: [e2e-net]

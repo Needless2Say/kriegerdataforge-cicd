@@ -154,19 +154,6 @@ jobs:
           path: tiffanys-space-backend
           token: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
 
-      - name: Resolve journey → tenants + spec filter
-        id: journey
-        env:
-          JOURNEY: ${{ inputs.journey || 'all' }}
-        run: |
-          case "$JOURNEY" in
-            fitness)  echo "tenants=fitness"          >> "$GITHUB_OUTPUT"; echo "grep=@fitness"  >> "$GITHUB_OUTPUT" ;;
-            tiffanys) echo "tenants=tiffanys"         >> "$GITHUB_OUTPUT"; echo "grep=@tiffanys" >> "$GITHUB_OUTPUT" ;;
-            auth)     echo "tenants=auth"             >> "$GITHUB_OUTPUT"; echo "grep=@auth"     >> "$GITHUB_OUTPUT" ;;
-            all|"")   echo "tenants=fitness,tiffanys" >> "$GITHUB_OUTPUT"; echo "grep="           >> "$GITHUB_OUTPUT" ;;
-            *)        echo "::error::invalid journey '$JOURNEY' (all|fitness|tiffanys|auth)"; exit 1 ;;
-          esac
-
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
@@ -193,16 +180,17 @@ jobs:
         env:
           # The image build clones the private SDK; the App token is the git
           # credential (its scope includes kriegerdataforge-sdk). Auto-masked.
-          GH_PACKAGES_PAT: ${{ steps.app-token.outputs.token }}
-          TENANTS: ${{ steps.journey.outputs.tenants }}
-        run: python e2e/ci_stack.py up --tenants "$TENANTS"
+          GH_PACKAGES_PAT: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
+          JOURNEY: ${{ inputs.journey || 'all' }}
+        # The driver discovers each journey's manifest, brings up only what that
+        # journey needs, and STAGES its spec(s) into e2e/staged-tests/.
+        run: python e2e/ci_stack.py up --journey "$JOURNEY"
 
       - name: Run the OIDC login journey
         working-directory: kriegerdataforge-cicd/e2e
-        env:
-          GREP: ${{ steps.journey.outputs.grep }}
-        run: |
-          if [ -n "$GREP" ]; then npm test -- --grep "$GREP"; else npm test; fi
+        # ci_stack.py staged exactly the active journey's specs into staged-tests/,
+        # so `npm test` runs precisely those — no --grep filter needed.
+        run: npm test
 
       - name: Dump compose logs on failure
         if: failure()
