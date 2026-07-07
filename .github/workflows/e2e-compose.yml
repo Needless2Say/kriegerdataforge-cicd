@@ -40,10 +40,6 @@ jobs:
     permissions:
       contents: read
     env:
-      # Registered secrets are auto-masked in logs. GH_PACKAGES_PAT lets the image
-      # build install the private SDK; CICD_PAT (used inline on the sibling
-      # checkouts) clones the private repos.
-      GH_PACKAGES_PAT: ${{ secrets.GH_PACKAGES_PAT }}
       # CI headroom over the driver's local defaults (slower cold builds + compiles).
       E2E_BUILD_TIMEOUT: "2400"
       E2E_WAIT_TIMEOUT: "600"
@@ -58,6 +54,27 @@ jobs:
             /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
           df -h /
 
+      # This repo standardized on GitHub App auth (USE_GITHUB_APP=true); the legacy
+      # CICD_PAT is retired/expired. Mint a short-lived, least-privilege token
+      # (contents:read, scoped to just the repos this run touches) and use it BOTH
+      # for the private sibling checkouts AND as the SDK-clone credential in the
+      # image build. Falls back to CICD_PAT only if the App flag is ever turned off.
+      - name: Mint GitHub App token (contents:read on the siblings + SDK)
+        id: app-token
+        if: vars.USE_GITHUB_APP == 'true'
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.KDF_APP_ID }}
+          private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: |
+            kriegerdataforge
+            kriegerdataforge-auth-ui
+            fitness-app-backend
+            fitness-app-frontend
+            kriegerdataforge-sdk
+          permission-contents: read
+
       - name: Checkout cicd (this repo)
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -68,28 +85,28 @@ jobs:
         with:
           repository: Needless2Say/kriegerdataforge
           path: kriegerdataforge
-          token: ${{ secrets.CICD_PAT }}
+          token: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
 
       - name: Checkout auth-UI (kriegerdataforge-auth-ui)
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: Needless2Say/kriegerdataforge-auth-ui
           path: kriegerdataforge-auth-ui
-          token: ${{ secrets.CICD_PAT }}
+          token: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
 
       - name: Checkout fitness backend
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: Needless2Say/fitness-app-backend
           path: fitness-app-backend
-          token: ${{ secrets.CICD_PAT }}
+          token: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
 
       - name: Checkout fitness frontend
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: Needless2Say/fitness-app-frontend
           path: fitness-app-frontend
-          token: ${{ secrets.CICD_PAT }}
+          token: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
 
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
@@ -114,6 +131,10 @@ jobs:
 
       - name: Build + up + migrate + seed the stack
         working-directory: kriegerdataforge-cicd
+        env:
+          # The image build clones the private SDK; the App token is the git
+          # credential (its scope includes kriegerdataforge-sdk). Auto-masked.
+          GH_PACKAGES_PAT: ${{ steps.app-token.outputs.token }}
         run: python e2e/ci_stack.py up
 
       - name: Run the OIDC login journey
