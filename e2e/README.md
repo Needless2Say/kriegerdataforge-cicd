@@ -16,7 +16,11 @@ Unit + integration tests (including the hub OIDC E2E in
 > GitHub Actions via the owner-dispatched `e2e-compose` workflow — see
 > [CI (GitHub Actions)](#ci-github-actions).
 
-## The journey under test
+## The journeys under test
+
+Two tenants share the hub + auth-UI, each with a **distinct OIDC client** — the
+same browser-only integration, proven per tenant (`tests/oidc-login.spec.ts`
+`@fitness`, `tests/tiffanys-login.spec.ts` `@tiffanys`):
 
 ```
 fitness FE (:3000)  gated route "/database"
@@ -25,7 +29,21 @@ fitness FE (:3000)  gated route "/database"
       → FE callback  /api/auth/oidc/callback  code→token, sets session cookie
         → "/"  account menu visible (logged in)
           → "/database"  server-rendered foods from the fitness backend (:8001)
+
+tiffanys FE (:3001)  gated route "/shop"   (OIDC-only; default-deny proxy)
+  → … same hosted login + consent (distinct tiffanys client) …
+    → "/"  account menu visible → "/shop"  products from tiffanys backend (:8002)
 ```
+
+A third journey, **`auth`** (`tests/auth-login.spec.ts` `@auth`), tests the shared
+identity layer at its own level — auth-UI + hub + db, a **synthetic** OIDC client
+and **no tenant app** (login → consent → an authorization code, plus a
+wrong-password case). The hub's hub+db auth system is separately covered by its
+real-DB integration tests.
+
+The stack is journey-profiled: `ci_stack.py up --tenants fitness` (or `tiffanys`,
+`auth`, or `fitness,tiffanys`) brings up only what that journey needs (+ the shared
+hub/auth-UI), and Playwright selects the matching spec by tag (`--grep @fitness`).
 
 ## Prerequisites
 
@@ -146,9 +164,15 @@ auto-masked; CI gets build/wait headroom via `E2E_BUILD_TIMEOUT` / `E2E_WAIT_TIM
 
 ## Promoting the E2E to a merge gate
 
-Each fitness-journey repo (`kriegerdataforge`, `kriegerdataforge-auth-ui`,
-`fitness-app-backend`, `fitness-app-frontend`) ships a **dormant** caller
-workflow, `.github/workflows/e2e-gate.yml`:
+Each E2E-journey repo ships a **dormant** caller workflow,
+`.github/workflows/e2e-gate.yml`, that passes the `journey` its changes affect:
+
+| Repo | `journey` | Why |
+|---|---|---|
+| `fitness-app-backend` / `fitness-app-frontend` | `fitness` | fitness-only change |
+| `tiffanys-space` / `tiffanys-space-backend` | `tiffanys` | tiffanys-only change |
+| `kriegerdataforge-auth-ui` | `auth` | tests its layer (hosted login/consent + hub + db), a synthetic client, no tenant app |
+| `kriegerdataforge` (hub) | — | **no docker gate** — its real-DB integration tests (`test_oidc_e2e_db.py`, `test_auth_lifecycle_db.py`) already gate hub+db auth |
 
 ```yaml
 on:
@@ -158,6 +182,8 @@ jobs:
   e2e:
     if: vars.RUN_E2E_GATE == 'true'   # dormant until you flip this
     uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/e2e-compose.yml@main
+    with:
+      journey: fitness                # fitness | tiffanys | all (default)
     secrets: inherit
 ```
 
@@ -178,8 +204,7 @@ Actions, and Settings → Branches):
 > in either repo's gate — each tests against the other's old `main`. So the
 > recommended posture is **merge-to-main + nightly** rather than a hard per-PR
 > gate; adjust the caller's `on:` accordingly, keeping the fast in-repo contract
-> tests as the per-PR gate. Only tiffanys is excluded — this journey is the
-> *fitness* tenant and wouldn't validate a tiffanys change.
+> tests as the per-PR gate.
 
 No org move or public repos are required to run it manually — same-account private
 repos are clonable with the App token.

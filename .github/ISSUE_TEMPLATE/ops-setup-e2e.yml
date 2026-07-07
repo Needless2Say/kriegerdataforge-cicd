@@ -21,8 +21,8 @@ body:
           App token from these)
 
         > **Pre-org-move stopgap.** After an org move these become org secrets (visible to all repos,
-        > no copy) and the secret-copy is obsolete — remove the per-repo copies then. Only the four
-        > fitness-journey repos are valid: the E2E is the *fitness* tenant.
+        > no copy) and the secret-copy is obsolete — remove the per-repo copies then. Only the six
+        > E2E-journey repos are valid (fitness + tiffanys tenants + the shared hub/auth-UI).
         >
         > **One-time prerequisite:** the KDF App must be granted repository **Secrets: write** +
         > **Variables: write** (App settings → Permissions).
@@ -31,12 +31,14 @@ body:
     id: repo
     attributes:
       label: Target repository
-      description: "The fitness-journey repo to provision."
+      description: "The E2E-journey repo to provision (fitness + tiffanys tenants + the shared hub/auth-UI)."
       options:
         - kriegerdataforge
         - kriegerdataforge-auth-ui
         - fitness-app-backend
         - fitness-app-frontend
+        - tiffanys-space
+        - tiffanys-space-backend
     validations:
       required: true
 

@@ -28,7 +28,7 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-test.describe("Fitness OIDC login journey", () => {
+test.describe("Fitness OIDC login journey @fitness", () => {
   test.skip(
     !USERNAME || !PASSWORD,
     "set E2E_USERNAME + E2E_PASSWORD to a seeded, active hub user (see e2e/README.md)",

@@ -21,9 +21,22 @@ name: E2E · Full-stack OIDC journey (compose)
 
 on:
   workflow_dispatch:
+    inputs:
+      journey:
+        description: "Which journey to run"
+        type: choice
+        options: [all, fitness, tiffanys, auth]
+        default: all
   # Reusable: app repos call this as a (dormant) PR merge gate. Callers pass
-  # their secrets with `secrets: inherit` (needs KDF_APP_ID/KDF_APP_PRIVATE_KEY).
+  # their secrets with `secrets: inherit` (needs KDF_APP_ID/KDF_APP_PRIVATE_KEY)
+  # and a `journey` (fitness repos → fitness, tiffanys repos → tiffanys, the
+  # shared hub/auth-UI → all).
   workflow_call:
+    inputs:
+      journey:
+        description: "all | fitness | tiffanys — which tenant journey to run"
+        type: string
+        default: all
 
 permissions:
   contents: read
@@ -87,6 +100,8 @@ jobs:
             kriegerdataforge-auth-ui
             fitness-app-backend
             fitness-app-frontend
+            tiffanys-space
+            tiffanys-space-backend
             kriegerdataforge-sdk
           permission-contents: read
 
@@ -123,6 +138,35 @@ jobs:
           path: fitness-app-frontend
           token: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
 
+      # tiffanys repos are checked out unconditionally (cheap); the `journey`
+      # profile decides whether their images actually build.
+      - name: Checkout tiffanys frontend (tiffanys-space)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Needless2Say/tiffanys-space
+          path: tiffanys-space
+          token: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
+
+      - name: Checkout tiffanys backend (tiffanys-space-backend)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Needless2Say/tiffanys-space-backend
+          path: tiffanys-space-backend
+          token: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
+
+      - name: Resolve journey → tenants + spec filter
+        id: journey
+        env:
+          JOURNEY: ${{ inputs.journey || 'all' }}
+        run: |
+          case "$JOURNEY" in
+            fitness)  echo "tenants=fitness"          >> "$GITHUB_OUTPUT"; echo "grep=@fitness"  >> "$GITHUB_OUTPUT" ;;
+            tiffanys) echo "tenants=tiffanys"         >> "$GITHUB_OUTPUT"; echo "grep=@tiffanys" >> "$GITHUB_OUTPUT" ;;
+            auth)     echo "tenants=auth"             >> "$GITHUB_OUTPUT"; echo "grep=@auth"     >> "$GITHUB_OUTPUT" ;;
+            all|"")   echo "tenants=fitness,tiffanys" >> "$GITHUB_OUTPUT"; echo "grep="           >> "$GITHUB_OUTPUT" ;;
+            *)        echo "::error::invalid journey '$JOURNEY' (all|fitness|tiffanys|auth)"; exit 1 ;;
+          esac
+
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
@@ -150,11 +194,15 @@ jobs:
           # The image build clones the private SDK; the App token is the git
           # credential (its scope includes kriegerdataforge-sdk). Auto-masked.
           GH_PACKAGES_PAT: ${{ steps.app-token.outputs.token }}
-        run: python e2e/ci_stack.py up
+          TENANTS: ${{ steps.journey.outputs.tenants }}
+        run: python e2e/ci_stack.py up --tenants "$TENANTS"
 
       - name: Run the OIDC login journey
         working-directory: kriegerdataforge-cicd/e2e
-        run: npm test
+        env:
+          GREP: ${{ steps.journey.outputs.grep }}
+        run: |
+          if [ -n "$GREP" ]; then npm test -- --grep "$GREP"; else npm test; fi
 
       - name: Dump compose logs on failure
         if: failure()
