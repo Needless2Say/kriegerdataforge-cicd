@@ -48,8 +48,10 @@ LOGIN_USERNAME = "e2e-user"
 LOGIN_PASSWORD = "E2eTest123!"
 LOGIN_EMAIL = "e2e-user@example.com"
 
-BUILD_TIMEOUT = 1800  # first cold build (npm ci + SDK clone) can be minutes
-WAIT_TIMEOUT = 420  # healthcheck gate; `next dev` compiles on first hit
+# Env-tunable so CI (slower cold `next dev` compiles, image builds) can grant
+# headroom without editing the driver. Defaults suit local runs.
+BUILD_TIMEOUT = int(os.environ.get("E2E_BUILD_TIMEOUT", "1800"))  # cold build: SDK clone + npm ci
+WAIT_TIMEOUT = int(os.environ.get("E2E_WAIT_TIMEOUT", "420"))  # healthcheck gate; next dev compiles on first hit
 
 
 # ── secret material ──────────────────────────────────────────────────────────

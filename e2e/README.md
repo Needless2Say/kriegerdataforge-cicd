@@ -12,9 +12,9 @@ Unit + integration tests (including the hub OIDC E2E in
 > **Status:** two ways to bring the stack up — the **delegated** local stack
 > (`make e2e-up`, reuses each repo's `.env.local` + bind-mounts) and the
 > **self-contained** stack (`make e2e-ci`, builds every image from source with
-> generated secrets, no `.env.local`). The self-contained stack is the CI
-> foundation; the reusable cross-repo GitHub Actions job (`e2e-compose`) that
-> wraps it is the next increment — see [Toward CI](#toward-ci).
+> generated secrets, no `.env.local`). The self-contained stack also runs in
+> GitHub Actions via the owner-dispatched `e2e-compose` workflow — see
+> [CI (GitHub Actions)](#ci-github-actions).
 
 ## The journey under test
 
@@ -127,17 +127,21 @@ those frontend PRs are deployed yet — no cross-repo merge-order dependency:
 | logged-in marker (any private page) | `account-menu` | `button[aria-label="Open account menu"]` |
 | rendered backend data (`/database`) | `food-result` | `a[aria-label^="View food details:"]` |
 
-## Toward CI
+## CI (GitHub Actions)
 
-Step 1 — a CI-usable `e2e/docker-compose.e2e.yml` that builds from source with no
-bind-mounts and takes secrets from the environment — is **done** (see
-[Self-contained CI stack](#self-contained-ci-stack-no-local-checkout-state)
-above). The remaining increment is the reusable GitHub Actions job that runs it:
+`.github/workflows/e2e-compose.yml` runs this exact self-contained stack on a
+runner. It is **`workflow_dispatch` only** (Actions tab → *E2E · Full-stack OIDC
+journey* → *Run workflow*) and **owner-gated** (`_authorize-owner.yml`, the same
+fail-closed gate every `CICD_PAT` workflow uses) — it checks out the four sibling
+**private** repos with `CICD_PAT` and builds four images, so it is heavy and not
+run on every PR.
 
-- `.github/workflows/e2e-compose.yml` — `actions/checkout`s the sibling private
-  repos (via `CICD_PAT`), runs `python e2e/ci_stack.py up`, installs Playwright,
-  runs the suite, and uploads the HTML report + traces as artifacts, always
-  tearing the stack down.
+What it does: checks out all five repos as siblings under `$GITHUB_WORKSPACE`
+(so the `../../<repo>` build contexts resolve), then `python e2e/ci_stack.py up`
+→ `npm test` → uploads the HTML report + traces as an artifact → always tears the
+stack down. `GH_PACKAGES_PAT` (private-SDK build) and `CICD_PAT` (private-repo
+checkout) come from repo secrets and are auto-masked in logs. CI gets extra
+build/wait headroom via `E2E_BUILD_TIMEOUT` / `E2E_WAIT_TIMEOUT`.
 
 No org move or public repos are required — same-account private repos are
 clonable with a token.
