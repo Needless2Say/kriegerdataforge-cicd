@@ -1,0 +1,167 @@
+name: Run KDF E2E journey
+description: >-
+  Build + run one tenant's Tier-2 Playwright OIDC journey against the real ecosystem
+  stack. Reusable across tenant repos: the calling repo owns a thin CI job (gated by
+  its RUN_E2E_GATE variable) that checks itself out into a sibling-named path and then
+  `uses:` this action. Tenant-agnostic — it reads the CALLER's e2e/manifest.json for
+  the sibling repos to check out, so it never hardcodes tenant names. See
+  kriegerdataforge-cicd/docs/design/e2e-cijob-refactor.md (ADR D-007).
+
+inputs:
+  journey:
+    description: "Journey to run (must match the caller's e2e/manifest.json 'journey')."
+    required: true
+  app-id:
+    description: "GitHub App ID (pass ${{ secrets.KDF_APP_ID }} — composite actions can't read secrets)."
+    required: true
+  app-private-key:
+    description: "GitHub App private key (pass ${{ secrets.KDF_APP_PRIVATE_KEY }})."
+    required: true
+  cicd-ref:
+    description: "Ref of kriegerdataforge-cicd to run the engine from."
+    required: false
+    default: main
+
+runs:
+  using: composite
+  steps:
+    - name: Free disk space for the image builds
+      shell: bash
+      run: |
+        sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+          /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+        df -h /
+
+    # The caller job has already checked ITSELF out into a path == its repo name
+    # (sibling layout). Read that manifest to learn which OTHER repos this journey
+    # needs — this is what keeps the action tenant-agnostic (no hardcoded list).
+    - name: Resolve repos from the caller's manifest
+      id: resolve
+      shell: bash
+      run: |
+        set -euo pipefail
+        CALLER="${GITHUB_REPOSITORY##*/}"
+        MF="${CALLER}/e2e/manifest.json"
+        if [ ! -f "$MF" ]; then
+          echo "::error::manifest not found at ${MF} — the caller job must check itself out into 'path: ${CALLER}'"
+          exit 1
+        fi
+        # Shared identity repos are ecosystem constants (one hub / auth-UI / SDK),
+        # so they live in the action, not per-tenant config. hub + auth-UI are built
+        # from source (checked out); the SDK is cloned during the image build via the
+        # token (scope only, not a sibling checkout).
+        SHARED_CHECKOUT=(kriegerdataforge kriegerdataforge-auth-ui)
+        SDK=(kriegerdataforge-sdk)
+        mapfile -t JREPOS < <(jq -r '.repos[]?' "$MF")
+        TOKEN_REPOS=$(printf '%s\n' "${SHARED_CHECKOUT[@]}" "${SDK[@]}" "${JREPOS[@]}" | awk 'NF' | sort -u)
+        CLONE_REPOS=$(printf '%s\n' "${SHARED_CHECKOUT[@]}" "${JREPOS[@]}" | awk 'NF' | sort -u | grep -vx "$CALLER" || true)
+        {
+          echo "caller=${CALLER}"
+          echo "token_repos<<EOF"; echo "${TOKEN_REPOS}"; echo "EOF"
+          echo "clone_repos<<EOF"; echo "${CLONE_REPOS}"; echo "EOF"
+        } >> "$GITHUB_OUTPUT"
+        echo "Journey '${{ inputs.journey }}' needs (checkout): ${CLONE_REPOS//$'\n'/, }, plus the caller ${CALLER} + cicd."
+
+    - name: Mint GitHub App token (contents:read on just this journey's repos + SDK)
+      id: app-token
+      uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+      with:
+        app-id: ${{ inputs.app-id }}
+        private-key: ${{ inputs.app-private-key }}
+        owner: ${{ github.repository_owner }}
+        repositories: ${{ steps.resolve.outputs.token_repos }}
+        permission-contents: read
+
+    - name: Checkout cicd (the engine) into the sibling layout
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      with:
+        repository: ${{ github.repository_owner }}/kriegerdataforge-cicd
+        ref: ${{ inputs.cicd-ref }}
+        path: kriegerdataforge-cicd
+        token: ${{ steps.app-token.outputs.token }}
+
+    # One clone loop replaces the fixed per-repo checkout steps. The caller repo is
+    # already present (checked out by the job); cicd was checked out above.
+    - name: Checkout the journey's sibling repos
+      shell: bash
+      env:
+        GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        OWNER: ${{ github.repository_owner }}
+        CLONE_REPOS: ${{ steps.resolve.outputs.clone_repos }}
+      run: |
+        set -euo pipefail
+        while IFS= read -r repo; do
+          [ -z "$repo" ] && continue
+          if [ -d "$repo" ]; then echo "present, skipping: $repo"; continue; fi
+          echo "cloning $repo"
+          git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/${OWNER}/${repo}.git" "$repo"
+        done <<< "${CLONE_REPOS}"
+
+    - name: Set up Python
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      with:
+        python-version: "3.14"
+
+    - name: Install driver keygen dep
+      shell: bash
+      run: pip install cryptography
+
+    - name: Set up Node
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+      with:
+        node-version: "22"
+
+    - name: Install Playwright (chromium)
+      shell: bash
+      working-directory: kriegerdataforge-cicd/e2e
+      run: |
+        npm ci
+        npx playwright install --with-deps chromium
+
+    - name: Build + up + migrate + seed the stack
+      shell: bash
+      working-directory: kriegerdataforge-cicd
+      env:
+        # CI headroom over the driver's local defaults (cold builds + compiles).
+        E2E_BUILD_TIMEOUT: "2400"
+        E2E_WAIT_TIMEOUT: "600"
+        # The image build clones the private SDK; the App token is the git credential
+        # (its scope includes kriegerdataforge-sdk). Auto-masked by Actions.
+        GH_PACKAGES_PAT: ${{ steps.app-token.outputs.token }}
+        JOURNEY: ${{ inputs.journey }}
+      run: python e2e/ci_stack.py up --journey "$JOURNEY"
+
+    - name: Run the OIDC login journey
+      shell: bash
+      working-directory: kriegerdataforge-cicd/e2e
+      env:
+        # The deterministic user ci_stack.py seeds; the driver also writes these to
+        # e2e/.env, but set them here so the spec never skips.
+        E2E_USERNAME: e2e-user
+        E2E_PASSWORD: E2eTest123!
+      # ci_stack.py staged exactly the active journey's specs into staged-tests/, so
+      # `npm test` runs precisely those — no --grep needed.
+      run: npm test
+
+    - name: Dump compose logs on failure
+      if: failure()
+      shell: bash
+      working-directory: kriegerdataforge-cicd
+      run: python e2e/ci_stack.py logs
+
+    - name: Upload Playwright report + traces
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      with:
+        name: playwright-report-${{ steps.resolve.outputs.caller }}
+        path: |
+          kriegerdataforge-cicd/e2e/playwright-report/
+          kriegerdataforge-cicd/e2e/test-results/
+        retention-days: 7
+        if-no-files-found: ignore
+
+    - name: Tear down the stack
+      if: always()
+      shell: bash
+      working-directory: kriegerdataforge-cicd
+      run: python e2e/ci_stack.py down

@@ -27,6 +27,7 @@ Approved design specs.
 
 - [Design — KriegerDataForge "Ops Console" (issue-form front-ends for privileged operations)](design/ops-console.md)
 - [Design — Decouple the Tier-2 E2E tests out of cicd into each tenant repo](design/e2e-test-decoupling.md) ([impl log](design/e2e-test-decoupling-LOG.md))
+- [Design — E2E as a per-repo CI job (composite action), not a callable workflow](design/e2e-cijob-refactor.md) ([impl log](design/e2e-cijob-refactor-LOG.md))
 
 ---
 
