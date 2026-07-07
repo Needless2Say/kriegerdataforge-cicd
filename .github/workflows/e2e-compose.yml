@@ -23,9 +23,9 @@ on:
   workflow_dispatch:
     inputs:
       journey:
-        description: "Which tenant journey to run"
+        description: "Which journey to run"
         type: choice
-        options: [all, fitness, tiffanys]
+        options: [all, fitness, tiffanys, auth]
         default: all
   # Reusable: app repos call this as a (dormant) PR merge gate. Callers pass
   # their secrets with `secrets: inherit` (needs KDF_APP_ID/KDF_APP_PRIVATE_KEY)
@@ -162,8 +162,9 @@ jobs:
           case "$JOURNEY" in
             fitness)  echo "tenants=fitness"          >> "$GITHUB_OUTPUT"; echo "grep=@fitness"  >> "$GITHUB_OUTPUT" ;;
             tiffanys) echo "tenants=tiffanys"         >> "$GITHUB_OUTPUT"; echo "grep=@tiffanys" >> "$GITHUB_OUTPUT" ;;
+            auth)     echo "tenants=auth"             >> "$GITHUB_OUTPUT"; echo "grep=@auth"     >> "$GITHUB_OUTPUT" ;;
             all|"")   echo "tenants=fitness,tiffanys" >> "$GITHUB_OUTPUT"; echo "grep="           >> "$GITHUB_OUTPUT" ;;
-            *)        echo "::error::invalid journey '$JOURNEY' (all|fitness|tiffanys)"; exit 1 ;;
+            *)        echo "::error::invalid journey '$JOURNEY' (all|fitness|tiffanys|auth)"; exit 1 ;;
           esac
 
       - name: Set up Python

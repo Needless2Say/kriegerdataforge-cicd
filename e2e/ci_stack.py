@@ -53,11 +53,15 @@ LOGIN_USERNAME = "e2e-user"
 LOGIN_PASSWORD = "E2eTest123!"
 LOGIN_EMAIL = "e2e-user@example.com"
 
-# Per-tenant wiring. `client_id/secret` are the .e2e-ci.json state keys; the *_env
-# are the env names seed_e2e.py + the compose read; `service` is the BE container
-# to migrate/seed; `url` is the browser entry point.
+# Per-journey wiring. `id/secret_key` are the .e2e-ci.json state keys; the *_env
+# are the env names seed_e2e.py + the compose read. `profile` is the compose
+# profile to activate (None → only the always-up shared hub/auth-UI/db); `service`
+# is the BE container to migrate/seed (None → no app backend); `url` is the entry.
+# `auth` is the shared-identity journey: auth-UI + hub + db, a synthetic OIDC
+# client, and NO tenant app (the hub's own DB integration tests cover hub+db).
 TENANTS = {
     "fitness": {
+        "profile": "fitness",
         "service": "fitness-app-api",
         "seed": ("python", "-m", "api.seed.fitness", "seed-foods"),
         "seed_label": "seed fitness food catalogue",
@@ -68,6 +72,7 @@ TENANTS = {
         "url": "http://localhost:3000",
     },
     "tiffanys": {
+        "profile": "tiffanys",
         "service": "tiffanys-space-api",
         "seed": ("python", "-m", "api.seed.tiffanys", "seed-products"),
         "seed_label": "seed tiffanys product catalogue",
@@ -77,8 +82,21 @@ TENANTS = {
         "secret_env": "E2E_TIFFANYS_CLIENT_SECRET",
         "url": "http://localhost:3001",
     },
+    "auth": {
+        "profile": None,   # only the shared hub + auth-UI + db (no tenant app)
+        "service": None,   # no app backend to migrate/seed
+        "seed": None,
+        "seed_label": "",
+        "id_key": "auth_client_id",
+        "secret_key": "auth_client_secret",
+        "id_env": "E2E_AUTH_CLIENT_ID",
+        "secret_env": "E2E_AUTH_CLIENT_SECRET",
+        "url": "http://localhost:3002",
+    },
 }
-ALL_TENANTS = tuple(TENANTS)
+# The app tenants — `journey: all` and the bare `up` default (auth is opt-in).
+DEFAULT_TENANTS = ("fitness", "tiffanys")
+APP_PROFILES = ("fitness", "tiffanys")
 
 # Env-tunable so CI (slower cold `next dev` compiles, image builds) can grant
 # headroom without editing the driver. Defaults suit local runs.
@@ -140,6 +158,8 @@ def _load_or_make_state(regen: bool) -> dict:
         "oidc_client_secret": 48,
         "tiffanys_client_id": 24,
         "tiffanys_client_secret": 48,
+        "auth_client_id": 24,
+        "auth_client_secret": 48,
     }
     for key, nbytes in randoms.items():
         if not state.get(key):
@@ -168,7 +188,7 @@ def _resolve_gh_pat() -> str:
     return ""
 
 
-def _compose_env(state: dict, profiles: tuple[str, ...] = ALL_TENANTS) -> dict:
+def _compose_env(state: dict, profiles: tuple[str, ...] = APP_PROFILES) -> dict:
     env = dict(os.environ)
     env.update(
         COMPOSE_PROFILES=",".join(profiles),
@@ -180,6 +200,8 @@ def _compose_env(state: dict, profiles: tuple[str, ...] = ALL_TENANTS) -> dict:
         E2E_OIDC_CLIENT_SECRET=state["oidc_client_secret"],
         E2E_TIFFANYS_CLIENT_ID=state["tiffanys_client_id"],
         E2E_TIFFANYS_CLIENT_SECRET=state["tiffanys_client_secret"],
+        E2E_AUTH_CLIENT_ID=state["auth_client_id"],
+        E2E_AUTH_CLIENT_SECRET=state["auth_client_secret"],
         GH_PACKAGES_PAT=_resolve_gh_pat(),
     )
     return env
@@ -207,7 +229,9 @@ def cmd_up(tenants: tuple[str, ...], regen: bool) -> None:
     if not COMPOSE.exists():
         sys.exit(f"[ci_stack] missing {COMPOSE}")
     state = _load_or_make_state(regen)
-    env = _compose_env(state, profiles=tenants)
+    # `auth` contributes no compose profile (only the always-up hub/auth-UI/db).
+    profiles = tuple(TENANTS[t]["profile"] for t in tenants if TENANTS[t]["profile"])
+    env = _compose_env(state, profiles=profiles)
     if not env["GH_PACKAGES_PAT"]:
         print("\033[1;33m[ci_stack] WARNING: no GH_PACKAGES_PAT — the private-SDK "
               "image build will fail unless the layer is cached.\033[0m")
@@ -236,15 +260,17 @@ def cmd_up(tenants: tuple[str, ...], regen: bool) -> None:
         _run(_compose("exec", "-T", *seed_flags, "kdf-api", "python", "-"),
              env, stdin=fh, step="seed hub: active user + OIDC client(s)")
 
-    # Each tenant: migrate its DB + seed its catalogue.
+    # Each app tenant: migrate its DB + seed its catalogue (auth has no backend).
     for t in tenants:
         cfg = TENANTS[t]
+        if not cfg["service"]:
+            continue
         _run(_compose("exec", "-T", cfg["service"], "alembic", "upgrade", "head"),
              env, step=f"migrate {t} DB → head")
         _run(_compose("exec", "-T", cfg["service"], *cfg["seed"]),
              env, step=cfg["seed_label"])
 
-    urls = "\n".join(f"  {t:8} FE: {TENANTS[t]['url']}" for t in tenants)
+    urls = "\n".join(f"  {t:8} : {TENANTS[t]['url']}" for t in tenants)
     print(
         "\n\033[0;32m[ci_stack] stack up + seeded.\033[0m\n"
         f"{urls}\n"
@@ -263,10 +289,11 @@ def _interp_env() -> dict:
         # Backfill any keys an older state file lacks (e.g. the tenant client
         # creds) so _compose_env never KeyErrors on down/logs.
         return _compose_env(_load_or_make_state(regen=False))
-    env = dict(os.environ, COMPOSE_PROFILES=",".join(ALL_TENANTS))
+    env = dict(os.environ, COMPOSE_PROFILES=",".join(APP_PROFILES))
     for var in ("POSTGRES_PASSWORD", "AUTH_PRIVATE_KEY", "AUTH_PUBLIC_KEY",
                 "OIDC_SESSION_SECRET", "E2E_OIDC_CLIENT_ID", "E2E_OIDC_CLIENT_SECRET",
-                "E2E_TIFFANYS_CLIENT_ID", "E2E_TIFFANYS_CLIENT_SECRET"):
+                "E2E_TIFFANYS_CLIENT_ID", "E2E_TIFFANYS_CLIENT_SECRET",
+                "E2E_AUTH_CLIENT_ID", "E2E_AUTH_CLIENT_SECRET"):
         env.setdefault(var, "placeholder")
     return env
 
@@ -285,8 +312,8 @@ def _parse_tenants(raw: str) -> tuple[str, ...]:
     tenants = tuple(t.strip() for t in raw.split(",") if t.strip())
     bad = [t for t in tenants if t not in TENANTS]
     if bad:
-        sys.exit(f"[ci_stack] unknown tenant(s): {', '.join(bad)} (valid: {', '.join(ALL_TENANTS)})")
-    return tenants or ALL_TENANTS
+        sys.exit(f"[ci_stack] unknown tenant(s): {', '.join(bad)} (valid: {', '.join(TENANTS)})")
+    return tenants or DEFAULT_TENANTS
 
 
 def main() -> None:
@@ -301,8 +328,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Self-contained E2E stack driver")
     sub = parser.add_subparsers(dest="command", required=True)
     up = sub.add_parser("up", help="build + up + migrate + seed")
-    up.add_argument("--tenants", default=",".join(ALL_TENANTS),
-                    help=f"comma-separated tenants to bring up (default: {','.join(ALL_TENANTS)})")
+    up.add_argument("--tenants", default=",".join(DEFAULT_TENANTS),
+                    help=f"comma-separated journeys to bring up: {', '.join(TENANTS)} "
+                         f"(default: {','.join(DEFAULT_TENANTS)})")
     up.add_argument("--regen", action="store_true",
                     help="regenerate secrets (default: reuse e2e/.e2e-ci.json)")
     sub.add_parser("down", help="stop + remove containers, volumes, network")

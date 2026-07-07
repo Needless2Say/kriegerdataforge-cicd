@@ -53,6 +53,16 @@ CLIENTS = [
         ),
         "name": "Tiffany's Space (E2E)",
     },
+    {
+        # The `auth` journey has no tenant app — a synthetic client whose callback
+        # the auth spec intercepts (nothing listens on :9999).
+        "env_id": "E2E_AUTH_CLIENT_ID",
+        "env_secret": "E2E_AUTH_CLIENT_SECRET",
+        "redirect": os.environ.get(
+            "E2E_AUTH_REDIRECT_URI", "http://localhost:9999/callback"
+        ),
+        "name": "Auth-UI Journey (E2E)",
+    },
 ]
 
 

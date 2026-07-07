@@ -35,9 +35,15 @@ tiffanys FE (:3001)  gated route "/shop"   (OIDC-only; default-deny proxy)
     → "/"  account menu visible → "/shop"  products from tiffanys backend (:8002)
 ```
 
-The stack is tenant-profiled: `ci_stack.py up --tenants fitness` (or `tiffanys`,
-or both) brings up only that tenant (+ the shared hub/auth-UI), and Playwright
-selects the matching spec by tag (`--grep @fitness`).
+A third journey, **`auth`** (`tests/auth-login.spec.ts` `@auth`), tests the shared
+identity layer at its own level — auth-UI + hub + db, a **synthetic** OIDC client
+and **no tenant app** (login → consent → an authorization code, plus a
+wrong-password case). The hub's hub+db auth system is separately covered by its
+real-DB integration tests.
+
+The stack is journey-profiled: `ci_stack.py up --tenants fitness` (or `tiffanys`,
+`auth`, or `fitness,tiffanys`) brings up only what that journey needs (+ the shared
+hub/auth-UI), and Playwright selects the matching spec by tag (`--grep @fitness`).
 
 ## Prerequisites
 
@@ -165,7 +171,8 @@ Each E2E-journey repo ships a **dormant** caller workflow,
 |---|---|---|
 | `fitness-app-backend` / `fitness-app-frontend` | `fitness` | fitness-only change |
 | `tiffanys-space` / `tiffanys-space-backend` | `tiffanys` | tiffanys-only change |
-| `kriegerdataforge` (hub) / `kriegerdataforge-auth-ui` | `all` | shared — can break either tenant |
+| `kriegerdataforge-auth-ui` | `auth` | tests its layer (hosted login/consent + hub + db), a synthetic client, no tenant app |
+| `kriegerdataforge` (hub) | — | **no docker gate** — its real-DB integration tests (`test_oidc_e2e_db.py`, `test_auth_lifecycle_db.py`) already gate hub+db auth |
 
 ```yaml
 on:
