@@ -51,9 +51,20 @@ is a thin caller — all deploy logic lives in this repo.
 | App-specific Docker / Makefile | — | `Dockerfile`, `Makefile` |
 | Issue templates for repo provisioning | `.github/ISSUE_TEMPLATE/` | — |
 | Onboarding and setup docs | `docs/MANUAL_SETUP.md` | — |
+| **Reusable E2E engine** (driver `ci_stack.py`, `docker-compose.shared.yml`, `e2e-compose.yml` workflow, Playwright harness) | `e2e/` | — |
+| **A tenant's E2E journey** (its Playwright spec, its compose service fragment, its seed data, its `e2e/manifest.json`) | — | `e2e/` in that tenant repo |
+| **E2E gate caller** | — | `.github/workflows/e2e-gate.yml` |
 
 **Rule of thumb:** if the same logic would need to exist in more than one tenant repo,
 it belongs here. If it's specific to one app's stack, it stays in that tenant repo.
+
+> **Scope smell test (important — see ADR D-006).** If onboarding a *new tenant* would require editing a
+> file in **this** repo (adding a spec to `e2e/tests/`, a service block to a compose file, an entry to a
+> `TENANTS`/`CLIENTS` list, or a `case` to a workflow), **stop** — that's tenant-specific content leaking
+> into the reusable engine. Make the engine **data-driven** (discover a manifest the tenant owns) instead
+> of adding another hardcoded entry. cicd must stay tenant-agnostic so it scales to N tenants without
+> bloating. This is exactly the decoupling in
+> [`docs/design/e2e-test-decoupling.md`](docs/design/e2e-test-decoupling.md).
 
 ---
 

@@ -73,6 +73,13 @@ agent workflows (`agents/`, skeleton only) so automation scales with the platfor
 10. **Deploys fail closed.** A repo/env/actor not in `scripts/deployer_registry.json` is denied — when you
     onboard a tenant, add its registry entry *before* its first deploy.
 11. **`scripts/` is stdlib-first** and unit-tested; keep `make check-all` green before opening a PR.
+12. **This repo is the reusable engine ONLY — nothing tenant-specific lives here.** A tenant's app source,
+    its E2E/browser spec, its Docker services, its seed data, or any per-tenant list/enum/`case` belongs in
+    **that tenant's repo**, never here. **Litmus test:** *if onboarding a new tenant would require editing a
+    file in this repo, that's a design smell — make the file data-driven (a manifest the engine discovers)
+    instead of adding another hardcoded entry.* This is why the E2E harness is being decoupled: see
+    [`docs/design/e2e-test-decoupling.md`](docs/design/e2e-test-decoupling.md) and ADR **D-006**. Keeping
+    cicd tenant-agnostic is what lets it scale to N tenants without bloating.
 
 ## Commands
 
