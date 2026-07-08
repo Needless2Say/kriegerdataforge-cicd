@@ -406,6 +406,112 @@ jobs:
 
 ---
 
+## Workflow 7: `ci-python-integration.yml`
+
+**Purpose:** Reusable **integration-test lane** for KDF Python backends. Unlike
+`ci-python-tests.yml` (the fast, DB-free *unit* lane), this workflow provisions an
+ephemeral **Postgres** service, migrates it to head, optionally seeds app-specific
+fixtures, then runs the caller's DB-backed suite. It exists because a backend's
+`-m requires_postgres` tests silently green-skip when no `KDF_TEST_DATABASE_URL` is set —
+so the integration guarantees never actually run (finding **PL-166**).
+
+**Trigger:** `workflow_call` only. Callers opt in with a **separate** job so the fast
+unit lane stays DB-free.
+
+**How it works:**
+1. Spins up a `postgres:16` service (`kdf` / `kdf` / `kdf_test`, health-checked).
+2. The same connection string is exported under **two** names so both the SDK/alembic
+   (`DB_DATABASE_URL`, `env_prefix=DB_`) and the pytest conftest gate
+   (`KDF_TEST_DATABASE_URL`) point at the one ephemeral DB.
+3. Installs deps → migrates to head → (optional) runs `seed_command` → runs `test_command`.
+
+This file is **public**, so it stays schema-free: anything app-specific (e.g. an
+auth-owned `kdfusers` table) is provisioned by the caller via `seed_command`, whose
+SQL/script lives in the caller's **private** repo and is present at runtime because
+`checkout` pulls the caller repo.
+
+**Inputs:**
+
+| Input | Type | Default | Description |
+|---|---|---|---|
+| `python_version` | string | `3.14` | Python version for the job |
+| `install_command` | string | `pip install -r requirements.txt` | Dependency install command |
+| `migrate_command` | string | `alembic upgrade head` | Migrates the ephemeral DB to head |
+| `seed_command` | string | `""` | Optional app-specific seed run after migrate (empty string skips) |
+| `test_command` | string | `python -m pytest -m requires_postgres -q --tb=short` | Full pytest command for the integration suite |
+| `needs_sdk_auth` | boolean | `false` | Configure git creds for the private SDK (requires `GH_PACKAGES_PAT`) |
+
+**Secrets:** pass `secrets: inherit` when `needs_sdk_auth: true` (for `GH_PACKAGES_PAT`).
+
+**Consumer caller pattern:**
+
+```yaml
+# .github/workflows/ci.yml in the consumer repo — a job separate from the unit lane
+jobs:
+  integration:
+    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ci-python-integration.yml@main
+    with:
+      needs_sdk_auth: true
+      seed_command: psql "$KDF_TEST_DATABASE_URL" -f tests/sql/seed_kdfusers.sql
+    secrets: inherit
+```
+
+---
+
+## End-to-end (E2E) engine
+
+cicd also hosts the ecosystem's **reusable E2E engine** — the data-driven `e2e/ci_stack.py`
+driver, the shared identity compose, the Playwright suite, and a composite action that ties
+them together. It is **tenant-agnostic**: each tenant repo owns its own journey (an
+`e2e/manifest.json` + Playwright spec, in *that* repo) and ships a thin `.github/workflows/e2e.yml`
+caller — cicd holds no per-tenant content (ADR **D-006** / **D-007**;
+[`docs/design/e2e-test-decoupling.md`](../design/e2e-test-decoupling.md)).
+
+### `.github/actions/run-e2e` (composite action)
+
+The reusable engine, `uses:`-d by each tenant's `e2e.yml`. The calling job checks **itself**
+out into a path named after its repo (sibling layout); the action then reads that repo's
+`e2e/manifest.json` to learn which **other** repos the journey needs (so it never hardcodes a
+tenant list), mints a scoped GitHub App token (`contents:read` on just those repos + the SDK),
+checks out cicd + the sibling repos, and runs
+`python e2e/ci_stack.py up --journey <journey>` → `npm test` (Playwright) → `down`. The App
+token also serves as the `GH_PACKAGES_PAT` git credential for the private-SDK clone during the
+image build.
+
+**Inputs:**
+
+| Input | Required | Default | Description |
+|---|---|---|---|
+| `journey` | yes | — | Journey to run; must match the caller's `e2e/manifest.json` `journey` |
+| `app-id` | yes | — | GitHub App ID — pass `${{ secrets.KDF_APP_ID }}` (composite actions can't read secrets) |
+| `app-private-key` | yes | — | GitHub App private key — pass `${{ secrets.KDF_APP_PRIVATE_KEY }}` |
+| `cicd-ref` | no | `main` | Ref of `kriegerdataforge-cicd` to run the engine from |
+
+### `ops-setup-e2e.yml` (secret-distribution workflow)
+
+Issue-triggered provisioner that arms a target E2E-journey repo to run its (dormant) `e2e.yml`.
+Fires **only** when the owner-applied `ops:setup-e2e` label is added, is owner-gated via the
+reusable fail-closed authorize gate, and validates the target against a fixed allow-list of the
+six E2E-journey repos. It writes, to the target repo: variable `RUN_E2E_GATE=false` (the dormant
+on/off switch), variable `USE_GITHUB_APP=true`, and copies of the `KDF_APP_ID` + `KDF_APP_PRIVATE_KEY`
+secrets (which the `e2e.yml` job passes to the `run-e2e` action). Secret *values* never touch the
+issue/comment. (Post-org-move, `KDF_APP_*` become org secrets and the per-repo copy is retired.)
+
+### Caller run modes
+
+A tenant's `.github/workflows/e2e.yml` runs its journey in one of three modes, each gated by a
+repo Actions **variable** so the engine stays dormant until the owner flips it on:
+
+- **CI gate** (`RUN_E2E_GATE=true`) — on every PR, as a hard merge gate;
+- **CD / nightly** (`RUN_E2E_CD=true`) — on push-to-`main` + a weekly schedule, for teams that
+  **don't** want E2E on every PR (avoids the cross-repo-lockstep cost);
+- **On demand** — a manual `workflow_dispatch` (always available).
+
+See [`docs/guides/E2E_TESTING.md`](../guides/E2E_TESTING.md) for the full model and
+[`e2e/README.md`](../../e2e/README.md) for the engine internals + local run.
+
+---
+
 ## Permissions Reference
 
 ### Workflow-level permissions

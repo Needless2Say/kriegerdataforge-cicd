@@ -30,7 +30,7 @@ agent workflows (`agents/`, skeleton only) so automation scales with the platfor
 - **GitHub Actions** — reusable workflows (`on: workflow_call`), called by every tenant repo.
 - **Vercel CLI** — `npx vercel --prod --yes` for Next.js + FastAPI serverless deploys.
 - **Terraform `~1.9`** (`hashicorp/setup-terraform`) — `cd-terraform.yml` runs `plan`/`apply`.
-- **Python 3.13 (stdlib-first)** — platform scripts in `scripts/` (token/PAT rotation, DB backup,
+- **Python 3.14 (stdlib-first)** — platform scripts in `scripts/` (token/PAT rotation, DB backup,
   deployer gate, version bump/check); tested with `pytest` + coverage.
 - **actionlint** — local + CI lint for all workflow YAML.
 - **CodeQL** (`javascript-typescript`) — optional local SAST via the Makefile.
@@ -44,14 +44,15 @@ agent workflows (`agents/`, skeleton only) so automation scales with the platfor
 | `.github/workflows/cd-terraform.yml` | `terraform plan` + `apply` for Vercel infra (kriegerdataforge-terraform) |
 | `.github/workflows/bump-version-check.yml` | Validate `VERSION` is exactly +1 semver ahead of `main` |
 | `.github/workflows/create-github-release.yml` | Create GitHub Release + git tag from `VERSION` |
-| `.github/workflows/ci-*.yml` | Reusable per-stack CI (python lint/typecheck/tests/security, nextjs build/lint/tests, codeql, npm-audit, vercel-compactor) |
+| `.github/workflows/ci-*.yml` | Reusable per-stack CI (python lint/typecheck/tests/security/integration, nextjs build/lint/tests, codeql, npm-audit, vercel-compactor) |
 | `.github/workflows/issue-create-repo.yml` | Auto-provision new repos from the `new-repo` issue template |
 | `.github/workflows/rotate-vercel-tokens.yml`, `distribute-gh-pat.yml`, `check-secret-expiry.yml` | Scheduled secret rotation/distribution + weekly expiry monitor |
+| `.github/actions/run-e2e/`, `e2e/`, `.github/workflows/ops-setup-e2e.yml` | Reusable E2E engine (composite action + data-driven `ci_stack.py` driver + secret-distribution workflow) |
 | `scripts/check_deployer.py` + `deployer_registry.json` | Per-repo/per-env deployer authorization gate (fail closed) |
 | `scripts/rotate_secret.py` + `secret_registry.json` | Unified CI-plane secret rotation engine (modes: generate / paste / check; env-aware) |
 | `scripts/common/bump_version.py`, `check_version.py` | Version bump + CI consistency/increment check |
 | `scripts/*/db_backup.py` | Per-tenant Neon DB backup |
-| `docs/WORKFLOWS.md`, `docs/MANUAL_SETUP.md` | Workflow catalog (inputs/secrets/callers) + manual setup runbook |
+| `docs/reference/WORKFLOWS.md`, `docs/guides/MANUAL_SETUP.md` | Workflow catalog (inputs/secrets/callers) + manual setup runbook |
 | `agents/` | Skeleton for future AI-driven agent workflows — **not yet implemented** |
 | `CONTRIBUTING.md` | Two-tier model + breaking-change governance |
 
@@ -144,7 +145,7 @@ Don't skip the plan-approval gate; don't self-merge. The supporting kit:
 - [ ] `VERSION` bumped via `make bump-<level>` — **exactly +1** (the strict `bump-version-check.yml` gate).
 - [ ] Workflow interface preserved (inputs/outputs/secrets unchanged) **or** all consumers coordinated;
       breaking changes follow `CONTRIBUTING.md`.
-- [ ] Touched a workflow YAML → updated `docs/WORKFLOWS.md` (and the consumer/catalog tables) in the same PR.
+- [ ] Touched a workflow YAML → updated `docs/reference/WORKFLOWS.md` (and the consumer/catalog tables) in the same PR.
 - [ ] Third-party actions pinned to tag/SHA; minimum `permissions:` set; no secret echoed or committed.
 - [ ] New tenant/deploy path → `scripts/deployer_registry.json` entry added.
 - [ ] Architectural change (new workflow, gate redesign, rotation/auth model) → ADR + owner approval first.
