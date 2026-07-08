@@ -31,7 +31,15 @@ export default defineConfig({
   workers: 1,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  reporter: [["list"], ["html", { open: "never" }]],
+  // JSON report feeds the run-e2e action's fail-closed gate (N2e): a run where
+  // every staged spec skipped (missing creds/client env from manifest/driver
+  // drift) would otherwise exit 0 — a green-but-empty gate. The action reads
+  // test-results/results.json and fails if zero tests actually executed.
+  reporter: [
+    ["list"],
+    ["html", { open: "never" }],
+    ["json", { outputFile: "test-results/results.json" }],
+  ],
   timeout: 60_000,
   expect: { timeout: 15_000 },
   use: {
