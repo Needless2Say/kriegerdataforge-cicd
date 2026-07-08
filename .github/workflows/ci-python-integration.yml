@@ -1,5 +1,11 @@
 name: Python · Integration tests (Postgres)
 
+# N3b: least-privilege by construction — this reusable lane only clones (incl. the
+# private SDK) and runs tests; it never writes to the repo. Cap the GITHUB_TOKEN to
+# read so a called job can't inherit a broader token from a lax caller.
+permissions:
+  contents: read
+
 # Reusable integration-test lane for KDF Python backends.
 #
 # Unlike ci-python-tests.yml (the fast, DB-free UNIT lane), this workflow
