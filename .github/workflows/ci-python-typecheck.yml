@@ -1,5 +1,9 @@
 name: Python · Type-check (mypy)
 
+# N3b: least-privilege — read-only reusable type-check lane (cap the GITHUB_TOKEN).
+permissions:
+  contents: read
+
 on:
   workflow_call:
     inputs:
