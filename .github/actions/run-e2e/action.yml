@@ -145,7 +145,25 @@ runs:
       # here too would silently override .env, since loadEnvFile doesn't clobber a
       # set var, and could drift). playwright.config.ts loads e2e/.env. ci_stack.py
       # staged exactly the active journey's specs, so `npm test` runs precisely those.
-      run: npm test
+      run: |
+        npm test
+        # Fail-closed gate (N2e): every spec test.skip()s when its login creds /
+        # OIDC client env are unset. If manifest/driver drift left those unset,
+        # `npm test` would skip everything and STILL exit 0 — a green-but-empty
+        # gate that proves nothing. Refuse that: assert >=1 test actually ran
+        # (jq is preinstalled on GitHub-hosted runners).
+        report="test-results/results.json"
+        if [ ! -f "$report" ]; then
+          echo "::error::N2e: no Playwright results.json — cannot confirm any test ran"
+          exit 1
+        fi
+        ran=$(jq '([.stats.expected // 0, .stats.unexpected // 0, .stats.flaky // 0] | add)' "$report")
+        skipped=$(jq '.stats.skipped // 0' "$report")
+        if [ "${ran:-0}" -eq 0 ]; then
+          echo "::error::N2e: E2E gate executed 0 tests (skipped=${skipped}). Refusing a green-but-empty run — check the staged journeys' creds/client env."
+          exit 1
+        fi
+        echo "N2e: ${ran} test(s) executed (skipped=${skipped})."
 
     - name: Dump compose logs on failure
       if: failure()
@@ -161,7 +179,14 @@ runs:
         path: |
           kriegerdataforge-cicd/e2e/playwright-report/
           kriegerdataforge-cicd/e2e/test-results/
-        retention-days: 7
+        # GOOD-6: on a FAILED backend/API journey the retained trace records the
+        # confidential-client token exchange (Basic client_id:client_secret) and
+        # the resulting Bearer access token. Those creds are per-run ephemeral —
+        # the whole stack (and its OIDC client) is torn down at job end, so they
+        # are dead the moment the run finishes. Keep the short debugging window
+        # but minimise the exposure: 1-day retention instead of 7. Residual
+        # (trace still holds the dead creds for that window) accepted as low.
+        retention-days: 1
         if-no-files-found: ignore
 
     - name: Tear down the stack

@@ -87,7 +87,7 @@ to enable it, and [e2e/README.md](e2e/README.md) for the engine + local run.
 
 ## Security
 
-All **deployment/runtime** credentials are stored as GitHub **Environment** secrets — there are no `.env` files, no hardcoded values, and no repository-level deployment secrets. The environment gate is the enforcement point: secrets only become available after an approved reviewer allows the deployment to proceed. The only **repository-level** secrets are the ops/control-plane credentials this repo uses to *manage* the others (`CICD_PAT`, `VERCEL_MASTER_TOKEN`, and staging slots) — see Secret Rotation below.
+Most **deployment/runtime** credentials are stored as GitHub **Environment** secrets — there are no `.env` files and no hardcoded values — so the environment gate is the enforcement point: those secrets only become available after an approved reviewer allows the deployment to proceed. Two shared credentials are the deliberate exception: the account-wide `VERCEL_DEPLOYMENT_TOKEN` (consolidated 2026-06-30) and the build-time `GH_PACKAGES_PAT` (the repo-vs-env split) now live as **repository-level** Actions secrets in the consumer repos, because CI jobs that declare no `environment:` — the reusable `ci-python-*.yml` SDK install and the integration/E2E lanes — must be able to read them (a value written only to an environment is invisible to those jobs, and a same-named env secret would *shadow* the repo value). The per-environment deploy secrets (`VERCEL_PROJECT_ID`, DB URLs, signing keys) stay environment-scoped behind the gate. cicd's **own** repository-level secrets are the ops/control-plane credentials it uses to *manage* the others (`CICD_PAT`, `VERCEL_MASTER_TOKEN`, the `KDF_APP_*` App creds, and staging slots) — see Secret Rotation below.
 
 ---
 
@@ -95,13 +95,20 @@ All **deployment/runtime** credentials are stored as GitHub **Environment** secr
 
 GitHub secrets come in two scopes and rotate differently:
 
-- **Environment secrets** (`prod` / `dev` / `infra`) — all deploy/runtime credentials. The ones in
-  [`scripts/secret_registry.json`](scripts/secret_registry.json) (`VERCEL_DEPLOYMENT_TOKEN`, `GH_PACKAGES_PAT`) are
-  rotated by the **engine** ([`scripts/rotate_secret.py`](scripts/rotate_secret.py)) in two modes —
-  `generate` (auto-mint) or `paste` (distribute an owner-staged value) — selectable per environment.
-  Drive it from the **`Ops · Rotate a secret`** issue form (add the `ops:rotate-secrets` label) or the CLI.
-- **Repository secrets** — the cicd ops/control plane (`CICD_PAT`, `VERCEL_MASTER_TOKEN`, …). Rotated
-  **by hand**, since they authenticate the engine itself.
+- **Repository secrets** — the store every job can read, *including* CI jobs that declare no
+  `environment:`. The shared deploy/build credentials in
+  [`scripts/secret_registry.json`](scripts/secret_registry.json) (`VERCEL_DEPLOYMENT_TOKEN`,
+  `GH_PACKAGES_PAT`) live here — as **repository-level** Actions secrets in the consumer repos, *not*
+  per-environment (a same-named env secret would shadow the repo value). They are rotated by the
+  **engine** ([`scripts/rotate_secret.py`](scripts/rotate_secret.py)) — `generate` (auto-mint the Vercel
+  token) or `paste` (distribute the owner-staged PAT) — and the engine reaps any retired per-environment
+  copies as it goes. Drive it from the **`Ops · Rotate a secret`** issue form (add the
+  `ops:rotate-secrets` label) or the CLI. The cicd ops/control-plane secrets that authenticate the engine
+  itself (`CICD_PAT`, `VERCEL_MASTER_TOKEN`, `KDF_APP_PRIVATE_KEY`) are also repository-level but rotated
+  **by hand**.
+- **Environment secrets** (`prod` / `dev` / `infra`) — the remaining per-environment deploy credentials
+  (`VERCEL_PROJECT_ID`, DB URLs, signing keys) that stay behind the approval gate; owner-managed (most via
+  Terraform).
 
 The rotation + kit workflows are migrating off the long-lived `CICD_PAT` to a **GitHub App** that mints
 short-lived, scoped installation tokens per run (auto-revoked at job end). Phase 1 is wired behind the

@@ -1,5 +1,10 @@
 name: Python · Security (bandit + pip-audit)
 
+# N3b: least-privilege — read-only reusable security lane (bandit + pip-audit; no
+# SARIF upload, so no security-events: write needed). Cap the GITHUB_TOKEN.
+permissions:
+  contents: read
+
 on:
   workflow_call:
     inputs:
