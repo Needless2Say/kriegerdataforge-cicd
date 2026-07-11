@@ -1,452 +1,354 @@
-# Workflow Catalog
+# Reusable-workflow catalog
 
-This document describes every reusable workflow in `kriegerdataforge-cicd`, who calls it,
-how to call it, and what environment secrets are required in the calling repo.
+Interface reference for every **reusable GitHub Actions workflow** (`on: workflow_call`) and the
+**`run-e2e` composite action** in `kriegerdataforge-cicd`. Every tenant repo calls these live from
+`@main`, so the inputs / secrets / outputs / permissions below are a **public contract** — changing
+one is a breaking-change candidate for all consumers (see `CONTRIBUTING.md` and AGENTS.md rules 4–6).
+
+Enumerated strictly from `.github/workflows/*.yml` and `.github/actions/run-e2e/action.yml` as of
+this writing. Each entry cites `file:line`.
+
+- **Overview + consumption rules** — this section.
+- **The contract** — [Reusable workflow catalog](#reusable-workflow-catalog) (per-workflow inputs,
+  secrets, outputs, permissions, caller snippet) + [`run-e2e` composite action](#run-e2e-composite-action).
+- **Deploy gate / approval model** — [Deployment model](#deployment-model) + [Deployer authorization gate](#deployer-authorization-gate).
+- **Live vs. not-`uses:`-able** — [Repo-internal event-triggered workflows](#repo-internal-event-triggered-workflows) (the ops / rotation / provisioning workflows that are **not** `workflow_call`).
 
 ---
 
-## Deployment Model — Overview
+## How reusable workflows are consumed
 
-All deploys are **manual** (`workflow_dispatch` only). There are no automatic deploys on push.
-Vercel's git auto-deploy is disabled in Terraform (`git_deployment = false`).
+A consumer repo's workflow references one of these by full path + ref:
 
-Deployment flow:
-1. Developer triggers the CD workflow manually in GitHub Actions UI
-2. GitHub pauses at the **Environment gate** — sends an approval notification
-3. Required reviewer(s) approve or reject
-4. On approval: environment secrets are loaded and the deploy runs
-5. On rejection or timeout: workflow is cancelled, nothing deploys
+```yaml
+jobs:
+  <job>:
+    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/<workflow>.yml@main
+    with:      # inputs (only if the workflow declares any)
+      ...
+    secrets: inherit   # required whenever the workflow reads ${{ secrets.* }}
+```
 
-**Approval model by environment:**
+Two facts hold for **every** workflow in this repo:
 
-| GitHub Environment | Who can approve | Branch restriction |
+1. **No workflow declares an explicit `secrets:` block** under `on: workflow_call:`. Each reads
+   secrets directly via `${{ secrets.NAME }}`, so a caller that needs to pass any secret **must**
+   use `secrets: inherit`. The "Secrets" column below lists the secrets each workflow reads at
+   runtime — they are supplied by the caller's repo/environment, not declared as workflow inputs.
+2. **Third-party actions are SHA-pinned** (`actions/checkout@9c091bb…` = v7.0.0, `setup-python@ece7cb06…`
+   = v6, `setup-node@48b55a01…` = v6, etc.) per AGENTS.md rule 2. Bump via Dependabot.
+
+> **Ref-pinning note.** All examples use `@main` (the live contract), matching how tenants call today.
+> A consumer that wants change-isolation may pin `@vX.Y.Z` instead; this repo publishes tags via
+> [`create-github-release.yml`](#create-github-releaseyml).
+
+---
+
+## Deployment model
+
+All deploys are **manual** (`workflow_dispatch` in the consumer, which then calls the reusable CD
+workflow). There are no push-triggered deploys; Vercel git auto-deploy is off. Flow:
+
+1. A deployer clicks **Run workflow** in the consumer repo, choosing `environment` (+ `version`).
+2. The reusable CD workflow's **`authorize`** job runs *first* (before any approval or secret load)
+   and fails closed if the actor is not an approved deployer — see
+   [Deployer authorization gate](#deployer-authorization-gate).
+3. The `deploy`/`apply` job declares `environment: ${{ inputs.environment }}`, which activates the
+   GitHub **Environment approval gate** — the run pauses for a required reviewer.
+4. On approval, environment-scoped secrets load and the deploy runs. On rejection/timeout, nothing
+   deploys.
+
+### Environment approval model
+
+The GitHub Environments and their required reviewers are provisioned by
+[`issue-create-repo.yml:168-223`](../../.github/workflows/issue-create-repo.yml) and documented in
+[`MANUAL_SETUP.md` Phase 4](../guides/MANUAL_SETUP.md). The **only** environment names in use — and the
+keys the deployer registry is keyed on — are:
+
+| GitHub Environment | Required reviewer(s) | Deployment branch policy |
 |---|---|---|
-| `development` | Owner + designated collaborators | `main` only |
-| `production` | Owner only | `main` only |
-| `infrastructure` | Owner only | `main` only |
+| `dev` | Owner (provisioned owner-only; a collaborator may be **added manually** to the `dev` required-reviewers list — `issue-create-repo.yml:198-223`, completion checklist line 277) | `main` only |
+| `prod` | Owner only (`issue-create-repo.yml:168-196`) | `main` only |
+| `github-pages` | Owner (`arthurs-portfolio` only — self-contained Pages deploy; `MANUAL_SETUP.md` Phase 4 "For arthurs-portfolio") | GitHub Pages (no `dev`/`prod`) |
 
-**Key security property:** `VERCEL_DEPLOYMENT_TOKEN`, `DB_DATABASE_URL`, and all other deploy credentials
-live only in GitHub Environment secrets. They are never exposed to collaborators, never
-in `.env` files, and never visible in logs.
+> **There is no `infra` / `infrastructure` / `development` / `production` environment.** The Terraform
+> CD workflow deploys to `dev`/`prod` like the others (`cd-terraform.yml:99`; `deployer_registry.json`
+> `kriegerdataforge-terraform` → `{dev, prod}`; `MANUAL_SETUP.md` Phase 4 "For repo 6"). Use the short
+> names `dev` / `prod` / `github-pages` exactly (AGENTS.md rule 9).
+>
+> **Source caveat (follow-up, not fixed here):** the `environment` input *description* strings in
+> `cd-nextjs-vercel.yml:33` and `cd-python-vercel.yml:40` still read `"development" or "production"`.
+> Those are stale doc-strings — the value a caller passes must be `dev`/`prod` to match the registry
+> keys and the real GitHub Environments. `cd-terraform.yml:99` already says `(dev or prod)`.
+
+**Key security property:** `VERCEL_DEPLOYMENT_TOKEN`, `DB_DATABASE_URL`, the RSA PEMs, and every other
+deploy credential live only in GitHub repo/Environment secrets — never in `.env`, never echoed
+(deploy steps log only the token's trimmed length, e.g. `cd-nextjs-vercel.yml:133`).
 
 ---
 
-## Deployer Authorization Gate
+## Deployer authorization gate
 
-GitHub cannot restrict **who** may trigger a `workflow_dispatch` — anyone with write access
-to a repo can. The Environment approval gate covers *prod* (owner-only reviewer), but on
-*dev* a collaborator is also an allowed reviewer and could self-approve. To enforce an
-explicit per-repo allow-list of who may deploy, every CD workflow runs a **deployer
-authorization gate** as its first job.
+GitHub cannot restrict **who** may `workflow_dispatch` a run — anyone with write access can. The
+Environment gate covers `prod` (owner-only reviewer), but on `dev` a collaborator is also an allowed
+reviewer and could self-approve. So every reusable CD workflow runs a **deployer authorization gate**
+as its first job.
 
 **How it works:**
-1. Each reusable CD workflow (`cd-nextjs-vercel.yml`, `cd-python-vercel.yml`,
-   `cd-terraform.yml`) starts with an `authorize` job that the `deploy`/`apply` job
-   `needs:`. `arthurs-portfolio` (self-contained GitHub Pages deploy) has the same job,
-   gating its `build`.
-2. `authorize` checks out this repo (sparse — `scripts/` only) and runs
-   [`scripts/check_deployer.py`](../../scripts/check_deployer.py).
-3. The script looks up `github.triggering_actor` (the user who clicked **Run workflow**)
-   against [`scripts/deployer_registry.json`](../../scripts/deployer_registry.json), keyed by
-   `github.repository` and the target environment. Username matching is case-insensitive.
-4. **Not authorized → the job fails → the deploy job never runs.** Because `authorize`
-   has **no `environment:`**, it runs *before* the Environment approval is even requested —
-   an unauthorized dispatch fails fast, with no approval notification and no secrets loaded.
 
-**Decision (fail closed):** a repo not in the registry, an environment not listed for that
-repo, or an actor not in the list → **denied**. When a new repo is provisioned, add it to
-`deployer_registry.json` before its first deploy.
+1. `cd-nextjs-vercel.yml`, `cd-python-vercel.yml`, and `cd-terraform.yml` each start with an
+   `authorize` job that the `deploy`/`apply` job `needs:`. (`arthurs-portfolio`'s self-contained
+   `nextjs.yml` runs the same gate before its build.)
+2. `authorize` sparse-checks-out this repo's `scripts/` and runs
+   [`scripts/check_deployer.py`](../../scripts/check_deployer.py) (`cd-nextjs-vercel.yml:47-70`).
+3. The script matches `github.triggering_actor` (whoever clicked **Run workflow**) against
+   [`scripts/deployer_registry.json`](../../scripts/deployer_registry.json), keyed by
+   `github.repository` and the target `environment`. Matching is case-insensitive.
+4. **Not authorized → the job fails → the deploy job never runs.** Because `authorize` has **no
+   `environment:`**, it runs *before* the approval is even requested — an unauthorized dispatch fails
+   fast, no approval notification, no secrets loaded (fail closed).
 
-**Registry shape** (`scripts/deployer_registry.json`):
+**Registry shape** (`scripts/deployer_registry.json`) — `repo → environment → [usernames]`:
+
 ```json
 {
   "deployers": {
-    "Needless2Say/fitness-app-frontend": {
-      "dev":  ["Needless2Say", "Ascensionn"],
-      "prod": ["Needless2Say"]
-    },
-    "Needless2Say/arthurs-portfolio": {
-      "github-pages": ["Needless2Say"]
-    }
+    "Needless2Say/fitness-app-frontend": { "dev": ["Needless2Say", "Ascensionn"], "prod": ["Needless2Say"] },
+    "Needless2Say/arthurs-portfolio":    { "github-pages": ["Needless2Say"] }
   }
 }
 ```
-Environment keys must match the value the caller passes to the reusable workflow's
-`environment` input (`dev`/`prod` for Vercel + Terraform; `github-pages` for
-`arthurs-portfolio`).
 
-**Repo access for the gate:** the `authorize` job checks out `kriegerdataforge-cicd` with the
-default `github.token`. Because this repo is **public**, that built-in token clones it — nothing
-to configure. If `kriegerdataforge-cicd` is ever made private (after the org move), this checkout
-would need a read-only token with access to it; that is tracked in the central roadmap
-(`KDF docs/engineering/GITHUB_FUTURE_ENHANCEMENTS.md`).
+A repo not in the registry, an environment not listed for that repo, or an actor not in the list →
+**denied**. When onboarding a tenant, add its entry *before* its first deploy. Environment keys must
+match the value the caller passes to the reusable workflow's `environment` input.
 
-**To change who can deploy:** edit `scripts/deployer_registry.json` and commit. No workflow
-edits are needed — all consumers read the registry live from `main` at deploy time.
+**Repo access for the gate:** the `authorize` job checks out `kriegerdataforge-cicd` with the default
+`github.token`. Because this repo is **public**, that built-in token clones it. If cicd ever goes
+private (post org-move), this checkout needs a read-only token — tracked in
+`KDF docs/engineering/GITHUB_FUTURE_ENHANCEMENTS.md`.
 
-`check_deployer.py` is standard-library only and unit-tested in
-`scripts/tests/test_check_deployer.py` (`pytest tests/test_check_deployer.py`).
+`check_deployer.py` is stdlib-only and unit-tested in `scripts/tests/test_check_deployer.py`.
 
 ---
 
-## Local Development
+## Reusable workflow catalog
 
-Local dev uses Docker — **no Vercel credentials needed**:
+19 workflows are `on: workflow_call`. None declares an explicit `secrets:` block, so callers pass
+`secrets: inherit`. Permissions are stated as declared in each file (top-level and/or per-job); an
+undeclared scope means the workflow relies on the caller's / default token.
 
-```bash
-make docker-up     # starts all services locally
-```
+### Deployment (CD)
 
-There is no path to deploy locally. The Vercel CLI cannot run without `VERCEL_DEPLOYMENT_TOKEN`, which
-only exists inside GitHub Environments.
+These three share the [Deployer authorization gate](#deployer-authorization-gate) (`authorize` job:
+`permissions: contents: read`); the two Vercel ones also pin the Vercel CLI to `vercel@48.0.0`. Every one has a **required
+`version`** input — the deploy job checks out `ref: v${{ inputs.version }}` (i.e. pass `1.2.0`, the
+workflow prepends `v`), enabling rollback to an older tag.
 
----
+#### `cd-nextjs-vercel.yml`
 
-## Workflow 1: `cd-nextjs-vercel.yml`
+Deploy a Next.js app to a Vercel project (`npm ci` → `vercel --prod --yes --token …`).
 
-**Purpose:** Deploy a Next.js app to a Vercel project.
+| Input | Type | Default | Required |
+|---|---|---|---|
+| `environment` | string | — | **yes** — `dev` or `prod` (`:32-35`) |
+| `version` | string | — | **yes** — tag to deploy, e.g. `1.2.0` (`:36-39`) |
 
-**Called by:** `fitness-app-frontend`, `tiffanys-space`, `arthurs-portfolio`
+- **Secrets read (via `inherit`):** `VERCEL_DEPLOYMENT_TOKEN` (repo-level), `VERCEL_ORG_ID`,
+  `VERCEL_PROJECT_ID` (per-environment; job fails fast if unset — `:101-113`).
+- **Outputs:** none.
+- **Permissions:** `deploy` job — `contents: read`, `id-token: write` (Vercel OIDC) (`:82-84`).
+- **Consumers:** `fitness-app-frontend`, `tiffanys-space` (and `kriegerdataforge-auth-ui`,
+  `kriegerdataforge-template-nextjs` per the registry). `arthurs-portfolio` deploys self-contained to
+  GitHub Pages, not via this workflow.
 
-**What it does:**
-1. Activates the GitHub Environment gate (pauses for approval)
-2. Checks out the repo
-3. Sets up Node.js 22 with npm cache
-4. Runs `npm ci`
-5. Deploys to Vercel with `npx vercel --prod --yes`
-
-**Caller pattern:**
 ```yaml
 # .github/workflows/cd.yml in the consumer repo
 on:
   workflow_dispatch:
     inputs:
-      environment:
-        description: 'Target environment'
-        required: true
-        type: choice
-        options:
-          - development
-          - production
-
+      environment: { description: Target environment, required: true, type: choice, options: [dev, prod] }
+      version:     { description: "Version to deploy (e.g. 1.2.0)", required: true, type: string }
 jobs:
   deploy:
     uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/cd-nextjs-vercel.yml@main
-    with:
-      environment: ${{ inputs.environment }}
-    secrets: inherit
-```
-
-**Required environment secrets (set per environment in the calling repo):**
-
-| Secret | Description |
-|---|---|
-| `VERCEL_DEPLOYMENT_TOKEN` | Shared Vercel deploy/management token |
-| `VERCEL_ORG_ID` | Vercel team / org ID |
-| `VERCEL_PROJECT_ID` | Vercel project ID — **different per environment** (dev vs prod project) |
-
----
-
-## Workflow 2: `cd-python-vercel.yml`
-
-**Purpose:** Deploy the FastAPI backend to Vercel (serverless) and optionally run Alembic migrations.
-
-**Called by:** `kriegerdataforge`
-
-**What it does:**
-1. Activates the GitHub Environment gate
-2. Checks out the repo
-3. Sets up Python 3.12 with pip cache
-4. Runs `pip install -r requirements.txt`
-5. Sets up Node.js 22 (needed for the Vercel CLI)
-6. Runs `python scripts/vercel_compactor.py` to compact the API for Vercel's file size limits
-7. Deploys with `npx vercel --prod --yes`
-8. If `run_migrations: true`, runs `alembic upgrade head` against the target database
-
-**Caller pattern:**
-```yaml
-# .github/workflows/cd.yml in kriegerdataforge
-on:
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Target environment'
-        required: true
-        type: choice
-        options:
-          - development
-          - production
-      run_migrations:
-        description: 'Run Alembic migrations after deploy'
-        required: false
-        type: boolean
-        default: true
-
-jobs:
-  deploy:
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/cd-python-vercel.yml@main
-    with:
-      environment: ${{ inputs.environment }}
-      run_migrations: ${{ inputs.run_migrations }}
-    secrets: inherit
-```
-
-**Required environment secrets:**
-
-| Secret | Description |
-|---|---|
-| `VERCEL_DEPLOYMENT_TOKEN` | Shared Vercel deploy/management token |
-| `VERCEL_ORG_ID` | Vercel team / org ID |
-| `VERCEL_PROJECT_ID` | Vercel project ID — different per environment |
-| `DB_DATABASE_URL` | SQLAlchemy-compatible Neon psycopg2 connection string |
-
-**Inputs:**
-
-| Input | Type | Default | Description |
-|---|---|---|---|
-| `environment` | string | required | `"development"` or `"production"` |
-| `run_migrations` | boolean | `true` | Whether to run `alembic upgrade head` after deploy |
-
----
-
-## Workflow 3: `cd-terraform.yml`
-
-**Purpose:** Run `terraform plan` + `terraform apply` to update Vercel infrastructure.
-
-**Called by:** `kriegerdataforge-terraform`
-
-**Layout:** The consumer is **directory-per-environment** — reusable modules under
-`modules/`, one deployable root per environment under `environments/<env>/`, and **no
-Terraform workspaces**. The workflow runs every command with
-`-chdir=environments/<environment>`.
-
-**What it does:**
-1. Activates the `${{ inputs.environment }}` (dev or prod) environment gate (owner-only approval)
-2. Checks out the consumer repo at the requested version tag
-3. Sets up Terraform `~1.9`
-4. `terraform -chdir=environments/<env> init` (remote backend auth via `TF_TOKEN_app_terraform_io`)
-5. `terraform -chdir=environments/<env> validate`
-6. `terraform -chdir=environments/<env> plan -out=tfplan -detailed-exitcode`
-   - Exit code 0 = no changes → skips apply, logs "No infrastructure changes"
-   - Exit code 2 = changes detected → runs apply
-7. `terraform -chdir=environments/<env> apply tfplan` (only if changes detected)
-
-The env root auto-loads its committed, non-secret `common.auto.tfvars`. All per-environment
-secret and non-secret values are injected as `TF_VAR_*` environment variables from the
-matching GitHub Environment (no `-var-file` is used). `vercel_team_id`, JWT issuer/audience,
-TTLs, feature-flag defaults, and the error-tracking service DSNs come from `common.auto.tfvars` and are **not** injected.
-
-> **State:** `terraform init` in CI has no local state, so a remote backend (Terraform
-> Cloud / S3) must be configured in `environments/<env>/providers.tf` before running this
-> against live projects.
-
-**Caller pattern:**
-```yaml
-# .github/workflows/cd.yml in kriegerdataforge-terraform
-on:
-  workflow_dispatch:
-    inputs:
-      environment: { type: choice, options: [dev, prod] }
-      version: { type: string }
-
-jobs:
-  apply:
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/cd-terraform.yml@main
     with:
       environment: ${{ inputs.environment }}
       version: ${{ inputs.version }}
     secrets: inherit
 ```
 
-**Required environment secrets (per `dev` / `prod` GitHub Environment):**
+#### `cd-python-vercel.yml`
 
-| Secret | Maps to Terraform variable |
-|---|---|
-| `VERCEL_DEPLOYMENT_TOKEN` | `TF_VAR_vercel_api_token` |
-| `BACKEND_AUTH_PRIVATE_KEY` | `TF_VAR_backend_auth_private_key` (RSA PEM, PKCS#8) |
-| `BACKEND_AUTH_PUBLIC_KEY` | `TF_VAR_backend_auth_public_key` |
-| `FRONTEND_AUTH_PUBLIC_KEY` | `TF_VAR_frontend_auth_public_key` (== `BACKEND_AUTH_PUBLIC_KEY`) |
-| `BACKEND_AUTH_ADMIN_EMAIL` | `TF_VAR_backend_auth_admin_email` |
-| `BACKEND_AUTH_ADMIN_EMAIL_PASSWORD` | `TF_VAR_backend_auth_admin_email_password` |
-| `KDF_AUTH_DB_DATABASE_URL` | `TF_VAR_kdf_auth_db_database_url` |
-| `FITNESS_APP_BACKEND_DB_DATABASE_URL` | `TF_VAR_fitness_app_backend_db_database_url` |
-| `TIFFANYS_SPACE_BACKEND_DB_DATABASE_URL` | `TF_VAR_tiffanys_space_backend_db_database_url` |
-| `FITNESS_APP_SERVICE_KEY` | `TF_VAR_fitness_app_service_key` |
-| `TIFFANYS_SPACE_SERVICE_KEY` | `TF_VAR_tiffanys_space_service_key` |
-| `TIFFANYS_SPACE_CRON_SECRET` | `TF_VAR_tiffanys_space_cron_secret` *(optional)* |
-| `BACKEND_STRIPE_SECRET_KEY` | `TF_VAR_backend_stripe_secret_key` *(optional)* |
-| `BACKEND_STRIPE_WEBHOOK_SECRET` | `TF_VAR_backend_stripe_webhook_secret` *(optional)* |
-| `TF_TOKEN_APP_TERRAFORM_IO` | Terraform Cloud auth *(once remote state is configured)* |
+Deploy a FastAPI backend to Vercel: install deps (with private-SDK git auth) → compact `api/` into
+`vercel_api/` via `scripts/vercel_compactor.py` → `vercel --prod` → optional Alembic migration.
 
-**Required environment variables (non-secret, per `dev` / `prod`):**
-
-| Variable | Maps to Terraform variable |
-|---|---|
-| `BACKEND_URL` | `TF_VAR_backend_url` (KDF auth service URL) |
-| `FITNESS_APP_BACKEND_URL` | `TF_VAR_fitness_app_backend_url` (fitness app's own backend) |
-| `TIFFANYS_SPACE_BACKEND_URL` | `TF_VAR_tiffanys_space_backend_url` (tiffany's own backend) |
-| `KDF_AUTH_SERVICE_PROJECT_NAME` | `TF_VAR_kdf_auth_service_project_name` |
-| `FITNESS_APP_PROJECT_NAME` | `TF_VAR_fitness_app_project_name` |
-| `FITNESS_APP_BACKEND_PROJECT_NAME` | `TF_VAR_fitness_app_backend_project_name` |
-| `TIFFANYS_SPACE_PROJECT_NAME` | `TF_VAR_tiffanys_space_project_name` |
-| `TIFFANYS_SPACE_BACKEND_PROJECT_NAME` | `TF_VAR_tiffanys_space_backend_project_name` |
-| `KDF_AUTH_CORS_ORIGINS` | `TF_VAR_kdf_auth_cors_origins` *(optional)* |
-| `FITNESS_APP_BACKEND_CORS_ORIGINS` | `TF_VAR_fitness_app_backend_cors_origins` *(optional)* |
-| `TIFFANYS_SPACE_BACKEND_CORS_ORIGINS` | `TF_VAR_tiffanys_space_backend_cors_origins` *(optional)* |
-
----
-
-## Workflow 4: `issue-create-repo.yml`
-
-**Purpose:** Automate new repository provisioning. When an issue is opened using the
-`new-repo` issue template and the `new-repo` label is applied, this workflow:
-1. Parses the issue form fields (repo name, type, visibility, description)
-2. Validates inputs
-3. Creates a new repo from the appropriate template repo
-4. Configures `production` and `development` GitHub Environments with approval gates
-5. Enables branch protection on `main` (require PR, dismiss stale reviews, no force push)
-6. Posts a completion comment with the remaining manual checklist
-7. Closes the issue
-
-**Trigger:** `issues: labeled` — fires when the `new-repo` label is added to any issue.
-
-**Template repos used (must exist):**
-
-| Template repo | Used for |
-|---|---|
-| `Needless2Say/kriegerdataforge-template-nextjs` | `repo_type: nextjs` |
-| `Needless2Say/kriegerdataforge-template-fastapi` | `repo_type: fastapi` |
-| `Needless2Say/kriegerdataforge-template-npm-package` | `repo_type: npm-package` |
-| `Needless2Say/kriegerdataforge-template-python-package` | `repo_type: python-package` |
-
-**Required repo-level secret (NOT environment-scoped):**
-
-| Secret | Description |
-|---|---|
-| `CICD_PAT` | Fine-grained GitHub PAT — see `docs/MANUAL_SETUP.md` Phase 6 for required permissions |
-
-**Issue form fields:**
-
-| Field | Values |
-|---|---|
-| Repository Name | kebab-case, lowercase letters/numbers/hyphens only |
-| Repository Type | `nextjs` \| `fastapi` \| `npm-package` \| `python-package` |
-| Visibility | `public` \| `private` |
-| Description | Free text |
-
----
-
-## Workflow 5: `ci-python-security.yml`
-
-**Purpose:** Reusable Python security scanning — runs two jobs:
-- **bandit** (SAST) over the configured source paths.
-- **pip-audit** (SCA) against `requirements.txt` for known CVEs.
-
-**Trigger:** `workflow_call` only. Consumers call it from their own `ci.yml`
-(PR-time) and/or `security.yml` (push + weekly schedule).
-
-**Inputs:**
-
-| Input | Type | Default | Description |
+| Input | Type | Default | Required |
 |---|---|---|---|
-| `python_version` | string | `3.13` | Python version for both jobs |
-| `bandit_paths` | string | `api/ scripts/ vercel_api/` | Space-separated paths passed to `bandit -r` |
-| `needs_sdk_auth` | boolean | `false` | Configure git credentials for the private SDK so pip-audit can resolve it (requires `GH_PACKAGES_PAT`) |
+| `environment` | string | — | **yes** — `dev` or `prod` (`:38-42`) |
+| `run_migrations` | **string** | `'true'` | no — gate is `if: inputs.run_migrations == 'true'`; pass the **string** `'true'`/`'false'` (`:43-47`, `:169`, `:175`) |
+| `version` | string | — | **yes** — tag to deploy (`:48-51`) |
 
-**Secrets:** pass `secrets: inherit` when `needs_sdk_auth: true` (for `GH_PACKAGES_PAT`).
-
-**Consumers:** `kriegerdataforge` (`bandit_paths: api/ scripts/ vercel_api/ generate_openapi.py`, `needs_sdk_auth: true`), `kriegerdataforge-sdk` (`bandit_paths: src/`).
-
----
-
-## Workflow 6: `ci-codeql.yml`
-
-**Purpose:** Reusable CodeQL static analysis (SAST). Initializes CodeQL, autobuilds,
-analyzes, and uploads results to the consumer repo's **Security ▸ Code scanning** tab.
-
-> ⚠️ **Entitlement:** CodeQL code scanning runs only on **public** repos (free) or
-> **private** repos with **GitHub Code Security** (formerly GitHub Advanced
-> Security — an Enterprise add-on). GitHub Pro / Copilot do **not** include it.
-> Because most KDF repos are private, consumers **gate** the calling job behind the
-> `ENABLE_CODEQL` repo/org Actions *variable*, so it stays skipped (green) until the
-> entitlement exists. Set `ENABLE_CODEQL=true` to turn it on — no workflow change.
-
-**Trigger:** `workflow_call` only. Consumers call it from `codeql.yml` on
-push/PR to `main` + a weekly schedule, with the job gated on `vars.ENABLE_CODEQL`.
-
-**Inputs:**
-
-| Input | Type | Default | Description |
-|---|---|---|---|
-| `language` | string | `python` | CodeQL language (e.g. `python`, `javascript-typescript`) |
-| `config_file` | string | `""` | Path to a CodeQL config file in the consumer repo (optional) |
-| `queries` | string | `security-extended,security-and-quality` | Query suites to run |
-
-**Permissions:** the reusable job requests `security-events: write` (+ `actions:read`,
-`contents:read`); the consumer caller must grant the same.
-
-**Consumer caller pattern:**
+- **Secrets read (via `inherit`):** `VERCEL_DEPLOYMENT_TOKEN`, `GH_PACKAGES_PAT` (private-SDK clone —
+  `:112-115`), `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, `DB_DATABASE_URL` (only when `run_migrations`,
+  `:178`).
+- **Outputs:** none.
+- **Permissions:** `deploy` job — `contents: read`, `id-token: write` (`:94-96`).
+- **Consumers:** `kriegerdataforge` (hub). Registry also lists `fitness-app-backend`,
+  `tiffanys-space-backend`, `kriegerdataforge-template-fastapi`.
 
 ```yaml
-# .github/workflows/codeql.yml in the consumer repo
 jobs:
-  codeql:
-    if: ${{ vars.ENABLE_CODEQL == 'true' }}
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ci-codeql.yml@main
+  deploy:
+    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/cd-python-vercel.yml@main
     with:
-      language: python
-      config_file: ./.github/codeql/codeql-config.yml
+      environment: ${{ inputs.environment }}   # dev | prod
+      run_migrations: ${{ inputs.run_migrations }}   # string 'true' | 'false'
+      version: ${{ inputs.version }}
+    secrets: inherit
 ```
 
-**Consumers:** `kriegerdataforge`, `kriegerdataforge-sdk`.
+#### `cd-terraform.yml`
 
----
+`terraform init` → `validate` → `plan -detailed-exitcode` → advisory conftest policy gate → `apply`
+(only when the plan reports changes, exit code 2). Runs every command with
+`-chdir=environments/${{ inputs.environment }}` (directory-per-environment; no workspaces).
 
-## Workflow 7: `ci-python-integration.yml`
-
-**Purpose:** Reusable **integration-test lane** for KDF Python backends. Unlike
-`ci-python-tests.yml` (the fast, DB-free *unit* lane), this workflow provisions an
-ephemeral **Postgres** service, migrates it to head, optionally seeds app-specific
-fixtures, then runs the caller's DB-backed suite. It exists because a backend's
-`-m requires_postgres` tests silently green-skip when no `KDF_TEST_DATABASE_URL` is set —
-so the integration guarantees never actually run (finding **PL-166**).
-
-**Trigger:** `workflow_call` only. Callers opt in with a **separate** job so the fast
-unit lane stays DB-free.
-
-**How it works:**
-1. Spins up a `postgres:16` service (`kdf` / `kdf` / `kdf_test`, health-checked).
-2. The same connection string is exported under **two** names so both the SDK/alembic
-   (`DB_DATABASE_URL`, `env_prefix=DB_`) and the pytest conftest gate
-   (`KDF_TEST_DATABASE_URL`) point at the one ephemeral DB.
-3. Installs deps → migrates to head → (optional) runs `seed_command` → runs `test_command`.
-
-This file is **public**, so it stays schema-free: anything app-specific (e.g. an
-auth-owned `kdfusers` table) is provisioned by the caller via `seed_command`, whose
-SQL/script lives in the caller's **private** repo and is present at runtime because
-`checkout` pulls the caller repo.
-
-**Inputs:**
-
-| Input | Type | Default | Description |
+| Input | Type | Default | Required |
 |---|---|---|---|
-| `python_version` | string | `3.14` | Python version for the job |
-| `install_command` | string | `pip install -r requirements.txt` | Dependency install command |
-| `migrate_command` | string | `alembic upgrade head` | Migrates the ephemeral DB to head |
-| `seed_command` | string | `""` | Optional app-specific seed run after migrate (empty string skips) |
-| `test_command` | string | `python -m pytest -m requires_postgres -q --tb=short` | Full pytest command for the integration suite |
-| `needs_sdk_auth` | boolean | `false` | Configure git creds for the private SDK (requires `GH_PACKAGES_PAT`) |
+| `environment` | string | — | **yes** — `dev` or `prod`; selects `environments/<env>/` **and** the Environment gate (`:98-101`) |
+| `version` | string | — | **yes** — tag to deploy; note rolling back reverts config, not state (`:102-105`) |
 
-**Secrets:** pass `secrets: inherit` when `needs_sdk_auth: true` (for `GH_PACKAGES_PAT`).
+- **Secrets read (via `inherit`)** — injected as `TF_VAR_*` env (`:153-201`):
 
-**Consumer caller pattern:**
+  | Secret | → Terraform var |
+  |---|---|
+  | `VERCEL_DEPLOYMENT_TOKEN` | `vercel_api_token` |
+  | `BACKEND_AUTH_PRIVATE_KEY` / `_PUBLIC_KEY` / `FRONTEND_AUTH_PUBLIC_KEY` | `backend_auth_private_key` / `_public_key` / `frontend_auth_public_key` |
+  | `BACKEND_AUTH_ADMIN_EMAIL` / `_PASSWORD` | `backend_auth_admin_email` / `_password` |
+  | `KDF_AUTH_DB_DATABASE_URL`, `FITNESS_APP_BACKEND_DB_DATABASE_URL`, `TIFFANYS_SPACE_BACKEND_DB_DATABASE_URL` | matching `*_db_database_url` |
+  | `FITNESS_APP_SERVICE_KEY`, `TIFFANYS_SPACE_SERVICE_KEY`, `KDF_AUTH_UI_SERVICE_KEY` | matching `*_service_key` |
+  | `FITNESS_OIDC_CLIENT_SECRET`, `TIFFANYS_SPACE_OIDC_CLIENT_SECRET` | matching `*_oidc_client_secret` |
+  | *Optional:* `TIFFANYS_SPACE_CRON_SECRET`, `BACKEND_STRIPE_SECRET_KEY`, `BACKEND_STRIPE_WEBHOOK_SECRET`, `TF_TOKEN_APP_TERRAFORM_IO` | matching vars / TF Cloud auth |
+
+- **Non-secret vars read (`vars.*` → `TF_VAR_*`, `:177-199`):** `BACKEND_URL`,
+  `FITNESS_APP_BACKEND_URL`, `TIFFANYS_SPACE_BACKEND_URL`, `KDF_AUTH_SERVICE_PROJECT_NAME`,
+  `FITNESS_APP_PROJECT_NAME`, `FITNESS_APP_BACKEND_PROJECT_NAME`, `TIFFANYS_SPACE_PROJECT_NAME`,
+  `TIFFANYS_SPACE_BACKEND_PROJECT_NAME`, `KDF_AUTH_UI_URL`, `FITNESS_OIDC_CLIENT_ID`,
+  `FITNESS_OIDC_REDIRECT_URI`, `TIFFANYS_SPACE_OIDC_CLIENT_ID`, `TIFFANYS_SPACE_OIDC_REDIRECT_URI`;
+  optional `KDF_AUTH_CORS_ORIGINS`, `FITNESS_APP_BACKEND_CORS_ORIGINS`,
+  `TIFFANYS_SPACE_BACKEND_CORS_ORIGINS`. Non-secret shared values (`vercel_team_id`, JWT issuer/aud,
+  TTLs, feature flags) come from the committed `environments/<env>/common.auto.tfvars`, **not** injected.
+- **Outputs:** none. **Permissions:** `apply` job — `contents: read` (no `id-token`) (`:147-148`).
+- **Consumer:** `kriegerdataforge-terraform`.
+
+> **State:** `terraform init` in CI starts with empty local state — a remote backend must be configured
+> in `environments/<env>/providers.tf` before running live (`:88-91`). The conftest gate is currently
+> **advisory** (`continue-on-error: true`, `:245-246`).
 
 ```yaml
-# .github/workflows/ci.yml in the consumer repo — a job separate from the unit lane
+jobs:
+  apply:
+    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/cd-terraform.yml@main
+    with:
+      environment: ${{ inputs.environment }}   # dev | prod
+      version: ${{ inputs.version }}
+    secrets: inherit
+```
+
+### Release & version
+
+#### `bump-version-check.yml`
+
+Validates the PR branch's `VERSION` is **exactly one** valid semver increment ahead of `main`
+(patch `X.Y.Z+1`, minor `X.Y+1.0`, or major `X+1.0.0`); any no-bump / skip-by-2 / downgrade / bad
+format fails.
+
+- **Inputs:** none. **Secrets:** none. **Outputs:** none.
+- **Permissions:** `version-check` job — `contents: read` (`:31-32`). Checks out with `fetch-depth: 0`.
+- **Consumers:** every versioned repo (called from `ci.yml`, typically `if: github.event_name == 'pull_request'`).
+
+```yaml
+jobs:
+  version-check:
+    if: github.event_name == 'pull_request'
+    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/bump-version-check.yml@main
+```
+
+#### `create-github-release.yml`
+
+Reads `VERSION`, creates a GitHub Release tagged `v{VERSION}` with auto-generated notes; **skips**
+gracefully if the tag already exists (avoids the double-release race from two PRs on the same version).
+
+- **Inputs:** none. **Secrets:** `GITHUB_TOKEN` (default). **Outputs:** none.
+- **Permissions:** `release` job — `contents: write` (**the caller must grant this**) (`:35-36`).
+- **Consumers:** every repo with a `release.yml` caller (fires on push to `main` touching `VERSION`).
+
+```yaml
+on:
+  push: { branches: ["main"], paths: ["VERSION"] }
+jobs:
+  release:
+    permissions: { contents: write }
+    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/create-github-release.yml@main
+```
+
+### Next.js / Node CI
+
+All four check out, set up Node (`cache: npm`), `npm ci`, then run a `make` target. None declares a
+`permissions:` block (relies on the caller/default token). None reads secrets.
+
+| Workflow | Inputs (all `type: string` unless noted) | Runs | Notes |
+|---|---|---|---|
+| `ci-nextjs-build.yml` | `node_version`=`"22"`; `upload_artifact` (boolean)=`false`; `artifact_name`=`"static-export"`; `artifact_path`=`"out/"`; `artifact_retention_days` (number)=`3` | `make ci-build` | uploads artifact only when `upload_artifact` (`:46-52`) |
+| `ci-nextjs-lint-typecheck.yml` | `node_version`=`"22"` | `make ci-lint` + `make ci-typecheck` | |
+| `ci-nextjs-tests.yml` | `node_version`=`"22"` | `make ci-unit-tests` (Jest) | |
+| `ci-npm-audit.yml` | `node_version`=`"22"` | `make ci-npm-audit` | fails on high/critical prod-dep CVEs |
+
+```yaml
+jobs:
+  build:
+    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ci-nextjs-build.yml@main
+    with:
+      upload_artifact: true          # optional
+      artifact_name: static-export   # optional
+```
+
+### Python CI
+
+The command-driven lanes let the caller override the install/run commands. `needs_sdk_auth: true`
+(where present) configures a `git insteadOf` credential from **`GH_PACKAGES_PAT`** so `pip` can
+resolve the private SDK — the only secret these lanes read (pass `secrets: inherit`). Several install
+`libpq-dev` so source-built `psycopg2` compiles on the slim runner.
+
+| Workflow | Inputs (`string` unless noted) → default | `needs_sdk_auth`? | Top-level `permissions` |
+|---|---|---|---|
+| `ci-python-format.yml` | `python_version`=`3.14`; `install_command`=`pip install -e ".[dev]"`; `format_command`=`python -m ruff format --check src/ tests/` | no | `contents: read` (`:4-5`) |
+| `ci-python-lint.yml` | `python_version`=`3.14`; `install_command`=`pip install -r requirements.txt`; `lint_command`=`python -m ruff check .`; `needs_sdk_auth` (bool)=`false` | yes | `contents: read` |
+| `ci-python-typecheck.yml` | + `typecheck_command`=`python -m mypy api/` (same shape as lint) | yes | `contents: read` |
+| `ci-python-tests.yml` | + `test_command`=`python -m pytest unit_tests/ -q --tb=short` (fast, DB-free unit lane) | yes | `contents: read` |
+| `ci-python-integration.yml` | `python_version`=`3.14`; `install_command`=`pip install -r requirements.txt`; `migrate_command`=`alembic upgrade head`; `seed_command`=`""`; `test_command`=`python -m pytest -m requires_postgres -q --tb=short`; `needs_sdk_auth` (bool)=`false` | yes | `contents: read` |
+| `ci-python-security.yml` | `python_version`=`3.14`; `bandit_paths`=`api/ scripts/ vercel_api/`; `needs_sdk_auth` (bool)=`false` | yes | `contents: read` |
+| `ci-vercel-compactor.yml` | `python_version`=`3.14` | no | *(none declared)* |
+
+None of these declares outputs.
+
+**`ci-python-integration.yml`** additionally provisions a `postgres:16` **service** (`kdf`/`kdf`/
+`kdf_test`, health-checked) and exports the connection string under **two** names —
+`DB_DATABASE_URL` (SDK/alembic, `env_prefix=DB_`) and `KDF_TEST_DATABASE_URL` (the pytest conftest
+gate) — so a `-m requires_postgres` suite actually runs instead of silently green-skipping (finding
+PL-166). App-specific schema (e.g. a `kdfusers` table) is provisioned by the caller's `seed_command`,
+whose SQL lives in the caller's private repo (`:59-107`).
+
+**`ci-python-security.yml`** runs two jobs: `bandit` SAST over `bandit_paths` and `pip-audit` (CVE
+check) against `requirements.txt` — no SARIF upload, hence no `security-events: write`.
+
+**`ci-vercel-compactor.yml`** runs `scripts/vercel_compactor.py --check --skip-import-check` — a dry
+run that fails if regenerating `vercel_api/` from `api/` would change any file (blocks deploying a
+stale Vercel artifact).
+
+```yaml
+# consumer ci.yml — integration lane as a job SEPARATE from the unit lane
 jobs:
   integration:
     uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ci-python-integration.yml@main
@@ -456,110 +358,217 @@ jobs:
     secrets: inherit
 ```
 
+#### `ci-codeql.yml`
+
+CodeQL SAST — init → autobuild → analyze → upload to the consumer's **Security ▸ Code scanning** tab.
+
+| Input | Type | Default |
+|---|---|---|
+| `language` | string | `python` (`:31-34`) |
+| `config_file` | string | `""` (`:35-38`) |
+| `queries` | string | `security-extended,security-and-quality` (`:39-42`) |
+
+- **Secrets:** none. **Outputs:** none.
+- **Permissions:** `analyze` job — `actions: read`, `contents: read`, `security-events: write`
+  (`:50-53`); the **caller must grant the same**.
+- **Entitlement:** CodeQL runs only on **public** repos (free) or **private** repos with GitHub Code
+  Security. Because most KDF repos are private, consumers gate the calling job on the `ENABLE_CODEQL`
+  repo/org Actions **variable** — it stays skipped (green) until the entitlement exists.
+- **Consumers:** `kriegerdataforge`, `kriegerdataforge-sdk`.
+
+```yaml
+jobs:
+  codeql:
+    if: ${{ vars.ENABLE_CODEQL == 'true' }}
+    permissions: { actions: read, contents: read, security-events: write }
+    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ci-codeql.yml@main
+    with:
+      language: python
+      config_file: ./.github/codeql/codeql-config.yml
+```
+
+### Security scanning
+
+#### `secret-scan.yml`
+
+Runs **gitleaks** over the consumer's working tree **and** git history to catch any committed secret.
+
+| Input | Type | Default | Required |
+|---|---|---|---|
+| `fetch-depth` | number | `0` (full history) | no (`:20-25`) |
+
+- **Secrets:** `GITHUB_TOKEN` (default). **Outputs:** none.
+- **Permissions:** top-level **and** job — `contents: read`, `pull-requests: read` (`:27-29`, `:36-38`).
+- **Consumers:** any repo (from `ci.yml`); no `GITLEAKS_LICENSE` needed for public/individual use.
+
+```yaml
+jobs:
+  secret-scan:
+    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/secret-scan.yml@main
+```
+
+### Internal owner gate (not for tenant `uses:`)
+
+#### `_authorize-owner.yml`
+
+A reusable fail-closed gate that other **privileged ops workflows in *this* repo** call as a job via
+the local path `./.github/workflows/_authorize-owner.yml` and `needs:`. It compares
+`github.triggering_actor` to `github.repository_owner` (case-insensitive) and fails closed on a
+mismatch. The leading `_` + local-path usage signal it is **internal** — tenants do not call it.
+
+- **Inputs:** none. **Secrets:** none.
+- **Output:** `authorized` — `'true'` only when the actor is the repo owner (`:16-19`, job output
+  `:28-29`).
+- **Permissions:** top-level `contents: read` (`:21-22`).
+- **Callers (this repo):** `ops-rotate-secrets.yml`, `ops-distribute-kit.yml`, `ops-setup-e2e.yml`,
+  `distribute-kit.yml`, `distribute-gh-pat.yml`, `rotate-vercel-tokens.yml`.
+
+```yaml
+# consumed only within kriegerdataforge-cicd
+jobs:
+  authorize:
+    uses: ./.github/workflows/_authorize-owner.yml
+  privileged:
+    needs: authorize
+    if: needs.authorize.outputs.authorized == 'true'
+```
+
 ---
 
-## End-to-end (E2E) engine
+## `run-e2e` composite action
 
-cicd also hosts the ecosystem's **reusable E2E engine** — the data-driven `e2e/ci_stack.py`
-driver, the shared identity compose, the Playwright suite, and a composite action that ties
-them together. It is **tenant-agnostic**: each tenant repo owns its own journey (an
-`e2e/manifest.json` + Playwright spec, in *that* repo) and ships a thin `.github/workflows/e2e.yml`
-caller — cicd holds no per-tenant content (ADR **D-006** / **D-007**;
-[`docs/design/e2e-test-decoupling.md`](../design/e2e-test-decoupling.md)).
+`.github/actions/run-e2e/action.yml` — the reusable Tier-2 E2E engine, invoked as a **step** inside a
+tenant repo's `.github/workflows/e2e.yml` job (composite action, not `workflow_call`). It is
+**tenant-agnostic**: it reads the *caller's* `e2e/manifest.json` to learn which sibling repos the
+journey needs, so it hardcodes no tenant list (ADR D-006/D-007).
 
-### `.github/actions/run-e2e` (composite action)
-
-The reusable engine, `uses:`-d by each tenant's `e2e.yml`. The calling job checks **itself**
-out into a path named after its repo (sibling layout); the action then reads that repo's
-`e2e/manifest.json` to learn which **other** repos the journey needs (so it never hardcodes a
-tenant list), mints a scoped GitHub App token (`contents:read` on just those repos + the SDK),
-checks out cicd + the sibling repos, and runs
-`python e2e/ci_stack.py up --journey <journey>` → `npm test` (Playwright) → `down`. The App
-token also serves as the `GH_PACKAGES_PAT` git credential for the private-SDK clone during the
-image build.
+**What it does** (`action.yml:25-197`): free disk → read the caller's manifest (`:38-63`) → mint a
+GitHub App token scoped `contents:read` to just this journey's repos + the SDK (`:65-73`) → check out
+cicd + the sibling repos into the sibling layout (`:75-103`) → set up Python/Node/Playwright →
+`python e2e/ci_stack.py up --journey <journey>` → `npm test` (with a fail-closed "≥1 test ran" gate,
+N2e, `:148-166`) → dump compose logs on failure → upload the Playwright report (1-day retention, GOOD-6)
+→ tear the stack down.
 
 **Inputs:**
 
 | Input | Required | Default | Description |
 |---|---|---|---|
-| `journey` | yes | — | Journey to run; must match the caller's `e2e/manifest.json` `journey` |
-| `app-id` | yes | — | GitHub App ID — pass `${{ secrets.KDF_APP_ID }}` (composite actions can't read secrets) |
-| `app-private-key` | yes | — | GitHub App private key — pass `${{ secrets.KDF_APP_PRIVATE_KEY }}` |
-| `cicd-ref` | no | `main` | Ref of `kriegerdataforge-cicd` to run the engine from |
+| `journey` | **yes** | — | Journey to run; must match the caller's `e2e/manifest.json` `journey` (`:11-13`) |
+| `app-id` | **yes** | — | GitHub App ID — pass `${{ secrets.KDF_APP_ID }}` (composite actions can't read secrets directly) (`:14-16`) |
+| `app-private-key` | **yes** | — | GitHub App private key — pass `${{ secrets.KDF_APP_PRIVATE_KEY }}` (`:17-19`) |
+| `cicd-ref` | no | `main` | Ref of `kriegerdataforge-cicd` to run the engine from (`:20-23`) |
 
-### `ops-setup-e2e.yml` (secret-distribution workflow)
+- **Outputs:** none declared.
+- **Permissions:** none in the action (a composite action inherits the calling **job's** permissions;
+  the App token supplies its own scopes).
+- **Secrets:** none read directly — the App credentials arrive as the `app-id` / `app-private-key`
+  inputs; the minted App token doubles as `GH_PACKAGES_PAT` for the private-SDK clone during the image
+  build (`:135`).
 
-Issue-triggered provisioner that arms a target E2E-journey repo to run its (dormant) `e2e.yml`.
-Fires **only** when the owner-applied `ops:setup-e2e` label is added, is owner-gated via the
-reusable fail-closed authorize gate, and validates the target against a fixed allow-list of the
-six E2E-journey repos. It writes, to the target repo: variable `RUN_E2E_GATE=false` (the dormant
-on/off switch), variable `USE_GITHUB_APP=true`, and copies of the `KDF_APP_ID` + `KDF_APP_PRIVATE_KEY`
-secrets (which the `e2e.yml` job passes to the `run-e2e` action). Secret *values* never touch the
-issue/comment. (Post-org-move, `KDF_APP_*` become org secrets and the per-repo copy is retired.)
+**Caller job** (verified against `action.yml` + ADR D-007 `docs/design/e2e-cijob-refactor.md`): the
+job **checks itself out into a path equal to its own repo name** (sibling layout) — the action reads
+`${repo}/e2e/manifest.json` — then `uses:` the action:
 
-### Caller run modes
+```yaml
+# .github/workflows/e2e.yml in a tenant repo (dormant until RUN_E2E_GATE=true)
+on:
+  pull_request: { branches: [main] }
+  workflow_dispatch:
+jobs:
+  e2e:
+    if: github.event_name == 'workflow_dispatch' || vars.RUN_E2E_GATE == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@<sha>
+        with: { path: <this-repo-name> }   # MUST equal the repo name (sibling layout)
+      - uses: Needless2Say/kriegerdataforge-cicd/.github/actions/run-e2e@main
+        with:
+          journey: fitness                 # must match e2e/manifest.json
+          app-id: ${{ secrets.KDF_APP_ID }}
+          app-private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
+```
 
-A tenant's `.github/workflows/e2e.yml` runs its journey in one of three modes, each gated by a
-repo Actions **variable** so the engine stays dormant until the owner flips it on:
-
-- **CI gate** (`RUN_E2E_GATE=true`) — on every PR, as a hard merge gate;
-- **CD / nightly** (`RUN_E2E_CD=true`) — on push-to-`main` + a weekly schedule, for teams that
-  **don't** want E2E on every PR (avoids the cross-repo-lockstep cost);
-- **On demand** — a manual `workflow_dispatch` (always available).
-
-See [`docs/guides/E2E_TESTING.md`](../guides/E2E_TESTING.md) for the full model and
-[`e2e/README.md`](../../e2e/README.md) for the engine internals + local run.
+The `KDF_APP_ID` / `KDF_APP_PRIVATE_KEY` secrets + the `RUN_E2E_GATE` variable are provisioned into a
+journey repo by [`ops-setup-e2e.yml`](#repo-internal-event-triggered-workflows). See
+[`E2E_TESTING.md`](../guides/E2E_TESTING.md) and [`e2e/README.md`](../../e2e/README.md).
 
 ---
 
-## Permissions Reference
+## Permissions reference
 
-### Workflow-level permissions
+Declared `permissions:` per reusable workflow (⊝ = not declared → caller/default token; job-level
+shown where it differs from top-level):
 
-| Workflow | `contents` | `id-token` | `issues` |
+| Workflow | Scope |
+|---|---|
+| `cd-nextjs-vercel.yml` | `authorize`: `contents:read`; `deploy`: `contents:read` + `id-token:write` |
+| `cd-python-vercel.yml` | `authorize`: `contents:read`; `deploy`: `contents:read` + `id-token:write` |
+| `cd-terraform.yml` | `authorize`: `contents:read`; `apply`: `contents:read` |
+| `bump-version-check.yml` | job: `contents:read` |
+| `create-github-release.yml` | job: `contents:write` (caller must grant) |
+| `ci-codeql.yml` | job: `actions:read` + `contents:read` + `security-events:write` (caller must grant) |
+| `ci-python-format` / `-lint` / `-typecheck` / `-tests` / `-integration` / `-security` | top-level: `contents:read` |
+| `ci-nextjs-build` / `-lint-typecheck` / `-tests`, `ci-npm-audit`, `ci-vercel-compactor` | ⊝ none declared |
+| `secret-scan.yml` | top-level + job: `contents:read` + `pull-requests:read` |
+| `_authorize-owner.yml` | top-level: `contents:read` |
+
+---
+
+## Repo-internal event-triggered workflows
+
+The remaining ten `.github/workflows/*.yml` (of 29 total: 19 `workflow_call` above + these 10) are
+**not** `workflow_call`, so they cannot be `uses:`-d by a tenant. They run inside `kriegerdataforge-cicd` on schedules / issues / dispatch, and the ops ones are
+owner-gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for completeness of the
+`.github/workflows/` enumeration.
+
+| Workflow | Trigger(s) | What it does | Owner gate |
 |---|---|---|---|
-| `cd-nextjs-vercel.yml` | `read` | `write` (OIDC) | — |
-| `cd-python-vercel.yml` | `read` | `write` (OIDC) | — |
-| `cd-terraform.yml` | `read` | — | — |
-| `issue-create-repo.yml` | `read` | — | `write` |
+| `ci.yml` | `pull_request` → `main` | actionlint + pytest (`scripts/tests/`) + calls `bump-version-check.yml` | n/a |
+| `release.yml` | `push` `main`, `paths: [VERSION]` | calls `create-github-release.yml` (`contents:write`) | n/a |
+| `issue-create-repo.yml` | `issues: labeled` (`new-repo`) | provisions a repo from a template; creates `prod`+`dev` Environments (owner reviewer, `main` only); branch protection; uses **repo-level** `CICD_PAT` (Administration/Contents/Environments/Secrets/Variables/Actions R-W + Members: Read) | inline owner check (PL-076) |
+| `ops-rotate-secrets.yml` | `issues: labeled` (`ops:rotate-secrets`) | issue-form front-end for `rotate_secret.py` (`check`/`generate`/`paste`) | `_authorize-owner` |
+| `ops-distribute-kit.yml` | `issues: labeled` (`ops:distribute-kit`) | issue-form front-end for `distribute_kit.py` (`check`/`distribute`) | `_authorize-owner` |
+| `ops-setup-e2e.yml` | `issues: labeled` (`ops:setup-e2e`) | arms an E2E-journey repo: writes `RUN_E2E_GATE=false`, `USE_GITHUB_APP=true`, copies `KDF_APP_ID`/`KDF_APP_PRIVATE_KEY`; validates target against the fixed 6-repo allow-list | `_authorize-owner` |
+| `distribute-kit.yml` | `workflow_dispatch` (`mode` check/distribute, `only`, `repos`) + weekly `schedule` (drift alarm) | runs `distribute_kit.py`; opens one sync PR per drifted repo | `_authorize-owner` (dispatch only) |
+| `distribute-gh-pat.yml` | `workflow_dispatch` | distributes a staged `GH_PACKAGES_PAT_NEW` via `rotate_secret.py --mode paste` | `_authorize-owner` |
+| `rotate-vercel-tokens.yml` | monthly `schedule` + `workflow_dispatch` | re-mints the shared `VERCEL_DEPLOYMENT_TOKEN` (`--mode generate`, 45-day life) and opens a PR stamping the new expiry | `_authorize-owner` (dispatch only) |
+| `check-secret-expiry.yml` | weekly `schedule` (Mon 09:00 UTC) + `workflow_dispatch` | `rotate_secret.py --mode check --secrets all` (registry metadata only); keeps one dedup tracking issue (`ops:secret-expiry`) open/closed | n/a (`issues:write`) |
 
-### `CICD_PAT` required permissions
-
-The fine-grained PAT used by `issue-create-repo.yml` (and the rotation/kit engine) requires, over
-**All repositories (incl. future)**:
-- **Repository:** Administration (R/W), Contents (R/W), Environments (R/W),
-  Secrets (R/W), Variables (R/W), Actions (R/W), Issues (R/W), Pull requests (R/W)
-- **Metadata:** Read
-
-It is a manual/hand-rotated PAT on a tracked **30-day expiry** (next: `2026-07-30`).
-
----
-
-## Consumer Repo Summary
-
-Every repo below runs the [Deployer Authorization Gate](#deployer-authorization-gate) and
-must have a matching entry in `scripts/deployer_registry.json`.
-
-| Consumer repo | Workflow called | Environments | Extra inputs |
-|---|---|---|---|
-| `fitness-app-frontend` | `cd-nextjs-vercel.yml` | `dev`, `prod` | — |
-| `tiffanys-space` | `cd-nextjs-vercel.yml` | `dev`, `prod` | — |
-| `fitness-app-backend` | `cd-python-vercel.yml` | `dev`, `prod` | `run_migrations` |
-| `tiffanys-space-backend` | `cd-python-vercel.yml` | `dev`, `prod` | `run_migrations` |
-| `kriegerdataforge` | `cd-python-vercel.yml` | `dev`, `prod` | `run_migrations` |
-| `kriegerdataforge-terraform` | `cd-terraform.yml` | `dev`, `prod` | `version` |
-| `arthurs-portfolio` | self-contained (`nextjs.yml` → GitHub Pages) | `github-pages` | `version` |
+`GH_PACKAGES_PAT` distribution + Vercel/kit ops mint short-lived **GitHub App** tokens when
+`vars.USE_GITHUB_APP == 'true'`, falling back to `CICD_PAT` (`distribute-gh-pat.yml:59-73`,
+`rotate-vercel-tokens.yml:70-91`). See the GitHub-App migration ADR in
+`docs/CHANGELOG_AND_DECISION_LOG.md`.
 
 ---
 
-## How to Trigger a Deploy
+## Consumer repo summary
 
-1. Go to the consumer repo on GitHub
-2. Click **Actions** → **CD** (or **CD — Terraform** for terraform)
-3. Click **Run workflow** → select environment → click **Run workflow**
-4. The workflow pauses with "Waiting for review" — you'll receive an email notification
-5. Click the notification link → **Review deployments** → **Approve and deploy**
-6. The workflow runs and deploys to the selected environment
+The authoritative allow-list is [`scripts/deployer_registry.json`](../../scripts/deployer_registry.json)
+(`repo → environment → deployers`). Every repo below runs the
+[Deployer authorization gate](#deployer-authorization-gate); the CD workflow column follows repo type.
 
-For the backend (`kriegerdataforge`), there is an additional **Run migrations** checkbox.
-Uncheck it only if you are deploying a non-schema-changing update and want to skip migration time.
+| Consumer repo | Environments (registry) | CD workflow |
+|---|---|---|
+| `kriegerdataforge` | `dev`, `prod` | `cd-python-vercel.yml` |
+| `kriegerdataforge-auth-ui` | `dev`, `prod` | `cd-nextjs-vercel.yml` |
+| `fitness-app-frontend` | `dev`, `prod` | `cd-nextjs-vercel.yml` |
+| `fitness-app-backend` | `dev`, `prod` | `cd-python-vercel.yml` |
+| `tiffanys-space` | `dev`, `prod` | `cd-nextjs-vercel.yml` |
+| `tiffanys-space-backend` | `dev`, `prod` | `cd-python-vercel.yml` |
+| `kriegerdataforge-terraform` | `dev`, `prod` | `cd-terraform.yml` |
+| `arthurs-portfolio` | `github-pages` | self-contained `nextjs.yml` → GitHub Pages (runs the gate) |
+| `kriegerdataforge-template-nextjs` | `dev`, `prod` | `cd-nextjs-vercel.yml` (prepared-files placeholder) |
+| `kriegerdataforge-template-fastapi` | `dev`, `prod` | `cd-python-vercel.yml` (prepared-files placeholder) |
+
+---
+
+## Related
+
+- [`docs/guides/MANUAL_SETUP.md`](../guides/MANUAL_SETUP.md) — GitHub Environments, environment secrets, PAT/token creation, tenant onboarding.
+- [`docs/guides/SECRET_ROTATION.md`](../guides/SECRET_ROTATION.md) — rotate a repo/environment secret via `rotate_secret.py` + `secret_registry.json`.
+- [`docs/guides/E2E_TESTING.md`](../guides/E2E_TESTING.md) + [`e2e/README.md`](../../e2e/README.md) — the E2E engine model and local run.
+- [`CONTRIBUTING.md`](../../CONTRIBUTING.md) — two-tier model + breaking-change governance for reusable-workflow interfaces.
+- [`scripts/deployer_registry.json`](../../scripts/deployer_registry.json) · [`scripts/check_deployer.py`](../../scripts/check_deployer.py) — the deployer gate data + logic.
+- [`docs/CHANGELOG_AND_DECISION_LOG.md`](../CHANGELOG_AND_DECISION_LOG.md) — ADRs (kit distribution D-001, GitHub-App migration, E2E decoupling D-006/D-007).
+</content>
+</invoke>

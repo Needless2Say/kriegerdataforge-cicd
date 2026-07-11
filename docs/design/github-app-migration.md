@@ -1,10 +1,15 @@
 # Design note — migrate GitHub PATs to a GitHub App (+ Vercel master auto-rotation)
 
-**Status: ACCEPTED — Phase 1 implemented.** The owner approved retiring the long-lived GitHub PATs in
-favour of a GitHub App that mints ephemeral, scoped installation tokens. **Phase 1** (the `CICD_PAT`
-automation surface) is wired in code, behind a feature flag, and ready to switch on once the owner creates
-the App. **Phase 2** (the CI-runner + Vercel-build `GH_PACKAGES_PAT`) is scoped below
-and deferred until Phase 1 is validated in production.
+**Status: ACCEPTED — App created & live; the E2E test-run engine (`run-e2e`) is fully migrated (un-gated App token); its provisioner (`ops-setup-e2e.yml`) + the rotation/kit surface are still flag-gated.**
+The owner approved retiring the long-lived GitHub PATs in favour of a GitHub App that mints ephemeral,
+scoped installation tokens. The App now **exists and is in production use**: the Tier-2 E2E engine
+(`.github/actions/run-e2e`) mints its App token on **every** run with **no feature flag** (landed under
+ADR **D-007**; see the table below), so the App's ID + private key are live secrets. The **rotation/kit
+surface** (the original `CICD_PAT` automation) still mints its App token **behind the `USE_GITHUB_APP`
+flag with a `CICD_PAT` fallback**, so the last remaining rollout step there is flipping (or confirming)
+that repo variable on `kriegerdataforge-cicd`. **Phase 2** (the CI-runner + Vercel-build
+`GH_PACKAGES_PAT`) is scoped below and still deferred — though the E2E engine already App-ifies its own
+private-SDK clone (`run-e2e/action.yml:135`), proving the CI-runner half is feasible.
 
 > **Note:** the former dormant registry-checkout PAT was **retired/removed on 2026-06-30**. It was only a
 > `|| github.token` fallback for checking out the **public** cicd repo, which `github.token` already
@@ -17,26 +22,47 @@ and deferred until Phase 1 is validated in production.
    TTL at 1 hour and exposes *no* knob to shorten it; we don't need one, because
    `actions/create-github-app-token` **revokes the token in a post-job step**, so the real exposure window
    is the job's runtime (minutes). Risk is bounded by *scope*, not time: every workflow mints **per-job**,
-   scoped to `owner` and **downscoped** to the minimum permission (`permission-secrets: write` for the
-   rotators, `permission-contents`/`permission-pull-requests: write` for kit distribution).
+   scoped to `owner` and **downscoped** to the minimum permission (`permission-secrets`+`permission-environments: write`
+   for the rotators, `permission-contents`/`permission-pull-requests: write` for kit distribution).
 3. **Vercel SDK-install (Phase 2)** — chosen path: **option 1 now** (keep a single narrow `contents:read`
    PAT, monitored, for the Vercel build only), with **option 2 (publish the SDK to a registry)** as the
    clean long-term follow-up. Rationale below.
 
 ## Implementation status
 
-| Workflow | Token before | Token after (Phase 1) |
-|---|---|---|
-| `ops-rotate-secrets.yml` | `CICD_PAT` | App token (`secrets:write`) → falls back to `CICD_PAT` |
-| `rotate-vercel-tokens.yml` | `CICD_PAT` | App token (`secrets:write`) → falls back to `CICD_PAT` |
-| `distribute-gh-pat.yml` | `CICD_PAT` | App token (`secrets:write`) → falls back to `CICD_PAT` |
-| `distribute-kit.yml` | `CICD_PAT` | App token (`contents`+`pull-requests:write`) → falls back to `CICD_PAT` |
-| `ops-distribute-kit.yml` | `CICD_PAT` | App token (`contents`+`pull-requests:write`) → falls back to `CICD_PAT` |
-| `issue-create-repo.yml` | `CICD_PAT` | **unchanged** — the CICD_PAT holdout (see below) |
+### The E2E surface — test-run engine un-gated (App token always), provisioner flag-gated
 
-Each minting step is gated on the **`USE_GITHUB_APP`** repo *variable* and falls back to `CICD_PAT`
-(`${{ steps.app-token.outputs.token || secrets.CICD_PAT }}`), so **merging Phase 1 changes nothing** until
-the owner creates the App and flips the flag — and unsetting the variable is an **instant rollback**.
+Landed **after** this note under ADR **D-007** (E2E-as-a-per-repo-CI-job). The **`run-e2e` composite
+action** mints its token **unconditionally**, so `USE_GITHUB_APP` is **vestigial for the E2E engine**
+(D-007's recorded consequence). The **`ops-setup-e2e.yml` provisioner**, by contrast, still mints its App
+token **behind `USE_GITHUB_APP` with a `CICD_PAT` fallback** — exactly like the rotation surface below —
+so only the `run-e2e` action row is truly un-gated (each row's own **Gate** column, not this heading, is
+authoritative).
+
+| Workflow / action | Token | Scope | Gate |
+|---|---|---|---|
+| `.github/actions/run-e2e` | App token (`contents:read`) | dynamic — the caller's `e2e/manifest.json` repos + shared identity repos + SDK (`run-e2e/action.yml:65-73`) | **none** — always App token |
+| `ops-setup-e2e.yml` (E2E-repo provisioner) | App token (Secrets **+ Variables** write) | the single target repo via `repositories:` (`ops-setup-e2e.yml:93-101`) | `USE_GITHUB_APP` → `CICD_PAT` (`:95,105`); *writes* `USE_GITHUB_APP=true` into the target for parity (`:11,109`) |
+
+### Flag-gated — the rotation/kit surface (App token when `USE_GITHUB_APP=true`, else `CICD_PAT`)
+
+Unchanged from this note's original Phase 1:
+
+| Workflow | Token after | Gate + fallback (`file:line`) |
+|---|---|---|
+| `ops-rotate-secrets.yml` | App token (`secrets`+`environments:write`) → `CICD_PAT` | `:64`, `:123` |
+| `rotate-vercel-tokens.yml` | App token (rotate job `secrets`+`environments:write`; PR job `contents`+`pull-requests:write`) → `CICD_PAT` | `:72`,`:112`, `:87`/`:127`/`:142` |
+| `distribute-gh-pat.yml` | App token (`secrets:write`) → `CICD_PAT` | `:61`, `:73` |
+| `distribute-kit.yml` | App token (`contents`+`pull-requests:write`) → `CICD_PAT` | `:77`, `:90` |
+| `ops-distribute-kit.yml` | App token (`contents`+`pull-requests:write`) → `CICD_PAT` | `:55`, `:111` |
+| `issue-create-repo.yml` | `CICD_PAT` (unchanged) | the CICD_PAT holdout (see below) |
+
+On the flag-gated surface each minting step is gated on the **`USE_GITHUB_APP`** repo *variable*
+(`if: vars.USE_GITHUB_APP == 'true'`) and falls back to `CICD_PAT`
+(`${{ steps.app-token.outputs.token || secrets.CICD_PAT }}`), so unsetting the variable is an **instant
+rollback**. Note the split the two tables draw out: the E2E action **ignores** this flag (it always mints
+an App token), which is exactly why D-007 records `USE_GITHUB_APP` as vestigial for E2E even as
+`ops-setup-e2e.yml` keeps writing `USE_GITHUB_APP=true` into each provisioned tenant repo "for parity."
 
 **The CICD_PAT holdout.** `issue-create-repo.yml` provisions new repos. Creating a repo under a *personal
 account* requires a user-to-server PAT; a GitHub App **installation token cannot create user-account
@@ -113,25 +139,30 @@ Vercel builds don't run in GitHub Actions, so they can't call `create-github-app
 
 ## Migration steps (phased, reversible)
 
-**Owner, to switch Phase 1 on** (one-time, ~10 min — full walkthrough in `MANUAL_SETUP.md`):
+**Done — the App exists and is live.** The App has been created (account-owned for now) granting at least
+**Secrets / Environments / Contents / Pull-requests R/W** plus **Variables** write (the permissions the
+minted tokens request — `contents:read` for `run-e2e`, Secrets+Variables write for `ops-setup-e2e.yml`,
+`secrets`+`environments:write` for the rotators, `contents`+`pull-requests:write` for kit distribution); a
+private key was generated and
+installed on the ecosystem repos. `KDF_APP_ID` + `KDF_APP_PRIVATE_KEY` are `kriegerdataforge-cicd` repo
+secrets (`KDF_APP_PRIVATE_KEY` monitored — no expiry, manual rotation — in `secret_registry.json:75-79`).
+The E2E engine mints App tokens on every run and `ops-setup-e2e.yml` copies the App secrets into each
+journey repo. Setup walkthrough: `MANUAL_SETUP.md`; key-rotation recipe: `SECRET_ROTATION.md §8.3a`.
 
-1. Create the App (account-owned for now); grant **Secrets: R/W** + **Contents: R/W** +
-   **Pull requests: R/W**; generate a private key; install it on the consumer repos.
-2. Add `KDF_APP_ID` + `KDF_APP_PRIVATE_KEY` as `kriegerdataforge-cicd` repo secrets, then set the repo
-   **variable** `USE_GITHUB_APP=true`.
-3. **Verify** by running a flow (e.g. *Check Secret Expiry*, or a *Rotate Vercel Deployment Token* dry run). If
-   anything misbehaves, unset `USE_GITHUB_APP` for an instant rollback to `CICD_PAT`.
-4. Once confident, **revoke** the standalone `CICD_PAT` *capabilities the App now covers* — but keep the
+**Remaining — flip the flag for the rotation/kit surface** (one-time; unset for instant rollback):
+
+1. Set the `kriegerdataforge-cicd` repo **variable** `USE_GITHUB_APP=true` so the five rotation/kit
+   workflows (table above) start minting App tokens instead of falling back to `CICD_PAT`.
+2. **Verify** by running a flow (e.g. *Check Secret Expiry*, or a *Rotate Vercel Deployment Token* dry
+   run). If anything misbehaves, unset `USE_GITHUB_APP` for an instant rollback to `CICD_PAT`.
+3. Once confident, **revoke** the standalone `CICD_PAT` *capabilities the App now covers* — but keep the
    PAT itself until the org move (it still backs `issue-create-repo.yml`).
 
-**Already done in code (this PR):** the five rotation/kit workflows mint App tokens behind the
-`USE_GITHUB_APP` flag with a `CICD_PAT` fallback; `KDF_APP_PRIVATE_KEY` added to `secret_registry.json`
-(monitored); `SECRET_ROTATION.md` §8.3a + `MANUAL_SETUP.md` Phase 6.7 setup written.
-
-**Phase 2 (deferred):** App-ify the CI-runner SDK install (`ci-python-*.yml`) and pick the Vercel
-SDK-install path (option 1 now / option 2 long-term) to retire `GH_PACKAGES_PAT`.
-This needs the App secrets plumbed into every consumer repo (reusable-workflow `secrets: inherit`) and the
-Vercel-build decision, so it is staged after Phase 1 is proven.
+**Phase 2 (deferred):** App-ify the general CI-runner SDK install (`ci-python-*.yml`) and pick the Vercel
+SDK-install path (option 1 now / option 2 long-term) to retire `GH_PACKAGES_PAT`. The E2E engine already
+proves the CI-runner half works — its image build clones the private SDK using the minted App token as
+`GH_PACKAGES_PAT` (`run-e2e/action.yml:135`) — but generalising that to every consumer's reusable workflow
+(`secrets: inherit`) and resolving the Vercel-build path is still staged work.
 
 Cost: $0 (GitHub Apps are free).
 
@@ -161,8 +192,10 @@ auto-rotation; until then the master stays on the monitored/reminder path (`SECR
 
 ## Decisions
 
-1. ✅ **Approved** — migrate to a GitHub App (Phase 1 implemented in this PR).
+1. ✅ **Approved + live** — migrated to a GitHub App. The E2E surface runs on **un-gated** App tokens
+   (ADR D-007); the rotation/kit surface is **flag-gated** behind `USE_GITHUB_APP` with a `CICD_PAT`
+   fallback, pending the flag flip on `kriegerdataforge-cicd`.
 2. ✅ **Resolved** — Vercel SDK-install: option 1 (narrow `contents:read` PAT) now, option 2 (registry)
-   as the long-term follow-up. Tracked as Phase 2.
+   as the long-term follow-up. Tracked as Phase 2 (still deferred).
 3. ⬜ **Still open** — approve building the fail-safe `VERCEL_MASTER_TOKEN` auto-rotation, or keep it
    reminder-only. (Unchanged; depends on the one-time Vercel-API scope check above.)
