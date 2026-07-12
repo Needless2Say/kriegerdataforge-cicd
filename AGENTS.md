@@ -28,7 +28,7 @@ agent workflows (`agents/`, skeleton only) so automation scales with the platfor
 ## Tech stack
 
 - **GitHub Actions** — reusable workflows (`on: workflow_call`), called by every tenant repo.
-- **Vercel CLI** — `npx vercel --prod --yes` for Next.js + FastAPI serverless deploys.
+- **Vercel CLI** — a pinned `vercel@48.0.0` CLI (`npm install -g` → `vercel --prod --yes`) for Next.js + FastAPI serverless deploys.
 - **Terraform `~1.9`** (`hashicorp/setup-terraform`) — `cd-terraform.yml` runs `plan`/`apply`.
 - **Python 3.14 (stdlib-first)** — platform scripts in `scripts/` (token/PAT rotation, DB backup,
   deployer gate, version bump/check); tested with `pytest` + coverage.
@@ -69,7 +69,7 @@ agent workflows (`agents/`, skeleton only) so automation scales with the platfor
 6. **Set minimum `permissions:` on every workflow.** `id-token: write` only where Vercel OIDC needs it.
 7. **`secrets: inherit` is the standard caller pattern** for passing environment secrets to a reusable workflow.
 8. **Never use `pull_request_target` with an untrusted code checkout.**
-9. **Environment names are `dev` / `prod` / `infra`** — NEVER `development` / `production` / `infrastructure`.
+9. **Environment names are `dev` / `prod`** (plus `github-pages` for GitHub Pages deploys) — NEVER `development` / `production` / `infrastructure` / `infra`.
    (`arthurs-portfolio` uses `github-pages`.) These keys must match `deployer_registry.json`.
 10. **Deploys fail closed.** A repo/env/actor not in `scripts/deployer_registry.json` is denied — when you
     onboard a tenant, add its registry entry *before* its first deploy.

@@ -351,7 +351,7 @@ def parse_cli_args() -> argparse.Namespace:
             "  GH_TOKEN=... python distribute_kit.py check\n\n"
             "  # Open sync PRs for skills.md only (v1 scope)\n"
             "  GH_TOKEN=... python distribute_kit.py distribute --only skills.md\n\n"
-            "  # Target a subset of repos (comma-separated names/substrings); blank = all\n"
+            "  # Target a subset of repos (comma-separated EXACT names, not substrings); blank = all\n"
             "  GH_TOKEN=... python distribute_kit.py distribute --repos kriegerdataforge-sdk,fitness-app-backend"
         ),
     )

@@ -39,13 +39,13 @@ Every deploy job pauses at a GitHub Environment approval gate before secrets are
 
 ### Environment Gate Model
 
-Three environments are used across all repos. Names are fixed — do not use aliases.
+Three environment names are used across all repos. Names are fixed — do not use aliases.
 
 | Environment | Approvers | Used for |
 |---|---|---|
-| `dev` | Owner + collaborators | Development deployments |
-| `prod` | Owner only | Production deployments |
-| `infra` | Owner only | Terraform infrastructure changes |
+| `dev` | Owner + collaborators | Development deployments (Vercel apps + Terraform `plan`/`apply`) |
+| `prod` | Owner only | Production deployments (Vercel apps + Terraform `plan`/`apply`) |
+| `github-pages` | Owner only | GitHub Pages deploy (arthurs-portfolio) |
 
 ---
 
@@ -106,7 +106,7 @@ GitHub secrets come in two scopes and rotate differently:
   `ops:rotate-secrets` label) or the CLI. The cicd ops/control-plane secrets that authenticate the engine
   itself (`CICD_PAT`, `VERCEL_MASTER_TOKEN`, `KDF_APP_PRIVATE_KEY`) are also repository-level but rotated
   **by hand**.
-- **Environment secrets** (`prod` / `dev` / `infra`) — the remaining per-environment deploy credentials
+- **Environment secrets** (`prod` / `dev` / `github-pages`) — the remaining per-environment deploy credentials
   (`VERCEL_PROJECT_ID`, DB URLs, signing keys) that stay behind the approval gate; owner-managed (most via
   Terraform).
 

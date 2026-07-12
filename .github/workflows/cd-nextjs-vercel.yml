@@ -30,7 +30,7 @@ on:
   workflow_call:
     inputs:
       environment:
-        description: 'Target GitHub Environment ("development" or "production")'
+        description: 'Target GitHub Environment ("dev" or "prod")'
         required: true
         type: string
       version:
