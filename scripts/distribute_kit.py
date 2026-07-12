@@ -44,9 +44,7 @@ import os
 import sys
 from pathlib import Path
 
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+from common.http import build_session
 
 # ============================================================
 # Configuration
@@ -60,48 +58,10 @@ KIT_DIR = REPO_ROOT / "kit" / "common"
 KIT_VERSION_FILE = REPO_ROOT / "kit" / "KIT_VERSION"
 VENDORED_VERSION_FILE = KIT_DIR / "docs" / "agent" / "KIT_VERSION"
 
-# ------------------------------------------------------------
-# HTTP session with retry/backoff.
-#
-# A fan-out across ~14 repos routinely hits transient GitHub failures — a 502/503
-# Bad Gateway, a 429 rate-limit, or a momentary DNS / connection blip — and without
-# retries a single hiccup aborts a whole repo mid-run (a check just reports ERROR;
-# a distribute could leave a repo un-synced). We retry with exponential backoff, but
-# ONLY for idempotent methods:
-#   - GET   (drift reads, branch-SHA lookup) — always safe to replay.
-#   - PUT   (Contents API file write) — carries the target blob sha, so replaying it
-#           is a safe upsert, not a duplicate.
-# POST (branch-create, PR-create) is deliberately EXCLUDED from status/read retries so
-# a 502-after-GitHub-already-processed-it can't create a duplicate ref or PR. A pure
-# connection error (e.g. DNS) is still retried for every method, since that request
-# never reached GitHub. 404 (file missing = legitimate drift) and 422 (ref exists,
-# handled in _create_branch) are NOT in the force-list, so they are never retried.
-# ------------------------------------------------------------
-_RETRY = Retry(
-    total=6,
-    connect=6,          # DNS / connection-refused blips (request never sent → safe)
-    read=3,
-    status=5,
-    # urllib3 sleeps 0 before the 1st retry, then backoff_factor * 2**(n-1): with
-    # 0.75 that's 0, 1.5, 3, 6, 12, 24s between the 6 retries (cap 120s).
-    backoff_factor=0.75,
-    status_forcelist=(429, 500, 502, 503, 504),
-    allowed_methods=frozenset({"GET", "PUT", "HEAD"}),
-    respect_retry_after_header=True,
-    raise_on_status=False,  # let resp.raise_for_status() surface the final status code
-)
-
-
-def _build_session() -> requests.Session:
-    """A requests.Session that retries transient GitHub failures (see above)."""
-    session = requests.Session()
-    adapter = HTTPAdapter(max_retries=_RETRY)
-    session.mount("https://", adapter)
-    session.mount("http://", adapter)
-    return session
-
-
-_SESSION = _build_session()
+# Shared HTTP session with retry/backoff so a transient GitHub 5xx / 429 / DNS blip
+# doesn't abort a repo mid-fan-out. Config + rationale live in common/http.py (the
+# same session hardens rotate_secret.py). Retries idempotent methods (GET/PUT) only.
+_SESSION = build_session()
 
 # ============================================================
 # Helpers

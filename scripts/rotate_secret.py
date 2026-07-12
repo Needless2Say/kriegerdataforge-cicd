@@ -50,6 +50,8 @@ from pathlib import Path
 import requests
 from nacl import encoding, public
 
+from common.http import build_session
+
 # ============================================================
 # Configuration
 # ============================================================
@@ -61,6 +63,12 @@ GITHUB_API = "https://api.github.com"
 # New Vercel tokens expire after 45 days. The monthly cron rotates ~every 30 (worst-case 31-day gap),
 # leaving ~2 weeks of slack so a single missed run never expires the one shared deploy token.
 TOKEN_EXPIRY_DAYS = 45
+
+# Shared HTTP session with retry/backoff so a transient GitHub/Vercel 5xx / 429 / DNS blip doesn't
+# strand a secret half-written across the fan-out. Config + rationale live in common/http.py (the
+# same session hardens distribute_kit.py). Idempotent GET/PUT retry; POST/DELETE/PATCH (create/delete
+# token, delete secret) are not status-retried, so a 502-after-success can't duplicate/revoke twice.
+_SESSION = build_session()
 
 # ============================================================
 # GitHub helpers
@@ -77,7 +85,7 @@ def _github_headers(token: str) -> dict[str, str]:
 
 def _get_env_public_key(gh_token: str, owner: str, repo: str, environment: str) -> tuple[str, str]:
     """Return (key_id, base64_public_key) for a repo environment's secret box."""
-    resp = requests.get(
+    resp = _SESSION.get(
         f"{GITHUB_API}/repos/{owner}/{repo}/environments/{environment}/secrets/public-key",
         headers=_github_headers(gh_token),
         timeout=30,
@@ -106,7 +114,7 @@ def update_github_env_secret(
     owner, repo = owner_repo.split("/", 1)
     key_id, pub_key_b64 = _get_env_public_key(gh_token, owner, repo, environment)
     encrypted = _encrypt_secret(pub_key_b64, secret_value)
-    resp = requests.put(
+    resp = _SESSION.put(
         f"{GITHUB_API}/repos/{owner}/{repo}/environments/{environment}/secrets/{secret_name}",
         headers=_github_headers(gh_token),
         json={"encrypted_value": encrypted, "key_id": key_id},
@@ -117,7 +125,7 @@ def update_github_env_secret(
 
 def _get_repo_public_key(gh_token: str, owner: str, repo: str) -> tuple[str, str]:
     """Return (key_id, base64_public_key) for a repo's REPOSITORY (Actions) secret box."""
-    resp = requests.get(
+    resp = _SESSION.get(
         f"{GITHUB_API}/repos/{owner}/{repo}/actions/secrets/public-key",
         headers=_github_headers(gh_token),
         timeout=30,
@@ -146,7 +154,7 @@ def update_github_repo_secret(
     owner, repo = owner_repo.split("/", 1)
     key_id, pub_key_b64 = _get_repo_public_key(gh_token, owner, repo)
     encrypted = _encrypt_secret(pub_key_b64, secret_value)
-    resp = requests.put(
+    resp = _SESSION.put(
         f"{GITHUB_API}/repos/{owner}/{repo}/actions/secrets/{secret_name}",
         headers=_github_headers(gh_token),
         json={"encrypted_value": encrypted, "key_id": key_id},
@@ -170,7 +178,7 @@ def delete_github_env_secret(
     re-run is a clean no-op.
     """
     owner, repo = owner_repo.split("/", 1)
-    resp = requests.delete(
+    resp = _SESSION.delete(
         f"{GITHUB_API}/repos/{owner}/{repo}/environments/{environment}/secrets/{secret_name}",
         headers=_github_headers(gh_token),
         timeout=30,
@@ -220,7 +228,7 @@ def create_vercel_token(master_token: str, name: str, team_id: str = "") -> tupl
     expires_at_ms = int(
         (datetime.now(timezone.utc) + timedelta(days=TOKEN_EXPIRY_DAYS)).timestamp() * 1000
     )
-    resp = requests.post(
+    resp = _SESSION.post(
         f"{VERCEL_API}/v3/user/tokens",
         headers=_vercel_headers(master_token),
         params={"teamId": team_id} if team_id else None,
@@ -233,7 +241,7 @@ def create_vercel_token(master_token: str, name: str, team_id: str = "") -> tupl
 
 
 def list_vercel_tokens(master_token: str) -> list[dict]:
-    resp = requests.get(
+    resp = _SESSION.get(
         f"{VERCEL_API}/v3/user/tokens",
         headers=_vercel_headers(master_token),
         timeout=30,
@@ -243,7 +251,7 @@ def list_vercel_tokens(master_token: str) -> list[dict]:
 
 
 def delete_vercel_token(master_token: str, token_id: str) -> None:
-    resp = requests.delete(
+    resp = _SESSION.delete(
         f"{VERCEL_API}/v3/user/tokens/{token_id}",
         headers=_vercel_headers(master_token),
         timeout=30,
@@ -252,7 +260,7 @@ def delete_vercel_token(master_token: str, token_id: str) -> None:
 
 
 def _list_vercel_env_vars(master_token: str, project_id: str) -> list[dict]:
-    resp = requests.get(
+    resp = _SESSION.get(
         f"{VERCEL_API}/v10/projects/{project_id}/env",
         headers=_vercel_headers(master_token),
         timeout=30,
@@ -266,7 +274,7 @@ def upsert_vercel_env_var(master_token: str, project_id: str, key: str, value: s
     existing = [e for e in _list_vercel_env_vars(master_token, project_id) if e["key"] == key]
     if existing:
         for entry in existing:
-            resp = requests.patch(
+            resp = _SESSION.patch(
                 f"{VERCEL_API}/v10/projects/{project_id}/env/{entry['id']}",
                 headers=_vercel_headers(master_token),
                 json={"value": value, "type": "encrypted", "target": entry["target"]},
@@ -274,7 +282,7 @@ def upsert_vercel_env_var(master_token: str, project_id: str, key: str, value: s
             )
             resp.raise_for_status()
     else:
-        resp = requests.post(
+        resp = _SESSION.post(
             f"{VERCEL_API}/v10/projects/{project_id}/env",
             headers=_vercel_headers(master_token),
             json={

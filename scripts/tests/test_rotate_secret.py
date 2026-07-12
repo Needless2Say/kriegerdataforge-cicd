@@ -163,12 +163,12 @@ class TestEncrypt:
 class TestGetEnvPublicKey:
     def test_returns_key(self):
         r = MagicMock(); r.json.return_value = {"key_id": "k", "key": "v=="}
-        with patch("requests.get", return_value=r):
+        with patch.object(rs._SESSION, "get", return_value=r):
             assert _get_env_public_key("gh", "o", "rp", "prod") == ("k", "v==")
 
     def test_url_has_owner_repo_env(self):
         r = MagicMock(); r.json.return_value = {"key_id": "k", "key": "v"}
-        with patch("requests.get", return_value=r) as g:
+        with patch.object(rs._SESSION, "get", return_value=r) as g:
             _get_env_public_key("gh", "Own", "Rep", "stg")
         url = g.call_args[0][0]
         assert "Own" in url and "Rep" in url and "stg" in url
@@ -178,7 +178,7 @@ class TestUpdateGitHubEnvSecret:
     def test_puts_encrypted_value(self, nacl_keypair):
         private, pub = nacl_keypair
         gr = MagicMock(); gr.json.return_value = {"key_id": "kid", "key": pub}
-        with patch("requests.get", return_value=gr), patch("requests.put") as put:
+        with patch.object(rs._SESSION, "get", return_value=gr), patch.object(rs._SESSION, "put") as put:
             update_github_env_secret("gh", "o/r", "prod", "S", "val")
         body = put.call_args[1]["json"]
         assert body["key_id"] == "kid"
@@ -188,7 +188,7 @@ class TestUpdateGitHubEnvSecret:
         _, pub = nacl_keypair
         gr = MagicMock(); gr.json.return_value = {"key_id": "k", "key": pub}
         pr = MagicMock(); pr.raise_for_status.side_effect = Exception("HTTP 422")
-        with patch("requests.get", return_value=gr), patch("requests.put", return_value=pr):
+        with patch.object(rs._SESSION, "get", return_value=gr), patch.object(rs._SESSION, "put", return_value=pr):
             with pytest.raises(Exception, match="HTTP 422"):
                 update_github_env_secret("gh", "o/r", "prod", "S", "v")
 
@@ -196,12 +196,12 @@ class TestUpdateGitHubEnvSecret:
 class TestGetRepoPublicKey:
     def test_returns_key(self):
         r = MagicMock(); r.json.return_value = {"key_id": "k", "key": "v=="}
-        with patch("requests.get", return_value=r):
+        with patch.object(rs._SESSION, "get", return_value=r):
             assert _get_repo_public_key("gh", "o", "rp") == ("k", "v==")
 
     def test_url_is_repo_level_actions_not_environment(self):
         r = MagicMock(); r.json.return_value = {"key_id": "k", "key": "v"}
-        with patch("requests.get", return_value=r) as g:
+        with patch.object(rs._SESSION, "get", return_value=r) as g:
             _get_repo_public_key("gh", "Own", "Rep")
         url = g.call_args[0][0]
         assert "Own/Rep/actions/secrets/public-key" in url
@@ -212,7 +212,7 @@ class TestUpdateGitHubRepoSecret:
     def test_puts_encrypted_value_to_repo_actions(self, nacl_keypair):
         private, pub = nacl_keypair
         gr = MagicMock(); gr.json.return_value = {"key_id": "kid", "key": pub}
-        with patch("requests.get", return_value=gr), patch("requests.put") as put:
+        with patch.object(rs._SESSION, "get", return_value=gr), patch.object(rs._SESSION, "put") as put:
             update_github_repo_secret("gh", "o/r", "S", "val")
         url = put.call_args[0][0]
         assert "o/r/actions/secrets/S" in url
@@ -225,7 +225,7 @@ class TestUpdateGitHubRepoSecret:
         _, pub = nacl_keypair
         gr = MagicMock(); gr.json.return_value = {"key_id": "k", "key": pub}
         pr = MagicMock(); pr.raise_for_status.side_effect = Exception("HTTP 422")
-        with patch("requests.get", return_value=gr), patch("requests.put", return_value=pr):
+        with patch.object(rs._SESSION, "get", return_value=gr), patch.object(rs._SESSION, "put", return_value=pr):
             with pytest.raises(Exception, match="HTTP 422"):
                 update_github_repo_secret("gh", "o/r", "S", "v")
 
@@ -233,20 +233,20 @@ class TestUpdateGitHubRepoSecret:
 class TestDeleteGitHubEnvSecret:
     def test_deletes_env_secret_at_correct_url(self):
         r = MagicMock(); r.status_code = 204
-        with patch("requests.delete", return_value=r) as d:
+        with patch.object(rs._SESSION, "delete", return_value=r) as d:
             delete_github_env_secret("gh", "o/r", "prod", "S")
         assert "o/r/environments/prod/secrets/S" in d.call_args[0][0]
 
     def test_404_already_gone_is_tolerated(self):
         r = MagicMock(); r.status_code = 404
         r.raise_for_status.side_effect = Exception("must not be raised on 404")
-        with patch("requests.delete", return_value=r):
+        with patch.object(rs._SESSION, "delete", return_value=r):
             delete_github_env_secret("gh", "o/r", "prod", "S")  # idempotent no-op, no raise
 
     def test_other_status_raises(self):
         r = MagicMock(); r.status_code = 403
         r.raise_for_status.side_effect = Exception("HTTP 403")
-        with patch("requests.delete", return_value=r):
+        with patch.object(rs._SESSION, "delete", return_value=r):
             with pytest.raises(Exception, match="HTTP 403"):
                 delete_github_env_secret("gh", "o/r", "prod", "S")
 
@@ -254,42 +254,42 @@ class TestDeleteGitHubEnvSecret:
 class TestVercelTokenApi:
     def test_create_returns_id_and_bearer(self):
         r = MagicMock(); r.json.return_value = {"token": {"id": "tid"}, "bearerToken": "bv"}
-        with patch("requests.post", return_value=r) as p:
+        with patch.object(rs._SESSION, "post", return_value=r) as p:
             assert create_vercel_token("m", "n") == ("tid", "bv")
         assert p.call_args[1]["json"]["name"] == "n"
         assert "expiresAt" in p.call_args[1]["json"]
 
     def test_list_returns_tokens(self):
         r = MagicMock(); r.json.return_value = {"tokens": [{"id": "1", "name": "a"}]}
-        with patch("requests.get", return_value=r):
+        with patch.object(rs._SESSION, "get", return_value=r):
             assert list_vercel_tokens("m") == [{"id": "1", "name": "a"}]
 
     def test_delete_hits_token_id(self):
-        with patch("requests.delete", return_value=MagicMock()) as d:
+        with patch.object(rs._SESSION, "delete", return_value=MagicMock()) as d:
             delete_vercel_token("m", "tok_9")
         assert "tok_9" in d.call_args[0][0]
 
     def test_create_scopes_to_team_when_team_id_set(self):
         r = MagicMock(); r.json.return_value = {"token": {"id": "tid"}, "bearerToken": "bv"}
-        with patch("requests.post", return_value=r) as p:
+        with patch.object(rs._SESSION, "post", return_value=r) as p:
             create_vercel_token("m", "n", "team_abc")
         assert p.call_args[1]["params"] == {"teamId": "team_abc"}  # team-scoped
 
     def test_create_omits_team_param_when_no_team_id(self):
         r = MagicMock(); r.json.return_value = {"token": {"id": "tid"}, "bearerToken": "bv"}
-        with patch("requests.post", return_value=r) as p:
+        with patch.object(rs._SESSION, "post", return_value=r) as p:
             create_vercel_token("m", "n")
         assert p.call_args[1]["params"] is None
 
     def test_create_403_raises_master_scope_error(self):
         r = MagicMock(); r.status_code = 403
-        with patch("requests.post", return_value=r):
+        with patch.object(rs._SESSION, "post", return_value=r):
             with pytest.raises(rs.VercelMasterScopeError, match="FULL ACCOUNT"):
                 create_vercel_token("m", "n", "team_x")
 
     def test_list_403_raises_master_scope_error(self):
         r = MagicMock(); r.status_code = 403
-        with patch("requests.get", return_value=r):
+        with patch.object(rs._SESSION, "get", return_value=r):
             with pytest.raises(rs.VercelMasterScopeError, match="FULL ACCOUNT"):
                 list_vercel_tokens("m")
 
@@ -297,7 +297,7 @@ class TestVercelTokenApi:
 class TestUpsertVercelEnvVar:
     def test_post_when_absent(self):
         lr = MagicMock(); lr.json.return_value = {"envs": []}
-        with patch("requests.get", return_value=lr), patch("requests.post", return_value=MagicMock()) as post, patch("requests.patch") as pat:
+        with patch.object(rs._SESSION, "get", return_value=lr), patch.object(rs._SESSION, "post", return_value=MagicMock()) as post, patch.object(rs._SESSION, "patch") as pat:
             upsert_vercel_env_var("m", "prj", "K", "v")
         assert post.call_args[1]["json"]["key"] == "K"
         assert set(post.call_args[1]["json"]["target"]) == {"production", "preview", "development"}
@@ -308,14 +308,14 @@ class TestUpsertVercelEnvVar:
             {"id": "e1", "key": "K", "target": ["production"]},
             {"id": "e2", "key": "OTHER", "target": ["production"]},
         ]}
-        with patch("requests.get", return_value=lr), patch("requests.patch", return_value=MagicMock()) as pat, patch("requests.post") as post:
+        with patch.object(rs._SESSION, "get", return_value=lr), patch.object(rs._SESSION, "patch", return_value=MagicMock()) as pat, patch.object(rs._SESSION, "post") as post:
             upsert_vercel_env_var("m", "prj", "K", "v")
         assert pat.call_count == 1 and "e1" in pat.call_args[0][0]
         post.assert_not_called()
 
     def test_list_returns_empty_when_absent(self):
         r = MagicMock(); r.json.return_value = {}
-        with patch("requests.get", return_value=r):
+        with patch.object(rs._SESSION, "get", return_value=r):
             assert _list_vercel_env_vars("m", "prj") == []
 
 
