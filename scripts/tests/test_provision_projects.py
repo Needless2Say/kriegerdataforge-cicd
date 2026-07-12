@@ -157,31 +157,30 @@ def test_gql_raises_runtime_on_other_graphql_errors():
             pp._gql("tok", "query { x }")
 
 
-def test_resolve_token_prefers_staged_fallback_when_present():
-    """Staged-PAT-first (W1 finding): App tokens can't create user-owned ProjectsV2, so a staged
-    classic PAT runs the WHOLE session — the App token's read-probe is not even consulted."""
+def test_resolve_token_prefers_fallback_override_when_present():
+    """A staged GH_TOKEN_FALLBACK (one-off override, SECRET_VALUE_NEW) takes precedence over the
+    primary GH_TOKEN (CICD_PAT) — only the override is probed."""
     with patch.object(pp, "_gql", return_value={"user": {"projectsV2": {"nodes": []}}}) as gql:
-        token, label = pp._resolve_token("app-token", "classic-pat", "Needless2Say")
-    assert token == "classic-pat"
-    assert "PAT" in label
-    assert gql.call_count == 1  # only the fallback is probed; the App token is skipped
+        token, label = pp._resolve_token("cicd-pat", "override-pat", "Needless2Say")
+    assert token == "override-pat"
+    assert "override" in label.lower()
+    assert gql.call_count == 1  # primary is not probed when the override wins
 
 
-def test_resolve_token_uses_app_token_when_no_fallback():
-    """No staged PAT -> App token (fine for read-only check / org-owned execute)."""
+def test_resolve_token_uses_primary_cicd_pat_when_no_fallback():
+    """No override -> GH_TOKEN (the cicd PAT) runs the whole session (App tokens can't provision)."""
     with patch.object(pp, "_gql", return_value={"user": {"projectsV2": {"nodes": []}}}) as gql:
-        token, label = pp._resolve_token("app-token", "", "Needless2Say")
-    assert token == "app-token"
-    assert "App" in label
+        token, label = pp._resolve_token("cicd-pat", "", "Needless2Say")
+    assert token == "cicd-pat"
+    assert "GH_TOKEN" in label
     assert gql.call_count == 1
 
 
-def test_resolve_token_exits_if_staged_fallback_is_bad():
-    """A staged-but-wrong PAT fails HERE with staged-specific guidance (scopes), not mid-flight —
-    we do NOT silently fall through to the App token, which can't write user projects anyway."""
+def test_resolve_token_exits_with_guidance_on_bad_override():
+    """A wrong-scoped override fails HERE with scope guidance, not mid-flight."""
     with patch.object(pp, "_gql", side_effect=pp.ProjectsAuthError("bad scopes")):
         with pytest.raises(SystemExit) as exc:
-            pp._resolve_token("app-token", "bad-pat", "Needless2Say")
+            pp._resolve_token("cicd-pat", "bad-override", "Needless2Say")
     msg = str(exc.value)
     assert "project" in msg and "repo" in msg
 
@@ -189,8 +188,9 @@ def test_resolve_token_exits_if_staged_fallback_is_bad():
 def test_resolve_token_exits_with_guidance_when_no_fallback():
     with patch.object(pp, "_gql", side_effect=pp.ProjectsAuthError("insufficient")):
         with pytest.raises(SystemExit) as exc:
-            pp._resolve_token("app-token", "", "Needless2Say")
-    assert "SECRET_VALUE_NEW" in str(exc.value)
+            pp._resolve_token("cicd-pat", "", "Needless2Say")
+    msg = str(exc.value)
+    assert "CICD_PAT" in msg and "project" in msg
 
 
 def test_probe_requests_project_fields_not_just_totalcount():

@@ -502,9 +502,11 @@ installs (W2.5), npm plumb (W3.5), the disabled weekly triage trigger + `reports
 **Update — 2026-07-12 (W1-ops finding, cicd v0.2.65).** The first live `execute` resolved the open
 auth question: GitHub App installation tokens can *read* user-owned ProjectsV2 but **cannot
 create/modify** them (`createProjectV2` on a user `ownerId` → *"does not have permission to create
-projects"*). A read-probe can't predict that *write* refusal, so the original App-first-then-probe
-`_resolve_token` committed to the App token and died at the first mutation (the staged fallback was
-unreachable). `_resolve_token` is now **staged-PAT-first**: when the owner stages the classic PAT in
-`SECRET_VALUE_NEW` it runs the whole `execute` session; the App token alone still drives the
-read-only `check`. Runtime issue/board *item* writes by the reports app are unaffected (the App can
-add items to a board it's been granted). Docs/workflow updated to match.
+projects"*). Board creation needs a classic PAT with the `project` scope acting as the owner.
+**Owner credential decision:** provisioning runs on **`CICD_PAT`** (the cicd control-plane PAT;
+classic, `project`+`repo`) — not the App token, not a per-run staged PAT, and never `GH_PACKAGES_PAT`
+(which is for package downloads only; cicd control-plane ops always use `CICD_PAT`).
+`ops-provision-projects.yml` now passes `GH_TOKEN: secrets.CICD_PAT` and the App-token mint step is
+dropped from that workflow; `SECRET_VALUE_NEW` remains an optional one-off override. `_resolve_token`
+validates the chosen token with a read-probe and prints scope guidance on refusal. Runtime issue/board
+*item* writes by the reports app are unaffected (the App can add items to a board it's been granted).

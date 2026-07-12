@@ -24,18 +24,17 @@ Deliberate limits (documented in docs/guides/PROJECTS_BOARDS.md):
     risk detaching items' selected values); fix in the UI, then re-run check.
   * Views are not API-creatable — manual recipes live in the guide.
 
-Auth (resolved W1 finding, proven live 2026-07-12):
-  A GitHub App installation token can READ a user's ProjectsV2 but CANNOT create/modify them —
-  `createProjectV2` on a USER `ownerId` is refused ("does not have permission to create projects").
-  So the rule is staged-PAT-FIRST (see _resolve_token):
-  GH_TOKEN          The App installation token (the ops workflow mints it). Sufficient for a
-                    read-only `check` and for `execute` on an ORG-owned board; on a USER board it
-                    can read but every mutation is refused — used only when no PAT is staged.
-  GH_TOKEN_FALLBACK Classic PAT (project + repo scopes) the owner stages in the SECRET_VALUE_NEW
-                    repo secret for a provisioning run. When present it runs the WHOLE session (it
-                    does the writes the App token can't); revoke it + clear the slot afterward.
+Auth (resolved W1 finding, proven live 2026-07-12 — owner credential standard):
+  Board creation/mutation on USER-owned ProjectsV2 requires a CLASSIC PAT with the `project` scope
+  acting AS the owner. GitHub App installation tokens can READ user projects but CANNOT create or
+  modify them (`createProjectV2` on a USER `ownerId` is refused: "does not have permission to
+  create projects"). So the ops workflow passes the cicd control-plane PAT — NOT an App token, and
+  NEVER GH_PACKAGES_PAT (that one is only for downloading the owner's own packages).
+  GH_TOKEN          The provisioning PAT — CICD_PAT in the ops workflow (classic; project + repo).
+  GH_TOKEN_FALLBACK Optional staged override (SECRET_VALUE_NEW) to run a one-off as a different
+                    classic PAT; when set it takes precedence over GH_TOKEN.
   PROJECTS_OWNER    Board owner login (defaults to Needless2Say). The engine never relies on the
-                    GraphQL `viewer` (App installation tokens have none).
+                    GraphQL `viewer` (no App/PAT viewer assumptions).
 
 Usage:
     GH_TOKEN=... python provision_projects.py check
@@ -169,50 +168,39 @@ _OWNER_PROJECTS_PROBE = (
 
 
 def _resolve_token(primary: str, fallback: str, owner: str) -> tuple[str, str]:
-    """Return (token, label): the single token to run this whole session with.
+    """Return (token, label): the token to run this whole session with.
 
-    Auth reality, proven live 2026-07-12 (resolves the epic's W1 open question): a GitHub App
-    installation token can READ a user's ProjectsV2 but CANNOT create/modify them —
-    ``createProjectV2`` on a USER ``ownerId`` is refused ("does not have permission to create
-    projects"). A read-probe therefore cannot predict the *write* refusal, so App-first-then-probe
-    (the original design) always committed to the App token and then died at the first mutation —
-    the staged fallback was unreachable.
+    Board creation/mutation on USER-owned ProjectsV2 needs a CLASSIC PAT with the ``project`` scope
+    acting AS the owner — App installation tokens can READ user projects but cannot create/modify
+    them (``createProjectV2`` on a USER ``ownerId`` is refused; proven live 2026-07-12, resolving
+    the epic's W1 question). The ops workflow therefore passes CICD_PAT (the cicd control-plane PAT)
+    as ``GH_TOKEN`` — never an App token, and never GH_PACKAGES_PAT.
 
-    So the rule is *staged-PAT-first*: if the owner has staged the classic PAT
-    (``project`` + ``repo``) in ``SECRET_VALUE_NEW``, use it for the whole run — it does the writes
-    the App token can't. Otherwise use the App token: enough for a read-only ``check`` and for
-    ``execute`` on an ORG-owned board (Apps *can* write org projects); ``execute`` on a USER board
-    without the PAT fails at the first mutation with staged-PAT guidance, which is the correct ask.
-    Each candidate is validated with the read-probe here, so a wrong-scoped/expired token fails now
-    with clear guidance rather than mid-flight.
+    ``GH_TOKEN_FALLBACK`` is an optional staged override (``SECRET_VALUE_NEW``) to run a one-off with
+    a different classic PAT; when present it takes precedence. The chosen token is validated with a
+    read-probe here, so a wrong-scoped/expired token fails now with clear guidance, not mid-flight.
     """
     if fallback:
         try:
             _gql(fallback, _OWNER_PROJECTS_PROBE, {"login": owner})
-            return fallback, "staged classic PAT (SECRET_VALUE_NEW)"
+            return fallback, "GH_TOKEN_FALLBACK (staged override)"
         except ProjectsAuthError as exc:
-            sys.exit(_auth_guidance(exc, staged=True))
+            sys.exit(_auth_guidance(exc))
     try:
         _gql(primary, _OWNER_PROJECTS_PROBE, {"login": owner})
-        return primary, "App installation token"
+        return primary, "GH_TOKEN (cicd PAT)"
     except ProjectsAuthError as exc:
         sys.exit(_auth_guidance(exc))
 
 
-def _auth_guidance(exc: Exception, *, staged: bool = False) -> str:
+def _auth_guidance(exc: Exception) -> str:
     """The one message a refused run should end with — printed, never a traceback."""
-    if staged:
-        return (
-            "Error: the staged classic PAT (SECRET_VALUE_NEW) cannot access ProjectsV2 "
-            f"({exc}).\nEnsure it is a *classic* PAT with BOTH 'project' and 'repo' scopes and is "
-            "not expired, re-stage it in the SECRET_VALUE_NEW repo secret, and re-run."
-        )
     return (
         "Error: the token cannot access ProjectsV2 for user-owned boards "
-        f"({exc}).\nGitHub App installation tokens can READ but NOT create/modify user-owned "
-        "ProjectsV2. Create a short-lived CLASSIC PAT with 'project' + 'repo' scopes, stage it in "
-        "the SECRET_VALUE_NEW repo secret, and re-run — the workflow passes it as GH_TOKEN_FALLBACK. "
-        "Revoke the PAT (and clear SECRET_VALUE_NEW) after the run."
+        f"({exc}).\nBoard provisioning needs a CLASSIC PAT with the 'project' + 'repo' scopes acting "
+        "as the owner (App installation tokens can't create user-owned ProjectsV2). Ensure CICD_PAT "
+        "carries the 'project' scope — or stage a classic PAT in SECRET_VALUE_NEW for a one-off run "
+        "(it takes precedence) — then re-run."
     )
 
 

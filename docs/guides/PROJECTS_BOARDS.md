@@ -43,12 +43,14 @@ Membership is a partition: every ecosystem repo appears on exactly one board (te
    Terraform tfvars; fitness keeps its existing value if the board was adopted).
 
 **Auth (resolved W1 finding):** GitHub App installation tokens can *read* user-owned ProjectsV2 but
-**cannot create or modify them** (`createProjectV2` on a user account is refused). So `check` runs
-on the App token alone, but **`execute` needs a staged classic PAT**: create a short-lived **classic
-PAT** with `project` + `repo` scopes → stage it in the `SECRET_VALUE_NEW` repo secret → re-add the
-`ops:provision-projects` label with Mode=`execute` → the engine uses it for the whole run → **revoke
-the PAT** and clear `SECRET_VALUE_NEW` afterward. (Runtime issue/board *item* writes by the reports
-app are unaffected — the App can add items to a board it's already been granted.)
+**cannot create or modify them** (`createProjectV2` on a user account is refused). Board creation
+needs a classic PAT with the `project` scope acting as the owner, so provisioning runs on
+**`CICD_PAT`** — the cicd control-plane PAT, which must be a **classic** PAT carrying the **`project`**
++ **`repo`** scopes (never `GH_PACKAGES_PAT`, which is for package downloads only). No per-run token
+staging is needed; both `check` and `execute` use `CICD_PAT`. To run a one-off as a different
+identity, stage a classic PAT in `SECRET_VALUE_NEW` (it takes precedence for that run) and clear it
+afterward. (Runtime issue/board *item* writes by the reports app are unaffected — the App can add
+items to a board it's already been granted.)
 
 ## One-time manual steps (the API can't do these)
 

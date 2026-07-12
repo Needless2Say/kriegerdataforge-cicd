@@ -30,16 +30,18 @@ Promote it to an ecosystem standard in 7 waves (see the hub tracker for the full
    app's `X-Cron-Secret`-gated `/reports/triage/cron` endpoint; AI + redaction + GitHub writes
    stay in-process in the app. Ships **disabled** (`RUN_REPORTS_TRIAGE` unset + per-app
    `enabled:false`); when armed: weekly, Monday early morning.
-4. **Auth is App-first for package downloads; staged-PAT-first for board provisioning.** ONE
-   GitHub App, installed account-wide, mints short-lived installation tokens for package downloads;
+4. **Auth is App-first for package downloads; CICD_PAT for board provisioning.** ONE GitHub App,
+   installed account-wide, mints short-lived installation tokens for package downloads;
    `GH_PACKAGES_PAT` (full read, all repos) serves only local dev + Vercel builds. **Board
    provisioning is the exception (resolved W1 finding, 2026-07-12):** App installation tokens can
    *read* user-owned ProjectsV2 but **cannot create/modify** them — `createProjectV2` on a user
-   `ownerId` is refused ("does not have permission to create projects"). A read-probe can't predict
-   that *write* refusal, so `execute` is staged-PAT-first: the owner stages a short-lived classic
-   PAT (`SECRET_VALUE_NEW`, `project`+`repo`), the engine runs the whole session on it, and the PAT
-   is revoked after. The App token alone still drives a read-only `check`, and runtime board *item*
-   writes by the reports app are unaffected (the App can add items to a board it's been granted).
+   `ownerId` is refused ("does not have permission to create projects"). Board creation needs a
+   classic PAT with the `project` scope acting as the owner, so provisioning runs on **`CICD_PAT`**
+   (the cicd control-plane PAT; classic, `project`+`repo`) — never the App token, and never
+   `GH_PACKAGES_PAT` (owner credential standard: cicd control-plane ops use `CICD_PAT`, package
+   downloads use `GH_PACKAGES_PAT`). `SECRET_VALUE_NEW` remains an optional staged override for a
+   one-off run. Runtime board *item* writes by the reports app are unaffected (the App can add
+   items to a board it's been granted).
 
 ## Engine design notes (`provision_projects.py`)
 

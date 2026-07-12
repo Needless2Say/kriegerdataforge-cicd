@@ -10,9 +10,9 @@ name: Ops · Provision Projects boards (issue-triggered)
 #     inlined into a shell string; mode/confirm are allow-listed and the engine validates every
 #     board key against the registry (unknown -> exit).
 #   * Auth (resolved W1 finding): App installation tokens can READ user-owned ProjectsV2 but can't
-#     create/modify them, so board provisioning is staged-PAT-first — the owner stages a classic
-#     PAT (project+repo) in SECRET_VALUE_NEW for the run and the engine uses it end-to-end; the App
-#     token alone drives a read-only `check`. Stage the PAT only for the run, then delete/revoke it.
+#     create/modify them, so provisioning runs on CICD_PAT — the cicd control-plane PAT (classic,
+#     project+repo). Never GH_PACKAGES_PAT (that is for package downloads only). SECRET_VALUE_NEW is
+#     an optional staged override to run a one-off as a different PAT; revoke/clear it if used.
 #   * Board node ids are METADATA, not secrets — safe in the issue summary; no token value is
 #     ever echoed.
 
@@ -51,19 +51,6 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r scripts/requirements.txt
-
-      # Short-lived App installation token (auto-revoked at job end). No permission-* downscope
-      # exists for Projects in create-github-app-token, so the token carries the App's granted
-      # set; the engine only performs ProjectsV2 + repo-metadata reads/writes with it. Gated on
-      # USE_GITHUB_APP with CICD_PAT fallback, same as the other ops workflows.
-      - name: Mint GitHub App token
-        id: app-token
-        if: vars.USE_GITHUB_APP == 'true'
-        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
-        with:
-          app-id: ${{ secrets.KDF_APP_ID }}
-          private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
 
       - name: Extract and validate fields
         id: fields
@@ -109,10 +96,11 @@ jobs:
       - name: Run provisioner
         id: prov
         env:
-          # Staged-PAT-first (App tokens can't create USER-owned ProjectsV2): when the owner stages
-          # a classic PAT in SECRET_VALUE_NEW the engine runs the whole session on it; otherwise the
-          # App token drives a read-only `check`. See _resolve_token (resolved W1 finding).
-          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
+          # Board provisioning needs a classic PAT with the `project` scope acting as the owner —
+          # App installation tokens can't create user-owned ProjectsV2 (see _resolve_token). Per the
+          # owner standard, cicd control-plane ops use CICD_PAT (classic; project+repo), never
+          # GH_PACKAGES_PAT. SECRET_VALUE_NEW is an optional one-off override (takes precedence).
+          GH_TOKEN: ${{ secrets.CICD_PAT }}
           GH_TOKEN_FALLBACK: ${{ secrets.SECRET_VALUE_NEW }}
           PROJECTS_OWNER: ${{ github.repository_owner }}
           MODE: ${{ steps.fields.outputs.mode }}
