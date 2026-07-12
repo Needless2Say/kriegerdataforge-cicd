@@ -42,10 +42,13 @@ Membership is a partition: every ecosystem repo appears on exactly one board (te
    secrets. Wire them into each app's env as `GH_REPORTS_PROJECT_ID` (Wave 2: tiffanys via
    Terraform tfvars; fitness keeps its existing value if the board was adopted).
 
-**Auth:** App-token-first (minted in-workflow, auto-revoked). If the run says the API refused
-App tokens for user-owned ProjectsV2: create a short-lived **classic PAT** with `project` + `repo`
-scopes → stage it in the `SECRET_VALUE_NEW` repo secret → re-add the label → **revoke the PAT**
-after the run (and clear `SECRET_VALUE_NEW`).
+**Auth (resolved W1 finding):** GitHub App installation tokens can *read* user-owned ProjectsV2 but
+**cannot create or modify them** (`createProjectV2` on a user account is refused). So `check` runs
+on the App token alone, but **`execute` needs a staged classic PAT**: create a short-lived **classic
+PAT** with `project` + `repo` scopes → stage it in the `SECRET_VALUE_NEW` repo secret → re-add the
+`ops:provision-projects` label with Mode=`execute` → the engine uses it for the whole run → **revoke
+the PAT** and clear `SECRET_VALUE_NEW` afterward. (Runtime issue/board *item* writes by the reports
+app are unaffected — the App can add items to a board it's already been granted.)
 
 ## One-time manual steps (the API can't do these)
 

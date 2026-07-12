@@ -157,28 +157,33 @@ def test_gql_raises_runtime_on_other_graphql_errors():
             pp._gql("tok", "query { x }")
 
 
-def test_resolve_token_prefers_primary():
-    with patch.object(pp, "_gql", return_value={"user": {"projectsV2": {"totalCount": 0}}}) as gql:
-        token, label = pp._resolve_token("app-token", "pat", "Needless2Say")
+def test_resolve_token_prefers_staged_fallback_when_present():
+    """Staged-PAT-first (W1 finding): App tokens can't create user-owned ProjectsV2, so a staged
+    classic PAT runs the WHOLE session — the App token's read-probe is not even consulted."""
+    with patch.object(pp, "_gql", return_value={"user": {"projectsV2": {"nodes": []}}}) as gql:
+        token, label = pp._resolve_token("app-token", "classic-pat", "Needless2Say")
+    assert token == "classic-pat"
+    assert "PAT" in label
+    assert gql.call_count == 1  # only the fallback is probed; the App token is skipped
+
+
+def test_resolve_token_uses_app_token_when_no_fallback():
+    """No staged PAT -> App token (fine for read-only check / org-owned execute)."""
+    with patch.object(pp, "_gql", return_value={"user": {"projectsV2": {"nodes": []}}}) as gql:
+        token, label = pp._resolve_token("app-token", "", "Needless2Say")
     assert token == "app-token"
-    assert "primary" in label
+    assert "App" in label
     assert gql.call_count == 1
 
 
-def test_resolve_token_falls_back_on_auth_refusal():
-    calls = {"n": 0}
-
-    def probe(token, query, variables=None):
-        calls["n"] += 1
-        if token == "app-token":
-            raise pp.ProjectsAuthError("insufficient")
-        return {"user": {"projectsV2": {"totalCount": 0}}}
-
-    with patch.object(pp, "_gql", side_effect=probe):
-        token, label = pp._resolve_token("app-token", "classic-pat", "Needless2Say")
-    assert token == "classic-pat"
-    assert "fallback" in label
-    assert calls["n"] == 2
+def test_resolve_token_exits_if_staged_fallback_is_bad():
+    """A staged-but-wrong PAT fails HERE with staged-specific guidance (scopes), not mid-flight —
+    we do NOT silently fall through to the App token, which can't write user projects anyway."""
+    with patch.object(pp, "_gql", side_effect=pp.ProjectsAuthError("bad scopes")):
+        with pytest.raises(SystemExit) as exc:
+            pp._resolve_token("app-token", "bad-pat", "Needless2Say")
+    msg = str(exc.value)
+    assert "project" in msg and "repo" in msg
 
 
 def test_resolve_token_exits_with_guidance_when_no_fallback():

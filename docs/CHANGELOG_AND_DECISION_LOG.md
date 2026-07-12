@@ -498,3 +498,13 @@ remains for the other agent concepts). Wave 2 consumes the printed board node id
 (`GH_REPORTS_*PROJECT_ID`). Later waves add: `ops:distribute-app-secrets` + App-token package
 installs (W2.5), npm plumb (W3.5), the disabled weekly triage trigger + `reports_registry.json`
 (W4.1), and kit v1.4.0's `REPORTS_STANDARD.md` (W6, D-011).
+
+**Update — 2026-07-12 (W1-ops finding, cicd v0.2.65).** The first live `execute` resolved the open
+auth question: GitHub App installation tokens can *read* user-owned ProjectsV2 but **cannot
+create/modify** them (`createProjectV2` on a user `ownerId` → *"does not have permission to create
+projects"*). A read-probe can't predict that *write* refusal, so the original App-first-then-probe
+`_resolve_token` committed to the App token and died at the first mutation (the staged fallback was
+unreachable). `_resolve_token` is now **staged-PAT-first**: when the owner stages the classic PAT in
+`SECRET_VALUE_NEW` it runs the whole `execute` session; the App token alone still drives the
+read-only `check`. Runtime issue/board *item* writes by the reports app are unaffected (the App can
+add items to a board it's been granted). Docs/workflow updated to match.

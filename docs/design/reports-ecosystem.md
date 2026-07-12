@@ -30,12 +30,16 @@ Promote it to an ecosystem standard in 7 waves (see the hub tracker for the full
    app's `X-Cron-Secret`-gated `/reports/triage/cron` endpoint; AI + redaction + GitHub writes
    stay in-process in the app. Ships **disabled** (`RUN_REPORTS_TRIAGE` unset + per-app
    `enabled:false`); when armed: weekly, Monday early morning.
-4. **Auth is App-first everywhere.** ONE GitHub App, installed account-wide: CI/CD mints
-   short-lived installation tokens for package downloads and for board provisioning.
-   `GH_PACKAGES_PAT` (full read, all repos) serves only local dev + Vercel builds. For board
-   provisioning, a staged classic PAT (`SECRET_VALUE_NEW`, `project`+`repo`) is the documented
-   fallback iff the GraphQL API refuses App tokens for user-owned ProjectsV2 — the engine probes
-   and switches with an explicit note, and the PAT is revoked after the run.
+4. **Auth is App-first for package downloads; staged-PAT-first for board provisioning.** ONE
+   GitHub App, installed account-wide, mints short-lived installation tokens for package downloads;
+   `GH_PACKAGES_PAT` (full read, all repos) serves only local dev + Vercel builds. **Board
+   provisioning is the exception (resolved W1 finding, 2026-07-12):** App installation tokens can
+   *read* user-owned ProjectsV2 but **cannot create/modify** them — `createProjectV2` on a user
+   `ownerId` is refused ("does not have permission to create projects"). A read-probe can't predict
+   that *write* refusal, so `execute` is staged-PAT-first: the owner stages a short-lived classic
+   PAT (`SECRET_VALUE_NEW`, `project`+`repo`), the engine runs the whole session on it, and the PAT
+   is revoked after. The App token alone still drives a read-only `check`, and runtime board *item*
+   writes by the reports app are unaffected (the App can add items to a board it's been granted).
 
 ## Engine design notes (`provision_projects.py`)
 
@@ -84,8 +88,9 @@ wired into each app's `GH_REPORTS_*PROJECT_ID` env.
 - **One board per repo (14+)** — rejected: the shipped reporter routes per *app* (one
   `project_node_id` per app slug); fe/be work for one product would split across two boards; more
   grooming surface for zero routing benefit.
-- **Provisioning via a long-lived Projects-scoped PAT** — rejected: App-first keeps zero new
-  long-lived credentials; the classic PAT exists only as a staged, revoked-after fallback.
+- **Provisioning via a long-lived Projects-scoped PAT** — rejected: no new *long-lived* credential
+  is needed. The classic PAT is short-lived and revoked after each provisioning run; App tokens
+  cover package downloads and the read-only `check`.
 - **Central reports service (keep all apps' reports in fitness-be)** — rejected: per-client
   audience isolation means other apps' JWTs are refused by fitness-be; per-app modules also make
   template bundling possible.
