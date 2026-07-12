@@ -92,7 +92,7 @@ def test_select_repos_no_match_exits(registry):
 
 def test_get_remote_file_404_returns_none():
     resp = MagicMock(status_code=404)
-    with patch.object(dk.requests, "get", return_value=resp):
+    with patch.object(dk._SESSION, "get", return_value=resp):
         assert dk._get_remote_file("tok", "o/r", "main", "a.md") == (None, None)
 
 
@@ -100,10 +100,37 @@ def test_get_remote_file_decodes_content():
     resp = MagicMock(status_code=200)
     resp.json.return_value = {"content": base64.b64encode(b"hello").decode(), "sha": "abc"}
     resp.raise_for_status = MagicMock()
-    with patch.object(dk.requests, "get", return_value=resp):
+    with patch.object(dk._SESSION, "get", return_value=resp):
         content, sha = dk._get_remote_file("tok", "o/r", "main", "a.md")
     assert content == "hello"
     assert sha == "abc"
+
+
+# ── HTTP retry hardening ─────────────────────────────────────────────────────────
+
+
+def test_session_retries_transient_failures():
+    """Regression guard: the shared session must retry transient GitHub failures.
+
+    A fan-out check/distribute across ~14 repos routinely hits a 502/503/429 or a
+    DNS/connection blip; without retries a single hiccup aborts a whole repo (the
+    2026-07 distribute check errored on two 502s + one DNS failure). The retry must
+    stay wired, cover the transient status codes + connection errors, and NOT retry
+    POST on a server response (no duplicate branches/PRs).
+    """
+    retry = dk._SESSION.get_adapter("https://api.github.com").max_retries
+    assert retry.total and retry.total >= 3
+    assert retry.connect and retry.connect >= 1  # DNS / connection blips
+    for code in (429, 500, 502, 503, 504):
+        assert code in retry.status_forcelist
+    assert retry.backoff_factor > 0  # exponential backoff, not a hot loop
+    # Idempotent methods retry; POST (branch/PR create) is excluded from status retry.
+    assert "GET" in retry.allowed_methods
+    assert "PUT" in retry.allowed_methods
+    assert "POST" not in retry.allowed_methods
+    # 404 (missing = drift) and 422 (ref exists, handled) must NOT be retried.
+    assert 404 not in retry.status_forcelist
+    assert 422 not in retry.status_forcelist
 
 
 # ── Drift detection ──────────────────────────────────────────────────────────────

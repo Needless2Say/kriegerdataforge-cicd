@@ -98,6 +98,11 @@ review-gated PRs; it never calls upstream.
   "the engine keeps this file byte-identical … drift is flagged and re-synced".)
 - `_get_remote_file()` (`:144`) — GitHub Contents API read; returns `(None, None)` on 404 (treated as
   drift/missing).
+- `_SESSION` — a shared `requests.Session` with a `urllib3` retry adapter: transient GitHub failures
+  (`429`/`500`/`502`/`503`/`504`) and DNS/connection blips are retried with exponential backoff, so a
+  single hiccup on a ~14-repo fan-out no longer aborts a repo. Retries are limited to **idempotent**
+  methods (GET/PUT) — the branch- and PR-create POSTs are not status-retried, so a 502-after-success
+  can't create a duplicate ref/PR; `404` (missing = drift) and `422` (ref exists) are never retried.
 - `_select_files()` (`:109`) — applies `--only` as a **substring** match on file paths.
 - `_select_repos()` (`:118`) — applies `--repos` as a comma-separated **exact** match on `owner/repo`
   or the short repo name (case-insensitive); an empty value selects all. Exactness is deliberate so

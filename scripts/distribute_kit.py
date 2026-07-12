@@ -45,6 +45,8 @@ import sys
 from pathlib import Path
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # ============================================================
 # Configuration
@@ -57,6 +59,49 @@ REGISTRY_FILE = SCRIPTS_DIR / "kit_registry.json"
 KIT_DIR = REPO_ROOT / "kit" / "common"
 KIT_VERSION_FILE = REPO_ROOT / "kit" / "KIT_VERSION"
 VENDORED_VERSION_FILE = KIT_DIR / "docs" / "agent" / "KIT_VERSION"
+
+# ------------------------------------------------------------
+# HTTP session with retry/backoff.
+#
+# A fan-out across ~14 repos routinely hits transient GitHub failures — a 502/503
+# Bad Gateway, a 429 rate-limit, or a momentary DNS / connection blip — and without
+# retries a single hiccup aborts a whole repo mid-run (a check just reports ERROR;
+# a distribute could leave a repo un-synced). We retry with exponential backoff, but
+# ONLY for idempotent methods:
+#   - GET   (drift reads, branch-SHA lookup) — always safe to replay.
+#   - PUT   (Contents API file write) — carries the target blob sha, so replaying it
+#           is a safe upsert, not a duplicate.
+# POST (branch-create, PR-create) is deliberately EXCLUDED from status/read retries so
+# a 502-after-GitHub-already-processed-it can't create a duplicate ref or PR. A pure
+# connection error (e.g. DNS) is still retried for every method, since that request
+# never reached GitHub. 404 (file missing = legitimate drift) and 422 (ref exists,
+# handled in _create_branch) are NOT in the force-list, so they are never retried.
+# ------------------------------------------------------------
+_RETRY = Retry(
+    total=6,
+    connect=6,          # DNS / connection-refused blips (request never sent → safe)
+    read=3,
+    status=5,
+    # urllib3 sleeps 0 before the 1st retry, then backoff_factor * 2**(n-1): with
+    # 0.75 that's 0, 1.5, 3, 6, 12, 24s between the 6 retries (cap 120s).
+    backoff_factor=0.75,
+    status_forcelist=(429, 500, 502, 503, 504),
+    allowed_methods=frozenset({"GET", "PUT", "HEAD"}),
+    respect_retry_after_header=True,
+    raise_on_status=False,  # let resp.raise_for_status() surface the final status code
+)
+
+
+def _build_session() -> requests.Session:
+    """A requests.Session that retries transient GitHub failures (see above)."""
+    session = requests.Session()
+    adapter = HTTPAdapter(max_retries=_RETRY)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+_SESSION = _build_session()
 
 # ============================================================
 # Helpers
@@ -149,7 +194,7 @@ def _get_remote_file(
 ) -> tuple[str | None, str | None]:
     """Return (content, blob_sha) for a file on a branch, or (None, None) if it does not exist."""
     owner, repo = owner_repo.split("/", 1)
-    resp = requests.get(
+    resp = _SESSION.get(
         f"{GITHUB_API}/repos/{owner}/{repo}/contents/{path}",
         headers=_github_headers(token),
         params={"ref": branch},
@@ -181,7 +226,7 @@ def compute_drift(token: str, owner_repo: str, branch: str, files: list[str]) ->
 
 def _get_branch_sha(token: str, owner_repo: str, branch: str) -> str:
     owner, repo = owner_repo.split("/", 1)
-    resp = requests.get(
+    resp = _SESSION.get(
         f"{GITHUB_API}/repos/{owner}/{repo}/git/ref/heads/{branch}",
         headers=_github_headers(token),
         timeout=30,
@@ -192,7 +237,7 @@ def _get_branch_sha(token: str, owner_repo: str, branch: str) -> str:
 
 def _create_branch(token: str, owner_repo: str, new_branch: str, base_sha: str) -> None:
     owner, repo = owner_repo.split("/", 1)
-    resp = requests.post(
+    resp = _SESSION.post(
         f"{GITHUB_API}/repos/{owner}/{repo}/git/refs",
         headers=_github_headers(token),
         json={"ref": f"refs/heads/{new_branch}", "sha": base_sha},
@@ -220,7 +265,7 @@ def _put_file(
     }
     if blob_sha:
         body["sha"] = blob_sha
-    resp = requests.put(
+    resp = _SESSION.put(
         f"{GITHUB_API}/repos/{owner}/{repo}/contents/{path}",
         headers=_github_headers(token),
         json=body,
@@ -238,7 +283,7 @@ def _create_pr(
     body: str,
 ) -> str:
     owner, repo = owner_repo.split("/", 1)
-    resp = requests.post(
+    resp = _SESSION.post(
         f"{GITHUB_API}/repos/{owner}/{repo}/pulls",
         headers=_github_headers(token),
         json={"title": title, "head": head, "base": base, "body": body},
