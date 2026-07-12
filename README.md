@@ -6,6 +6,20 @@ This repository is **public** on GitHub. All other KriegerDataForge repos are pr
 
 ---
 
+## New here? Start with onboarding
+
+This is the ecosystem's **CI/CD platform repo**: the reusable-workflow library every KDF repo calls,
+the per-repo E2E engine (`run-e2e`), the ops console (secret rotation, repo provisioning), and the
+**canonical source of the agentic-workflow kit** (`kit/common/` — synced to every repo; see
+[`docs/agent/`](docs/agent/)). Nothing tenant-specific lives here — tenant journeys, specs, and app
+code belong in the tenant repos.
+
+- **To work in this repo → [`docs/guides/CONTRIBUTOR_ONBOARDING.md`](docs/guides/CONTRIBUTOR_ONBOARDING.md)**
+  (clone → `make check-all` green → PR → owner merges; the gate *is* the run here).
+- **To understand the kit and how it propagates → [`docs/features/agentic-workflow-kit-sync.md`](docs/features/agentic-workflow-kit-sync.md).**
+
+---
+
 ## Why Centralized
 
 Keeping CI/CD logic in one place means deploy behavior is consistent across all services, security controls are applied uniformly, and fixes or improvements propagate to every consumer at once. Consumer repos stay clean — their workflow files are just callers with no inline logic.

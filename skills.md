@@ -66,6 +66,8 @@ security audit (`PL-###` findings); the canonical audit lives in the `kriegerdat
   or a **relative** `Location`; derive the allowed origin from `KDF_OIDC_REDIRECT_URI`.
 - **CSRF** on state-changing BFF routes: `SameSite=Lax` **plus** an `Origin` / `Sec-Fetch-Site` check (Origin
   authoritative → exact match; else `Sec-Fetch-Site` must be `same-origin`). SameSite alone is not enough.
+  **Both headers absent → deny** (fail-closed, not "probably same-origin"); allowed-origin config missing →
+  **403 in production**, warn-and-allow only in dev.
 - **Session cookie = `SameSite=Lax`, NOT `Strict`** — Strict drops the first login redirect back from the OIDC
   UI (cross-site-initiated). Tell: "works locally, fails on Vercel, second attempt works."
 - Read OIDC config from **`serverEnv`** (runtime-parsed), NOT bare `process.env.KDF_OIDC_*` (build-inlined →
@@ -73,16 +75,29 @@ security audit (`PL-###` findings); the canonical audit lives in the `kriegerdat
 - **`proxy.ts`** (Next 16, replaces `middleware.ts`): `config.matcher` must be a **static literal** (can't be
   generated from a const) — add a drift-guard test that `matcher ⊇ PRIVATE_ROUTES`; a missing private route
   means JWT verify is skipped.
-- **CSP:** allow-list EVERY host the site already uses (`script-`/`connect-`/`frame-`/`img-src`). A static
-  export's inline bootstrap needs `script-src 'unsafe-inline'` (can't be nonced); **never ship `frame-src
-  'none'` over existing iframes** (e.g. YouTube) — grep the built output for `<iframe>` / third-party hosts
-  first. GitHub Pages can't send headers, so a `<meta>` CSP is partial (`frame-ancestors`/XFO are header-only).
+- **CSP:** allow-list EVERY host the site already uses (`script-`/`connect-`/`frame-`/`img-src`). **Dynamic
+  Next apps use a per-request nonce**, not `'unsafe-inline'`: `script-src 'self' 'nonce-…' 'strict-dynamic'`
+  (keep `'unsafe-inline'` only in `style-src`); the proxy generates the nonce and forwards it on the request
+  `x-nonce` + CSP headers so Next auto-nonces its scripts; the root layout is `force-dynamic` and nonces any
+  raw inline script itself. **Assert response-CSP nonce === the forwarded `x-nonce` in a unit test** — that
+  one invariant is what a runtime CSP block looks like when it drifts, and it spares you an e2e run. **Static
+  exports** are the exception: the inline bootstrap can't be nonced → `script-src 'unsafe-inline'` stands;
+  **never ship `frame-src 'none'` over existing iframes** (e.g. YouTube) — grep the built output for
+  `<iframe>` / third-party hosts first. GitHub Pages can't send headers, so a `<meta>` CSP is partial
+  (`frame-ancestors`/XFO are header-only).
 - The server-side API client must forward **only the session cookie**, never the refresh / OIDC-flow cookies.
+- **Logout is RP-initiated** — an app's logout must end the IdP SSO session via the end-session/logout route,
+  never just clear its own cookies. The SSO cookie outlives the app session, so a cookies-only logout means
+  the next `/login` silently re-authenticates — the user cannot actually log out.
 
 ## Scenario: FastAPI backend endpoint  *(kriegerdataforge AS · *-backend · kdf_sdk)*
 
 - **AuthZ on every endpoint** via the SDK deps (`current_user` / `admin_user`); the user PK is
   `user.user_id` (`int`), not `.id`.
+- **Identity decoupling** *(tenant app DBs)*: user-owning tables carry a **plain indexed `user_id`** from the
+  verified JWT — no **cross-DB** FK to `kdf_users`, no ORM `Relationship` to `KDFUser`, no per-app user table.
+  Identity resolves from token claims, never a join. (In the **hub** itself, same-DB FKs to `kdf_users.id`
+  are the convention — see the DoD's schema section, which enforces both sides at migration time.)
 - **Mass-assignment:** bind to a CLOSED request schema (`ConfigDict(extra="forbid")`) + an explicit field
   allow-list in the service. Never blind `setattr` over `model_dump()` — `extra="ignore"` hides unknown keys
   from you so the loop looks safe when it isn't.
@@ -101,6 +116,10 @@ security audit (`PL-###` findings); the canonical audit lives in the `kriegerdat
   missing accounts don't answer faster (enumeration/timing oracle).
 - Raise domain exceptions → `to_http_exception()` (never bare `HTTPException` in services); keep settings
   access **lazy** (no module-level `get_*_settings()` — the vercel compactor imports with no env).
+- The compactor also **flattens** `api/<feature>/*.py` into ONE module — a second module-level
+  `router`/singleton reusing an already-used name silently **shadows** the first (the import check and the
+  staleness gate both stay green; the shadowed routes just vanish from the deploy). Give module-level objects
+  **feature-unique names**, re-run `make vercel-compact`, and eyeball the compacted module's imports.
 
 ## Scenario: gamification / incentive systems  *(points · streaks · badges · leaderboards)*
 
@@ -152,11 +171,23 @@ server-authoritative rule above is necessary but **not** sufficient — also:
   `"overrides"` to force a patched transitive (a `next` bump often won't move a pinned transitive like
   `postcss`). Run **Dependabot** for the real ecosystem (pip / npm), not just GitHub Actions.
 - Build **provenance / attestation** on publish (skip on private-personal repos until an org move / public).
+- **Install-time tokens never enter an image as a build `ARG`** — ARGs persist in image history/layers.
+  `GH_PACKAGES_PAT` reaches a Dockerfile via a BuildKit **`--mount=type=secret`** and compose
+  **`build.secrets`**; any new build call-site follows the same pattern.
+- **Private Python packages stay private** *(kdf_sdk · template-python-package)*: they install via
+  `git+https://…@vX.Y.Z` with a fine-grained PAT (Contents: Read on the package repo only) — **never add a
+  public-PyPI publish workflow**. The sanctioned future is an **internal PyPI in GCP** (needs an ADR first).
 
 ## Scenario: writing tests for security code
 
 - A new guard must **fail on the regression it targets** — mutation-test it (break the code, confirm the test
   goes red), don't just assert the happy path.
+- **Never commit test keys** — generate an **ephemeral RSA keypair** in the fixture/CI step (PL-030); a
+  "test-only" private key in git is still a private key in git.
+- For real-JWT / cross-service auth seams, use the SDK's **`kdf_sdk.testing`** helpers instead of
+  hand-rolled fakes — they mint tokens the verification path actually accepts.
+- DB tests inserting multiple rows into a table with a **server-generated PK**: `add` + `flush` **per row** —
+  a multi-row batch insert trips SQLAlchemy's insertmanyvalues `NullType` sentinel (`CompileError`).
 - Don't instantiate SQLModel **table** models / build `select(...)` that triggers the mapper cascade in unit
   tests — use `MagicMock` / `SimpleNamespace`; a `Mock(spec=KDFUser)` flowing the auth/refresh gate needs
   `sessions_valid_after=None`.

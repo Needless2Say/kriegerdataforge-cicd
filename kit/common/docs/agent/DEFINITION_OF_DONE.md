@@ -28,7 +28,13 @@ that repo's Makefile** (`make help`).
       for endpoints/components/flows; end-to-end for a critical user path. New endpoints and server
       actions always get tests.
 - [ ] **Edge cases + failure paths** covered, not just the happy path.
-- [ ] **Docs updated** — the doc that describes this behavior (README/`docs/*`) reflects reality.
+- [ ] **Docs updated** — the doc that describes this behavior (README/`docs/*`) reflects reality:
+      organized, front-doored, and deprecated-not-deleted per
+      [`DOCUMENTATION_STANDARD.md`](DOCUMENTATION_STANDARD.md).
+- [ ] **E2E journey current** — if this repo owns one (`e2e/manifest.json` + spec, discovered per-repo by
+      the CICD `run-e2e` engine; dormant until the `RUN_E2E_GATE`/`RUN_E2E_CD` repo vars are set) and the
+      change touches its covered flow, update the journey. See
+      `kriegerdataforge-cicd/docs/guides/E2E_TESTING.md`.
 
 ## If it's architectural or introduces a new pattern
 

@@ -396,3 +396,58 @@ and the per-repo-ownership the owner wants. Each is proven locally then owner-me
 the action — the two backend `e2e-gate.yml` callers are replaced by real `e2e.yml` jobs first, so nothing
 dangles. Onboarding any future repo = its own `e2e/` subgraph journey + a thin `e2e.yml` — still zero cicd
 edits.
+
+---
+
+## D-009 — Agentic-Workflow Standard v1.3: documentation standard + contributor-onboarding template
+
+- **Date:** 2026-07-12
+- **Status:** Accepted
+- **Tier / scope:** Epic · repos: **all** (kit content, synced from `cicd/kit/common/`)
+- **Design doc:** none (additive kit-content change; this entry is the record). Builds on D-001
+  (propagation model) and D-003 (v1.2 hardening + the vendored `KIT_VERSION` marker).
+
+**Context.** The 2026-07 ecosystem-wide documentation wave established per-repo conventions the kit
+neither mandates nor describes: `docs/guides/CONTRIBUTOR_ONBOARDING.md` in every repo (a shared
+8-section spine), README onboarding front doors, the repo-tailored `docs/prompts/` authoring toolkit,
+the `docs/` taxonomy, and the deprecate-with-a-banner pattern (proven on the hub's and tiffanys'
+stale `SETUP_AND_ONBOARDING.md`). A `/generate`'d repo is born without these conventions, and an
+agent has no canonical source for them. Separately, the 2026-06/07 remediation waves produced
+hard-won, ecosystem-wide security lessons not yet in `skills.md` (per-request CSP nonce for dynamic
+Next apps, fail-closed CSRF defaults, RP-initiated logout, BuildKit `--mount=type=secret` for
+install-time tokens, the compactor symbol-collision trap, the no-public-PyPI policy, test-key and
+`kdf_sdk.testing` rules).
+
+**Decision.** Ship an **additive kit minor — v1.3.0**:
+
+- **New synced file** `docs/agent/DOCUMENTATION_STANDARD.md` — ground-truth/accuracy discipline, the
+  docs taxonomy, the README front-door standard, the contributor-onboarding mandate, the
+  `docs/prompts/` toolkit description (tailoring + boundary rules), and deprecate-with-a-banner.
+- **New synced template** `docs/agent/templates/contributor-onboarding.template.md` — the proven
+  8-section onboarding spine, including the ecosystem-access rows (per-developer `register-dev`
+  OIDC clients; fine-grained `GH_PACKAGES_PAT`).
+- **Surgical edits** to `WORKFLOW.md` (docs-work pointer; Windows `PYTHONIOENCODING` bump note;
+  sequence-PRs-per-repo), `skills.md` (the security-lesson harvest above), `DEFINITION_OF_DONE.md`
+  (docs-standard + conditional E2E-journey bullets), and `AGENT_OPERATING_STANDARD.md` (artifacts
+  table + maintenance list).
+- Registry `files[]` grows **9 → 11**; both `KIT_VERSION` markers bump together to `v1.3.0`.
+
+The per-repo instances (README, `docs/prompts/*`, `CONTRIBUTOR_ONBOARDING.md`) remain per-repo and
+are still never synced — the D-002 boundary is unchanged; the kit standardizes and templates them.
+
+**Alternatives considered.**
+
+- *A separate README front-door template file* — rejected: ~15 inherently repo-entangled lines; an
+  inline fenced exemplar in the standard suffices and keeps the sync set at +2.
+- *Shipping the 7 `docs/prompts/` bodies as kit templates* — rejected for v1.3.0: each prompt is
+  shared-body + repo-tailored header, which a byte-identical engine cannot carry; the standard
+  documents the toolkit and its tailoring rule instead. Candidate for a future kit minor + ADR.
+- *Folding everything into `skills.md` / `WORKFLOW.md`* — rejected: wrong altitude; docs governance
+  is a distinct concern, and a new `docs/agent/` file is automatically version-gate-exempt in
+  consumers.
+
+**Consequences.** The weekly `check` drift cron reports **all 14 repos drifted until the owner runs
+Distribute** (the two new files count as missing) — expected, not an incident. Consumer sync PRs
+remain docs-only and version-gate-exempt. The 6 repos lacking README front doors are brought up to
+standard in per-repo follow-up PRs (cicd's own README in the same PR as this entry). cicd's root
+copies of the kit files are hand-synced in this PR, as always (cicd is sync-excluded).

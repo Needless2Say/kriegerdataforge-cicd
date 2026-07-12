@@ -1,6 +1,6 @@
 # Feature — Agentic-workflow kit-sync engine
 
-_Last updated: 2026-07-11 · Status: draft_
+_Last updated: 2026-07-12 · Status: draft_
 
 ## 1. Overview
 
@@ -33,10 +33,10 @@ ADR D-001 option B).
   │   kit/common/docs/agent/KIT_VERSION ── v1.2.0 ──┘  (vendored copy, itself a synced file)│
   │                                                                                        │
   │   kit/common/                       scripts/kit_registry.json                          │
-  │     ├ skills.md                       ├ files[]  (9 kit paths, exact)                  │
+  │     ├ skills.md                       ├ files[]  (11 kit paths, exact)                 │
   │     ├ WORKFLOW.md                     └ repos[]  (14 owner/repo + branch targets)      │
   │     └ docs/agent/{AGENT_OPERATING_STANDARD, DESIGN_AND_EPICS,                          │
-  │        DEFINITION_OF_DONE, KIT_VERSION, templates/*}                                   │
+  │        DEFINITION_OF_DONE, DOCUMENTATION_STANDARD, KIT_VERSION, templates/*}           │
   │                    │                          │                                        │
   │                    └────────┬─────────────────┘                                        │
   │                             ▼                                                          │
@@ -79,7 +79,7 @@ review-gated PRs; it never calls upstream.
 | --- | --- | --- |
 | `scripts/distribute_kit.py` | The propagation engine (`check` / `distribute` modes). | `main()` — `scripts/distribute_kit.py:380` |
 | `scripts/kit_registry.json` | The registry: `files[]` (synced kit paths) + `repos[]` (targets). | `scripts/kit_registry.json:1` |
-| `kit/common/` | Canonical source tree of the 9 synced kit files. | `kit/common/skills.md`, `kit/common/WORKFLOW.md`, `kit/common/docs/agent/…` |
+| `kit/common/` | Canonical source tree of the 11 synced kit files. | `kit/common/skills.md`, `kit/common/WORKFLOW.md`, `kit/common/docs/agent/…` |
 | `kit/KIT_VERSION` | Canonical kit version (`v1.2.0`); read by `_kit_version()`. | `kit/KIT_VERSION:1` |
 | `kit/common/docs/agent/KIT_VERSION` | Vendored version marker — itself a synced file; must equal the canonical. | `scripts/distribute_kit.py:86` (`_assert_version_consistency`) |
 | `.github/workflows/distribute-kit.yml` | `workflow_dispatch` + weekly cron front-end that runs the engine. | `.github/workflows/distribute-kit.yml:38` (`jobs`) |
@@ -300,7 +300,8 @@ hard-coding repo names in the script.
 - ADRs — [`../CHANGELOG_AND_DECISION_LOG.md`](../CHANGELOG_AND_DECISION_LOG.md): **D-001** (kit
   Standard v1.1 + the propagation model), **D-002** (Ops Console issue-form front-ends + the shared
   owner gate), **D-003** (Standard v1.2 pre-launch hardening + the vendored `KIT_VERSION` marker and
-  honest sync wording).
+  honest sync wording), **D-009** (Standard v1.3: `DOCUMENTATION_STANDARD.md` + the
+  contributor-onboarding template; files[] 9 → 11).
 - Epic tracker — `kriegerdataforge/docs/epics/agent-kit-distribution.md` (in the hub repo).
 - [`../reference/WORKFLOWS.md`](../reference/WORKFLOWS.md) — the full workflow catalog (the PAT used by
   the kit engine and repo-provisioning is described in its secrets section).
@@ -316,7 +317,5 @@ hard-coding repo names in the script.
 
 ### Follow-ups noted while documenting (not fixed here)
 
-- **Stale help text:** `distribute_kit.py:354` (the argparse epilog) still describes `--repos` as
-  "comma-separated names/substrings", but the implemented behavior — and the `--repos` help at
-  `:371` and the `_select_repos` docstring/tests — is **exact** match, not substring. Minor
-  cosmetic drift in the CLI epilog only.
+- ~~**Stale help text** in the `distribute_kit.py` argparse epilog~~ — fixed (the epilog now says
+  "comma-separated EXACT names, not substrings"; PR #122).
