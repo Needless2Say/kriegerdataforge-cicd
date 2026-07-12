@@ -498,3 +498,17 @@ remains for the other agent concepts). Wave 2 consumes the printed board node id
 (`GH_REPORTS_*PROJECT_ID`). Later waves add: `ops:distribute-app-secrets` + App-token package
 installs (W2.5), npm plumb (W3.5), the disabled weekly triage trigger + `reports_registry.json`
 (W4.1), and kit v1.4.0's `REPORTS_STANDARD.md` (W6, D-011).
+
+**Update — 2026-07-12 (W1-ops finding, cicd v0.2.65).** The first live `execute` resolved the open
+auth question: **neither a GitHub App installation token nor a fine-grained PAT can create/modify
+user-owned Projects v2** — GitHub exposes a Projects permission only for organizations, so on a
+personal account `createProjectV2` on a user `ownerId` is refused (*"does not have permission to
+create projects"*). The App path is out (proven live) and so is `CICD_PAT` — it is a *fine-grained*
+token, so the owner standard "cicd ops use `CICD_PAT`" can't apply to Projects provisioning.
+**Resolution:** provisioning runs on a short-lived **classic** PAT with the `project` scope that the
+owner stages in `SECRET_VALUE_NEW` for the run and revokes after (`repo` scope optional — only for
+automatic repo-linking, which the engine now treats as best-effort so a `project`-only token still
+creates every board + field). `ops-provision-projects.yml` passes `GH_TOKEN: secrets.SECRET_VALUE_NEW`
+(App-token mint step dropped); `_resolve_token` validates the token with a read-probe and prints
+classic-PAT guidance on refusal. Runtime board *item* writes by the reports app go through the App
+installation token (a separate path).

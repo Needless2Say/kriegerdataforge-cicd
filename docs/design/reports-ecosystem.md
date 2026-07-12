@@ -30,12 +30,18 @@ Promote it to an ecosystem standard in 7 waves (see the hub tracker for the full
    app's `X-Cron-Secret`-gated `/reports/triage/cron` endpoint; AI + redaction + GitHub writes
    stay in-process in the app. Ships **disabled** (`RUN_REPORTS_TRIAGE` unset + per-app
    `enabled:false`); when armed: weekly, Monday early morning.
-4. **Auth is App-first everywhere.** ONE GitHub App, installed account-wide: CI/CD mints
-   short-lived installation tokens for package downloads and for board provisioning.
-   `GH_PACKAGES_PAT` (full read, all repos) serves only local dev + Vercel builds. For board
-   provisioning, a staged classic PAT (`SECRET_VALUE_NEW`, `project`+`repo`) is the documented
-   fallback iff the GraphQL API refuses App tokens for user-owned ProjectsV2 — the engine probes
-   and switches with an explicit note, and the PAT is revoked after the run.
+4. **Auth is App-first for package downloads; a short-lived classic PAT for board provisioning.**
+   ONE GitHub App, installed account-wide, mints short-lived installation tokens for package
+   downloads; `GH_PACKAGES_PAT` (full read, all repos) serves only local dev + Vercel builds.
+   **Board provisioning is the exception (resolved W1 finding, 2026-07-12):** neither a GitHub App
+   token nor a fine-grained PAT can create/modify user-owned Projects v2 — GitHub exposes a Projects
+   permission only for organizations, so on a personal account `createProjectV2` on a user `ownerId`
+   is refused ("does not have permission to create projects"). Board creation needs a **classic** PAT
+   with the `project` scope acting as the owner, so the owner stages a short-lived classic PAT in
+   `SECRET_VALUE_NEW` for the run and revokes it after (`repo` scope optional — only for automatic
+   repo-linking, which the engine treats as best-effort). This is why the owner standard "cicd ops
+   use `CICD_PAT`" can't apply here — `CICD_PAT` is fine-grained. Runtime board *item* writes by the
+   reports app go through the App installation token (a separate path).
 
 ## Engine design notes (`provision_projects.py`)
 
@@ -84,8 +90,9 @@ wired into each app's `GH_REPORTS_*PROJECT_ID` env.
 - **One board per repo (14+)** — rejected: the shipped reporter routes per *app* (one
   `project_node_id` per app slug); fe/be work for one product would split across two boards; more
   grooming surface for zero routing benefit.
-- **Provisioning via a long-lived Projects-scoped PAT** — rejected: App-first keeps zero new
-  long-lived credentials; the classic PAT exists only as a staged, revoked-after fallback.
+- **Provisioning via a long-lived Projects-scoped PAT** — rejected: no new *long-lived* credential
+  is needed. The classic PAT is short-lived and revoked after each provisioning run; App tokens
+  cover package downloads and the read-only `check`.
 - **Central reports service (keep all apps' reports in fitness-be)** — rejected: per-client
   audience isolation means other apps' JWTs are refused by fitness-be; per-app modules also make
   template bundling possible.

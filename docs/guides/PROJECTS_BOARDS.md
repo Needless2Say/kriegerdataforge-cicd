@@ -42,10 +42,16 @@ Membership is a partition: every ecosystem repo appears on exactly one board (te
    secrets. Wire them into each app's env as `GH_REPORTS_PROJECT_ID` (Wave 2: tiffanys via
    Terraform tfvars; fitness keeps its existing value if the board was adopted).
 
-**Auth:** App-token-first (minted in-workflow, auto-revoked). If the run says the API refused
-App tokens for user-owned ProjectsV2: create a short-lived **classic PAT** with `project` + `repo`
-scopes → stage it in the `SECRET_VALUE_NEW` repo secret → re-add the label → **revoke the PAT**
-after the run (and clear `SECRET_VALUE_NEW`).
+**Auth (resolved W1 finding):** neither a GitHub App installation token nor a **fine-grained** PAT
+(e.g. `CICD_PAT`) can create or modify user-owned Projects v2 — GitHub exposes a Projects permission
+only for **organizations**, so on a personal account `createProjectV2` on a user `ownerId` is refused.
+Provisioning therefore runs on a short-lived **classic** PAT the owner stages for the run: create a
+classic PAT with the **`project`** scope (add **`repo`** only if you want the engine to link member
+repos automatically — linking is best-effort, so a `project`-only token still creates every board +
+field and just lists the unlinked repos as manual steps) → stage it in the `SECRET_VALUE_NEW` repo
+secret → run `check`/`execute` → **revoke the PAT** and clear `SECRET_VALUE_NEW` afterward. (Runtime
+issue/board *item* writes by the reports app go through the App installation token — a separate path
+this provisioning flow doesn't touch.)
 
 ## One-time manual steps (the API can't do these)
 

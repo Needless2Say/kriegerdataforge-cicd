@@ -157,35 +157,25 @@ def test_gql_raises_runtime_on_other_graphql_errors():
             pp._gql("tok", "query { x }")
 
 
-def test_resolve_token_prefers_primary():
-    with patch.object(pp, "_gql", return_value={"user": {"projectsV2": {"totalCount": 0}}}) as gql:
-        token, label = pp._resolve_token("app-token", "pat", "Needless2Say")
-    assert token == "app-token"
-    assert "primary" in label
+def test_resolve_token_validates_and_returns_the_token():
+    """Single-token model: a token that can read the owner's ProjectsV2 is returned unchanged."""
+    with patch.object(pp, "_gql", return_value={"user": {"projectsV2": {"nodes": []}}}) as gql:
+        token = pp._resolve_token("classic-pat", "Needless2Say")
+    assert token == "classic-pat"
     assert gql.call_count == 1
 
 
-def test_resolve_token_falls_back_on_auth_refusal():
-    calls = {"n": 0}
-
-    def probe(token, query, variables=None):
-        calls["n"] += 1
-        if token == "app-token":
-            raise pp.ProjectsAuthError("insufficient")
-        return {"user": {"projectsV2": {"totalCount": 0}}}
-
-    with patch.object(pp, "_gql", side_effect=probe):
-        token, label = pp._resolve_token("app-token", "classic-pat", "Needless2Say")
-    assert token == "classic-pat"
-    assert "fallback" in label
-    assert calls["n"] == 2
-
-
-def test_resolve_token_exits_with_guidance_when_no_fallback():
-    with patch.object(pp, "_gql", side_effect=pp.ProjectsAuthError("insufficient")):
+def test_resolve_token_exits_with_guidance_on_refusal():
+    """A token that can't reach ProjectsV2 exits with classic-PAT guidance — the message must name
+    why an App/fine-grained token (CICD_PAT) can't do it and point at SECRET_VALUE_NEW."""
+    with patch.object(pp, "_gql", side_effect=pp.ProjectsAuthError("no project scope")):
         with pytest.raises(SystemExit) as exc:
-            pp._resolve_token("app-token", "", "Needless2Say")
-    assert "SECRET_VALUE_NEW" in str(exc.value)
+            pp._resolve_token("bad-token", "Needless2Say")
+    msg = str(exc.value)
+    assert "classic" in msg.lower()
+    assert "project" in msg
+    assert "SECRET_VALUE_NEW" in msg
+    assert "fine-grained" in msg
 
 
 def test_probe_requests_project_fields_not_just_totalcount():
@@ -199,7 +189,7 @@ def test_probe_requests_project_fields_not_just_totalcount():
         return {"user": {"projectsV2": {"nodes": []}}}
 
     with patch.object(pp, "_gql", side_effect=fake_gql):
-        pp._resolve_token("tok", "", "Needless2Say")
+        pp._resolve_token("tok", "Needless2Say")
     assert "nodes" in captured["query"] and "id" in captured["query"]
     assert "totalCount" not in captured["query"]
 
@@ -379,6 +369,26 @@ def test_cmd_execute_collaborator_failure_is_warning_not_error(registry):
     ):
         rc = pp.cmd_execute(registry, "tok", "Needless2Say", "infra")
     assert rc == 0
+
+
+def test_cmd_execute_repo_link_failure_is_warning_not_error(registry):
+    """A repo-link failure (e.g. a project-only PAT lacking the `repo` scope) must NOT fail the
+    board — boards/fields still get created and the unlinked repo becomes a manual step."""
+    board = registry["boards"][1]  # pinned infra board
+    state = _converged_state(registry, board)
+    state["id"] = "PVT_pinned123"
+    state["linked_repos"] = set()  # force a link attempt
+    with (
+        patch.object(pp, "_owner_node_id", return_value="U_owner"),
+        patch.object(pp, "_list_projects", return_value={}),
+        patch.object(pp, "_get_project_state", return_value=state),
+        patch.object(pp, "_repo_node_id", side_effect=RuntimeError("404 — repo scope missing")),
+        patch.object(pp, "_link_repo") as link,
+        patch.object(pp, "_invite_collaborators", return_value=[]),
+    ):
+        rc = pp.cmd_execute(registry, "tok", "Needless2Say", "infra")
+    assert rc == 0  # the link failure did not fail the run
+    link.assert_not_called()  # _repo_node_id raised before _link_repo was reached
 
 
 def test_cmd_execute_aggregates_board_failures(registry):

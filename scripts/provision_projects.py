@@ -24,20 +24,22 @@ Deliberate limits (documented in docs/guides/PROJECTS_BOARDS.md):
     risk detaching items' selected values); fix in the UI, then re-run check.
   * Views are not API-creatable — manual recipes live in the guide.
 
-Auth (App-first, per the epic's owner decision):
-  GH_TOKEN          Primary token. The ops workflow passes a short-lived GitHub App installation
-                    token. GraphQL ProjectsV2 support for App tokens on USER-owned projects varies;
-                    if the API refuses, the engine exits with explicit fallback guidance.
-  GH_TOKEN_FALLBACK Optional classic PAT (project + repo scopes) staged by the owner in the
-                    SECRET_VALUE_NEW repo secret. Used only if the primary token cannot access
-                    ProjectsV2; the run notes the switch.
+Auth (resolved W1 finding, proven live 2026-07-12):
+  Creating/managing USER-owned ProjectsV2 requires a CLASSIC PAT with the `project` scope acting AS
+  the owner. Neither a GitHub App installation token nor a fine-grained PAT (e.g. CICD_PAT) can do
+  it — GitHub exposes a Projects permission only for ORGANIZATION-owned projects, so on a personal
+  account `createProjectV2` on a user `ownerId` is refused ("does not have permission to create
+  projects"). The ops workflow therefore passes a short-lived classic PAT the owner stages in
+  SECRET_VALUE_NEW (and revokes after) — never an App token, a fine-grained PAT, or GH_PACKAGES_PAT.
+  GH_TOKEN          The staged classic PAT (SECRET_VALUE_NEW). `project` scope creates boards +
+                    fields; add `repo` only for automatic repo-linking (best-effort otherwise).
   PROJECTS_OWNER    Board owner login (defaults to Needless2Say). The engine never relies on the
-                    GraphQL `viewer` (App installation tokens have none).
+                    GraphQL `viewer` (no App/PAT viewer assumptions).
 
 Usage:
-    GH_TOKEN=... python provision_projects.py check
+    GH_TOKEN=<classic PAT, project scope> python provision_projects.py check
     GH_TOKEN=... python provision_projects.py check --boards fitness,tiffanys
-    GH_TOKEN=... GH_TOKEN_FALLBACK=... python provision_projects.py execute
+    GH_TOKEN=... python provision_projects.py execute
 """
 
 from __future__ import annotations
@@ -157,37 +159,43 @@ def _gql(token: str, query: str, variables: dict[str, Any] | None = None) -> dic
     return payload["data"]
 
 
-def _resolve_token(primary: str, fallback: str, owner: str) -> tuple[str, str]:
-    """Return (token, label) — the first token that can list the owner's ProjectsV2.
+# The auth probe: a cheap READ of the owner's ProjectsV2. Requests project FIELDS (`nodes { id }`),
+# never `totalCount` — GitHub answers totalCount even without the read:project scope (verified live
+# 2026-07-12), so a totalCount probe would false-positive.
+_OWNER_PROJECTS_PROBE = (
+    "query($login: String!) { user(login: $login) { projectsV2(first: 1) { nodes { id } } } }"
+)
 
-    App-first per the epic decision: try GH_TOKEN (the App installation token); on a ProjectsV2
-    auth refusal switch to GH_TOKEN_FALLBACK (the owner-staged classic PAT) with a printed note.
 
-    The probe requests project FIELDS (``nodes { id }``), not just ``totalCount`` — GitHub answers
-    ``totalCount`` even without the ``read:project`` scope (verified live 2026-07-12), so a
-    totalCount probe would false-positive and the run would fail mid-flight instead.
-    """
-    probe = """
-    query($login: String!) { user(login: $login) { projectsV2(first: 1) { nodes { id } } } }
+def _resolve_token(token: str, owner: str) -> str:
+    """Validate the provisioning token can reach the owner's ProjectsV2; return it, or exit clean.
+
+    Creating/managing USER-owned ProjectsV2 requires a CLASSIC PAT with the ``project`` scope acting
+    AS the owner. Neither a GitHub App installation token nor a fine-grained PAT can do it — GitHub
+    exposes a Projects permission only for ORGANIZATION-owned projects (there is no user-account
+    Projects permission), so on a personal account ``createProjectV2`` on a user ``ownerId`` is
+    refused (proven live 2026-07-12; resolves the epic's W1 question). The ops workflow therefore
+    passes a short-lived classic PAT the owner stages in the ``SECRET_VALUE_NEW`` repo secret (and
+    revokes after). Validated here with a read-probe so a wrong-scoped/expired token fails now with
+    clear guidance, not mid-flight. (``project`` is enough for boards + fields; add ``repo`` only if
+    you want automatic repo-linking — see cmd_execute, which treats linking as best-effort.)
     """
     try:
-        _gql(primary, probe, {"login": owner})
-        return primary, "primary (App token)"
+        _gql(token, _OWNER_PROJECTS_PROBE, {"login": owner})
     except ProjectsAuthError as exc:
-        if not fallback:
-            sys.exit(_auth_guidance(exc))
-        print("NOTE: primary token refused ProjectsV2 — using the staged classic PAT fallback.")
-        _gql(fallback, probe, {"login": owner})  # let a bad fallback fail loudly here
-        return fallback, "fallback (staged classic PAT)"
+        sys.exit(_auth_guidance(exc))
+    return token
 
 
 def _auth_guidance(exc: Exception) -> str:
     """The one message a refused run should end with — printed, never a traceback."""
     return (
         "Error: the token cannot access ProjectsV2 for user-owned boards "
-        f"({exc}).\nFallback: create a short-lived CLASSIC PAT with 'project' + 'repo' scopes, "
-        "stage it in the SECRET_VALUE_NEW repo secret, and re-run — the workflow passes it as "
-        "GH_TOKEN_FALLBACK. Revoke the PAT (and clear SECRET_VALUE_NEW) after the run."
+        f"({exc}).\nProvisioning needs a CLASSIC PAT with the 'project' scope (add 'repo' too for "
+        "automatic repo-linking) acting as the owner. A GitHub App installation token and a "
+        "fine-grained PAT (e.g. CICD_PAT) both CANNOT manage user-owned ProjectsV2 — GitHub offers a "
+        "Projects permission only for organizations. Stage a classic PAT in the SECRET_VALUE_NEW "
+        "repo secret, re-run, then revoke it."
     )
 
 
@@ -447,11 +455,20 @@ def cmd_execute(registry: dict, token: str, owner: str, boards_arg: str | None) 
                 if have is None:
                     _create_single_select_field(token, project_id, name, options)
                     print(f"    + field '{name}' ({len(options)} options)")
-            # Link member repos not yet linked.
+            # Link member repos not yet linked. Best-effort: linking a private repo needs the PAT's
+            # `repo` scope — a project-only PAT still creates the boards + fields, and any repo it
+            # can't link becomes a manual step rather than failing the board.
             for owner_repo in board.get("repos", []):
-                if owner_repo not in state["linked_repos"]:
+                if owner_repo in state["linked_repos"]:
+                    continue
+                try:
                     _link_repo(token, project_id, _repo_node_id(token, owner_repo))
                     print(f"    + linked {owner_repo}")
+                except Exception as exc:  # noqa: BLE001 — linking is optional (needs `repo` scope)
+                    print(f"    ! link {owner_repo} skipped ({exc})")
+                    manual_steps.append(
+                        f"{title}: link repo {owner_repo} (add the PAT's `repo` scope, or link in the UI)"
+                    )
             # Best-effort collaborators.
             for warning in _invite_collaborators(token, project_id, board.get("collaborators", [])):
                 print(f"    ! {warning}")
@@ -492,10 +509,10 @@ def parse_cli_args() -> argparse.Namespace:
         description="Check or provision the ecosystem's GitHub Projects v2 boards.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "Examples:\n"
+            "Examples (GH_TOKEN = a classic PAT with the 'project' scope):\n"
             "  GH_TOKEN=... python provision_projects.py check\n"
             "  GH_TOKEN=... python provision_projects.py check --boards fitness,tiffanys\n"
-            "  GH_TOKEN=... GH_TOKEN_FALLBACK=... python provision_projects.py execute"
+            "  GH_TOKEN=... python provision_projects.py execute"
         ),
     )
     parser.add_argument(
@@ -514,14 +531,16 @@ def parse_cli_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_cli_args()
     registry = _load_registry()
-    primary = os.environ.get("GH_TOKEN", "").strip()
-    if not primary:
-        sys.exit("Error: GH_TOKEN environment variable not set.")
-    fallback = os.environ.get("GH_TOKEN_FALLBACK", "").strip()
+    gh_token = os.environ.get("GH_TOKEN", "").strip()
+    if not gh_token:
+        sys.exit(
+            "Error: GH_TOKEN not set — stage a classic PAT with the 'project' scope in the "
+            "SECRET_VALUE_NEW repo secret (App/fine-grained tokens can't create user-owned boards)."
+        )
     owner = os.environ.get("PROJECTS_OWNER", DEFAULT_OWNER).strip() or DEFAULT_OWNER
 
-    token, label = _resolve_token(primary, fallback, owner)
-    print(f"Token: {label}")
+    token = _resolve_token(gh_token, owner)
+    print("Token: staged classic PAT (SECRET_VALUE_NEW)")
 
     # A ProjectsAuthError can still surface mid-run (e.g. finer-grained refusals the probe can't
     # anticipate) — end with the same guidance, never a traceback.

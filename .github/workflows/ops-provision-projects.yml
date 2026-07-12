@@ -9,10 +9,10 @@ name: Ops · Provision Projects boards (issue-triggered)
 #   * Issue content is untrusted: parsed values flow through env vars into argv arrays, never
 #     inlined into a shell string; mode/confirm are allow-listed and the engine validates every
 #     board key against the registry (unknown -> exit).
-#   * Auth is App-first: the job mints a short-lived App installation token (auto-revoked at job
-#     end). GraphQL ProjectsV2 support for App tokens on USER-owned boards varies; if refused, the
-#     engine falls back to an owner-staged classic PAT in SECRET_VALUE_NEW (project+repo scopes)
-#     and says so. Stage it only for the run, then delete/revoke it.
+#   * Auth (resolved W1 finding): neither a GitHub App token nor a fine-grained PAT (e.g. CICD_PAT)
+#     can create user-owned ProjectsV2 — GitHub offers a Projects permission only for orgs. So
+#     provisioning runs on a short-lived CLASSIC PAT (`project` scope) the owner stages in
+#     SECRET_VALUE_NEW for the run and revokes after. `repo` scope is optional (auto repo-linking).
 #   * Board node ids are METADATA, not secrets — safe in the issue summary; no token value is
 #     ever echoed.
 
@@ -51,19 +51,6 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r scripts/requirements.txt
-
-      # Short-lived App installation token (auto-revoked at job end). No permission-* downscope
-      # exists for Projects in create-github-app-token, so the token carries the App's granted
-      # set; the engine only performs ProjectsV2 + repo-metadata reads/writes with it. Gated on
-      # USE_GITHUB_APP with CICD_PAT fallback, same as the other ops workflows.
-      - name: Mint GitHub App token
-        id: app-token
-        if: vars.USE_GITHUB_APP == 'true'
-        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
-        with:
-          app-id: ${{ secrets.KDF_APP_ID }}
-          private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
 
       - name: Extract and validate fields
         id: fields
@@ -109,9 +96,11 @@ jobs:
       - name: Run provisioner
         id: prov
         env:
-          # App-first; the engine probes ProjectsV2 access and only then touches the fallback.
-          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
-          GH_TOKEN_FALLBACK: ${{ secrets.SECRET_VALUE_NEW }}
+          # Board provisioning needs a CLASSIC PAT with the `project` scope acting as the owner —
+          # neither a GitHub App installation token nor a fine-grained PAT (e.g. CICD_PAT) can manage
+          # user-owned ProjectsV2 (GitHub offers a Projects permission only for orgs). The owner
+          # stages a short-lived classic PAT in SECRET_VALUE_NEW for the run, then revokes it.
+          GH_TOKEN: ${{ secrets.SECRET_VALUE_NEW }}
           PROJECTS_OWNER: ${{ github.repository_owner }}
           MODE: ${{ steps.fields.outputs.mode }}
           BOARDS: ${{ steps.fields.outputs.boards }}
