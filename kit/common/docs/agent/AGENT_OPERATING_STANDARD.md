@@ -179,7 +179,10 @@ contract. It isn't — the SDK is auth-only.
 | [`DESIGN_AND_EPICS.md`](DESIGN_AND_EPICS.md) | Design gate + cross-repo Epic playbook + clarification heuristic | Anything complex/novel/cross-repo |
 | [`DEFINITION_OF_DONE.md`](DEFINITION_OF_DONE.md) | The real bar, scaled by change type | Before opening any PR |
 | [`skills.md`](../../skills.md) | Scenario-indexed security playbook | Before any security-relevant work |
-| [`templates/`](templates/) | Copy-paste design-spec, ADR, and epic-tracker templates | When the design gate or an Epic applies |
+| [`DOCUMENTATION_STANDARD.md`](DOCUMENTATION_STANDARD.md) | How repo docs are organized, kept honest, and kept discoverable | Any documentation work |
+| [`templates/`](templates/) | Copy-paste design-spec, ADR, epic-tracker, and contributor-onboarding templates | When the design gate, an Epic, or a new repo's onboarding applies |
+| `docs/guides/CONTRIBUTOR_ONBOARDING.md` | Per-repo human setup path (from the kit template) | Per-repo and never synced; update when commands/env change |
+| `docs/prompts/` | Per-repo documentation-authoring toolkit (tailored; the static portfolios don't carry one) | When authoring docs; per-repo and never synced |
 | `kriegerdataforge/docs/epics/<name>.md` | One coordinating tracker per cross-repo epic (in the hub) | Any multi-repo Epic |
 | `docs/CHANGELOG_AND_DECISION_LOG.md` | Append-only ADR (`D-NNN`) home, per repo | Architectural decisions |
 
@@ -187,8 +190,8 @@ contract. It isn't — the SDK is auth-only.
 
 ## How the standard is maintained (the kit + engine)
 
-This whole standard — `WORKFLOW.md`, `DESIGN_AND_EPICS.md`, `DEFINITION_OF_DONE.md`, the templates,
-`skills.md`, and this doc — is the **agentic-workflow kit**. Its single source of truth is
+This whole standard — `WORKFLOW.md`, `DESIGN_AND_EPICS.md`, `DEFINITION_OF_DONE.md`,
+`DOCUMENTATION_STANDARD.md`, the templates, `skills.md`, and this doc — is the **agentic-workflow kit**. Its single source of truth is
 `kriegerdataforge-cicd/kit/common/`. A registry-driven sync engine (`scripts/distribute_kit.py`,
 driven by `scripts/kit_registry.json`) propagates the kit to every repo as **owner-reviewed PRs**
 (never auto-merged), a weekly job alarms on drift, and new repos are seeded from the four

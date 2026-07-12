@@ -52,7 +52,9 @@ out, e.g. `make vercel-compact` after an `api/` change) → bump version → bra
 Read [`AGENTS.md`](./AGENTS.md) — its **Vision & purpose** tells you what this product is and
 the goal the owner is striving for; its **Required reading** points you at the README and the
 docs that explain the architecture and conventions. Read those before writing code. For
-security-relevant work, read [`skills.md`](./skills.md) and follow the matching scenario.
+security-relevant work, read [`skills.md`](./skills.md) and follow the matching scenario. For
+documentation work (adding, moving, or retiring docs), follow
+[`docs/agent/DOCUMENTATION_STANDARD.md`](docs/agent/DOCUMENTATION_STANDARD.md).
 **If you don't understand the purpose or how your task fits the goal, stop and ask.**
 
 ### 2. Plan — sized to the change
@@ -89,7 +91,9 @@ Makefile. Then bump the version with the repo's script (`make bump-patch` / `bum
 `bump-major`) — **pick the level by impact:** no behavior/contract change → patch; a
 backward-compatible feature or additive contract → minor; a breaking API/schema/contract change →
 major. (The CI version check only verifies the version is consistent across files and strictly ahead
-of `main` — it does **not** police your level choice; that judgment is yours.) Some repos need a
+of `main` — it does **not** police your level choice; that judgment is yours. On Windows consoles
+the bump script's emoji output can crash on cp1252 — run `PYTHONIOENCODING=utf-8 make bump-<level>`.)
+**Sequence PRs within a repo** — two open PRs in one repo collide on `VERSION`. Some repos need a
 follow-up sync (the auth service: `make vercel-compact`) — `AGENTS.md` calls these out. Stage files
 **explicitly**; never `git add -A`. Confirm your change meets
 [`docs/agent/DEFINITION_OF_DONE.md`](docs/agent/DEFINITION_OF_DONE.md) for its change type.
