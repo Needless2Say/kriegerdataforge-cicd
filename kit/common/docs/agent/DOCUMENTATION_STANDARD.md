@@ -84,7 +84,12 @@ Beyond the front door, the README also carries (or links, one hop away):
 - an **environment-variable table** — the practical surface, with required/optional and where
   values come from (the exhaustive contract may live in `docs/reference/`),
 - a **commands table** (`make` targets / npm scripts) that names only real targets,
-- the tech stack and module map at whatever depth the repo warrants.
+- the tech stack and module map at whatever depth the repo warrants,
+- a **documentation section** — links `docs/README.md` (the index), each `docs/*` subdirectory's
+  own `README.md` (every content subdirectory carries one: a short statement of what belongs there
+  and how to use it), and the agentic-workflow kit entry point (`docs/agent/` — the kit ships its
+  own [`README.md`](README.md) there). A developer must be able to go from the repo front door to
+  any category of documentation in two clicks.
 
 ---
 

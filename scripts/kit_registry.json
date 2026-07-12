@@ -8,6 +8,7 @@
 		"docs/agent/DESIGN_AND_EPICS.md",
 		"docs/agent/DEFINITION_OF_DONE.md",
 		"docs/agent/DOCUMENTATION_STANDARD.md",
+		"docs/agent/README.md",
 		"docs/agent/KIT_VERSION",
 		"docs/agent/templates/design-spec.template.md",
 		"docs/agent/templates/adr-entry.template.md",

@@ -20,6 +20,30 @@ code belong in the tenant repos.
 
 ---
 
+## Documentation & the agentic workflow kit
+
+All documentation lives under [`docs/`](docs/), indexed one-line-per-doc at
+[**`docs/README.md`**](docs/README.md). Each subdirectory carries its own README explaining what
+belongs there and how to use it:
+
+| Directory | Purpose |
+| --- | --- |
+| [`docs/agent/`](docs/agent/) | **The agentic-workflow kit** — the shared operating standard (kit-synced; its [README](docs/agent/README.md) explains every kit file and the reading order) |
+| [`docs/guides/`](docs/guides/README.md) | How-to walkthroughs: onboarding, E2E testing, secret rotation, manual setup |
+| [`docs/reference/`](docs/reference/README.md) | Source-verified contracts: the reusable-workflow catalog |
+| [`docs/features/`](docs/features/README.md) | One doc per shipped feature (kit-sync engine, ops console, …) |
+| [`docs/design/`](docs/design/README.md) | Design specs from the design gate, paired with ADRs |
+| [`docs/security/`](docs/security/README.md) | Security posture and audit notes |
+| [`docs/prompts/`](docs/prompts/README.md) | Documentation-authoring prompt toolkit (docs only, never code) |
+| [`docs/CHANGELOG_AND_DECISION_LOG.md`](docs/CHANGELOG_AND_DECISION_LOG.md) | The append-only ADR (`D-NNN`) register |
+
+**How to work here:** read [`AGENTS.md`](AGENTS.md) (this repo's vision + critical rules) →
+[`WORKFLOW.md`](WORKFLOW.md) (the three-lane task loop) → [`skills.md`](skills.md) (the security
+playbook, before any security-sensitive work). Those three plus `docs/agent/` are the kit —
+centrally synced from `kit/common/` in this repo; never edit the synced copies locally.
+
+---
+
 ## Why Centralized
 
 Keeping CI/CD logic in one place means deploy behavior is consistent across all services, security controls are applied uniformly, and fixes or improvements propagate to every consumer at once. Consumer repos stay clean — their workflow files are just callers with no inline logic.

@@ -430,7 +430,7 @@ install-time tokens, the compactor symbol-collision trap, the no-public-PyPI pol
   sequence-PRs-per-repo), `skills.md` (the security-lesson harvest above), `DEFINITION_OF_DONE.md`
   (docs-standard + conditional E2E-journey bullets), and `AGENT_OPERATING_STANDARD.md` (artifacts
   table + maintenance list).
-- Registry `files[]` grows **9 → 11**; both `KIT_VERSION` markers bump together to `v1.3.0`.
+- Registry `files[]` grows **9 → 12**; both `KIT_VERSION` markers bump together to `v1.3.0`.
 
 The per-repo instances (README, `docs/prompts/*`, `CONTRIBUTOR_ONBOARDING.md`) remain per-repo and
 are still never synced — the D-002 boundary is unchanged; the kit standardizes and templates them.

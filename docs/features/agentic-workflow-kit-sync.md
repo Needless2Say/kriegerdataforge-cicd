@@ -33,7 +33,7 @@ ADR D-001 option B).
   │   kit/common/docs/agent/KIT_VERSION ── v1.2.0 ──┘  (vendored copy, itself a synced file)│
   │                                                                                        │
   │   kit/common/                       scripts/kit_registry.json                          │
-  │     ├ skills.md                       ├ files[]  (11 kit paths, exact)                 │
+  │     ├ skills.md                       ├ files[]  (12 kit paths, exact)                 │
   │     ├ WORKFLOW.md                     └ repos[]  (14 owner/repo + branch targets)      │
   │     └ docs/agent/{AGENT_OPERATING_STANDARD, DESIGN_AND_EPICS,                          │
   │        DEFINITION_OF_DONE, DOCUMENTATION_STANDARD, KIT_VERSION, templates/*}           │
@@ -79,7 +79,7 @@ review-gated PRs; it never calls upstream.
 | --- | --- | --- |
 | `scripts/distribute_kit.py` | The propagation engine (`check` / `distribute` modes). | `main()` — `scripts/distribute_kit.py:380` |
 | `scripts/kit_registry.json` | The registry: `files[]` (synced kit paths) + `repos[]` (targets). | `scripts/kit_registry.json:1` |
-| `kit/common/` | Canonical source tree of the 11 synced kit files. | `kit/common/skills.md`, `kit/common/WORKFLOW.md`, `kit/common/docs/agent/…` |
+| `kit/common/` | Canonical source tree of the 12 synced kit files. | `kit/common/skills.md`, `kit/common/WORKFLOW.md`, `kit/common/docs/agent/…` |
 | `kit/KIT_VERSION` | Canonical kit version (`v1.2.0`); read by `_kit_version()`. | `kit/KIT_VERSION:1` |
 | `kit/common/docs/agent/KIT_VERSION` | Vendored version marker — itself a synced file; must equal the canonical. | `scripts/distribute_kit.py:86` (`_assert_version_consistency`) |
 | `.github/workflows/distribute-kit.yml` | `workflow_dispatch` + weekly cron front-end that runs the engine. | `.github/workflows/distribute-kit.yml:38` (`jobs`) |
