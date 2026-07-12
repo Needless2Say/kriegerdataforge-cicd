@@ -1,0 +1,66 @@
+{
+	"_comment": "Registry for the GitHub Projects v2 boards provisioner (provision_projects.py). One entry per board; 'key' is the CLI selector, 'title' is the exact board title on GitHub (adopt-by-title: an existing board with this title is ADOPTED, never re-created; alternatively pin 'existing_node_id'). 'repos' are linked to the board (issues can be added from any repo regardless — linking only aids the UI pickers). 'standard_fields' are created per board when missing (single-select custom fields). The BUILT-IN Status field cannot be reliably reshaped via the API: 'status_options' is the TARGET the check mode diffs against and reports; reconciling Status options is a one-time manual UI step (see docs/guides/PROJECTS_BOARDS.md). 'collaborators' are best-effort invites (user-owned project support varies — manual UI invite is the documented fallback). See ADR D-010 / docs/design/reports-ecosystem.md.",
+	"status_options": ["Inbox", "Triage", "Backlog", "In Progress", "In Review", "Done"],
+	"standard_fields": {
+		"Priority": ["P0", "P1", "P2", "P3"],
+		"Type": ["Bug", "Feedback", "Feature", "Chore", "Docs", "Infra"],
+		"Severity": ["Critical", "High", "Moderate", "Minor", "N/A"]
+	},
+	"_repo_field_comment": "Each board also gets a 'Repo' single-select whose options are the short names of its member repos (derived from 'repos' — not spelled out here so the two can never drift).",
+	"boards": [
+		{
+			"key": "fitness",
+			"title": "KDF — Fitness",
+			"existing_node_id": null,
+			"repos": ["Needless2Say/fitness-app-frontend", "Needless2Say/fitness-app-backend"],
+			"collaborators": []
+		},
+		{
+			"key": "tiffanys",
+			"title": "KDF — Tiffany's Space",
+			"existing_node_id": null,
+			"repos": ["Needless2Say/tiffanys-space", "Needless2Say/tiffanys-space-backend"],
+			"collaborators": []
+		},
+		{
+			"key": "platform",
+			"title": "KDF — Platform",
+			"existing_node_id": null,
+			"repos": [
+				"Needless2Say/kriegerdataforge",
+				"Needless2Say/kriegerdataforge-auth-ui",
+				"Needless2Say/kriegerdataforge-sdk",
+				"Needless2Say/kriegerdataforge-reports-sdk",
+				"Needless2Say/kriegerdataforge-report-form"
+			],
+			"collaborators": []
+		},
+		{
+			"key": "infra",
+			"title": "KDF — Infra",
+			"existing_node_id": null,
+			"repos": ["Needless2Say/kriegerdataforge-cicd", "Needless2Say/kriegerdataforge-terraform"],
+			"collaborators": []
+		},
+		{
+			"key": "portfolios",
+			"title": "KDF — Portfolios",
+			"existing_node_id": null,
+			"repos": ["Needless2Say/arthurs-portfolio", "Needless2Say/kriegerdataforge-portfolio"],
+			"collaborators": []
+		},
+		{
+			"key": "templates",
+			"title": "KDF — Templates",
+			"existing_node_id": null,
+			"repos": [
+				"Needless2Say/kriegerdataforge-template-nextjs",
+				"Needless2Say/kriegerdataforge-template-fastapi",
+				"Needless2Say/kriegerdataforge-template-npm-package",
+				"Needless2Say/kriegerdataforge-template-python-package"
+			],
+			"collaborators": []
+		}
+	],
+	"_excluded_notes": "If the live Fitness board's title differs from 'KDF — Fitness', either rename it in the UI before running execute, or paste its node id into existing_node_id — the engine then adopts it and only reconciles fields/links. The Fitness board is the one referenced by fitness-app-backend's GH_REPORTS_*PROJECT_ID env (reports issues land there); after any adopt/create, harvest the node ids the engine prints and wire them into each app's env (Wave 2)."
+}

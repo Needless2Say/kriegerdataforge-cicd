@@ -1,0 +1,81 @@
+name: "Ops · Provision Projects boards"
+description: "Owner-only: create/reconcile the ecosystem's GitHub Projects v2 boards (reports-ecosystem epic)."
+title: "[Ops] Provision Projects boards: "
+labels:
+  - ops
+assignees:
+  - Needless2Say
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Provision the ecosystem's Projects v2 boards
+        Fill in the fields, submit, then **add the `ops:provision-projects` label** to run.
+        Only the repository owner can run it (the workflow fails closed otherwise).
+
+        **Modes**
+        - **check** — read-only drift report: which boards are missing, which fields/options/repo
+          links diverge from `scripts/projects_registry.json`. Mutates nothing.
+        - **execute** — creates missing boards, creates missing custom fields
+          (Priority / Type / Repo / Severity), links member repos, best-effort collaborator
+          invites. **Existing boards are adopted and reconciled, never re-created.** Idempotent —
+          safe to re-run. Prints the board **node ids** to wire into each app's
+          `GH_REPORTS_*PROJECT_ID` env.
+
+        > **Auth is App-first.** The workflow mints a short-lived GitHub App installation token.
+        > If the GraphQL API refuses App tokens for user-owned ProjectsV2, the run tells you the
+        > fallback: create a short-lived **classic PAT** with `project` + `repo` scopes, stage it
+        > in the **`SECRET_VALUE_NEW`** repo secret, re-add the label, then **revoke the PAT**.
+        > Never type a token into this issue — this repo is public.
+
+        > **What stays manual (one-time, per board):** reshaping the built-in **Status** field's
+        > options and creating **views** — the API doesn't cover them. `check` prints exactly
+        > what to add; recipes live in `docs/guides/PROJECTS_BOARDS.md`.
+
+  - type: dropdown
+    id: boards
+    attributes:
+      label: Board(s)
+      description: "Which board(s) to act on (registry keys). Multi-select, or ALL."
+      multiple: true
+      options:
+        - ALL
+        - fitness
+        - tiffanys
+        - platform
+        - infra
+        - portfolios
+        - templates
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      description: "check = read-only drift report · execute = create/link idempotently"
+      options:
+        - check
+        - execute
+    validations:
+      required: true
+
+  - type: dropdown
+    id: confirm
+    attributes:
+      label: Confirm
+      description: "execute creates boards/fields/links on your account. This must be 'Yes' for execute."
+      options:
+        - "No — do not run"
+        - "Yes — create/reconcile boards"
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        ▶ **To run:** add the **`ops:provision-projects`** label to this issue. Re-add it to re-run.
+        After **execute**: harvest the node ids from the issue comment, then do the one-time manual
+        steps it lists (Status options + views) per `docs/guides/PROJECTS_BOARDS.md`.

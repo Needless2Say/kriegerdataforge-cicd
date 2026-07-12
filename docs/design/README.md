@@ -12,6 +12,7 @@ actually shipped. The corresponding **D-NNN ADR** for each lives in
 | [e2e-test-decoupling.md](e2e-test-decoupling.md) | [e2e-test-decoupling-LOG.md](e2e-test-decoupling-LOG.md) | Move the Tier-2 E2E tests out of cicd into each tenant repo (cicd keeps only the reusable engine). |
 | [e2e-cijob-refactor.md](e2e-cijob-refactor.md) | [e2e-cijob-refactor-LOG.md](e2e-cijob-refactor-LOG.md) | Run E2E as a per-repo CI job (composite action) rather than a callable workflow. |
 | [e2e-every-repo-journeys.md](e2e-every-repo-journeys.md) | [e2e-every-repo-journeys-LOG.md](e2e-every-repo-journeys-LOG.md) | Every repo owns a distinct E2E journey (its own dependency subgraph). |
+| [reports-ecosystem.md](reports-ecosystem.md) | epic log in the hub (`kriegerdataforge/docs/epics/reports-ecosystem-standard-LOG.md`) | The reports-ecosystem standard (D-010): Projects boards provisioning + the AI bug reporter as certified packages. |
 
 > The three `e2e-*` specs are slices of the E2E-decoupling epic (ADR **D-006**). See also the
 > guide [`../guides/E2E_TESTING.md`](../guides/E2E_TESTING.md).

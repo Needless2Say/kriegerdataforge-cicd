@@ -28,6 +28,7 @@ How-to and operational walkthroughs.
 - [Manual Setup Guide](guides/MANUAL_SETUP.md) — the runbook for everything that can't be automated: GitHub Environments, environment secrets, PAT/token creation, tenant onboarding, org migration.
 - [Secret Rotation — runbook](guides/SECRET_ROTATION.md) — rotate a repo/environment secret via `scripts/rotate_secret.py` + `secret_registry.json`.
 - [End-to-end (E2E) testing — CI gate, CD/nightly, or on demand](guides/E2E_TESTING.md) — how the reusable E2E engine runs.
+- [GitHub Projects boards — catalog + operations](guides/PROJECTS_BOARDS.md) — the 6 ecosystem ticket boards, the `ops:provision-projects` runbook, and the one-time manual steps (Status options, views, invites).
 
 ## Security
 
@@ -44,6 +45,7 @@ Approved design specs (each `*-LOG.md` is the paired implementation log). See [`
 - [Design note — decouple the Tier-2 E2E tests out of cicd into each tenant repo](design/e2e-test-decoupling.md) ([impl log](design/e2e-test-decoupling-LOG.md))
 - [Design note — E2E as a per-repo CI job (composite action), not a callable workflow](design/e2e-cijob-refactor.md) ([impl log](design/e2e-cijob-refactor-LOG.md))
 - [Design note — Every repo owns a distinct E2E journey (its dependency subgraph)](design/e2e-every-repo-journeys.md) ([impl log](design/e2e-every-repo-journeys-LOG.md))
+- [Design — the reports-ecosystem standard (Projects boards + AI bug reporter)](design/reports-ecosystem.md) — D-010; epic tracker lives in the hub (`kriegerdataforge/docs/epics/`)
 
 ## Agent kit
 

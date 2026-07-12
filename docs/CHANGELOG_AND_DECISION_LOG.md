@@ -451,3 +451,50 @@ Distribute** (the two new files count as missing) — expected, not an incident.
 remain docs-only and version-gate-exempt. The 6 repos lacking README front doors are brought up to
 standard in per-repo follow-up PRs (cicd's own README in the same PR as this entry). cicd's root
 copies of the kit files are hand-synced in this PR, as always (cicd is sync-excluded).
+
+## D-010 — Reports-ecosystem standard: Projects boards provisioning (engine + ops form)
+
+- **Date:** 2026-07-12
+- **Status:** Accepted
+- **Tier / scope:** Epic (Wave 1 of 6) · repos: cicd now; reports-sdk / report-form / both app
+  stacks / terraform / templates in later waves
+- **Design doc:** [`docs/design/reports-ecosystem.md`](design/reports-ecosystem.md) · epic
+  tracker: `kriegerdataforge/docs/epics/reports-ecosystem-standard-PLAN.md` (+ `-LOG.md`)
+
+**Context.** The AI bug reporter (submit → PII-redact → AI-cluster → GitHub issue + Projects v2
+item) is fully built and deployed, but only inside `fitness-app-backend/api/reports/`, only for
+the fitness board, admin-click-only. Tiffany's report UI is broken (its backend never received
+the module), no repo can adopt the feature without copy-paste, and the ecosystem has no standard
+ticket boards for developers — or the first external collaborator — to work from.
+
+**Decision.** Promote it to an ecosystem standard (owner-approved 7-wave plan; see the hub
+tracker). This wave ships the cicd control-plane piece:
+
+- `scripts/projects_registry.json` — 6 user-owned boards (Fitness / Tiffany's Space / Platform /
+  Infra / Portfolios / Templates; membership partitions the ecosystem) + the standard field
+  schema (Status target-options, Priority, Type, Severity; Repo derived per board).
+- `scripts/provision_projects.py` — registry-driven check/execute engine (distribute_kit skeleton
+  + rotate_secret error aggregation). Idempotent: adopt-by-title / pinned `existing_node_id`;
+  every mutation guarded by an existence read; GraphQL POSTs deliberately never status-retried.
+  Auth is **App-first** (no GraphQL `viewer` dependency — App installation tokens have none) with
+  an owner-staged classic-PAT fallback (`SECRET_VALUE_NEW`, `project`+`repo`, revoked after) iff
+  the API refuses App tokens for user-owned ProjectsV2.
+- `ops:provision-projects` issue form + workflow (D-002 pattern: owner-only gate, awk field
+  parser, metadata-only issue summary — board node ids are metadata, not secrets).
+- What stays deliberately manual (the API can't): built-in **Status** option reshaping, custom
+  views, failed collaborator invites — the engine prints exactly what remains; recipes in
+  [`docs/guides/PROJECTS_BOARDS.md`](guides/PROJECTS_BOARDS.md).
+
+**Alternatives considered.** One board per repo (rejected: the shipped reporter routes per app;
+fe/be work would split across boards) · a long-lived Projects-scoped PAT (rejected: App-first
+keeps zero new long-lived credentials) · centralizing all apps' reports in fitness-be (rejected:
+per-client audience isolation refuses other apps' JWTs; per-app modules enable template bundling)
+· Vercel cron for the later triage schedule (rejected by owner: orchestration must live in GitHub,
+cloud-agnostic).
+
+**Consequences.** `agents/README.md`'s brainstormed issue-triage-agent row is superseded for the
+bug-report domain (triage runs in-process in each app; cicd only schedules it — the skeleton
+remains for the other agent concepts). Wave 2 consumes the printed board node ids
+(`GH_REPORTS_*PROJECT_ID`). Later waves add: `ops:distribute-app-secrets` + App-token package
+installs (W2.5), npm plumb (W3.5), the disabled weekly triage trigger + `reports_registry.json`
+(W4.1), and kit v1.4.0's `REPORTS_STANDARD.md` (W6, D-011).
