@@ -9,10 +9,10 @@ name: Ops · Provision Projects boards (issue-triggered)
 #   * Issue content is untrusted: parsed values flow through env vars into argv arrays, never
 #     inlined into a shell string; mode/confirm are allow-listed and the engine validates every
 #     board key against the registry (unknown -> exit).
-#   * Auth (resolved W1 finding): App installation tokens can READ user-owned ProjectsV2 but can't
-#     create/modify them, so provisioning runs on CICD_PAT — the cicd control-plane PAT (classic,
-#     project+repo). Never GH_PACKAGES_PAT (that is for package downloads only). SECRET_VALUE_NEW is
-#     an optional staged override to run a one-off as a different PAT; revoke/clear it if used.
+#   * Auth (resolved W1 finding): neither a GitHub App token nor a fine-grained PAT (e.g. CICD_PAT)
+#     can create user-owned ProjectsV2 — GitHub offers a Projects permission only for orgs. So
+#     provisioning runs on a short-lived CLASSIC PAT (`project` scope) the owner stages in
+#     SECRET_VALUE_NEW for the run and revokes after. `repo` scope is optional (auto repo-linking).
 #   * Board node ids are METADATA, not secrets — safe in the issue summary; no token value is
 #     ever echoed.
 
@@ -96,12 +96,11 @@ jobs:
       - name: Run provisioner
         id: prov
         env:
-          # Board provisioning needs a classic PAT with the `project` scope acting as the owner —
-          # App installation tokens can't create user-owned ProjectsV2 (see _resolve_token). Per the
-          # owner standard, cicd control-plane ops use CICD_PAT (classic; project+repo), never
-          # GH_PACKAGES_PAT. SECRET_VALUE_NEW is an optional one-off override (takes precedence).
-          GH_TOKEN: ${{ secrets.CICD_PAT }}
-          GH_TOKEN_FALLBACK: ${{ secrets.SECRET_VALUE_NEW }}
+          # Board provisioning needs a CLASSIC PAT with the `project` scope acting as the owner —
+          # neither a GitHub App installation token nor a fine-grained PAT (e.g. CICD_PAT) can manage
+          # user-owned ProjectsV2 (GitHub offers a Projects permission only for orgs). The owner
+          # stages a short-lived classic PAT in SECRET_VALUE_NEW for the run, then revokes it.
+          GH_TOKEN: ${{ secrets.SECRET_VALUE_NEW }}
           PROJECTS_OWNER: ${{ github.repository_owner }}
           MODE: ${{ steps.fields.outputs.mode }}
           BOARDS: ${{ steps.fields.outputs.boards }}

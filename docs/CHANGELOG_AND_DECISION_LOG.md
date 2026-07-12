@@ -500,13 +500,15 @@ installs (W2.5), npm plumb (W3.5), the disabled weekly triage trigger + `reports
 (W4.1), and kit v1.4.0's `REPORTS_STANDARD.md` (W6, D-011).
 
 **Update — 2026-07-12 (W1-ops finding, cicd v0.2.65).** The first live `execute` resolved the open
-auth question: GitHub App installation tokens can *read* user-owned ProjectsV2 but **cannot
-create/modify** them (`createProjectV2` on a user `ownerId` → *"does not have permission to create
-projects"*). Board creation needs a classic PAT with the `project` scope acting as the owner.
-**Owner credential decision:** provisioning runs on **`CICD_PAT`** (the cicd control-plane PAT;
-classic, `project`+`repo`) — not the App token, not a per-run staged PAT, and never `GH_PACKAGES_PAT`
-(which is for package downloads only; cicd control-plane ops always use `CICD_PAT`).
-`ops-provision-projects.yml` now passes `GH_TOKEN: secrets.CICD_PAT` and the App-token mint step is
-dropped from that workflow; `SECRET_VALUE_NEW` remains an optional one-off override. `_resolve_token`
-validates the chosen token with a read-probe and prints scope guidance on refusal. Runtime issue/board
-*item* writes by the reports app are unaffected (the App can add items to a board it's been granted).
+auth question: **neither a GitHub App installation token nor a fine-grained PAT can create/modify
+user-owned Projects v2** — GitHub exposes a Projects permission only for organizations, so on a
+personal account `createProjectV2` on a user `ownerId` is refused (*"does not have permission to
+create projects"*). The App path is out (proven live) and so is `CICD_PAT` — it is a *fine-grained*
+token, so the owner standard "cicd ops use `CICD_PAT`" can't apply to Projects provisioning.
+**Resolution:** provisioning runs on a short-lived **classic** PAT with the `project` scope that the
+owner stages in `SECRET_VALUE_NEW` for the run and revokes after (`repo` scope optional — only for
+automatic repo-linking, which the engine now treats as best-effort so a `project`-only token still
+creates every board + field). `ops-provision-projects.yml` passes `GH_TOKEN: secrets.SECRET_VALUE_NEW`
+(App-token mint step dropped); `_resolve_token` validates the token with a read-probe and prints
+classic-PAT guidance on refusal. Runtime board *item* writes by the reports app go through the App
+installation token (a separate path).

@@ -42,15 +42,16 @@ Membership is a partition: every ecosystem repo appears on exactly one board (te
    secrets. Wire them into each app's env as `GH_REPORTS_PROJECT_ID` (Wave 2: tiffanys via
    Terraform tfvars; fitness keeps its existing value if the board was adopted).
 
-**Auth (resolved W1 finding):** GitHub App installation tokens can *read* user-owned ProjectsV2 but
-**cannot create or modify them** (`createProjectV2` on a user account is refused). Board creation
-needs a classic PAT with the `project` scope acting as the owner, so provisioning runs on
-**`CICD_PAT`** — the cicd control-plane PAT, which must be a **classic** PAT carrying the **`project`**
-+ **`repo`** scopes (never `GH_PACKAGES_PAT`, which is for package downloads only). No per-run token
-staging is needed; both `check` and `execute` use `CICD_PAT`. To run a one-off as a different
-identity, stage a classic PAT in `SECRET_VALUE_NEW` (it takes precedence for that run) and clear it
-afterward. (Runtime issue/board *item* writes by the reports app are unaffected — the App can add
-items to a board it's already been granted.)
+**Auth (resolved W1 finding):** neither a GitHub App installation token nor a **fine-grained** PAT
+(e.g. `CICD_PAT`) can create or modify user-owned Projects v2 — GitHub exposes a Projects permission
+only for **organizations**, so on a personal account `createProjectV2` on a user `ownerId` is refused.
+Provisioning therefore runs on a short-lived **classic** PAT the owner stages for the run: create a
+classic PAT with the **`project`** scope (add **`repo`** only if you want the engine to link member
+repos automatically — linking is best-effort, so a `project`-only token still creates every board +
+field and just lists the unlinked repos as manual steps) → stage it in the `SECRET_VALUE_NEW` repo
+secret → run `check`/`execute` → **revoke the PAT** and clear `SECRET_VALUE_NEW` afterward. (Runtime
+issue/board *item* writes by the reports app go through the App installation token — a separate path
+this provisioning flow doesn't touch.)
 
 ## One-time manual steps (the API can't do these)
 
