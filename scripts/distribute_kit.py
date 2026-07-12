@@ -44,7 +44,7 @@ import os
 import sys
 from pathlib import Path
 
-import requests
+from common.http import build_session
 
 # ============================================================
 # Configuration
@@ -57,6 +57,11 @@ REGISTRY_FILE = SCRIPTS_DIR / "kit_registry.json"
 KIT_DIR = REPO_ROOT / "kit" / "common"
 KIT_VERSION_FILE = REPO_ROOT / "kit" / "KIT_VERSION"
 VENDORED_VERSION_FILE = KIT_DIR / "docs" / "agent" / "KIT_VERSION"
+
+# Shared HTTP session with retry/backoff so a transient GitHub 5xx / 429 / DNS blip
+# doesn't abort a repo mid-fan-out. Config + rationale live in common/http.py (the
+# same session hardens rotate_secret.py). Retries idempotent methods (GET/PUT) only.
+_SESSION = build_session()
 
 # ============================================================
 # Helpers
@@ -149,7 +154,7 @@ def _get_remote_file(
 ) -> tuple[str | None, str | None]:
     """Return (content, blob_sha) for a file on a branch, or (None, None) if it does not exist."""
     owner, repo = owner_repo.split("/", 1)
-    resp = requests.get(
+    resp = _SESSION.get(
         f"{GITHUB_API}/repos/{owner}/{repo}/contents/{path}",
         headers=_github_headers(token),
         params={"ref": branch},
@@ -181,7 +186,7 @@ def compute_drift(token: str, owner_repo: str, branch: str, files: list[str]) ->
 
 def _get_branch_sha(token: str, owner_repo: str, branch: str) -> str:
     owner, repo = owner_repo.split("/", 1)
-    resp = requests.get(
+    resp = _SESSION.get(
         f"{GITHUB_API}/repos/{owner}/{repo}/git/ref/heads/{branch}",
         headers=_github_headers(token),
         timeout=30,
@@ -192,7 +197,7 @@ def _get_branch_sha(token: str, owner_repo: str, branch: str) -> str:
 
 def _create_branch(token: str, owner_repo: str, new_branch: str, base_sha: str) -> None:
     owner, repo = owner_repo.split("/", 1)
-    resp = requests.post(
+    resp = _SESSION.post(
         f"{GITHUB_API}/repos/{owner}/{repo}/git/refs",
         headers=_github_headers(token),
         json={"ref": f"refs/heads/{new_branch}", "sha": base_sha},
@@ -220,7 +225,7 @@ def _put_file(
     }
     if blob_sha:
         body["sha"] = blob_sha
-    resp = requests.put(
+    resp = _SESSION.put(
         f"{GITHUB_API}/repos/{owner}/{repo}/contents/{path}",
         headers=_github_headers(token),
         json=body,
@@ -238,7 +243,7 @@ def _create_pr(
     body: str,
 ) -> str:
     owner, repo = owner_repo.split("/", 1)
-    resp = requests.post(
+    resp = _SESSION.post(
         f"{GITHUB_API}/repos/{owner}/{repo}/pulls",
         headers=_github_headers(token),
         json={"title": title, "head": head, "base": base, "body": body},
