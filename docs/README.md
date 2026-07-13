@@ -26,7 +26,7 @@ How-to and operational walkthroughs.
 
 - [Contributor Onboarding — kriegerdataforge-cicd](guides/CONTRIBUTOR_ONBOARDING.md) — clone → green `make check-all` → first PR.
 - [Manual Setup Guide](guides/MANUAL_SETUP.md) — the runbook for everything that can't be automated: GitHub Environments, environment secrets, PAT/token creation, tenant onboarding, org migration.
-- [Secret Rotation — runbook](guides/SECRET_ROTATION.md) — rotate a repo/environment secret via `scripts/rotate_secret.py` + `secret_registry.json`.
+- [Secret Rotation — runbook](guides/SECRET_ROTATION.md) — rotate a repo/environment secret via `scripts/rotate_secret.py` + `secret_registry.json`; §8.3a includes fanning a rotated App key out to the consumer-repo copies via `ops:distribute-app-secrets` (`scripts/distribute_app_secrets.py`).
 - [End-to-end (E2E) testing — CI gate, CD/nightly, or on demand](guides/E2E_TESTING.md) — how the reusable E2E engine runs.
 - [GitHub Projects boards — catalog + operations](guides/PROJECTS_BOARDS.md) — the 6 ecosystem ticket boards, the `ops:provision-projects` runbook, and the one-time manual steps (Status options, views, invites).
 

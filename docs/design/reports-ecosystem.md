@@ -1,6 +1,6 @@
 # Design — the reports-ecosystem standard (GitHub Projects + AI bug reporter)
 
-> **Status:** In progress (Wave 1) · **ADR:** D-010 (this repo's changelog) · **Epic tracker:**
+> **Status:** In progress (Wave 2) · **ADR:** D-010 (this repo's changelog) · **Epic tracker:**
 > `kriegerdataforge/docs/epics/reports-ecosystem-standard-PLAN.md` (+ `-LOG.md`) — the hub owns
 > the cross-repo tracking; this doc owns the cicd-side design decisions.
 
@@ -67,6 +67,32 @@ Promote it to an ecosystem standard in 7 waves (see the hub tracker for the full
   Projects v2 (caught live 2026-07-12). `Inbox` is the landing Status the reports package's v0.2.0
   field-setting will use.
 
+## App-credential distribution + package-install tokens (W2.5, `distribute_app_secrets.py`)
+
+Wave 2.5 ships the cicd plumbing the package model needs:
+
+- **`ops:distribute-app-secrets`** (owner-requested, plan fact 15) fans this repo's `KDF_APP_ID` /
+  `KDF_APP_PRIVATE_KEY` out to every consumer repo carrying `distribute_source_env` in
+  `secret_registry.json` — generalizing `ops-setup-e2e.yml`'s fixed 6-repo copy step into a
+  registry-driven check/execute engine (`check` = read-only audit of which repos lack copies;
+  `execute` = idempotent sealed-box PUTs with per-target error aggregation). The 12-repo target
+  list (six E2E-journey repos + `reports-sdk` + `report-form` + the four templates) is the ONE
+  authoritative inventory of App-credential copies — and the org-move cleanup checklist. The
+  workflow's App token is scoped `secrets:write` to exactly the registry targets (the engine's
+  `targets` mode computes the list; nothing is hardcoded in the workflow). Source values are
+  shape-checked (`numeric` / `pem`) before the first write so swapped env wiring can't
+  half-distribute, and the engine's output never contains a value (unit-tested invariant), which
+  is what makes tee-ing its report into the public issue comment safe. It also closes the App-key
+  rotation gap: `SECRET_ROTATION.md` §8.3a now fans the new key out **before** the old key is
+  deleted (a stale consumer copy would otherwise keep minting from the deleted key and break).
+- **`ci-python-*` installs are App-token-first**: the five `needs_sdk_auth` lanes mint a
+  short-lived installation token (`contents: read` only, auto-revoked at job end) when the caller
+  sets `USE_GITHUB_APP` and holds the distributed pair — `GH_PACKAGES_PAT` remains the fallback
+  and the local-dev/Vercel-build credential (the epic's token model). The npm lanes follow in
+  W3.5 after the GH-Packages auth spike.
+- **Registry deltas:** `GH_PACKAGES_PAT` targets += `kriegerdataforge-reports-sdk` (its CI
+  installs `kdf_sdk` as a peer dep); `kit_registry.json` repos += both package repos.
+
 ## Relationship to `agents/`
 
 `agents/README.md` brainstormed an **issue-triage-agent** (GitHub-issue-event-driven, direct
@@ -81,6 +107,7 @@ D-010.
 | Item | Kind | Notes |
 | --- | --- | --- |
 | `SECRET_VALUE_NEW` | existing staging slot | fallback classic PAT for provisioning only; revoke after |
+| `KDF_APP_ID` / `KDF_APP_PRIVATE_KEY` copies | repo secrets in 12 consumer repos (W2.5) | fanned out by `ops:distribute-app-secrets`; source of truth = this repo's secrets; registry target list = org-move cleanup checklist |
 | `REPORTS_CRON_SECRET_FITNESS_APP` / `_TIFFANYS_SPACE` | repo secrets (Wave 4) | cicd-side copies; authoritative value is Terraform-owned app-side — rotate there, paste here |
 | `RUN_REPORTS_TRIAGE` | repo variable (Wave 4) | unset at birth = weekly schedule disabled |
 

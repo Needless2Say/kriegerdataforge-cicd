@@ -522,3 +522,38 @@ the standard schema; `_repo_field_options` removed); repo grouping/filtering use
 The 6 created boards' node ids are now **pinned** in `projects_registry.json` (`existing_node_id`) so
 re-runs adopt these exact boards by id. Idempotent re-run completes the half-provisioned boards
 (adopt → skip existing fields → link repos).
+
+**Update — 2026-07-13 (W2.5: App-secret distribution + App-token package installs, cicd v0.2.67).**
+The Wave-2 close-out ships the two cicd-side pieces the Consequences block promised:
+
+- **`ops:distribute-app-secrets`** (owner-requested) — `scripts/distribute_app_secrets.py` +
+  issue form + workflow (D-002 pattern) copying this repo's `KDF_APP_ID` / `KDF_APP_PRIVATE_KEY`
+  to every consumer repo carrying `distribute_source_env` in `secret_registry.json`. It
+  generalizes `ops-setup-e2e.yml`'s fixed 6-repo copy step: the registry's 12-repo list (the six
+  E2E-journey repos **plus** the two reports package repos and the four templates — the full
+  App-credential consumer set, and deliberately a superset of the epic plan's ten so the registry
+  is the ONE authoritative inventory of copies for the org-move cleanup) is now the allow-list,
+  and the workflow's App token is scoped `secrets:write` to exactly those repos (computed by the
+  engine's `targets` mode — never hardcoded). `check` is a read-only audit (names + timestamps;
+  the API cannot return values); `execute` seals each value to each target's public key
+  (idempotent PUT, per-target error aggregation); swapped/missing source envs abort **before**
+  any write via shape checks that name the expected format, never the value (unit-tested
+  invariant, incl. "output never contains a value"). This also closes the §8.3a rotation gap:
+  consumer copies of a rotated App key were previously stale until each repo was re-provisioned
+  by hand — the runbook now fans out as step 4, before the old key is deleted.
+- **`ci-python-*` package installs are App-token-first** — the five `needs_sdk_auth` lanes
+  (tests / lint / typecheck / security / integration) mint a short-lived installation token
+  (`contents: read` only, auto-revoked at job end) when the caller sets `USE_GITHUB_APP` and
+  holds the distributed App secrets, falling back to `GH_PACKAGES_PAT` unchanged otherwise
+  (non-breaking: no new inputs; `secrets: inherit` already carries the App pair). No
+  `repositories:` filter on the mint: the private package set grows (kdf_sdk, kdf_reports, …)
+  and the token is read-only, so installation-wide read beats editing five lanes per new package.
+  `cd-python-vercel.yml` deliberately keeps the PAT (Vercel builds are a PAT lane per the epic's
+  token model); the npm lanes follow in W3.5.
+- **Registries:** `GH_PACKAGES_PAT` gains `kriegerdataforge-reports-sdk` as a repo-secret target
+  (its CI installs kdf_sdk as a peer dep — the exact class of gap PR #84 fixed);
+  `kit_registry.json` repos += `kriegerdataforge-reports-sdk` + `kriegerdataforge-report-form`
+  (born with kit v1.3.0, so they enter in-sync). Docs: WORKFLOWS.md backfills the W1
+  `ops-provision-projects.yml` row (missed in v0.2.64) and adds the new flow;
+  SECRET_ROTATION §8.2's PAT recipe now names BOTH package repos (a token scoped to one breaks
+  the other's installs).
