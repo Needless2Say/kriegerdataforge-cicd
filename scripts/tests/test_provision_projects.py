@@ -72,7 +72,7 @@ def test_real_registry_is_valid():
         assert board["repos"], f"board {board['key']} has no repos"
         for repo in board["repos"]:
             assert repo.startswith("Needless2Say/"), repo
-    # The standard field schema the epic promises (Repo is derived per board, not listed).
+    # The standard field schema the epic promises (no 'Repo' — that name is reserved by Projects v2).
     assert set(reg["standard_fields"]) == {"Priority", "Type", "Severity"}
     assert reg["status_options"][0] == "Inbox"  # AI reporter's landing status (v0.2.0 field-set)
 
@@ -113,17 +113,11 @@ def test_select_boards_is_exact_not_substring(registry):
         pp._select_boards(registry, "fit")
 
 
-def test_repo_field_options_are_short_names(registry):
-    assert pp._repo_field_options(registry["boards"][0]) == [
-        "fitness-app-frontend",
-        "fitness-app-backend",
-    ]
-
-
-def test_target_fields_merges_standard_plus_derived_repo(registry):
+def test_target_fields_are_the_standard_schema_no_repo(registry):
+    """No custom 'Repo'/'Repository' field — the name is RESERVED by Projects v2 (built-in field)."""
     fields = pp._target_fields(registry, registry["boards"][0])
-    assert set(fields) == {"Priority", "Type", "Severity", "Repo"}
-    assert fields["Repo"] == ["fitness-app-frontend", "fitness-app-backend"]
+    assert set(fields) == {"Priority", "Type", "Severity"}
+    assert "Repo" not in fields and "Repository" not in fields
 
 
 # ── GraphQL plumbing + auth fallback ─────────────────────────────────────────────
@@ -346,9 +340,9 @@ def test_cmd_execute_creates_only_whats_missing(registry):
 
     assert rc == 0
     create.assert_called_once_with("tok", "U_owner", "KDF — Fitness")  # infra never re-created
-    # 4 custom fields created on the new board only (Priority/Type/Severity/Repo).
-    assert create_field.call_count == 4
-    assert {c.args[2] for c in create_field.call_args_list} == {"Priority", "Type", "Severity", "Repo"}
+    # 3 custom fields created on the new board only (Priority/Type/Severity — no reserved 'Repo').
+    assert create_field.call_count == 3
+    assert {c.args[2] for c in create_field.call_args_list} == {"Priority", "Type", "Severity"}
     # 2 fitness repos linked; infra already linked.
     assert link.call_count == 2
     assert invite.call_count == 2  # called per board (infra's list has one entry, fitness's empty)

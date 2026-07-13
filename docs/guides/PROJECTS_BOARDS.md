@@ -27,7 +27,7 @@ Membership is a partition: every ecosystem repo appears on exactly one board (te
 | Status | built-in single-select | Inbox · Triage · Backlog · In Progress · In Review · Done | humans; the AI reporter sets **Inbox** from package v0.2.0 |
 | Priority | custom single-select | P0 · P1 · P2 · P3 | humans only (deliberate) |
 | Type | custom single-select | Bug · Feedback · Feature · Chore · Docs · Infra | humans; AI sets it from the report type (v0.2.0) |
-| Repo | custom single-select | the board's member repo short names | humans; AI sets it (v0.2.0) |
+| Repository | **built-in** (auto) | each item's repo | GitHub auto-populates it from the issue/PR — group/filter views by it. No custom `Repo` field is created: that name is **reserved** by Projects v2. |
 | Severity | custom single-select | Critical · High · Moderate · Minor · N/A | AI sets it from `ReportSeverity`; humans adjust |
 
 ## Running the provisioner

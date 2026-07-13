@@ -108,16 +108,16 @@ def _select_boards(registry: dict, boards_arg: str | None) -> list[dict]:
     return selected
 
 
-def _repo_field_options(board: dict) -> list[str]:
-    """The per-board 'Repo' single-select options: short names of the member repos."""
-    return [r.split("/", 1)[-1] for r in board.get("repos", [])]
-
-
 def _target_fields(registry: dict, board: dict) -> dict[str, list[str]]:
-    """The custom single-select fields this board must carry (standard + derived Repo)."""
-    fields: dict[str, list[str]] = dict(registry.get("standard_fields", {}))
-    fields["Repo"] = _repo_field_options(board)
-    return fields
+    """The custom single-select fields this board must carry (the standard schema).
+
+    We deliberately do NOT add a 'Repo'/'Repository' field: those names are RESERVED by GitHub
+    Projects v2 — it has a built-in Repository field that auto-populates from each item's issue/PR,
+    so createProjectV2Field rejects them with "Name cannot have a reserved value" (caught live
+    2026-07-12). The built-in field already gives per-item repo grouping/filtering in views, so a
+    custom one is redundant as well as rejected.
+    """
+    return dict(registry.get("standard_fields", {}))
 
 
 # ============================================================

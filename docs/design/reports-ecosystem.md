@@ -61,9 +61,11 @@ Promote it to an ecosystem standard in 7 waves (see the hub tracker for the full
   projects varies) — failures are warnings with a manual-invite pointer, never run failures.
 - **Field schema** (identical on all 6 boards): Status (built-in; target options Inbox / Triage /
   Backlog / In Progress / In Review / Done), Priority (P0–P3), Type (Bug / Feedback / Feature /
-  Chore / Docs / Infra), Repo (derived per board from its member repos), Severity (Critical /
-  High / Moderate / Minor / N/A — mirrors the reports module's `ReportSeverity`). `Inbox` is the
-  landing Status the reports package's v0.2.0 field-setting will use.
+  Chore / Docs / Infra), Severity (Critical / High / Moderate / Minor / N/A — mirrors the reports
+  module's `ReportSeverity`). Repo tracking uses the **built-in Repository field** (auto-populated
+  per item) — a custom `Repo`/`Repository` field is *not* created, that name being reserved by
+  Projects v2 (caught live 2026-07-12). `Inbox` is the landing Status the reports package's v0.2.0
+  field-setting will use.
 
 ## Relationship to `agents/`
 
