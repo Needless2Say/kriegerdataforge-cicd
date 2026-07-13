@@ -71,6 +71,7 @@ only *repository* secrets are the ops-plane control creds below.
 | Secret | What it is | Notes |
 |---|---|---|
 | `CICD_PAT` | Fine-grained PAT with `secrets:write` (+ admin) across the org repos | The engine **uses** this to write every other secret. Rotate by hand. |
+| `KDF_APP_ID` + `KDF_APP_PRIVATE_KEY` | The KDF GitHub App credentials the workflows mint short-lived tokens from | Key rotates by hand (§8.3a); the id never rotates. Consumer repos hold **copies** — after a key rotation, fan out via the `ops:distribute-app-secrets` issue flow (§8.3a step 4). |
 | `VERCEL_MASTER_TOKEN` | Vercel **Full Account** token (`kdf-master-rotation`) that can create/delete tokens + set project env | The engine uses this for `generate`. Rotate by hand. |
 | `TF_TOKEN_APP_TERRAFORM_IO` | Terraform Cloud API token (deferred) | By hand. |
 | `GH_PACKAGES_PAT_NEW` | **Staging slot** for the dedicated `Distribute GH_PACKAGES_PAT` workflow | Set only during a PAT rotation, then delete. |
@@ -294,14 +295,16 @@ A single engine-minted, account-scoped Vercel token that both **deploys** and **
 - **When:** the `check` workflow warns of expiry, scheduled, or leaked.
 - **Steps:**
   1. Create a fine-grained PAT at <https://github.com/settings/tokens>: name `kdf-packages-read`,
-     expiration 1 year, resource owner `Needless2Say`, **repository access = only
-     `kriegerdataforge-python-sdk`**, **Contents: Read-only** (nothing else).
+     expiration 1 year, resource owner `Needless2Say`, **repository access = the private package
+     repos — `kriegerdataforge-sdk` AND `kriegerdataforge-reports-sdk` at minimum** (a token
+     scoped to only one of them breaks the other's installs; the owner's current PAT simply
+     grants read on all repos, which also works), **Contents: Read-only** (nothing else).
   2. Stage it: set the **`SECRET_VALUE_NEW`** repo secret (issue-form path) *or* **`GH_PACKAGES_PAT_NEW`**
      (the dedicated *Distribute GH_PACKAGES_PAT* workflow). **Never put the value in the issue.**
   3. Run: issue form → `GH_PACKAGES_PAT`, mode **paste**, Confirm = Yes, label. *(Or run the Distribute workflow.)*
   4. Update the `GH_PACKAGES_PAT` entry's `check.expiry` in `scripts/secret_registry.json`; commit.
   5. **Delete** the staging secret. **Revoke** the old PAT in the GitHub UI.
-- **Verify:** a backend build that pip-installs `kdf-auth-sdk` succeeds.
+- **Verify:** a backend build that pip-installs the private packages (`kdf_sdk` / `kdf_reports`) succeeds.
 - **🚨 If leaked:** do step 5's revoke **first**, then 1–4.
 
 ### CI-plane — repository (control-plane) secrets, by hand
@@ -331,11 +334,19 @@ Phase 6.7. The non-secret `KDF_APP_ID` never needs rotation; this `.pem` private
   2. Update the `KDF_APP_PRIVATE_KEY` repo secret in `kriegerdataforge-cicd` with the new `.pem`
      contents (`gh secret set KDF_APP_PRIVATE_KEY --repo Needless2Say/kriegerdataforge-cicd < new.pem`).
   3. **Verify** a flow on the new key (Actions → *Check Secret Expiry*, or a scoped *Rotate Vercel Deployment Token*).
-  4. App → **Delete** the old private key. Securely delete the local `.pem` files.
-  5. Update this entry's `check.expiry` in `secret_registry.json` to the next reminder date; commit.
+  4. **Fan the new key out to the consumer-repo copies:** New issue → *Ops · Distribute App
+     secrets* → mode `execute`, Confirm = Yes → add the **`ops:distribute-app-secrets`** label.
+     The consumer repos hold their own `KDF_APP_ID`/`KDF_APP_PRIVATE_KEY` copies (they power the
+     E2E gate + the `ci-python-*` package-install token mints) — a stale copy keeps minting from
+     the old key and **breaks the moment you delete it** in the next step. `check` mode audits
+     which repos hold copies. Target list: the `distribute_source_env` entries in
+     `secret_registry.json`.
+  5. App → **Delete** the old private key. Securely delete the local `.pem` files.
+  6. Update this entry's `check.expiry` in `secret_registry.json` to the next reminder date; commit.
 - **🚨 If leaked:** the key can mint installation tokens with the App's granted scopes (Secrets +
-  Contents + PR write) → delete that key immediately (step 4), rotate as above, and assume any secret the
-  engine can write is suspect — re-`generate` the `VERCEL_DEPLOYMENT_TOKEN` (§8.1) and re-`paste` `GH_PACKAGES_PAT`
+  Contents + PR write) → delete that key immediately (step 5), rotate as above **including the
+  step-4 fan-out**, and assume any secret the engine can write is suspect — re-`generate` the
+  `VERCEL_DEPLOYMENT_TOKEN` (§8.1) and re-`paste` `GH_PACKAGES_PAT`
   (§8.2). If `USE_GITHUB_APP` is on, you can also unset it to fall back to `CICD_PAT` while you rotate.
 
 #### 8.4 `VERCEL_MASTER_TOKEN` 🔴 (full Vercel account)

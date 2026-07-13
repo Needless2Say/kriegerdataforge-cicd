@@ -18,6 +18,8 @@
 	"repos": [
 		{ "repo": "Needless2Say/kriegerdataforge", "branch": "main" },
 		{ "repo": "Needless2Say/kriegerdataforge-sdk", "branch": "main" },
+		{ "repo": "Needless2Say/kriegerdataforge-reports-sdk", "branch": "main" },
+		{ "repo": "Needless2Say/kriegerdataforge-report-form", "branch": "main" },
 		{ "repo": "Needless2Say/kriegerdataforge-terraform", "branch": "main" },
 		{ "repo": "Needless2Say/kriegerdataforge-auth-ui", "branch": "main" },
 		{ "repo": "Needless2Say/fitness-app-frontend", "branch": "main" },
@@ -31,5 +33,5 @@
 		{ "repo": "Needless2Say/kriegerdataforge-template-npm-package", "branch": "main" },
 		{ "repo": "Needless2Say/kriegerdataforge-template-python-package", "branch": "main" }
 	],
-	"_excluded_notes": "kriegerdataforge-cicd is the SOURCE — its own kit/common IS the canonical, so it is not a sync target (no self-PRs). The 4 kriegerdataforge-template-* repos ARE included (epic slice P2 complete: committed + is_template): keeping them in sync here means a /generate'd repo is born current, so no kit-injection is needed in issue-create-repo.yml. .github/PULL_REQUEST_TEMPLATE.md is intentionally NOT in 'files' (per-repo by ADR D-002; the synced docs/agent/DEFINITION_OF_DONE.md is the canonical DoD). AGENTS.md / CLAUDE.md / .cursorrules / .github/copilot-instructions.md are per-repo and never synced. A kit sync PR is docs-only; each repo's version-check skips it because the central scripts/common/check_version.py exempts kit-only PRs (ADR D-001 option B)."
+	"_excluded_notes": "kriegerdataforge-cicd is the SOURCE — its own kit/common IS the canonical, so it is not a sync target (no self-PRs). The two reports-ecosystem package repos (kriegerdataforge-reports-sdk, kriegerdataforge-report-form) joined at epic W2.5 — both were generated from the templates with kit v1.3.0 aboard, so they enter in-sync and simply ride future Distributes. The 4 kriegerdataforge-template-* repos ARE included (epic slice P2 complete: committed + is_template): keeping them in sync here means a /generate'd repo is born current, so no kit-injection is needed in issue-create-repo.yml. .github/PULL_REQUEST_TEMPLATE.md is intentionally NOT in 'files' (per-repo by ADR D-002; the synced docs/agent/DEFINITION_OF_DONE.md is the canonical DoD). AGENTS.md / CLAUDE.md / .cursorrules / .github/copilot-instructions.md are per-repo and never synced. A kit sync PR is docs-only; each repo's version-check skips it because the central scripts/common/check_version.py exempts kit-only PRs (ADR D-001 option B)."
 }

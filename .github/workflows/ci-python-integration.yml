@@ -52,7 +52,7 @@ on:
         type: string
         default: "python -m pytest -m requires_postgres -q --tb=short"
       needs_sdk_auth:
-        description: Configure git credentials for the private SDK (requires GH_PACKAGES_PAT secret)
+        description: Configure git credentials for the private packages (App installation token when the caller sets USE_GITHUB_APP, else the GH_PACKAGES_PAT secret)
         type: boolean
         default: false
 
@@ -90,11 +90,27 @@ jobs:
         with:
           python-version: ${{ inputs.python_version }}
 
+      # Private-package auth is App-token-first (reports-ecosystem epic W2.5, ADR D-010): when
+      # the calling repo opted in (USE_GITHUB_APP variable) and holds the distributed App
+      # credentials (ops:distribute-app-secrets), mint a short-lived installation token —
+      # contents: read only, auto-revoked at job end — for the pip git+https installs. Skipped
+      # (not failed) when the caller never opted in; the next step then falls back to the
+      # long-lived GH_PACKAGES_PAT exactly as before.
+      - name: Mint GitHub App token for private-package installs
+        id: pkg-token
+        if: ${{ inputs.needs_sdk_auth && vars.USE_GITHUB_APP == 'true' }}
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.KDF_APP_ID }}
+          private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: read
+
       - name: Configure private SDK access
         if: ${{ inputs.needs_sdk_auth }}
         env:
-          GH_PACKAGES_PAT: ${{ secrets.GH_PACKAGES_PAT }}
-        run: git config --global url."https://__token__:${GH_PACKAGES_PAT}@github.com/".insteadOf "https://github.com/"
+          PKG_INSTALL_TOKEN: ${{ steps.pkg-token.outputs.token || secrets.GH_PACKAGES_PAT }}
+        run: git config --global url."https://__token__:${PKG_INSTALL_TOKEN}@github.com/".insteadOf "https://github.com/"
 
       - name: Install dependencies
         run: ${{ inputs.install_command }}

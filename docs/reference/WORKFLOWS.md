@@ -317,9 +317,15 @@ jobs:
 ### Python CI
 
 The command-driven lanes let the caller override the install/run commands. `needs_sdk_auth: true`
-(where present) configures a `git insteadOf` credential from **`GH_PACKAGES_PAT`** so `pip` can
-resolve the private SDK — the only secret these lanes read (pass `secrets: inherit`). Several install
-`libpq-dev` so source-built `psycopg2` compiles on the slim runner.
+(where present) configures a `git insteadOf` credential so `pip` can resolve the private packages
+(`kdf_sdk`, `kdf_reports`). The credential is **App-token-first** (reports-ecosystem epic W2.5):
+when the calling repo sets the `USE_GITHUB_APP` variable and holds the distributed `KDF_APP_ID` /
+`KDF_APP_PRIVATE_KEY` secrets (see [`ops-distribute-app-secrets.yml`](#repo-internal-event-triggered-workflows)),
+the lane mints a short-lived installation token (`contents: read` only, auto-revoked at job end);
+otherwise it falls back to the long-lived **`GH_PACKAGES_PAT`** exactly as before. Secrets these
+lanes read via `secrets: inherit`: `GH_PACKAGES_PAT`, plus `KDF_APP_ID` / `KDF_APP_PRIVATE_KEY`
+when the caller opted in. Several lanes install `libpq-dev` so source-built `psycopg2` compiles on
+the slim runner.
 
 | Workflow | Inputs (`string` unless noted) → default | `needs_sdk_auth`? | Top-level `permissions` |
 |---|---|---|---|
@@ -421,7 +427,8 @@ mismatch. The leading `_` + local-path usage signal it is **internal** — tenan
   `:28-29`).
 - **Permissions:** top-level `contents: read` (`:21-22`).
 - **Callers (this repo):** `ops-rotate-secrets.yml`, `ops-distribute-kit.yml`, `ops-setup-e2e.yml`,
-  `distribute-kit.yml`, `distribute-gh-pat.yml`, `rotate-vercel-tokens.yml`.
+  `ops-provision-projects.yml`, `ops-distribute-app-secrets.yml`, `distribute-kit.yml`,
+  `distribute-gh-pat.yml`, `rotate-vercel-tokens.yml`.
 
 ```yaml
 # consumed only within kriegerdataforge-cicd
@@ -489,7 +496,9 @@ jobs:
 ```
 
 The `KDF_APP_ID` / `KDF_APP_PRIVATE_KEY` secrets + the `RUN_E2E_GATE` variable are provisioned into a
-journey repo by [`ops-setup-e2e.yml`](#repo-internal-event-triggered-workflows). See
+journey repo by [`ops-setup-e2e.yml`](#repo-internal-event-triggered-workflows); after an App
+private-key rotation, the secret copies are re-synced fleet-wide by
+[`ops-distribute-app-secrets.yml`](#repo-internal-event-triggered-workflows). See
 [`E2E_TESTING.md`](../guides/E2E_TESTING.md) and [`e2e/README.md`](../../e2e/README.md).
 
 ---
@@ -516,7 +525,7 @@ shown where it differs from top-level):
 
 ## Repo-internal event-triggered workflows
 
-The remaining ten `.github/workflows/*.yml` (of 29 total: 19 `workflow_call` above + these 10) are
+The remaining twelve `.github/workflows/*.yml` (of 31 total: 19 `workflow_call` above + these 12) are
 **not** `workflow_call`, so they cannot be `uses:`-d by a tenant. They run inside `kriegerdataforge-cicd` on schedules / issues / dispatch, and the ops ones are
 owner-gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for completeness of the
 `.github/workflows/` enumeration.
@@ -529,14 +538,18 @@ owner-gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for 
 | `ops-rotate-secrets.yml` | `issues: labeled` (`ops:rotate-secrets`) | issue-form front-end for `rotate_secret.py` (`check`/`generate`/`paste`) | `_authorize-owner` |
 | `ops-distribute-kit.yml` | `issues: labeled` (`ops:distribute-kit`) | issue-form front-end for `distribute_kit.py` (`check`/`distribute`) | `_authorize-owner` |
 | `ops-setup-e2e.yml` | `issues: labeled` (`ops:setup-e2e`) | arms an E2E-journey repo: writes `RUN_E2E_GATE=false`, `USE_GITHUB_APP=true`, copies `KDF_APP_ID`/`KDF_APP_PRIVATE_KEY`; validates target against the fixed 6-repo allow-list | `_authorize-owner` |
+| `ops-provision-projects.yml` | `issues: labeled` (`ops:provision-projects`) | issue-form front-end for `provision_projects.py` (`check`/`execute`): adopts/creates the 6 Projects v2 boards from `projects_registry.json`. Runs on an owner-staged **classic** PAT in `SECRET_VALUE_NEW` — neither an App token nor a fine-grained PAT can manage user-owned ProjectsV2 (ADR D-010 W1 finding) | `_authorize-owner` |
+| `ops-distribute-app-secrets.yml` | `issues: labeled` (`ops:distribute-app-secrets`) | issue-form front-end for `distribute_app_secrets.py` (`check`/`execute`): copies this repo's `KDF_APP_ID`/`KDF_APP_PRIVATE_KEY` to every consumer repo in `secret_registry.json` (`distribute_source_env` entries — the 12-repo registry list generalizes `ops-setup-e2e`'s fixed copy step). App token scoped `secrets:write` to exactly those repos; run after an App-key rotation (§8.3a) or when onboarding a consumer | `_authorize-owner` |
 | `distribute-kit.yml` | `workflow_dispatch` (`mode` check/distribute, `only`, `repos`) + weekly `schedule` (drift alarm) | runs `distribute_kit.py`; opens one sync PR per drifted repo | `_authorize-owner` (dispatch only) |
 | `distribute-gh-pat.yml` | `workflow_dispatch` | distributes a staged `GH_PACKAGES_PAT_NEW` via `rotate_secret.py --mode paste` | `_authorize-owner` |
 | `rotate-vercel-tokens.yml` | monthly `schedule` + `workflow_dispatch` | re-mints the shared `VERCEL_DEPLOYMENT_TOKEN` (`--mode generate`, 45-day life) and opens a PR stamping the new expiry | `_authorize-owner` (dispatch only) |
 | `check-secret-expiry.yml` | weekly `schedule` (Mon 09:00 UTC) + `workflow_dispatch` | `rotate_secret.py --mode check --secrets all` (registry metadata only); keeps one dedup tracking issue (`ops:secret-expiry`) open/closed | n/a (`issues:write`) |
 
-`GH_PACKAGES_PAT` distribution + Vercel/kit ops mint short-lived **GitHub App** tokens when
-`vars.USE_GITHUB_APP == 'true'`, falling back to `CICD_PAT` (`distribute-gh-pat.yml:59-73`,
-`rotate-vercel-tokens.yml:70-91`). See the GitHub-App migration ADR in
+`GH_PACKAGES_PAT` distribution, Vercel/kit ops, and the App-secret distribution mint short-lived
+**GitHub App** tokens when `vars.USE_GITHUB_APP == 'true'`, falling back to `CICD_PAT`
+(`distribute-gh-pat.yml:59-73`, `rotate-vercel-tokens.yml:70-91`,
+`ops-distribute-app-secrets.yml`). Board provisioning is the exception — it needs an owner-staged
+classic PAT (see the D-010 W1 finding). See the GitHub-App migration ADR in
 `docs/CHANGELOG_AND_DECISION_LOG.md`.
 
 ---
