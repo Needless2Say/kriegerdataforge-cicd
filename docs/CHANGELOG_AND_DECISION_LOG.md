@@ -512,3 +512,13 @@ creates every board + field). `ops-provision-projects.yml` passes `GH_TOKEN: sec
 (App-token mint step dropped); `_resolve_token` validates the token with a read-probe and prints
 classic-PAT guidance on refusal. Runtime board *item* writes by the reports app go through the App
 installation token (a separate path).
+
+**Update — 2026-07-12 (reserved-field fix, cicd v0.2.66).** The first classic-PAT `execute` created
+all 6 boards + the Priority/Type/Severity fields, then each board failed on the derived **`Repo`**
+field with `createProjectV2Field` → *"Name cannot have a reserved value"*. `Repo`/`Repository` is a
+**reserved** name — Projects v2 has a built-in Repository field (auto-populated per item), so a custom
+one is both rejected and redundant. Dropped the custom `Repo` field (`_target_fields` now returns just
+the standard schema; `_repo_field_options` removed); repo grouping/filtering uses the built-in field.
+The 6 created boards' node ids are now **pinned** in `projects_registry.json` (`existing_node_id`) so
+re-runs adopt these exact boards by id. Idempotent re-run completes the half-provisioned boards
+(adopt → skip existing fields → link repos).

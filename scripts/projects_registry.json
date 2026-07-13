@@ -6,26 +6,26 @@
 		"Type": ["Bug", "Feedback", "Feature", "Chore", "Docs", "Infra"],
 		"Severity": ["Critical", "High", "Moderate", "Minor", "N/A"]
 	},
-	"_repo_field_comment": "Each board also gets a 'Repo' single-select whose options are the short names of its member repos (derived from 'repos' — not spelled out here so the two can never drift).",
+	"_repo_field_comment": "No custom 'Repo'/'Repository' field is created: those names are RESERVED by GitHub Projects v2 (it has a BUILT-IN Repository field that auto-populates from each item's issue/PR — group/filter board views by that instead). createProjectV2Field rejects them with 'Name cannot have a reserved value' (caught live 2026-07-12).",
 	"boards": [
 		{
 			"key": "fitness",
 			"title": "KDF — Fitness",
-			"existing_node_id": null,
+			"existing_node_id": "PVT_kwHOBVLJ2c4BdN5K",
 			"repos": ["Needless2Say/fitness-app-frontend", "Needless2Say/fitness-app-backend"],
 			"collaborators": []
 		},
 		{
 			"key": "tiffanys",
 			"title": "KDF — Tiffany's Space",
-			"existing_node_id": null,
+			"existing_node_id": "PVT_kwHOBVLJ2c4BdN5L",
 			"repos": ["Needless2Say/tiffanys-space", "Needless2Say/tiffanys-space-backend"],
 			"collaborators": []
 		},
 		{
 			"key": "platform",
 			"title": "KDF — Platform",
-			"existing_node_id": null,
+			"existing_node_id": "PVT_kwHOBVLJ2c4BdN5M",
 			"repos": [
 				"Needless2Say/kriegerdataforge",
 				"Needless2Say/kriegerdataforge-auth-ui",
@@ -38,21 +38,21 @@
 		{
 			"key": "infra",
 			"title": "KDF — Infra",
-			"existing_node_id": null,
+			"existing_node_id": "PVT_kwHOBVLJ2c4BdN5O",
 			"repos": ["Needless2Say/kriegerdataforge-cicd", "Needless2Say/kriegerdataforge-terraform"],
 			"collaborators": []
 		},
 		{
 			"key": "portfolios",
 			"title": "KDF — Portfolios",
-			"existing_node_id": null,
+			"existing_node_id": "PVT_kwHOBVLJ2c4BdN5P",
 			"repos": ["Needless2Say/arthurs-portfolio", "Needless2Say/kriegerdataforge-portfolio"],
 			"collaborators": []
 		},
 		{
 			"key": "templates",
 			"title": "KDF — Templates",
-			"existing_node_id": null,
+			"existing_node_id": "PVT_kwHOBVLJ2c4BdN5R",
 			"repos": [
 				"Needless2Say/kriegerdataforge-template-nextjs",
 				"Needless2Say/kriegerdataforge-template-fastapi",
@@ -62,5 +62,5 @@
 			"collaborators": []
 		}
 	],
-	"_excluded_notes": "If the live Fitness board's title differs from 'KDF — Fitness', either rename it in the UI before running execute, or paste its node id into existing_node_id — the engine then adopts it and only reconciles fields/links. The Fitness board is the one referenced by fitness-app-backend's GH_REPORTS_*PROJECT_ID env (reports issues land there); after any adopt/create, harvest the node ids the engine prints and wire them into each app's env (Wave 2)."
+	"_excluded_notes": "Board node ids were harvested from the first execute (2026-07-12) and pinned in existing_node_id, so re-runs ADOPT these exact boards (no adopt-by-title duplicate risk if a title is edited). The Fitness board is the one wired into fitness-app-backend's GH_REPORTS_*PROJECT_ID env; if a different pre-existing Fitness board should be canonical, replace fitness.existing_node_id with its id before the next run."
 }
