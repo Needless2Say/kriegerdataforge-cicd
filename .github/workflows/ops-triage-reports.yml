@@ -1,0 +1,169 @@
+name: Ops · Trigger reports triage (issue-triggered)
+
+# Issue-form front-end for scripts/trigger_triage.py (reports-ecosystem epic W4, ADR D-010) —
+# the owner's "run triage now" button. Fires the X-Cron-Secret-gated /reports/triage/cron
+# endpoint of each selected app from scripts/reports_registry.json, exactly like the scheduled
+# trigger-reports-triage.yml but on demand and with the result commented back on the issue.
+#
+# Triggered ONLY when the `ops:triage-reports` label is added — a deliberate, owner-applied
+# "go". Owner-gated via the reusable fail-closed gate; this repo is public, so authorization —
+# not obscurity — is the control (ADR D-002 pattern).
+#
+# SECURITY:
+#   * The engine's output is METADATA-ONLY (unit-tested): batch counters + fixed status
+#     interpretations. Response bodies (which can carry user-report content) and secret values
+#     never appear — that is what makes tee-ing the output into a public issue comment safe.
+#   * The untrusted issue body is read as awk DATA via an env var, never inlined into a shell
+#     string; mode/environment are allow-listed, apps is passed as one argv element.
+#   * The cron secrets are exposed only to the engine step, only as env vars; the engine
+#     resolves them before the first POST and never prints them.
+#   * Firing prod deliberately requires Confirm = Yes: a prod run creates real GitHub issues
+#     and burns AI budget. dev runs and dry runs skip the confirm.
+
+on:
+  issues:
+    types:
+      - labeled
+
+permissions:
+  contents: read
+
+jobs:
+  authorize:
+    if: github.event.action == 'labeled' && github.event.label.name == 'ops:triage-reports'
+    uses: ./.github/workflows/_authorize-owner.yml
+
+  run:
+    name: Trigger reports triage
+    needs: authorize
+    if: >-
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'ops:triage-reports' &&
+      needs.authorize.outputs.authorized == 'true'
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+      issues: write
+    # Share the scheduled workflow's lock: overlapping fan-outs would race the apps'
+    # concurrency guards. Never cancel a live run — it may already have fired.
+    concurrency:
+      group: trigger-reports-triage
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Extract and validate fields
+        id: fields
+        env:
+          # Untrusted issue-form body — read only as awk DATA, never inlined into a command.
+          BODY: ${{ github.event.issue.body }}
+        run: |
+          field() {
+            awk -v lbl="### $1" '
+              { sub(/\r$/, "") }
+              $0 == lbl { cap = 1; next }
+              /^### / { cap = 0 }
+              cap && NF { print }
+            ' <<< "$BODY"
+          }
+          APPS="$(field "Apps" | head -1)"
+          ENVIRONMENT="$(field "Environment" | head -1)"
+          MODE="$(field "Mode" | head -1)"
+          CONFIRM="$(field "Confirm" | head -1)"
+
+          case "$ENVIRONMENT" in
+            dev|prod) ;;
+            *) echo "::error::invalid or missing environment: '${ENVIRONMENT}'"; exit 1 ;;
+          esac
+
+          case "$MODE" in
+            dry-run|execute) ;;
+            *) echo "::error::invalid or missing mode: '${MODE}'"; exit 1 ;;
+          esac
+
+          # Guard against shell/option smuggling in the free-text apps field: slugs are
+          # lowercase snake_case, comma-separated; "enabled"/"all" pass through. The engine
+          # re-validates against the registry either way.
+          APPS="${APPS:-all}"
+          case "$APPS" in
+            *[!a-z0-9_,]*) echo "::error::apps may only contain slugs (a-z, 0-9, _) separated by commas"; exit 1 ;;
+          esac
+
+          if [ "$MODE" = "execute" ] && [ "$ENVIRONMENT" = "prod" ]; then
+            case "$CONFIRM" in
+              "Yes"*) ;;
+              *) echo "::error::executing against prod creates real GitHub issues — set Confirm = 'Yes'."; exit 1 ;;
+            esac
+          fi
+
+          {
+            echo "apps=$APPS"
+            echo "environment=$ENVIRONMENT"
+            echo "mode=$MODE"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Fire triage
+        id: fire
+        env:
+          REPORTS_CRON_SECRET_FITNESS_APP: ${{ secrets.REPORTS_CRON_SECRET_FITNESS_APP }}
+          REPORTS_CRON_SECRET_TIFFANYS_SPACE: ${{ secrets.REPORTS_CRON_SECRET_TIFFANYS_SPACE }}
+          APPS: ${{ steps.fields.outputs.apps }}
+          ENVIRONMENT: ${{ steps.fields.outputs.environment }}
+          MODE: ${{ steps.fields.outputs.mode }}
+        run: |
+          set +e
+          args=(--apps "$APPS" --environment "$ENVIRONMENT")
+          if [ "$MODE" = "dry-run" ]; then
+            args+=(--dry-run)
+          fi
+          python scripts/trigger_triage.py "${args[@]}" | tee run.out
+          rc=${PIPESTATUS[0]}
+          set -e
+          {
+            echo "rc=$rc"
+            echo "summary=apps=${APPS} environment=${ENVIRONMENT} mode=${MODE} (exit ${rc})"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Comment summary on the issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          SUMMARY: ${{ steps.fire.outputs.summary }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "### Ops — reports-triage trigger result"
+            echo
+            echo "${SUMMARY:-Trigger did not run (denied, or an earlier step failed).}"
+            echo
+            if [ -f run.out ]; then
+              echo '```'
+              # Engine output is metadata-only (unit-tested): batch counters + fixed status
+              # interpretations — never response bodies or secret values.
+              cat run.out
+              echo '```'
+            fi
+            echo
+            echo "_See the [Actions run](${RUN_URL}) for details. Triage results land as GitHub issues on the app's board; ops guide: \`docs/guides/REPORTS_TRIAGE_OPS.md\`._"
+          } > comment.md
+          gh issue comment "$ISSUE" --repo "$REPO" --body-file comment.md
+
+      # Surface engine failures as a red run (the comment above already carries the detail).
+      - name: Fail the run if the engine errored
+        if: steps.fire.outputs.rc != '0'
+        env:
+          RC: ${{ steps.fire.outputs.rc }}
+        run: |
+          echo "::error::triage trigger exited ${RC} — see the issue comment / Actions log."
+          exit 1

@@ -581,3 +581,30 @@ activates:
   `PRIVATE_GH_PACKAGES.md` (W3.1). Related scope constraint recorded there and in report-form
   D-001: GH-Packages package scope must equal the repo owner, so the widget is
   `@needless2say/report-form` until the org move.
+
+**Update — 2026-07-14 (W4: the scheduled triage trigger — disarmed at birth, cicd v0.2.69).**
+The doorbell for the per-app AI triage: `scripts/trigger_triage.py` +
+`scripts/reports_registry.json` (one entry per app × environment) POST each selected app's
+`X-Cron-Secret`-gated `POST /reports/triage/cron`; the AI, PII redaction, and GitHub writes all
+stay in-process in the app (`kdf_reports`).
+
+- **Two workflows, one engine:** `trigger-reports-triage.yml` (weekly `cron '23 9 * * 1'` →
+  `--apps enabled --environment prod`, plus `workflow_dispatch`) and the owner-gated
+  `ops:triage-reports` issue form (dry-run/execute, dev/prod, result commented on the issue —
+  D-002 pattern). **Disarmed twice over** (plan directive 8): the schedule job is gated on the
+  unset `RUN_REPORTS_TRIAGE` repo variable AND every registry entry ships `enabled: false`;
+  manual runs need neither, so the pipeline is verifiable before it is armed.
+- **Failure semantics:** POSTs are never status-retried (a `502`-that-triaged must not
+  double-fire; PL-134 makes true double-fires safe anyway); all selected secrets resolve before
+  the first POST; per-app failures aggregate; a quiet week is green (`202`, `total_reports=0`).
+- **Metadata-only output (unit-tested):** success echoes whitelisted scalar batch counters;
+  non-2xx maps to fixed interpretations; response bodies (which can carry user report content)
+  and secret values never reach logs or issue comments.
+- **Secrets:** new dual-store registry entries `REPORTS_CRON_SECRET_FITNESS_APP` /
+  `_TIFFANYS_SPACE` (cicd-side copies; authoritative value = Terraform app-side; recipe
+  §8.13a). **Base-url identity is part of the threat model:** the tiffanys URLs were verified
+  to serve the Tiffany's Space openapi before being committed; the fitness URLs ship as `TODO_`
+  placeholders (their real Vercel domains carry random suffixes — the engine refuses explicit
+  requests against placeholders) — a cron secret POSTed to a look-alike host would leak it.
+- Ops guide: `docs/guides/REPORTS_TRIAGE_OPS.md` (arming checklist, per-app first-time wiring,
+  rotation order).

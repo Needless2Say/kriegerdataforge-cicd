@@ -1,0 +1,79 @@
+name: "Ops · Trigger reports triage"
+description: "Owner-only: fire the AI triage cron endpoint of one or more report-enabled apps."
+title: "[Ops] Trigger reports triage: "
+labels:
+  - ops
+assignees:
+  - Needless2Say
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Run reports triage now
+        Fires the `X-Cron-Secret`-gated `POST /reports/triage/cron` endpoint of each selected
+        app from `scripts/reports_registry.json` — the app then runs one AI triage batch
+        in-process (PII-redact → cluster → GitHub issues + board items). This is the manual
+        counterpart of the weekly `Trigger Reports Triage` schedule (which ships disarmed).
+        Owner-only — the backing workflow fails closed otherwise.
+
+        **When to run**
+        - Verifying the pipeline after wiring an app (start with `dry-run`, then `dev`).
+        - An on-demand triage between weekly runs (reports piled up, or the schedule is
+          still disarmed).
+        - After a red scheduled run: fix the cause, then re-fire here. POSTs are never
+          auto-retried; the app's concurrency guard (PL-134) makes re-firing safe.
+
+        > **Result comments are metadata-only** (batch counters + status interpretations);
+        > report content and secret values never appear. A quiet app is a green result
+        > (`total_reports=0`). Ops guide: `docs/guides/REPORTS_TRIAGE_OPS.md`.
+
+  - type: input
+    id: apps
+    attributes:
+      label: Apps
+      description: 'App slugs (comma-separated), "all", or "enabled" — e.g. `tiffanys_space`. Slugs live in `scripts/reports_registry.json`.'
+      value: "all"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      description: "Which deployment of the selected apps to fire."
+      options:
+        - dev
+        - prod
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      description: "dry-run = validate selection + secret presence and print the plan (nothing fires); execute = fire the endpoints."
+      options:
+        - dry-run
+        - execute
+    validations:
+      required: true
+
+  - type: dropdown
+    id: confirm
+    attributes:
+      label: Confirm
+      description: "Required for execute against prod (creates real GitHub issues + spends AI budget); ignored for dev and dry-run."
+      options:
+        - "No — do not run"
+        - "Yes — fire triage against prod"
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        ▶ **To run:** add the **`ops:triage-reports`** label to this issue.
+        Re-add the label to re-run (e.g. `dry-run` → `execute` on this same issue).
+        The result is commented here; report content and secret values never appear.

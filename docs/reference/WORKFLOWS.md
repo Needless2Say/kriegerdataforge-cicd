@@ -434,8 +434,8 @@ mismatch. The leading `_` + local-path usage signal it is **internal** — tenan
   `:28-29`).
 - **Permissions:** top-level `contents: read` (`:21-22`).
 - **Callers (this repo):** `ops-rotate-secrets.yml`, `ops-distribute-kit.yml`, `ops-setup-e2e.yml`,
-  `ops-provision-projects.yml`, `ops-distribute-app-secrets.yml`, `distribute-kit.yml`,
-  `distribute-gh-pat.yml`, `rotate-vercel-tokens.yml`.
+  `ops-provision-projects.yml`, `ops-distribute-app-secrets.yml`, `ops-triage-reports.yml`,
+  `distribute-kit.yml`, `distribute-gh-pat.yml`, `rotate-vercel-tokens.yml`.
 
 ```yaml
 # consumed only within kriegerdataforge-cicd
@@ -532,7 +532,7 @@ shown where it differs from top-level):
 
 ## Repo-internal event-triggered workflows
 
-The remaining twelve `.github/workflows/*.yml` (of 31 total: 19 `workflow_call` above + these 12) are
+The remaining fourteen `.github/workflows/*.yml` (of 33 total: 19 `workflow_call` above + these 14) are
 **not** `workflow_call`, so they cannot be `uses:`-d by a tenant. They run inside `kriegerdataforge-cicd` on schedules / issues / dispatch, and the ops ones are
 owner-gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for completeness of the
 `.github/workflows/` enumeration.
@@ -547,10 +547,12 @@ owner-gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for 
 | `ops-setup-e2e.yml` | `issues: labeled` (`ops:setup-e2e`) | arms an E2E-journey repo: writes `RUN_E2E_GATE=false`, `USE_GITHUB_APP=true`, copies `KDF_APP_ID`/`KDF_APP_PRIVATE_KEY`; validates target against the fixed 6-repo allow-list | `_authorize-owner` |
 | `ops-provision-projects.yml` | `issues: labeled` (`ops:provision-projects`) | issue-form front-end for `provision_projects.py` (`check`/`execute`): adopts/creates the 6 Projects v2 boards from `projects_registry.json`. Runs on an owner-staged **classic** PAT in `SECRET_VALUE_NEW` — neither an App token nor a fine-grained PAT can manage user-owned ProjectsV2 (ADR D-010 W1 finding) | `_authorize-owner` |
 | `ops-distribute-app-secrets.yml` | `issues: labeled` (`ops:distribute-app-secrets`) | issue-form front-end for `distribute_app_secrets.py` (`check`/`execute`): copies this repo's `KDF_APP_ID`/`KDF_APP_PRIVATE_KEY` to every consumer repo in `secret_registry.json` (`distribute_source_env` entries — the 12-repo registry list generalizes `ops-setup-e2e`'s fixed copy step). App token scoped `secrets:write` to exactly those repos; run after an App-key rotation (§8.3a) or when onboarding a consumer | `_authorize-owner` |
+| `ops-triage-reports.yml` | `issues: labeled` (`ops:triage-reports`) | issue-form front-end for `trigger_triage.py` (`dry-run`/`execute`, dev/prod) — the owner's "run triage now" button; fires the selected apps' `/reports/triage/cron` endpoints from `reports_registry.json` and comments the metadata-only result (executing against prod requires the Confirm dropdown). Ops guide: `docs/guides/REPORTS_TRIAGE_OPS.md` | `_authorize-owner` |
 | `distribute-kit.yml` | `workflow_dispatch` (`mode` check/distribute, `only`, `repos`) + weekly `schedule` (drift alarm) | runs `distribute_kit.py`; opens one sync PR per drifted repo | `_authorize-owner` (dispatch only) |
 | `distribute-gh-pat.yml` | `workflow_dispatch` | distributes a staged `GH_PACKAGES_PAT_NEW` via `rotate_secret.py --mode paste` | `_authorize-owner` |
 | `rotate-vercel-tokens.yml` | monthly `schedule` + `workflow_dispatch` | re-mints the shared `VERCEL_DEPLOYMENT_TOKEN` (`--mode generate`, 45-day life) and opens a PR stamping the new expiry | `_authorize-owner` (dispatch only) |
 | `check-secret-expiry.yml` | weekly `schedule` (Mon 09:00 UTC) + `workflow_dispatch` | `rotate_secret.py --mode check --secrets all` (registry metadata only); keeps one dedup tracking issue (`ops:secret-expiry`) open/closed | n/a (`issues:write`) |
+| `trigger-reports-triage.yml` | weekly `schedule` (Mon 09:23 UTC) + `workflow_dispatch` (`apps`, `environment`, `dry_run`) | `trigger_triage.py`: POSTs each selected app's `X-Cron-Secret`-gated `/reports/triage/cron` (`reports_registry.json`). **Disarmed at birth**: the schedule job requires `vars.RUN_REPORTS_TRIAGE == 'true'` AND per-app registry `enabled: true`; scheduled runs = enabled apps against prod. POSTs never status-retried; output metadata-only | n/a (dispatch is maintainer-only by repo perms; schedule gated by `RUN_REPORTS_TRIAGE`) |
 
 `GH_PACKAGES_PAT` distribution, Vercel/kit ops, and the App-secret distribution mint short-lived
 **GitHub App** tokens when `vars.USE_GITHUB_APP == 'true'`, falling back to `CICD_PAT`
