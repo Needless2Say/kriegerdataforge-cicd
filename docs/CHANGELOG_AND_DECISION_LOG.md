@@ -608,3 +608,52 @@ stay in-process in the app (`kdf_reports`).
   requests against placeholders) — a cron secret POSTed to a look-alike host would leak it.
 - Ops guide: `docs/guides/REPORTS_TRIAGE_OPS.md` (arming checklist, per-app first-time wiring,
   rotation order).
+
+## D-011 — Agentic-Workflow Standard v1.4: the reports standard joins the kit
+
+- **Date:** 2026-07-14
+- **Status:** Accepted
+- **Tier / scope:** Epic close-out (reports-ecosystem D-010, Wave 6) · kit v1.3.0 → **v1.4.0** ·
+  all 16 kit-synced repos
+
+**Context.** Waves 0–5 built and proved the reports standard end-to-end — six provisioned boards,
+two certified packages (`kdf_reports` v0.2.0, `@needless2say/report-form` v0.2.1), both app
+stacks migrated (tiffanys' broken pipeline reconnected), the disarmed weekly trigger, and
+dark-by-default template bundling. Per the epic's directive 9, the standard is documented only
+where it was built; agents landing in any OTHER repo (or a future generated app) had no kit-level
+statement of what the standard is, what must not be weakened, or where the worked examples live.
+
+**Decision.** Ship an **additive kit minor — v1.4.0**: one new kit file,
+`docs/agent/REPORTS_STANDARD.md` (skills.md-style *(app repos)* annotations, since the kit syncs
+to every repo type): the pipeline in one paragraph, the two certified packages + tag-pinning
+rules, backend/frontend adoption recipes (alembic template revision, env block, BFF allow-list
+gotcha, `GH_NPM_TOKEN` classic-only), the trigger-enrollment runbook pointer, the DO-NOT-WEAKEN
+security posture (PII redaction boundaries, server-stamped `app_slug`, PL-117 label allow-list,
+fail-closed cron, human-only Priority, reserved `Repo` field), the six-board catalog pointer,
+and a per-repo-type applicability table. Registry `files[]` grows **12 → 13**; both
+`KIT_VERSION` markers bump together to `v1.4.0`; cicd's root copies hand-synced (README index
+row included). Rider: `GH_NPM_TOKEN`'s registry targets += `template-nextjs` (W5.2 bundled the
+widget there; the secret itself is an owner paste/copy).
+
+**Alternatives considered.** Folding the content into `AGENT_OPERATING_STANDARD.md` (rejected:
+it's a domain standard, not an operating principle; skills.md set the precedent for
+repo-type-annotated domain docs) · a per-repo doc only in adopting repos (rejected: the kit's
+whole point is that every agent sees the same standard — non-adopting repos get the
+applicability table).
+
+**Consequences.** Owner runs **Distribute** (`ops:distribute-kit`) to fan v1.4.0 out to the 16
+consumer repos (kit-only PRs are version-gate-exempt; the weekly drift alarm stays red until
+distributed). Future reports-standard changes update the packages first, then this kit doc in
+the same wave.
+
+**Epic close-out (D-010).** All seven waves delivered: W0 hub tracker · W1 boards engine + 6
+live boards (classic-PAT finding) · W2 `kdf_reports` v0.1.0 + both backends + terraform +
+`ops:distribute-app-secrets` · W3 `@needless2say/report-form` v0.2.1 published privately
+(workflow_run publish fix; `GH_NPM_TOKEN` model — GH Packages is classic-PAT/GITHUB_TOKEN only)
++ both frontend swaps (tiffanys pipeline reconnected) · W4 the disarmed weekly trigger +
+v0.2.0 board field-setting (+ the reports-sdk unit-CI silent-skip repair) · W5 template
+bundling (fastapi dark flag; nextjs widget + example) + collaborator onboarding docs · W6 this
+kit release. Post-epic review backlog lives at the end of the hub PLAN doc (nextjs-parity epic,
+hub adoption, fitness TriageDashboard port, terraform backfill of fitness `GH_REPORTS_*`, E2E
+journey extension). Runtime arming (cron secrets, base_urls, board Status reshape, schedule
+variables) remains owner-paced — the standard ships complete and OFF.

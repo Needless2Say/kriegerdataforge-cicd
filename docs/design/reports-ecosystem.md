@@ -1,6 +1,6 @@
 # Design — the reports-ecosystem standard (GitHub Projects + AI bug reporter)
 
-> **Status:** In progress (Wave 4) · **ADR:** D-010 (this repo's changelog) · **Epic tracker:**
+> **Status:** Delivered (epic close-out D-011, kit v1.4.0) · **ADR:** D-010 (this repo's changelog) · **Epic tracker:**
 > `kriegerdataforge/docs/epics/reports-ecosystem-standard-PLAN.md` (+ `-LOG.md`) — the hub owns
 > the cross-repo tracking; this doc owns the cicd-side design decisions.
 

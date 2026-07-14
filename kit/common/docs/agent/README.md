@@ -25,6 +25,7 @@ deep-dives (`<slug>.md`) may live alongside these files and are repo-owned.
 | [`DEFINITION_OF_DONE.md`](DEFINITION_OF_DONE.md) | The real bar beyond "CI is green", scaled by change type | **Before opening any PR** |
 | [`DESIGN_AND_EPICS.md`](DESIGN_AND_EPICS.md) | The design gate + cross-repo Epic playbook (design doc → ADR → approval → vertical slices) | Anything complex, novel, or spanning repos |
 | [`DOCUMENTATION_STANDARD.md`](DOCUMENTATION_STANDARD.md) | How repo docs are organized, kept honest, and kept discoverable (taxonomy, README front door, deprecate-with-banner) | Any documentation work |
+| [`REPORTS_STANDARD.md`](REPORTS_STANDARD.md) | The reports standard: the six Projects boards + the AI bug reporter — certified packages, adoption recipes, security posture, per-repo-type applicability | Touching reports/boards/triage, or adopting the feature in an app |
 | [`templates/design-spec.template.md`](templates/design-spec.template.md) | Copy-me 10-section design spec → `docs/design/{feature}.md` | The design gate applies |
 | [`templates/adr-entry.template.md`](templates/adr-entry.template.md) | Copy-me ADR block → `docs/CHANGELOG_AND_DECISION_LOG.md` | Recording an architectural decision (`D-NNN`) |
 | [`templates/epic-tracker.template.md`](templates/epic-tracker.template.md) | Copy-me tracker → `kriegerdataforge/docs/epics/{name}.md` (the hub) | Coordinating a cross-repo Epic |

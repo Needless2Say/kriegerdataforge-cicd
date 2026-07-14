@@ -85,7 +85,7 @@ These are in `scripts/secret_registry.json`, so the engine rotates them across e
 |---|---|---|
 | `VERCEL_DEPLOYMENT_TOKEN` | **generate** (Vercel API) | one shared token that both deploys and manages → every app repo's `prod`/`dev` env **and** the terraform repo's `prod`/`dev` env (feeds `TF_VAR_vercel_api_token`) |
 | `GH_PACKAGES_PAT` | **paste** (GitHub can't mint PATs) | backend repos' `prod`/`dev` env + non-Terraform Vercel project vars — **fine-grained; Python `git+https` installs ONLY** |
-| `GH_NPM_TOKEN` | **paste** (GitHub can't mint PATs) | frontend consumer repos (repo-level) + frontend Vercel project vars — **classic `read:packages`; the npm GH-Packages credential** (fine-grained/App tokens are rejected by GH Packages, §8.2a) |
+| `GH_NPM_TOKEN` | **paste** (GitHub can't mint PATs) | frontend consumer repos + `template-nextjs` (repo-level) + frontend Vercel project vars — **classic `read:packages`; the npm GH-Packages credential** (fine-grained/App tokens are rejected by GH Packages, §8.2a) |
 | `REPORTS_CRON_SECRET_FITNESS_APP` / `_TIFFANYS_SPACE` | **paste** (dual-store copy) | THIS repo (repo-level) — the caller-side copies the reports-triage trigger sends as `X-Cron-Secret`. **Authoritative value is Terraform app-side** (`reports_cron_secret` tfvars, same value in both env roots); rotate there first, then paste here (§8.13a) |
 
 ### Environment secrets — NOT engine-managed (rotate by hand §5, or via Terraform)
