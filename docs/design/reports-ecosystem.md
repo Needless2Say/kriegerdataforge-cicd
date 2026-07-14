@@ -1,6 +1,6 @@
 # Design — the reports-ecosystem standard (GitHub Projects + AI bug reporter)
 
-> **Status:** In progress (Wave 2) · **ADR:** D-010 (this repo's changelog) · **Epic tracker:**
+> **Status:** In progress (Wave 4) · **ADR:** D-010 (this repo's changelog) · **Epic tracker:**
 > `kriegerdataforge/docs/epics/reports-ecosystem-standard-PLAN.md` (+ `-LOG.md`) — the hub owns
 > the cross-repo tracking; this doc owns the cicd-side design decisions.
 
@@ -102,6 +102,38 @@ Wave 2.5 ships the cicd plumbing the package model needs:
   W3.5 after the GH-Packages auth spike.
 - **Registry deltas:** `GH_PACKAGES_PAT` targets += `kriegerdataforge-reports-sdk` (its CI
   installs `kdf_sdk` as a peer dep); `kit_registry.json` repos += both package repos.
+
+## Triage trigger (W4, `trigger_triage.py`)
+
+The scheduled doorbell for decision 3, deliberately thin — the app owns everything hard:
+
+- **Registry-driven** (`scripts/reports_registry.json`, one entry per app × environment;
+  onboarding = a registry edit, AGENTS.md rule 12) with selection modes `enabled` (the
+  scheduled default), `all`, and explicit slugs. **Disarmed twice over at birth**: the schedule
+  job requires the (unset) `RUN_REPORTS_TRIAGE` repo variable AND per-entry `enabled: true`;
+  manual dispatch / the `ops:triage-reports` issue form need neither, so verification precedes
+  arming. Scheduled runs always target prod.
+- **POSTs are never status-retried** (`build_session` retries statuses only for GET/PUT/HEAD):
+  a `502`-that-actually-triaged must not double-fire a batch — re-runs are manual, and the
+  app-side PL-134 concurrency guard (`409`) absorbs true double-fires. All selected cron
+  secrets resolve BEFORE the first POST (a mis-wired run fires nothing, never half a fan-out);
+  per-app failures aggregate. A quiet week is green (`202`, `total_reports=0`).
+- **Metadata-only output (unit-tested invariant):** success echoes a whitelist of scalar batch
+  counters; non-2xx statuses map to fixed local interpretations and response bodies are never
+  echoed — cluster payloads / `error_message` can carry user report content, which must not
+  reach public Actions logs or issue comments (this is what makes the ops form's tee-to-comment
+  safe). Connection errors print the exception type only.
+- **`base_url` identity is a security property**: the secret goes wherever the URL points, so
+  a look-alike host would capture it. The tiffanys URLs were committed only after verifying
+  they serve the Tiffany's Space openapi (the bare subdomain IS the prod project; `-dev` is
+  dev); the fitness URLs ship as engine-refused `TODO_` placeholders because their real Vercel
+  domains carry random suffixes (the `kriegerdataforge-backend-gilt` pattern) and were not
+  derivable — never guess a base_url. The fitness dev project additionally sits behind Vercel
+  deployment protection (SSO), recorded in the registry notes.
+- **Dual-store cron secrets** (`REPORTS_CRON_SECRET_FITNESS_APP` / `_TIFFANYS_SPACE`):
+  authoritative value = Terraform app-side (`reports_cron_secret`, same value in both env
+  roots so ONE cicd copy serves both); rotate app-side first, then paste the cicd copy
+  (§8.13a). Registry entries are ordinary paste-kind rotation entries targeting this repo.
 
 ## Relationship to `agents/`
 

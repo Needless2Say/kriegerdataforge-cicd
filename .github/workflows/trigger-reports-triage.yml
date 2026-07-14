@@ -1,0 +1,112 @@
+name: Trigger Reports Triage
+
+# Scheduled trigger for the reports-ecosystem AI triage (epic Wave 4, ADR D-010): POSTs each
+# selected app's X-Cron-Secret-gated /reports/triage/cron endpoint via scripts/trigger_triage.py
+# (registry: scripts/reports_registry.json). The AI + PII redaction + GitHub writes all run
+# IN-PROCESS in the app — this workflow only rings the doorbell. Orchestration lives in GitHub
+# Actions (not Vercel cron / a cloud scheduler) by owner decision: it must survive a cloud move.
+#
+# DISABLED AT BIRTH, twice over (plan directive 8):
+#   1. The schedule job is gated on the repo variable RUN_REPORTS_TRIAGE == 'true' (unset by
+#      default — scheduled runs show as skipped until the owner sets it).
+#   2. Every registry entry ships `enabled: false`, and the scheduled selection (--apps enabled)
+#      fires only enabled entries — so even an armed schedule is a green no-op until an app is
+#      deliberately flipped in the registry.
+# When armed: weekly, Monday early morning (09:23 UTC — offset minute to dodge the on-the-hour
+# Actions cron rush). Scheduled runs target PROD (that is where user reports accumulate).
+#
+# Manual runs: workflow_dispatch here (any apps/environment/dry-run), or the owner-gated
+# ops:triage-reports issue form (ops-triage-reports.yml). Manual dispatch does NOT require
+# RUN_REPORTS_TRIAGE — verification must be possible before the schedule is armed.
+#
+# FAILURE SEMANTICS (docs/guides/REPORTS_TRIAGE_OPS.md): POSTs are never status-retried (the
+# engine's session retries statuses only for GET/PUT/HEAD), so a 502-that-actually-triaged
+# cannot double-fire; the app's PL-134 concurrency guard makes even a true double-fire safe.
+# A red run means "look", not "retry loop". A quiet week is green (202, total_reports=0).
+#
+# SECURITY: the engine's output is METADATA-ONLY (unit-tested) — batch counters and fixed
+# status interpretations; response bodies (which can carry report content) and secret values
+# never reach the log or the step summary. The cron secrets are cicd-side COPIES; the
+# authoritative values are Terraform app-side (SECRET_ROTATION.md §8.13a).
+
+on:
+  schedule:
+    - cron: "23 9 * * 1"
+  workflow_dispatch:
+    inputs:
+      apps:
+        description: 'App slugs (CSV), "enabled", or "all" (see scripts/reports_registry.json)'
+        required: false
+        default: "all"
+        type: string
+      environment:
+        description: "Target environment"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - prod
+      dry_run:
+        description: "Validate selection + secret presence and print the plan without firing"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+# One trigger at a time: overlapping fan-outs would race the apps' concurrency guards and
+# muddy which run a batch belongs to. Never cancel a live one — it may already have fired.
+concurrency:
+  group: trigger-reports-triage
+  cancel-in-progress: false
+
+jobs:
+  trigger:
+    name: Fire triage cron endpoints
+    # Schedule obeys the RUN_REPORTS_TRIAGE arm switch; manual dispatch always may run.
+    if: github.event_name == 'workflow_dispatch' || vars.RUN_REPORTS_TRIAGE == 'true'
+    runs-on: ubuntu-slim
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Fire triage
+        env:
+          # cicd-side copies of each app's REPORTS_CRON_SECRET (registry cron_secret_env).
+          # The engine resolves ALL selected apps' secrets before the first POST and never
+          # prints a value.
+          REPORTS_CRON_SECRET_FITNESS_APP: ${{ secrets.REPORTS_CRON_SECRET_FITNESS_APP }}
+          REPORTS_CRON_SECRET_TIFFANYS_SPACE: ${{ secrets.REPORTS_CRON_SECRET_TIFFANYS_SPACE }}
+          # Scheduled runs: only registry-enabled apps, against prod, never dry.
+          APPS: ${{ github.event_name == 'schedule' && 'enabled' || inputs.apps }}
+          ENVIRONMENT: ${{ github.event_name == 'schedule' && 'prod' || inputs.environment }}
+          DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
+        run: |
+          set +e
+          args=(--apps "$APPS" --environment "$ENVIRONMENT")
+          if [ "$DRY_RUN" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          python scripts/trigger_triage.py "${args[@]}" | tee run.out
+          rc=${PIPESTATUS[0]}
+          set -e
+          {
+            echo "### Reports triage trigger — ${ENVIRONMENT} (apps: ${APPS})"
+            echo
+            echo '```'
+            # Engine output is metadata-only (unit-tested): counters + fixed status
+            # interpretations; never response bodies or secret values.
+            cat run.out
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"

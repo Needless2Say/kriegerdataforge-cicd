@@ -1,0 +1,37 @@
+{
+  "_comment": "Registry for the scheduled reports-triage trigger (scripts/trigger_triage.py, reports-ecosystem epic Wave 4, ADR D-010). One entry per (app_slug, environment); the workflow POSTs {base_url}/reports/triage/cron with the X-Cron-Secret header sourced from the cicd repo secret named by cron_secret_env (the SAME secret serves both of an app's environments, so keep the dev/prod tfvars values identical — SECRET_ROTATION.md §8.13a). `enabled` gates SCHEDULED runs only (all false at birth = the weekly cron is a no-op even once the RUN_REPORTS_TRIAGE repo variable is set); manual dispatch can name any entry explicitly. base_url values starting with TODO_ are unconfigured: explicit requests against them fail fast, bulk selections skip them with a warning. `notes` is documentation only — the engine ignores it.",
+  "apps": [
+    {
+      "app_slug": "fitness_app",
+      "environment": "dev",
+      "base_url": "TODO_fitness_backend_dev_base_url",
+      "cron_secret_env": "REPORTS_CRON_SECRET_FITNESS_APP",
+      "enabled": false,
+      "notes": "Owner: fill from the Vercel dashboard (fitness backend dev project -> Domains). The dev project sits behind Vercel deployment protection (SSO redirect, verified 2026-07-14) — the URL alone is not enough; disable protection for this project or wire a protection-bypass before enabling."
+    },
+    {
+      "app_slug": "fitness_app",
+      "environment": "prod",
+      "base_url": "TODO_fitness_backend_prod_base_url",
+      "cron_secret_env": "REPORTS_CRON_SECRET_FITNESS_APP",
+      "enabled": false,
+      "notes": "Owner: fill from the Vercel dashboard (fitness backend prod project -> Domains). The plain fitness-app-backend.vercel.app subdomain belongs to another Vercel user (verified 2026-07-14), so the real domain carries a Vercel-assigned suffix (the kriegerdataforge-backend-gilt pattern)."
+    },
+    {
+      "app_slug": "tiffanys_space",
+      "environment": "dev",
+      "base_url": "https://tiffanys-space-backend-dev.vercel.app",
+      "cron_secret_env": "REPORTS_CRON_SECRET_TIFFANYS_SPACE",
+      "enabled": false,
+      "notes": "Identity verified 2026-07-14: serves the Tiffany's Space API openapi. The deployed build predated the reports module (no /reports routes yet) — redeploy the backend before first firing."
+    },
+    {
+      "app_slug": "tiffanys_space",
+      "environment": "prod",
+      "base_url": "https://tiffanys-space-backend.vercel.app",
+      "cron_secret_env": "REPORTS_CRON_SECRET_TIFFANYS_SPACE",
+      "enabled": false,
+      "notes": "Identity verified 2026-07-14: the BARE subdomain is the prod project (the -dev sibling has its own); serves the Tiffany's Space API openapi. The deployed build predated the reports module (no /reports routes yet) — redeploy the backend before first firing."
+    }
+  ]
+}

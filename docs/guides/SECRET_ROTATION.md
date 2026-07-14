@@ -86,6 +86,7 @@ These are in `scripts/secret_registry.json`, so the engine rotates them across e
 | `VERCEL_DEPLOYMENT_TOKEN` | **generate** (Vercel API) | one shared token that both deploys and manages → every app repo's `prod`/`dev` env **and** the terraform repo's `prod`/`dev` env (feeds `TF_VAR_vercel_api_token`) |
 | `GH_PACKAGES_PAT` | **paste** (GitHub can't mint PATs) | backend repos' `prod`/`dev` env + non-Terraform Vercel project vars — **fine-grained; Python `git+https` installs ONLY** |
 | `GH_NPM_TOKEN` | **paste** (GitHub can't mint PATs) | frontend consumer repos (repo-level) + frontend Vercel project vars — **classic `read:packages`; the npm GH-Packages credential** (fine-grained/App tokens are rejected by GH Packages, §8.2a) |
+| `REPORTS_CRON_SECRET_FITNESS_APP` / `_TIFFANYS_SPACE` | **paste** (dual-store copy) | THIS repo (repo-level) — the caller-side copies the reports-triage trigger sends as `X-Cron-Secret`. **Authoritative value is Terraform app-side** (`reports_cron_secret` tfvars, same value in both env roots); rotate there first, then paste here (§8.13a) |
 
 ### Environment secrets — NOT engine-managed (rotate by hand §5, or via Terraform)
 
@@ -439,6 +440,29 @@ One-time value shown at client registration; kdf-auth never returns it again —
 #### 8.13 `CRON_SECRET`
 - Generate a new high-entropy value → update `*_cron_secret` tfvars → `terraform apply` → verify the cron
   endpoint accepts the new bearer (and rejects the old).
+
+#### 8.13a `REPORTS_CRON_SECRET` (dual-store: app-side value + cicd-side copy)
+
+The `X-Cron-Secret` for each app's `POST /reports/triage/cron` (the reports-triage trigger,
+`docs/guides/REPORTS_TRIAGE_OPS.md`). It lives in TWO places that must match: the app env
+(Terraform `reports_cron_secret` in the app's module — **the authoritative value**; keep the
+dev and prod environment roots on the SAME value) and a cicd repo-secret copy the trigger reads
+(`REPORTS_CRON_SECRET_FITNESS_APP` / `REPORTS_CRON_SECRET_TIFFANYS_SPACE`).
+
+- **When:** first wiring of an app (epic Wave 4), scheduled hygiene, or leaked.
+- **Steps (order matters — app side FIRST):**
+  1. Generate: `openssl rand -hex 32`.
+  2. App side: set `reports_cron_secret` in the app's tfvars in **both** environment roots →
+     `terraform apply` (terraform repo). Redeploy is not needed — Vercel env changes apply to
+     the next invocation.
+  3. cicd side: stage the same value in **`SECRET_VALUE_NEW`** → issue form → secret =
+     `REPORTS_CRON_SECRET_<APP>`, mode **paste**, Confirm = Yes, label `ops:rotate-secrets`.
+     *(One app per paste run — the two apps hold different values.)*
+  4. **Delete** the staging secret.
+- **Verify:** `ops:triage-reports` issue form → the app, `dev`, mode `execute` → expect
+  `accepted (202)`; a stale copy answers `401`, an unset app side `503`.
+- **🚨 If leaked:** blast radius is "can start a triage batch" (rate-limited by the app's
+  PL-134 concurrency guard; no data read-back). Rotate at normal priority via the steps above.
 
 #### 8.14 Provider keys — `AUTH_RESEND_API_KEY`, `AUTH_TWILIO_*`, `RATELIMIT_STORAGE_URI`
 - Rotate at the provider (Resend / Twilio / Upstash) → update the matching tfvars → `terraform apply` →
