@@ -38,6 +38,16 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
+        env:
+          # Private GH-Packages npm auth (reports-ecosystem epic W3.5): consumers that
+          # depend on @needless2say/* commit an .npmrc interpolating ${GH_NPM_TOKEN} — a
+          # CLASSIC read:packages PAT. GH Packages rejects fine-grained PATs and App
+          # installation tokens (docs-verified), so unlike the ci-python lanes there is
+          # no App-token path here. Always exported (empty when the caller has no such
+          # secret): token-less consumers are unaffected, and a consumer with the .npmrc
+          # but no secret gets a clean 401 on the private fetch instead of npm's
+          # confusing "Failed to replace env in config" error.
+          GH_NPM_TOKEN: ${{ secrets.GH_NPM_TOKEN }}
         run: npm ci
 
       - name: Build

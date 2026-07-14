@@ -155,7 +155,9 @@ Deploy a Next.js app to a Vercel project (`npm ci` → `vercel --prod --yes --to
 | `version` | string | — | **yes** — tag to deploy, e.g. `1.2.0` (`:36-39`) |
 
 - **Secrets read (via `inherit`):** `VERCEL_DEPLOYMENT_TOKEN` (repo-level), `VERCEL_ORG_ID`,
-  `VERCEL_PROJECT_ID` (per-environment; job fails fast if unset — `:101-113`).
+  `VERCEL_PROJECT_ID` (per-environment; job fails fast if unset — `:101-113`), optional
+  `GH_NPM_TOKEN` (classic `read:packages`, exported to `npm ci` for private GH-Packages deps;
+  Vercel's remote build reads its own project env var instead).
 - **Outputs:** none.
 - **Permissions:** `deploy` job — `contents: read`, `id-token: write` (Vercel OIDC) (`:82-84`).
 - **Consumers:** `fitness-app-frontend`, `tiffanys-space` (and `kriegerdataforge-auth-ui`,
@@ -296,7 +298,12 @@ jobs:
 ### Next.js / Node CI
 
 All four check out, set up Node (`cache: npm`), `npm ci`, then run a `make` target. None declares a
-`permissions:` block (relies on the caller/default token). None reads secrets.
+`permissions:` block (relies on the caller/default token). The only secret they read (via
+`secrets: inherit`, optional) is **`GH_NPM_TOKEN`** — a CLASSIC `read:packages` PAT exported to the
+`npm ci` step for consumers whose committed `.npmrc` routes `@needless2say/*` to private GitHub
+Packages (reports-ecosystem W3.5). Empty/absent for token-less consumers, which changes nothing.
+There is deliberately **no App-token path here**: GH Packages rejects fine-grained PATs and GitHub
+App installation tokens (classic PAT / `GITHUB_TOKEN` only — see `SECRET_ROTATION.md` §8.2a).
 
 | Workflow | Inputs (all `type: string` unless noted) | Runs | Notes |
 |---|---|---|---|

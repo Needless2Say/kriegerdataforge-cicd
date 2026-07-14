@@ -30,9 +30,19 @@ Promote it to an ecosystem standard in 7 waves (see the hub tracker for the full
    app's `X-Cron-Secret`-gated `/reports/triage/cron` endpoint; AI + redaction + GitHub writes
    stay in-process in the app. Ships **disabled** (`RUN_REPORTS_TRIAGE` unset + per-app
    `enabled:false`); when armed: weekly, Monday early morning.
-4. **Auth is App-first for package downloads; a short-lived classic PAT for board provisioning.**
-   ONE GitHub App, installed account-wide, mints short-lived installation tokens for package
-   downloads; `GH_PACKAGES_PAT` (full read, all repos) serves only local dev + Vercel builds.
+4. **Auth is App-first for PYTHON package downloads; a short-lived classic PAT for board
+   provisioning; a dedicated classic PAT for npm.**
+   ONE GitHub App, installed account-wide, mints short-lived installation tokens for the pip
+   `git+https` installs; `GH_PACKAGES_PAT` (fine-grained, full read) serves only local dev +
+   Vercel builds on the Python side. **npm is the second exception (W3 spike, docs-verified
+   2026-07): GitHub Packages accepts ONLY classic PATs or the Actions `GITHUB_TOKEN`** — it
+   rejects fine-grained PATs (so `GH_PACKAGES_PAT` can never serve npm) and GitHub Apps have no
+   Packages permission at all (the planned W3.5 "App-token npm plumb" is not viable). The npm
+   model is therefore: publish from the package repo with its own `GITHUB_TOKEN`
+   (`packages:write`, zero secrets); consume via **`GH_NPM_TOKEN`** (classic, `read:packages`
+   only — registry entry + §8.2a recipe) or, for consumer CI, a zero-secret per-repo
+   **Actions-access grant** on the package. The GH-Packages scope must equal the repo owner, so
+   the widget publishes as `@needless2say/report-form` until the org move.
    **Board provisioning is the exception (resolved W1 finding, 2026-07-12):** neither a GitHub App
    token nor a fine-grained PAT can create/modify user-owned Projects v2 — GitHub exposes a Projects
    permission only for organizations, so on a personal account `createProjectV2` on a user `ownerId`

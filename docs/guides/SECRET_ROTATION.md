@@ -84,7 +84,8 @@ These are in `scripts/secret_registry.json`, so the engine rotates them across e
 | Secret | Mode | Lives in (env secret) |
 |---|---|---|
 | `VERCEL_DEPLOYMENT_TOKEN` | **generate** (Vercel API) | one shared token that both deploys and manages → every app repo's `prod`/`dev` env **and** the terraform repo's `prod`/`dev` env (feeds `TF_VAR_vercel_api_token`) |
-| `GH_PACKAGES_PAT` | **paste** (GitHub can't mint PATs) | backend repos' `prod`/`dev` env + non-Terraform Vercel project vars |
+| `GH_PACKAGES_PAT` | **paste** (GitHub can't mint PATs) | backend repos' `prod`/`dev` env + non-Terraform Vercel project vars — **fine-grained; Python `git+https` installs ONLY** |
+| `GH_NPM_TOKEN` | **paste** (GitHub can't mint PATs) | frontend consumer repos (repo-level) + frontend Vercel project vars — **classic `read:packages`; the npm GH-Packages credential** (fine-grained/App tokens are rejected by GH Packages, §8.2a) |
 
 ### Environment secrets — NOT engine-managed (rotate by hand §5, or via Terraform)
 
@@ -306,6 +307,35 @@ A single engine-minted, account-scoped Vercel token that both **deploys** and **
   5. **Delete** the staging secret. **Revoke** the old PAT in the GitHub UI.
 - **Verify:** a backend build that pip-installs the private packages (`kdf_sdk` / `kdf_reports`) succeeds.
 - **🚨 If leaked:** do step 5's revoke **first**, then 1–4.
+
+#### 8.2a `GH_NPM_TOKEN` (classic PAT — the npm GitHub-Packages credential)
+
+The npm sibling of §8.2 with one hard difference: **it must be a CLASSIC token.** GitHub Packages
+rejects fine-grained PATs and GitHub App installation tokens outright (reports-ecosystem W3 spike,
+docs-verified), which is exactly why `GH_PACKAGES_PAT` cannot serve npm. It authenticates installs
+of the private GH-Packages npm packages (`@needless2say/report-form`; `@kriegerdataforge/*` after
+the org move) in consumer CI, Vercel builds, Docker builds, and local dev.
+
+- **When:** first mint (epic W3.3 needs it), the `check` workflow warns of expiry, or leaked.
+- **Steps:**
+  1. Create a **classic** PAT at <https://github.com/settings/tokens> (Tokens (classic)): name
+     `kdf-npm-packages-read`, expiration ≤ 1 year, scope **`read:packages` ONLY** (nothing else —
+     no `repo`).
+  2. Stage it in the **`SECRET_VALUE_NEW`** repo secret. **Never put the value in the issue.**
+  3. Run: issue form → `GH_NPM_TOKEN`, mode **paste**, Confirm = Yes, label `ops:rotate-secrets`.
+     *(Vercel targets with `TODO` project ids are skipped until the ids are filled in the
+     registry; set those project env vars by hand or fill the ids first.)*
+  4. On FIRST mint: add a `check` block to the `GH_NPM_TOKEN` registry entry
+     (`{ "expiry": "YYYY-MM-DD", "warn_days_before_expiry": 14 }`) so the weekly monitor tracks
+     it; on later rotations update `check.expiry`. Commit.
+  5. **Delete** the staging secret. **Revoke** the old token (skip on first mint).
+- **Verify:** a consumer repo CI run (fitness-app-frontend) installs `@needless2say/report-form`;
+  or locally `GH_NPM_TOKEN=<value> npm ci` in a consumer checkout.
+- **Zero-secret alternative for consumer CI:** a per-repo **Actions access** grant on the package
+  lets a consumer's own `GITHUB_TOKEN` install it — prefer that where it fits; this token then
+  only covers Vercel/local/Docker (see the npm template's `PRIVATE_GH_PACKAGES.md`).
+- **🚨 If leaked:** revoke **first**, then re-mint + paste. Blast radius is read-only package
+  access (the scope grants nothing else).
 
 ### CI-plane — repository (control-plane) secrets, by hand
 
