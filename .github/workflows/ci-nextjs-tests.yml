@@ -22,6 +22,12 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
+        env:
+          # Private GH-Packages npm auth (reports-ecosystem epic W3.5): consumers that
+          # depend on @needless2say/* commit an .npmrc interpolating ${GH_NPM_TOKEN} — a
+          # CLASSIC read:packages PAT (GH Packages rejects fine-grained PATs and App
+          # installation tokens). Always exported; empty for token-less consumers.
+          GH_NPM_TOKEN: ${{ secrets.GH_NPM_TOKEN }}
         run: npm ci
 
       - name: Unit tests

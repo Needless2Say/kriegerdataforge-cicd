@@ -557,3 +557,27 @@ The Wave-2 close-out ships the two cicd-side pieces the Consequences block promi
   `ops-provision-projects.yml` row (missed in v0.2.64) and adds the new flow;
   SECRET_ROTATION §8.2's PAT recipe now names BOTH package repos (a token scoped to one breaks
   the other's installs).
+
+**Update — 2026-07-13 (W3.5: npm GH-Packages token model — the App-token plan is NOT viable,
+cicd v0.2.68).** The W3 auth spike resolved against the plan's happy path, by GitHub docs
+(*"GitHub Packages only supports authentication using a personal access token (classic)"*, plus
+the Actions `GITHUB_TOKEN`) and confirmed live by the `@needless2say/report-form` publish
+pipeline: **GH Packages rejects fine-grained PATs** (so `GH_PACKAGES_PAT` can never serve npm —
+there is no scope to add) **and GitHub Apps have no Packages permission at all** (nothing to
+grant; the planned "ci-nextjs App-token npm plumb" is impossible). The plan's documented fallback
+activates:
+
+- **`GH_NPM_TOKEN`** — a new classic PAT, `read:packages` ONLY — is the ecosystem npm-install
+  credential for consumer CI, Vercel builds, Docker builds, and local dev. New paste-mode
+  registry entry (repo-level secrets on `fitness-app-frontend` + `tiffanys-space`; Vercel
+  frontend-project env vars with TODO ids the engine skips until filled — Terraform backfill is
+  a post-epic review item) + rotation recipe §8.2a (first-mint adds the `check` block).
+- The four `ci-nextjs-*` lanes and `cd-nextjs-vercel.yml` **export `GH_NPM_TOKEN` to `npm ci`**
+  (always defined, empty for token-less consumers — avoiding npm's "Failed to replace env in
+  config" hard-error while keeping the 401 fail-closed tell). Non-breaking: no inputs changed.
+- Publishing needs **no secret at all** (the package repo's own `GITHUB_TOKEN`,
+  `packages:write`), and consumer CI can use zero-secret per-repo **Actions-access grants** on
+  the package instead of the token — both documented in the npm template's
+  `PRIVATE_GH_PACKAGES.md` (W3.1). Related scope constraint recorded there and in report-form
+  D-001: GH-Packages package scope must equal the repo owner, so the widget is
+  `@needless2say/report-form` until the org move.
