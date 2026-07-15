@@ -76,6 +76,9 @@ exactly it — no `--grep`. See
   `kriegerdataforge-auth-ui`, `fitness-app-backend`, `fitness-app-frontend`),
   each with its `.env.local` provisioned (RSA dev keypair, `GH_PACKAGES_PAT`,
   a seeded fitness OIDC client). See each repo's `.env.local.example`.
+- For the **browser journeys** (`fitness`, `tiffanys`): `GH_NPM_TOKEN` in the
+  frontend repo's `.env.local` (or exported) — the frontend images `npm ci` the
+  private `@needless2say/report-form` package and fail-closed (npm E401) without it.
 
 ## Run it locally
 
@@ -142,7 +145,9 @@ sibling. `ci_stack.py`:
 - **stages** the active journeys' specs into `e2e/staged-tests/` (the Playwright
   `testDir`) and writes `e2e/.env`, so `npm test` runs exactly those journeys;
 - sources `GH_PACKAGES_PAT` from the environment (the CI secret), falling back to
-  `fitness-app-backend/.env.local` locally so you needn't export it by hand.
+  `fitness-app-backend/.env.local` locally so you needn't export it by hand; likewise
+  `GH_NPM_TOKEN` (env → `fitness-app-frontend`/`tiffanys-space` `.env.local`) for the
+  frontends' private-npm `npm ci` (classic-PAT-only — GH Packages npm rejects App tokens).
 
 ```bash
 make e2e-ci          # build + up + seed → run Playwright → tear down (one shot)
@@ -248,7 +253,9 @@ jobs:
 **Secrets (needed for any mode that actually runs):** `KDF_APP_ID`,
 `KDF_APP_PRIVATE_KEY` — the action mints its App token from these (they live only on
 the cicd repo today; an org move would make them org-level and skip this per-repo
-step). The `ops-setup-e2e` issue flow copies the secrets and sets `RUN_E2E_GATE=false`;
+step). Browser journeys whose frontend consumes `@needless2say/*` npm packages also
+pass `gh-npm-token: <the repo's GH_NPM_TOKEN secret>` (classic PAT, `read:packages`) —
+the App token cannot authenticate to GH Packages npm. The `ops-setup-e2e` issue flow copies the secrets and sets `RUN_E2E_GATE=false`;
 set `RUN_E2E_GATE`/`RUN_E2E_CD=true` when ready. For the CI-gate mode, also add the
 resulting **E2E** check to branch protection → *Require status checks to pass*.
 

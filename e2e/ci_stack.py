@@ -14,7 +14,9 @@ What it does:
     the compose via the process env so the hub, each frontend, and the seed all
     agree. Persisted to e2e/.e2e-ci.json (gitignored); `--regen` forces fresh.
   * sources GH_PACKAGES_PAT (env → fitness-app-backend/.env.local fallback) for
-    the private-SDK image build. Never printed.
+    the private-SDK image build, and GH_NPM_TOKEN (env → frontend .env.local
+    fallback) for the frontends' `npm ci` of the private @needless2say scope.
+    Never printed.
   * merges the shared identity compose (docker-compose.shared.yml) with each
     active journey's fragment (`-f shared -f <fragment>`), brings them up with
     healthcheck gating, migrates the hub + each journey's backend, seeds the
@@ -57,6 +59,12 @@ ENV_FILE = HERE / ".env"             # gitignored — loaded by playwright.confi
 LOGIN_USERNAME = "e2e-user"
 LOGIN_PASSWORD = "E2eTest123!"
 LOGIN_EMAIL = "e2e-user@example.com"
+# Second seeded identity with global_permission_role=moderator, for journeys that
+# exercise moderator-gated surfaces (the reports standard: POST /reports is
+# moderator+admin only). Plain-user journeys keep using LOGIN_* above.
+MOD_USERNAME = "e2e-moderator"
+MOD_PASSWORD = "E2eModTest123!"
+MOD_EMAIL = "e2e-moderator@example.com"
 AUTH_UI_URL = "http://localhost:3002"
 
 # Env-tunable so CI (slower cold `next dev` compiles, image builds) can grant
@@ -225,6 +233,25 @@ def _resolve_gh_pat() -> str:
     return ""
 
 
+def _resolve_gh_npm_token() -> str:
+    """GH_NPM_TOKEN for the frontend image builds (`npm ci` of the private
+    @needless2say npm scope via each repo's committed .npmrc). Env first (CI
+    secret), then the frontend repos' .env.local as a dev convenience. Never logged."""
+    token = os.environ.get("GH_NPM_TOKEN", "").strip()
+    if token:
+        return token
+    for repo in ("fitness-app-frontend", "tiffanys-space"):
+        env_local = WORKSPACE / repo / ".env.local"
+        if not env_local.exists():
+            continue
+        for line in env_local.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith("GH_NPM_TOKEN="):
+                value = line.split("=", 1)[1].strip().strip('"').strip("'")
+                if value:
+                    return value
+    return ""
+
+
 def _base_env(state: dict) -> dict:
     """Env common to every compose invocation: workspace root (for the absolute
     ${E2E_WORKSPACE} build contexts) + the shared identity secrets + the PAT."""
@@ -237,6 +264,7 @@ def _base_env(state: dict) -> dict:
         AUTH_PUBLIC_KEY=sh["auth_public_key"],
         OIDC_SESSION_SECRET=sh["oidc_session_secret"],
         GH_PACKAGES_PAT=_resolve_gh_pat(),
+        GH_NPM_TOKEN=_resolve_gh_npm_token(),
     )
     return env
 
@@ -311,6 +339,8 @@ def _write_env_file(state: dict, journeys: list[str], registry: dict[str, Journe
         "# Loaded by playwright.config.ts via process.loadEnvFile().",
         f"E2E_USERNAME={LOGIN_USERNAME}",
         f"E2E_PASSWORD={LOGIN_PASSWORD}",
+        f"E2E_MOD_USERNAME={MOD_USERNAME}",
+        f"E2E_MOD_PASSWORD={MOD_PASSWORD}",
         f"E2E_AUTH_UI_URL={AUTH_UI_URL}",
     ]
     for j in journeys:
@@ -361,6 +391,10 @@ def cmd_up(raw_journeys: str, regen: bool) -> None:
     if not env["GH_PACKAGES_PAT"]:
         print("\033[1;33m[ci_stack] WARNING: no GH_PACKAGES_PAT — the private-SDK "
               "image build will fail unless the layer is cached.\033[0m")
+    if not env["GH_NPM_TOKEN"]:
+        print("\033[1;33m[ci_stack] WARNING: no GH_NPM_TOKEN — frontend image builds "
+              "(npm ci of the private @needless2say scope) will fail unless the layer "
+              "is cached.\033[0m")
     print(f"[ci_stack] journeys: {', '.join(journeys)}")
 
     _run(_compose(files, "build"), env, timeout=BUILD_TIMEOUT, step="build images")
@@ -390,10 +424,15 @@ def cmd_up(raw_journeys: str, regen: bool) -> None:
         E2E_LOGIN_USERNAME=LOGIN_USERNAME,
         E2E_LOGIN_PASSWORD=LOGIN_PASSWORD,
         E2E_LOGIN_EMAIL=LOGIN_EMAIL,
+        E2E_MOD_USERNAME=MOD_USERNAME,
+        E2E_MOD_PASSWORD=MOD_PASSWORD,
+        E2E_MOD_EMAIL=MOD_EMAIL,
         E2E_SEED_CLIENTS=json.dumps(seed_clients),
     )
     seed_flags = ["-e", "E2E_LOGIN_USERNAME", "-e", "E2E_LOGIN_PASSWORD",
-                  "-e", "E2E_LOGIN_EMAIL", "-e", "E2E_SEED_CLIENTS"]
+                  "-e", "E2E_LOGIN_EMAIL", "-e", "E2E_MOD_USERNAME",
+                  "-e", "E2E_MOD_PASSWORD", "-e", "E2E_MOD_EMAIL",
+                  "-e", "E2E_SEED_CLIENTS"]
     with open(SEED, "rb") as fh:
         _run(_compose(files, "exec", "-T", *seed_flags, "kdf-api", "python", "-"),
              seed_env, stdin=fh, step="seed hub: active user + OIDC client(s)")
@@ -420,6 +459,7 @@ def cmd_up(raw_journeys: str, regen: bool) -> None:
         f"  journeys   : {', '.join(journeys)}\n"
         f"  hub auth-UI: {AUTH_UI_URL}  (E2E_AUTH_UI_URL)\n"
         f"  login as   : {LOGIN_USERNAME} / {LOGIN_PASSWORD}\n"
+        f"  moderator  : {MOD_USERNAME} / {MOD_PASSWORD}  (reports journeys)\n"
         "  run tests  : make e2e   (or: cd e2e && npm test)\n"
         "  tear down  : make e2e-ci-down\n"
     )
@@ -447,7 +487,7 @@ def _interp_env(registry: dict[str, Journey]) -> dict:
     env = dict(os.environ)
     env["E2E_WORKSPACE"] = WORKSPACE.as_posix()
     for var in ("POSTGRES_PASSWORD", "AUTH_PRIVATE_KEY", "AUTH_PUBLIC_KEY",
-                "OIDC_SESSION_SECRET", "GH_PACKAGES_PAT"):
+                "OIDC_SESSION_SECRET", "GH_PACKAGES_PAT", "GH_NPM_TOKEN"):
         env.setdefault(var, "placeholder")
     for j in registry.values():
         env.setdefault(j.oidc_client["id_env"], "placeholder")
