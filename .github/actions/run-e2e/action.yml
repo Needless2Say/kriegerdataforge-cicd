@@ -21,6 +21,15 @@ inputs:
     description: "Ref of kriegerdataforge-cicd to run the engine from."
     required: false
     default: main
+  gh-npm-token:
+    description: >-
+      Token for `npm ci` of the private @needless2say npm scope during frontend image
+      builds (pass the caller's GH_NPM_TOKEN secret from journeys whose manifest repos
+      include a frontend that consumes @needless2say/*). GH Packages npm accepts only
+      classic PATs / GITHUB_TOKEN — the App token minted above does NOT work here.
+      Optional: backend-only journeys need no npm token.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -133,6 +142,9 @@ runs:
         # The image build clones the private SDK; the App token is the git credential
         # (its scope includes kriegerdataforge-sdk). Auto-masked by Actions.
         GH_PACKAGES_PAT: ${{ steps.app-token.outputs.token }}
+        # Frontend images `npm ci` the private @needless2say scope; classic-PAT-only
+        # (GH Packages npm rejects App tokens), so it arrives as its own input.
+        GH_NPM_TOKEN: ${{ inputs.gh-npm-token }}
         JOURNEY: ${{ inputs.journey }}
       run: python e2e/ci_stack.py up --journey "$JOURNEY"
 

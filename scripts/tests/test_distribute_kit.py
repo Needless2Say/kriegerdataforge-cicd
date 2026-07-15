@@ -271,3 +271,36 @@ def test_assert_version_consistency_noop_when_marker_absent():
         patch.object(dk, "_kit_version", return_value="v1.2.0"),
     ):
         dk._assert_version_consistency()  # returns early, no error
+
+
+# ---------------------------------------------------------------------------
+# REAL-FILE consistency guards (2026-07-14 review, finding C1/C10). The mocked
+# tests above prove the check LOGIC; these prove the ACTUAL on-disk markers +
+# registry are self-consistent — the gap that let kit/KIT_VERSION lag the
+# vendored marker slip through a kit-version bump PR.
+# ---------------------------------------------------------------------------
+
+
+def test_real_kit_version_markers_match():
+    """kit/KIT_VERSION (canonical) == kit/common/docs/agent/KIT_VERSION (vendored)
+    == the root docs/agent/KIT_VERSION hand-copy. A bump must touch all three."""
+    canonical = dk.KIT_VERSION_FILE.read_text(encoding="utf-8").strip()
+    vendored = dk.VENDORED_VERSION_FILE.read_text(encoding="utf-8").strip()
+    root_copy = (dk.REPO_ROOT / "docs" / "agent" / "KIT_VERSION").read_text(encoding="utf-8").strip()
+    assert canonical == vendored, (
+        f"kit/KIT_VERSION ({canonical}) != vendored marker ({vendored}) — "
+        "distribute_kit._assert_version_consistency() would hard-exit; bump both."
+    )
+    assert canonical == root_copy, (
+        f"kit/KIT_VERSION ({canonical}) != root docs/agent/KIT_VERSION ({root_copy})."
+    )
+
+
+def test_real_kit_registry_files_all_exist_under_kit_common():
+    """Every kit_registry.json files[] entry must resolve under kit/common/ — a
+    stale/typo'd path would silently drop a file from the synced set."""
+    registry = dk._load_registry()
+    files: list[str] = registry.get("files", [])
+    assert files, "kit_registry.json files[] is empty"
+    missing = [f for f in files if not (dk.KIT_DIR / f).is_file()]
+    assert not missing, f"kit_registry files[] paths absent under kit/common/: {missing}"

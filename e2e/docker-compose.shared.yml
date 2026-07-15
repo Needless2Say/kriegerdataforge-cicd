@@ -117,6 +117,13 @@ secrets:
   # backend clones the SDK reference this same secret id.
   gh_packages_pat:
     environment: GH_PACKAGES_PAT
+  # Private-npm token for the frontend image builds (`npm ci` of the private
+  # @needless2say scope through each repo's committed .npmrc), sourced from the
+  # GH_NPM_TOKEN env var (ci_stack.py sets it) and mounted (tmpfs) into the
+  # build — never an image layer or a build-log line. Tenant fragments whose
+  # frontend consumes @needless2say/* reference this same secret id.
+  gh_npm_token:
+    environment: GH_NPM_TOKEN
 
 networks:
   e2e-net:
