@@ -62,9 +62,10 @@ fitness-app-frontend (`src/features/report/`), tiffanys-space, template-nextjs
 - **`app_slug` is server-stamped** — a client can never file reports as another app.
 - **Label allow-list + cap (PL-117)** — AI-suggested labels are filtered server-side; hallucinated
   labels never reach GitHub.
-- **Fail-closed everywhere**: missing config raises at startup; unset cron secret ⇒ 503; wrong
-  secret ⇒ 401; the concurrency guard (PL-134) makes double-fires safe; GitHub outages can't
-  corrupt a committed batch (post-commit best-effort issue phase).
+- **Fail-closed everywhere**: settings resolve lazily, so missing required config surfaces on the
+  first request (not at boot); unset cron secret ⇒ 503; wrong secret ⇒ 401; the concurrency guard
+  (PL-104) makes double-fires safe; GitHub outages can't corrupt a committed batch (PL-134: the
+  batch is committed before the best-effort issue phase).
 - **Priority is human-only**; the built-in Repository board field auto-populates (never create a
   custom `Repo` field — the name is reserved).
 
