@@ -1,0 +1,17 @@
+{
+	"_comment": "PL-084/HYG-3 interim drift-guard manifest. The OIDC relying-party core is copy-pasted between the two tenant frontends until the shared @kriegerdataforge/oidc-rp package is extracted (owner-deferred post-launch, 2026-06-25). Each pair below is a file that SHOULD be byte-identical (modulo line endings) in both repos; check_oidc_drift.py compares them weekly and keeps one dedup tracking issue (label ops:oidc-rp-drift) open while any pair differs. 'excluded' documents deliberately-uncompared files so nobody re-adds them: src/proxy.ts carries app-specific BFF allow-lists and env wiring, so full-file comparison is permanently noisy — its shared tryRefreshSession core gets factored out by the extraction epic instead.",
+	"left": { "repo": "Needless2Say/fitness-app-frontend", "branch": "main" },
+	"right": { "repo": "Needless2Say/tiffanys-space", "branch": "main" },
+	"pairs": [
+		{ "path": "src/features/auth/utils/oidc.ts" },
+		{ "path": "src/app/api/auth/oidc/callback/route.ts" },
+		{ "path": "src/app/api/auth/oidc/initiate/route.ts" },
+		{ "path": "src/app/api/auth/oidc/logout/route.ts" }
+	],
+	"excluded": [
+		{
+			"path": "src/proxy.ts",
+			"reason": "app-specific BFF allow-lists/env wiring make full-file comparison permanently noisy; the shared tryRefreshSession core is factored out by the PL-084 extraction epic"
+		}
+	]
+}
