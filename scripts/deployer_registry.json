@@ -1,13 +1,15 @@
 {
-	"_comment": "Approved-deployer allow-list for every KriegerDataForge repo with a CD deploy workflow. Maps repo -> environment -> list of GitHub usernames permitted to dispatch that deploy. Enforced by the 'authorize' job in each reusable CD workflow (cd-nextjs-vercel.yml, cd-python-vercel.yml, cd-terraform.yml) and in arthurs-portfolio/nextjs.yml, which run scripts/check_deployer.py BEFORE the deploy job and BEFORE the GitHub Environment approval gate. The identity checked is github.triggering_actor (the user who clicked 'Run workflow'); matching is case-insensitive. A repo OR environment not listed here is DENIED (fail closed) — when a new repo is provisioned, add it here before its first deploy. Environment keys must match the value the caller passes to the reusable workflow's 'environment' input: 'dev'/'prod' for the Vercel + Terraform workflows, and 'github-pages' for arthurs-portfolio (which deploys to GitHub Pages and has no dev/prod).",
+	"_comment": "Approved-deployer allow-list for every KriegerDataForge repo with a CD deploy workflow. Maps repo -> environment -> list of GitHub usernames permitted to dispatch that deploy. Enforced by the 'authorize' job in each reusable CD workflow (cd-nextjs-vercel.yml, cd-python-vercel.yml, cd-terraform.yml) and in arthurs-portfolio/nextjs.yml, which run scripts/check_deployer.py BEFORE the deploy job and BEFORE the GitHub Environment approval gate. The identity checked is github.triggering_actor (the user who clicked 'Run workflow'); matching is case-insensitive. A repo OR environment not listed here is DENIED (fail closed) — when a new repo is provisioned, add it here before its first deploy. Environment keys must match the value the caller passes to the reusable workflow's 'environment' input: 'dev'/'prod' for the Vercel + Terraform workflows (plus 'sandbox' on the two KDF auth repos — kriegerdataforge and kriegerdataforge-auth-ui — the isolated local-dev SSO environment the owner deploys and developers run their local apps against), and 'github-pages' for arthurs-portfolio (which deploys to GitHub Pages and has no dev/prod).",
 	"deployers": {
 		"Needless2Say/kriegerdataforge": {
 			"dev": ["Needless2Say"],
-			"prod": ["Needless2Say"]
+			"prod": ["Needless2Say"],
+			"sandbox": ["Needless2Say"]
 		},
 		"Needless2Say/kriegerdataforge-auth-ui": {
 			"dev": ["Needless2Say"],
-			"prod": ["Needless2Say"]
+			"prod": ["Needless2Say"],
+			"sandbox": ["Needless2Say"]
 		},
 		"Needless2Say/fitness-app-backend": {
 			"dev": ["Needless2Say", "Ascensionn"],
