@@ -1,0 +1,66 @@
+name: Python · Style (kdf-fmt)
+
+# The KDF house-style gate (kdf-fmt spec §8 ecosystem adoption; ADR D-003 toolchain
+# split): kdf-fmt owns formatting + style, ruff stays narrowed to bug/security rules
+# via ci-python-lint.yml. Successor to ci-python-format.yml (ruff format) for governed
+# repos. kdf-fmt is stdlib-only, so this lane installs ONLY the pinned tool — never the
+# caller's dependency tree — and stays fast on the slim runner.
+#
+# The caller pins `kdf_fmt_ref` to a vX.Y.Z tag: formatter output changes only arrive
+# when the repo bumps its pin (kdf-fmt's versioned-style policy, spec §9-7).
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+    inputs:
+      python_version:
+        description: Python version to use
+        type: string
+        default: "3.14"
+      kdf_fmt_ref:
+        description: Git ref of kriegerdataforge-fmt to install (pin a vX.Y.Z tag)
+        type: string
+        required: true
+      check_command:
+        description: The style-check command to run (config comes from the repo's kdf-fmt.toml)
+        type: string
+        default: "python -m kdf_fmt.cli check --no-cache"
+
+jobs:
+  style:
+    name: Style (kdf-fmt)
+    runs-on: ubuntu-slim
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      # kriegerdataforge-fmt is a private repo, so this lane always needs package auth.
+      # App-token-first (ADR D-010): when the caller opted in (USE_GITHUB_APP variable)
+      # and holds the distributed App credentials, mint a short-lived installation token
+      # (contents: read only, auto-revoked at job end); otherwise the next step falls
+      # back to the long-lived GH_PACKAGES_PAT.
+      - name: Mint GitHub App token for private-package installs
+        id: pkg-token
+        if: ${{ vars.USE_GITHUB_APP == 'true' }}
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.KDF_APP_ID }}
+          private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: read
+
+      - name: Configure private package access
+        env:
+          PKG_INSTALL_TOKEN: ${{ steps.pkg-token.outputs.token || secrets.GH_PACKAGES_PAT }}
+        run: git config --global url."https://__token__:${PKG_INSTALL_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - name: Install kdf-fmt (pinned, stdlib-only — no consumer deps)
+        run: python -m pip install --quiet "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@${{ inputs.kdf_fmt_ref }}"
+
+      - name: kdf-fmt check
+        run: ${{ inputs.check_command }}
