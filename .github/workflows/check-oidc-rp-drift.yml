@@ -1,0 +1,124 @@
+name: Check OIDC-RP Drift
+
+# PL-084/HYG-3 interim drift guard. The OIDC relying-party core (oidc.ts PKCE/
+# state/nonce helpers + the callback/initiate/logout route cores) is copy-pasted
+# between fitness-app-frontend and tiffanys-space until the shared
+# @kriegerdataforge/oidc-rp package is extracted (owner-deferred post-launch).
+# This weekly monitor compares each manifest pair across the two repos
+# (scripts/oidc_drift_manifest.json) and keeps ONE deduplicated tracking issue
+# (label: ops:oidc-rp-drift) open while any pair differs:
+#   * pairs differ    -> create the issue (or update the existing one) listing them
+#   * all identical   -> auto-close the open issue
+# Only paths + changed-line COUNTS are reported — never file contents (private
+# repos; the issue must not leak code).
+
+on:
+  schedule:
+    - cron: "30 12 * * 1" # Mondays 12:30 UTC — after the kit drift alarm
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    name: Compare OIDC-RP file pairs
+    runs-on: ubuntu-slim
+    env:
+      LABEL: "ops:oidc-rp-drift"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      # Short-lived App installation token (contents:read on the two private
+      # frontend repos — the account-wide install covers them). Gated on
+      # USE_GITHUB_APP, falls back to CICD_PAT (same posture as distribute-kit).
+      - name: Mint GitHub App token
+        id: app-token
+        if: vars.USE_GITHUB_APP == 'true'
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.KDF_APP_ID }}
+          private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: read
+
+      - name: Compare pairs
+        id: drift
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
+        run: |
+          set +e
+          python scripts/check_oidc_drift.py | tee drift.out
+          rc=${PIPESTATUS[0]}
+          set -e
+          # rc 2 = config/API error: fail the run loudly instead of touching the issue.
+          if [ "$rc" -eq 2 ]; then
+            echo "::error::check_oidc_drift.py hit a configuration/API error (see log)."
+            exit 2
+          fi
+          count="$(grep -E '^DRIFT_COUNT: ' drift.out | sed 's/^DRIFT_COUNT: //')"
+          paths="$(grep -E '^DRIFTED_PATHS: ' drift.out | sed 's/^DRIFTED_PATHS: //')"
+          {
+            echo "count=$count"
+            echo "paths=$paths"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open / update / close the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COUNT: ${{ steps.drift.outputs.count }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create "$LABEL" --color D93F0B --description "The copy-pasted OIDC-RP core has drifted between the tenant frontends" 2>/dev/null || true
+          existing="$(gh issue list --repo "$REPO" --label "$LABEL" --state open --json number --jq '.[0].number // empty')"
+
+          if [ "${COUNT:-0}" -gt 0 ]; then
+            {
+              echo "## OIDC-RP copies have drifted (PL-084 interim guard)"
+              echo
+              echo "The weekly monitor found the copy-pasted OIDC relying-party core differs between"
+              echo "\`fitness-app-frontend\` and \`tiffanys-space\`:"
+              echo
+              grep -E '^(DRIFTED|MISSING):' drift.out | sed 's/^ *//; s/^/- /' || true
+              echo
+              echo "**Why this matters:** these files are supposed to be byte-identical until the shared"
+              echo "\`@kriegerdataforge/oidc-rp\` package is extracted (PL-084, owner-deferred post-launch)."
+              echo "Every additional divergence makes that extraction harder and risks the two apps'"
+              echo "login/session behavior quietly forking."
+              echo
+              echo "**What to do:** reconcile the drifted pair(s) — port the newer/better copy to the other"
+              echo "repo (small PR per repo) — or, if a divergence is genuinely app-specific, move that file"
+              echo "to the manifest's \`excluded\` list in \`scripts/oidc_drift_manifest.json\` with a reason."
+              echo "This issue auto-closes once the next weekly run finds all pairs identical."
+              echo
+              echo "_Monitor run: ${RUN_URL}. Only paths and changed-line counts are compared/shown — never file contents._"
+            } > issue.md
+            if [ -n "$existing" ]; then
+              gh issue edit "$existing" --repo "$REPO" --body-file issue.md
+              echo "Updated existing tracking issue #$existing"
+            else
+              gh issue create --repo "$REPO" \
+                --title "[Ops] OIDC-RP core has drifted between the tenant frontends (${COUNT} file(s))" \
+                --label "$LABEL" --label ops --assignee Needless2Say \
+                --body-file issue.md
+            fi
+          else
+            if [ -n "$existing" ]; then
+              gh issue close "$existing" --repo "$REPO" \
+                --comment "All OIDC-RP file pairs are identical again ✅ (auto-closed by the drift monitor)."
+              echo "Closed tracking issue #$existing"
+            else
+              echo "All OIDC-RP pairs identical; no open tracking issue."
+            fi
+          fi
