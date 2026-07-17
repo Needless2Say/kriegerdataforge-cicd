@@ -337,6 +337,7 @@ the slim runner.
 | Workflow | Inputs (`string` unless noted) → default | `needs_sdk_auth`? | Top-level `permissions` |
 |---|---|---|---|
 | `ci-python-format.yml` | `python_version`=`3.14`; `install_command`=`pip install -e ".[dev]"`; `format_command`=`python -m ruff format --check src/ tests/` | no | `contents: read` (`:4-5`) |
+| `ci-python-kdf-fmt.yml` | `python_version`=`3.14`; `kdf_fmt_ref` (**required** — pin a `vX.Y.Z` tag); `check_command`=`python -m kdf_fmt.cli check --no-cache` | always (kdf-fmt is private; App-token-first, `GH_PACKAGES_PAT` fallback — callers pass `secrets: inherit`) | `contents: read` |
 | `ci-python-lint.yml` | `python_version`=`3.14`; `install_command`=`pip install -r requirements.txt`; `lint_command`=`python -m ruff check .`; `needs_sdk_auth` (bool)=`false` | yes | `contents: read` |
 | `ci-python-typecheck.yml` | + `typecheck_command`=`python -m mypy api/` (same shape as lint) | yes | `contents: read` |
 | `ci-python-tests.yml` | + `test_command`=`python -m pytest unit_tests/ -q --tb=short` (fast, DB-free unit lane) | yes | `contents: read` |
@@ -523,7 +524,7 @@ shown where it differs from top-level):
 | `bump-version-check.yml` | job: `contents:read` |
 | `create-github-release.yml` | job: `contents:write` (caller must grant) |
 | `ci-codeql.yml` | job: `actions:read` + `contents:read` + `security-events:write` (caller must grant) |
-| `ci-python-format` / `-lint` / `-typecheck` / `-tests` / `-integration` / `-security` | top-level: `contents:read` |
+| `ci-python-format` / `-kdf-fmt` / `-lint` / `-typecheck` / `-tests` / `-integration` / `-security` | top-level: `contents:read` |
 | `ci-nextjs-build` / `-lint-typecheck` / `-tests`, `ci-npm-audit`, `ci-vercel-compactor` | ⊝ none declared |
 | `secret-scan.yml` | top-level + job: `contents:read` + `pull-requests:read` |
 | `_authorize-owner.yml` | top-level: `contents:read` |
