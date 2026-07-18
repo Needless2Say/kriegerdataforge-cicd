@@ -1,0 +1,26 @@
+# kdf-fmt configuration — the KDF Python house style (spec: kriegerdataforge-fmt
+# docs/reference/KDF_FMT_SPEC.md; tool pinned in ci.yml `kdf_fmt_ref` + Makefile).
+# Adoption is BASELINE-gated (.kdf-fmt-baseline.json): pre-existing findings are
+# recorded debt, only NEW violations fail. Burn down with `kdf-fmt format` per area,
+# then `kdf-fmt check --update-baseline`.
+
+line_length      = 120
+max_module_lines = 1000
+
+quiet_degenerate_sections = true
+
+# this repo's Python IS scripts/ — it is the src tree and stays strict
+roots = ["scripts"]
+
+# backup snapshots are frozen artifacts, not living code
+exclude = ["scripts/backups/"]
+
+[rules]
+# no decorative banners / __all__ policy enforced while the baseline burns down
+"KDF-105"  = "off"
+"KDF-106a" = "off"
+"KDF-604"  = "off"
+
+[rules.overrides]
+# pytest tests are self-documenting; the operational scripts keep every rule strict
+"scripts/tests/**" = { "KDF-104" = "off", "KDF-403" = "off", "KDF-404" = "off", "KDF-405" = "off", "KDF-406" = "off", "KDF-602" = "off" }

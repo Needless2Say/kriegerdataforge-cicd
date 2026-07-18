@@ -19,7 +19,7 @@
 # =============================================================================
 
 .DEFAULT_GOAL := help
-.PHONY: help lint test check-all \
+.PHONY: help lint style test check-all \
         bump-patch bump-minor bump-major \
         e2e-install e2e-up e2e-down e2e-seed-user e2e e2e-typecheck \
         e2e-ci-up e2e-ci e2e-ci-down e2e-ci-logs \
@@ -59,6 +59,16 @@ lint: ## Lint GitHub Actions workflow files with actionlint
 		printf "$(YELLOW)actionlint not found — skipping (install: brew install actionlint)$(NC)\n"; \
 	fi
 
+# KDF house style (kdf-fmt spec §8; ADR D-003 toolchain split): kdf-fmt owns
+# formatting + style for the Python scripts (config: kdf-fmt.toml). Baseline-gated:
+# pre-existing findings in .kdf-fmt-baseline.json are recorded debt, only NEW
+# violations fail. First local run auto-installs the pinned tool.
+KDF_FMT_VERSION ?= v1.0.0
+
+style: ## Style check with kdf-fmt (the KDF house style, baseline-gated)
+	@$(PY3) -c "import kdf_fmt" 2>/dev/null || $(PY3) -m pip install --quiet "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@$(KDF_FMT_VERSION)"
+	$(PY3) -m kdf_fmt.cli check --no-cache --baseline .kdf-fmt-baseline.json
+
 test: ## Run Python script unit tests with coverage
 	@printf "$(BLUE)========================================$(NC)\n"
 	@printf "$(BLUE)  Running Python unit tests$(NC)\n"
@@ -68,7 +78,7 @@ test: ## Run Python script unit tests with coverage
 		       --cov-omit="tests/*,backups/*"
 	@printf "$(GREEN)Tests passed!$(NC)\n"
 
-check-all: lint test ## Run all local checks
+check-all: lint style test ## Run all local checks
 	@printf "$(GREEN)All checks passed!$(NC)\n"
 
 # ── Tier 2 E2E (Playwright) ─────────────────────────────────────────────────────

@@ -1,0 +1,2304 @@
+{
+  "entries": [
+    {
+      "count": 1,
+      "message": "module has no docstring",
+      "path": "scripts/auth/db_backup.py",
+      "rule": "KDF-101"
+    },
+    {
+      "count": 1,
+      "message": "import out of preamble order (belongs above the code)",
+      "path": "scripts/auth/db_backup.py",
+      "rule": "KDF-102"
+    },
+    {
+      "count": 1,
+      "message": "no import-group header comments (e.g. '# standard library imports')",
+      "path": "scripts/auth/db_backup.py",
+      "rule": "KDF-104"
+    },
+    {
+      "count": 1,
+      "message": "spaces normalized around '='",
+      "path": "scripts/auth/db_backup.py",
+      "rule": "KDF-301"
+    },
+    {
+      "count": 1,
+      "message": "no import-group header comments (e.g. '# standard library imports')",
+      "path": "scripts/check_deployer.py",
+      "rule": "KDF-104"
+    },
+    {
+      "count": 12,
+      "message": "banner normalized to width 120",
+      "path": "scripts/check_deployer.py",
+      "rule": "KDF-106b"
+    },
+    {
+      "count": 6,
+      "message": "blank lines normalized",
+      "path": "scripts/check_deployer.py",
+      "rule": "KDF-204"
+    },
+    {
+      "count": 10,
+      "message": "spaces normalized around '='",
+      "path": "scripts/check_deployer.py",
+      "rule": "KDF-301"
+    },
+    {
+      "count": 2,
+      "message": "'=' aligned within run",
+      "path": "scripts/check_deployer.py",
+      "rule": "KDF-302"
+    },
+    {
+      "count": 3,
+      "message": "docstring reshaped to multi-line form",
+      "path": "scripts/check_deployer.py",
+      "rule": "KDF-401"
+    },
+    {
+      "count": 1,
+      "message": "function '_load_registry' is missing a docstring",
+      "path": "scripts/check_deployer.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'main' is missing a docstring",
+      "path": "scripts/check_deployer.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'parse_cli_args' is missing a docstring",
+      "path": "scripts/check_deployer.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): message, ok",
+      "path": "scripts/check_deployer.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): registry, repo, environment, actor",
+      "path": "scripts/check_deployer.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): value, env_names",
+      "path": "scripts/check_deployer.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 2,
+      "message": "missing Returns section (function returns a value)",
+      "path": "scripts/check_deployer.py",
+      "rule": "KDF-405"
+    },
+    {
+      "count": 1,
+      "message": "line too long (256 > 120)",
+      "path": "scripts/check_deployer.py",
+      "rule": "KDF-501"
+    },
+    {
+      "count": 3,
+      "message": "wrapped to canonical form",
+      "path": "scripts/check_deployer.py",
+      "rule": "KDF-502"
+    },
+    {
+      "count": 1,
+      "message": "non-descriptive name 'fh' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/check_deployer.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 1,
+      "message": "non-descriptive name 'u' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/check_deployer.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 6,
+      "message": "comment should start lowercase (unless an ALL-CAPS tag)",
+      "path": "scripts/check_deployer.py",
+      "rule": "KDF-603"
+    },
+    {
+      "count": 1,
+      "message": "no import-group header comments (e.g. '# standard library imports')",
+      "path": "scripts/check_oidc_drift.py",
+      "rule": "KDF-104"
+    },
+    {
+      "count": 5,
+      "message": "spaces normalized around '='",
+      "path": "scripts/check_oidc_drift.py",
+      "rule": "KDF-301"
+    },
+    {
+      "count": 6,
+      "message": "'=' aligned within run",
+      "path": "scripts/check_oidc_drift.py",
+      "rule": "KDF-302"
+    },
+    {
+      "count": 4,
+      "message": "docstring reshaped to multi-line form",
+      "path": "scripts/check_oidc_drift.py",
+      "rule": "KDF-401"
+    },
+    {
+      "count": 1,
+      "message": "function '_github_headers' is missing a docstring",
+      "path": "scripts/check_oidc_drift.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'load_manifest' is missing a docstring",
+      "path": "scripts/check_oidc_drift.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'main' is missing a docstring",
+      "path": "scripts/check_oidc_drift.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): left, right",
+      "path": "scripts/check_oidc_drift.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): text",
+      "path": "scripts/check_oidc_drift.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): token, manifest",
+      "path": "scripts/check_oidc_drift.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): token, owner_repo, branch, path",
+      "path": "scripts/check_oidc_drift.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 4,
+      "message": "missing Returns section (function returns a value)",
+      "path": "scripts/check_oidc_drift.py",
+      "rule": "KDF-405"
+    },
+    {
+      "count": 2,
+      "message": "wrapped to canonical form",
+      "path": "scripts/check_oidc_drift.py",
+      "rule": "KDF-502"
+    },
+    {
+      "count": 1,
+      "message": "non-descriptive name 'r' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/check_oidc_drift.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 1,
+      "message": "comment should start lowercase (unless an ALL-CAPS tag)",
+      "path": "scripts/check_oidc_drift.py",
+      "rule": "KDF-603"
+    },
+    {
+      "count": 1,
+      "message": "module has no docstring",
+      "path": "scripts/common/__init__.py",
+      "rule": "KDF-101"
+    },
+    {
+      "count": 1,
+      "message": "no import-group header comments (e.g. '# standard library imports')",
+      "path": "scripts/common/bump_version.py",
+      "rule": "KDF-104"
+    },
+    {
+      "count": 3,
+      "message": "spaces normalized around '='",
+      "path": "scripts/common/bump_version.py",
+      "rule": "KDF-301"
+    },
+    {
+      "count": 4,
+      "message": "'=' aligned within run",
+      "path": "scripts/common/bump_version.py",
+      "rule": "KDF-302"
+    },
+    {
+      "count": 1,
+      "message": "docstring reshaped to multi-line form",
+      "path": "scripts/common/bump_version.py",
+      "rule": "KDF-401"
+    },
+    {
+      "count": 1,
+      "message": "function 'bump' is missing a docstring",
+      "path": "scripts/common/bump_version.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'fmt' is missing a docstring",
+      "path": "scripts/common/bump_version.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'main' is missing a docstring",
+      "path": "scripts/common/bump_version.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'parse_version' is missing a docstring",
+      "path": "scripts/common/bump_version.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "non-descriptive name 'f' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/common/bump_version.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 3,
+      "message": "logger/constant out of preamble order (belongs above the code)",
+      "path": "scripts/common/check_version.py",
+      "rule": "KDF-102"
+    },
+    {
+      "count": 1,
+      "message": "no import-group header comments (e.g. '# standard library imports')",
+      "path": "scripts/common/check_version.py",
+      "rule": "KDF-104"
+    },
+    {
+      "count": 1,
+      "message": "blank lines normalized",
+      "path": "scripts/common/check_version.py",
+      "rule": "KDF-204"
+    },
+    {
+      "count": 27,
+      "message": "spaces normalized around '='",
+      "path": "scripts/common/check_version.py",
+      "rule": "KDF-301"
+    },
+    {
+      "count": 8,
+      "message": "'=' aligned within run",
+      "path": "scripts/common/check_version.py",
+      "rule": "KDF-302"
+    },
+    {
+      "count": 3,
+      "message": "docstring reshaped to multi-line form",
+      "path": "scripts/common/check_version.py",
+      "rule": "KDF-401"
+    },
+    {
+      "count": 1,
+      "message": "function '_changed_files' is missing a docstring",
+      "path": "scripts/common/check_version.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_fetch_main' is missing a docstring",
+      "path": "scripts/common/check_version.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_get_main_version' is missing a docstring",
+      "path": "scripts/common/check_version.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_parse_semver' is missing a docstring",
+      "path": "scripts/common/check_version.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_read_package_json_version' is missing a docstring",
+      "path": "scripts/common/check_version.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_read_pyproject_version' is missing a docstring",
+      "path": "scripts/common/check_version.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_read_version_file' is missing a docstring",
+      "path": "scripts/common/check_version.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'main' is missing a docstring",
+      "path": "scripts/common/check_version.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): cwd",
+      "path": "scripts/common/check_version.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): root",
+      "path": "scripts/common/check_version.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 3,
+      "message": "missing Returns section (function returns a value)",
+      "path": "scripts/common/check_version.py",
+      "rule": "KDF-405"
+    },
+    {
+      "count": 8,
+      "message": "wrapped to canonical form",
+      "path": "scripts/common/check_version.py",
+      "rule": "KDF-502"
+    },
+    {
+      "count": 2,
+      "message": "non-descriptive name 'f' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/common/check_version.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 1,
+      "message": "non-descriptive name 'p' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/common/check_version.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 6,
+      "message": "comment should start lowercase (unless an ALL-CAPS tag)",
+      "path": "scripts/common/check_version.py",
+      "rule": "KDF-603"
+    },
+    {
+      "count": 13,
+      "message": "spaces normalized around '='",
+      "path": "scripts/common/db_backup_base.py",
+      "rule": "KDF-301"
+    },
+    {
+      "count": 4,
+      "message": "'=' aligned within run",
+      "path": "scripts/common/db_backup_base.py",
+      "rule": "KDF-302"
+    },
+    {
+      "count": 1,
+      "message": "line too long (136 > 120)",
+      "path": "scripts/common/db_backup_base.py",
+      "rule": "KDF-501"
+    },
+    {
+      "count": 5,
+      "message": "wrapped to canonical form",
+      "path": "scripts/common/db_backup_base.py",
+      "rule": "KDF-502"
+    },
+    {
+      "count": 1,
+      "message": "non-descriptive name 'f' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/common/db_backup_base.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 1,
+      "message": "comment should start lowercase (unless an ALL-CAPS tag)",
+      "path": "scripts/common/db_backup_base.py",
+      "rule": "KDF-603"
+    },
+    {
+      "count": 1,
+      "message": "no import-group header comments (e.g. '# standard library imports')",
+      "path": "scripts/common/http.py",
+      "rule": "KDF-104"
+    },
+    {
+      "count": 10,
+      "message": "spaces normalized around '='",
+      "path": "scripts/common/http.py",
+      "rule": "KDF-301"
+    },
+    {
+      "count": 2,
+      "message": "docstring reshaped to multi-line form",
+      "path": "scripts/common/http.py",
+      "rule": "KDF-401"
+    },
+    {
+      "count": 1,
+      "message": "missing Returns section (function returns a value)",
+      "path": "scripts/common/http.py",
+      "rule": "KDF-405"
+    },
+    {
+      "count": 1,
+      "message": "import region normalized (groups + sorting)",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-103"
+    },
+    {
+      "count": 1,
+      "message": "no import-group header comments (e.g. '# standard library imports')",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-104"
+    },
+    {
+      "count": 12,
+      "message": "banner normalized to width 120",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-106b"
+    },
+    {
+      "count": 6,
+      "message": "blank lines normalized",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-204"
+    },
+    {
+      "count": 10,
+      "message": "spaces normalized around '='",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-301"
+    },
+    {
+      "count": 4,
+      "message": "'=' aligned within run",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-302"
+    },
+    {
+      "count": 7,
+      "message": "docstring reshaped to multi-line form",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-401"
+    },
+    {
+      "count": 1,
+      "message": "function '_load_registry' is missing a docstring",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'cmd_execute' is missing a docstring",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'main' is missing a docstring",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'parse_cli_args' is missing a docstring",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): entries",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): entries, gh_token",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): gh_token, owner_repo",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 2,
+      "message": "undocumented parameter(s): registry",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): registry, raw",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): value, fmt",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 7,
+      "message": "missing Returns section (function returns a value)",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-405"
+    },
+    {
+      "count": 1,
+      "message": "line too long (153 > 120)",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-501"
+    },
+    {
+      "count": 4,
+      "message": "wrapped to canonical form",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-502"
+    },
+    {
+      "count": 1,
+      "message": "non-descriptive name 'p' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 1,
+      "message": "non-descriptive name 'r' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 1,
+      "message": "non-descriptive name 's' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 3,
+      "message": "non-descriptive name 't' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 1,
+      "message": "non-descriptive name 'w' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 7,
+      "message": "comment should start lowercase (unless an ALL-CAPS tag)",
+      "path": "scripts/distribute_app_secrets.py",
+      "rule": "KDF-603"
+    },
+    {
+      "count": 1,
+      "message": "no import-group header comments (e.g. '# standard library imports')",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-104"
+    },
+    {
+      "count": 10,
+      "message": "banner normalized to width 120",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-106b"
+    },
+    {
+      "count": 5,
+      "message": "blank lines normalized",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-204"
+    },
+    {
+      "count": 27,
+      "message": "spaces normalized around '='",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-301"
+    },
+    {
+      "count": 12,
+      "message": "'=' aligned within run",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-302"
+    },
+    {
+      "count": 7,
+      "message": "docstring reshaped to multi-line form",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-401"
+    },
+    {
+      "count": 1,
+      "message": "function '_create_branch' is missing a docstring",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_create_pr' is missing a docstring",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_get_branch_sha' is missing a docstring",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_github_headers' is missing a docstring",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_kit_version' is missing a docstring",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_load_registry' is missing a docstring",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_put_file' is missing a docstring",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_read_local' is missing a docstring",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_select_files' is missing a docstring",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'main' is missing a docstring",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'parse_cli_args' is missing a docstring",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): registry, repos_arg",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 2,
+      "message": "undocumented parameter(s): registry, token, only, repos_arg",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): text",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): token, owner_repo, branch, files",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): token, owner_repo, branch, path",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 6,
+      "message": "missing Returns section (function returns a value)",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-405"
+    },
+    {
+      "count": 1,
+      "message": "line too long (235 > 120)",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-501"
+    },
+    {
+      "count": 1,
+      "message": "line too long (469 > 120)",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-501"
+    },
+    {
+      "count": 4,
+      "message": "wrapped to canonical form",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-502"
+    },
+    {
+      "count": 1,
+      "message": "non-descriptive name 'f' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 1,
+      "message": "non-descriptive name 't' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 5,
+      "message": "comment should start lowercase (unless an ALL-CAPS tag)",
+      "path": "scripts/distribute_kit.py",
+      "rule": "KDF-603"
+    },
+    {
+      "count": 1,
+      "message": "module has no docstring",
+      "path": "scripts/fitness-app/db_backup.py",
+      "rule": "KDF-101"
+    },
+    {
+      "count": 1,
+      "message": "import out of preamble order (belongs above the code)",
+      "path": "scripts/fitness-app/db_backup.py",
+      "rule": "KDF-102"
+    },
+    {
+      "count": 1,
+      "message": "no import-group header comments (e.g. '# standard library imports')",
+      "path": "scripts/fitness-app/db_backup.py",
+      "rule": "KDF-104"
+    },
+    {
+      "count": 1,
+      "message": "spaces normalized around '='",
+      "path": "scripts/fitness-app/db_backup.py",
+      "rule": "KDF-301"
+    },
+    {
+      "count": 2,
+      "message": "logger/constant out of preamble order (belongs above the code)",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-102"
+    },
+    {
+      "count": 1,
+      "message": "no import-group header comments (e.g. '# standard library imports')",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-104"
+    },
+    {
+      "count": 14,
+      "message": "banner normalized to width 120",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-106b"
+    },
+    {
+      "count": 7,
+      "message": "blank lines normalized",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-204"
+    },
+    {
+      "count": 13,
+      "message": "spaces normalized around '='",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-301"
+    },
+    {
+      "count": 13,
+      "message": "'=' aligned within run",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-302"
+    },
+    {
+      "count": 2,
+      "message": "type aligned within run",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-302"
+    },
+    {
+      "count": 13,
+      "message": "docstring reshaped to multi-line form",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-401"
+    },
+    {
+      "count": 1,
+      "message": "function '_create_project' is missing a docstring",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_create_single_select_field' is missing a docstring",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_github_headers' is missing a docstring",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_link_repo' is missing a docstring",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_load_registry' is missing a docstring",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_owner_node_id' is missing a docstring",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_repo_node_id' is missing a docstring",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'main' is missing a docstring",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'parse_cli_args' is missing a docstring",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): exc",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): registry, board",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): registry, board, state",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): registry, boards_arg",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 2,
+      "message": "undocumented parameter(s): registry, token, owner, boards_arg",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 2,
+      "message": "undocumented parameter(s): token, owner",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): token, owner, board, projects_by_title",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): token, project_id",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): token, project_id, collaborators",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): token, query, variables",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 12,
+      "message": "missing Returns section (function returns a value)",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-405"
+    },
+    {
+      "count": 1,
+      "message": "missing Raises section (raises ProjectsAuthError, RuntimeError)",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-406"
+    },
+    {
+      "count": 1,
+      "message": "line too long (265 > 120)",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-501"
+    },
+    {
+      "count": 6,
+      "message": "wrapped to canonical form",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-502"
+    },
+    {
+      "count": 1,
+      "message": "non-descriptive name 'b' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 1,
+      "message": "non-descriptive name 'f' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 4,
+      "message": "non-descriptive name 'o' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 2,
+      "message": "non-descriptive name 'r' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 1,
+      "message": "non-descriptive name 't' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 18,
+      "message": "comment should start lowercase (unless an ALL-CAPS tag)",
+      "path": "scripts/provision_projects.py",
+      "rule": "KDF-603"
+    },
+    {
+      "count": 1,
+      "message": "import region normalized (groups + sorting)",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-103"
+    },
+    {
+      "count": 1,
+      "message": "no import-group header comments (e.g. '# standard library imports')",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-104"
+    },
+    {
+      "count": 20,
+      "message": "banner normalized to width 120",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-106b"
+    },
+    {
+      "count": 10,
+      "message": "blank lines normalized",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-204"
+    },
+    {
+      "count": 50,
+      "message": "spaces normalized around '='",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-301"
+    },
+    {
+      "count": 27,
+      "message": "'=' aligned within run",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-302"
+    },
+    {
+      "count": 22,
+      "message": "docstring reshaped to multi-line form",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-401"
+    },
+    {
+      "count": 1,
+      "message": "function '_gen_value' is missing a docstring",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_gh_targets' is missing a docstring",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_github_headers' is missing a docstring",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_list_vercel_env_vars' is missing a docstring",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_load_registry' is missing a docstring",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_refuse_if_terraform_managed' is missing a docstring",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_summary' is missing a docstring",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_vercel_headers' is missing a docstring",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_vercel_targets' is missing a docstring",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'cmd_check' is missing a docstring",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'cmd_generate' is missing a docstring",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'cmd_paste' is missing a docstring",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'delete_vercel_token' is missing a docstring",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'list_vercel_tokens' is missing a docstring",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'main' is missing a docstring",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'parse_cli_args' is missing a docstring",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'value' is missing a docstring",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): entries, days, today",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 2,
+      "message": "undocumented parameter(s): entry",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 2,
+      "message": "undocumented parameter(s): entry, apps, envs, master_token, gh_token, team_id",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): entry, envs, gh_token, master_token",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): entry, gh_token, errors",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): gh_token, owner, repo",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): gh_token, owner, repo, environment",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): gh_token, owner_repo, environment, secret_name",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): gh_token, owner_repo, environment, secret_name, secret_value",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): gh_token, owner_repo, secret_name, secret_value",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): master_token, all_tokens, token_name, new_id, errors, label",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): master_token, name, team_id",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): master_token, project_id, key, value",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): public_key_b64, secret_value",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): raw",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): registry, names",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): resp",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): targets",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): text, secret_name, new_expiry",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 15,
+      "message": "missing Returns section (function returns a value)",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-405"
+    },
+    {
+      "count": 1,
+      "message": "missing Raises section (raises VercelMasterScopeError)",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-406"
+    },
+    {
+      "count": 1,
+      "message": "line too long (133 > 120)",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-501"
+    },
+    {
+      "count": 7,
+      "message": "wrapped to canonical form",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-502"
+    },
+    {
+      "count": 2,
+      "message": "non-descriptive name 'gh' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 1,
+      "message": "non-descriptive name 'm' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 14,
+      "message": "non-descriptive name 't' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 2,
+      "message": "non-descriptive name 'vc' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 19,
+      "message": "comment should start lowercase (unless an ALL-CAPS tag)",
+      "path": "scripts/rotate_secret.py",
+      "rule": "KDF-603"
+    },
+    {
+      "count": 1,
+      "message": "module has no docstring",
+      "path": "scripts/tests/__init__.py",
+      "rule": "KDF-101"
+    },
+    {
+      "count": 1,
+      "message": "module has no docstring",
+      "path": "scripts/tests/conftest.py",
+      "rule": "KDF-101"
+    },
+    {
+      "count": 1,
+      "message": "comment should start lowercase (unless an ALL-CAPS tag)",
+      "path": "scripts/tests/conftest.py",
+      "rule": "KDF-603"
+    },
+    {
+      "count": 1,
+      "message": "import region normalized (groups + sorting)",
+      "path": "scripts/tests/test_check_deployer.py",
+      "rule": "KDF-103"
+    },
+    {
+      "count": 7,
+      "message": "blank lines normalized",
+      "path": "scripts/tests/test_check_deployer.py",
+      "rule": "KDF-204"
+    },
+    {
+      "count": 28,
+      "message": "blank lines normalized",
+      "path": "scripts/tests/test_check_deployer.py",
+      "rule": "KDF-205"
+    },
+    {
+      "count": 8,
+      "message": "spaces normalized around '='",
+      "path": "scripts/tests/test_check_deployer.py",
+      "rule": "KDF-301"
+    },
+    {
+      "count": 1,
+      "message": "'=' aligned within run",
+      "path": "scripts/tests/test_check_deployer.py",
+      "rule": "KDF-302"
+    },
+    {
+      "count": 2,
+      "message": "docstring reshaped to multi-line form",
+      "path": "scripts/tests/test_check_deployer.py",
+      "rule": "KDF-401"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestEntryGuard' is missing a docstring",
+      "path": "scripts/tests/test_check_deployer.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestIsAuthorized' is missing a docstring",
+      "path": "scripts/tests/test_check_deployer.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestLoadRegistry' is missing a docstring",
+      "path": "scripts/tests/test_check_deployer.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestMain' is missing a docstring",
+      "path": "scripts/tests/test_check_deployer.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestParseCLIArgs' is missing a docstring",
+      "path": "scripts/tests/test_check_deployer.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestResolve' is missing a docstring",
+      "path": "scripts/tests/test_check_deployer.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "wrapped to canonical form",
+      "path": "scripts/tests/test_check_deployer.py",
+      "rule": "KDF-502"
+    },
+    {
+      "count": 2,
+      "message": "comment should start lowercase (unless an ALL-CAPS tag)",
+      "path": "scripts/tests/test_check_deployer.py",
+      "rule": "KDF-603"
+    },
+    {
+      "count": 1,
+      "message": "import region normalized (groups + sorting)",
+      "path": "scripts/tests/test_check_oidc_drift.py",
+      "rule": "KDF-103"
+    },
+    {
+      "count": 7,
+      "message": "blank lines normalized",
+      "path": "scripts/tests/test_check_oidc_drift.py",
+      "rule": "KDF-204"
+    },
+    {
+      "count": 13,
+      "message": "blank lines normalized",
+      "path": "scripts/tests/test_check_oidc_drift.py",
+      "rule": "KDF-205"
+    },
+    {
+      "count": 12,
+      "message": "spaces normalized around '='",
+      "path": "scripts/tests/test_check_oidc_drift.py",
+      "rule": "KDF-301"
+    },
+    {
+      "count": 2,
+      "message": "'=' aligned within run",
+      "path": "scripts/tests/test_check_oidc_drift.py",
+      "rule": "KDF-302"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestChangedLineCount' is missing a docstring",
+      "path": "scripts/tests/test_check_oidc_drift.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestComparePairs' is missing a docstring",
+      "path": "scripts/tests/test_check_oidc_drift.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestFetchFile' is missing a docstring",
+      "path": "scripts/tests/test_check_oidc_drift.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestMain' is missing a docstring",
+      "path": "scripts/tests/test_check_oidc_drift.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestNormalize' is missing a docstring",
+      "path": "scripts/tests/test_check_oidc_drift.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestRealManifest' is missing a docstring",
+      "path": "scripts/tests/test_check_oidc_drift.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "wrapped to canonical form",
+      "path": "scripts/tests/test_check_oidc_drift.py",
+      "rule": "KDF-502"
+    },
+    {
+      "count": 1,
+      "message": "comment should start lowercase (unless an ALL-CAPS tag)",
+      "path": "scripts/tests/test_check_oidc_drift.py",
+      "rule": "KDF-603"
+    },
+    {
+      "count": 1,
+      "message": "blank lines normalized",
+      "path": "scripts/tests/test_check_version.py",
+      "rule": "KDF-204"
+    },
+    {
+      "count": 12,
+      "message": "spaces normalized around '='",
+      "path": "scripts/tests/test_check_version.py",
+      "rule": "KDF-301"
+    },
+    {
+      "count": 1,
+      "message": "'=' aligned within run",
+      "path": "scripts/tests/test_check_version.py",
+      "rule": "KDF-302"
+    },
+    {
+      "count": 4,
+      "message": "docstring reshaped to multi-line form",
+      "path": "scripts/tests/test_check_version.py",
+      "rule": "KDF-401"
+    },
+    {
+      "count": 1,
+      "message": "comment should start lowercase (unless an ALL-CAPS tag)",
+      "path": "scripts/tests/test_check_version.py",
+      "rule": "KDF-603"
+    },
+    {
+      "count": 1,
+      "message": "import region normalized (groups + sorting)",
+      "path": "scripts/tests/test_db_backup_base.py",
+      "rule": "KDF-103"
+    },
+    {
+      "count": 3,
+      "message": "blank lines normalized",
+      "path": "scripts/tests/test_db_backup_base.py",
+      "rule": "KDF-204"
+    },
+    {
+      "count": 26,
+      "message": "blank lines normalized",
+      "path": "scripts/tests/test_db_backup_base.py",
+      "rule": "KDF-205"
+    },
+    {
+      "count": 44,
+      "message": "spaces normalized around '='",
+      "path": "scripts/tests/test_db_backup_base.py",
+      "rule": "KDF-301"
+    },
+    {
+      "count": 2,
+      "message": "'=' aligned within run",
+      "path": "scripts/tests/test_db_backup_base.py",
+      "rule": "KDF-302"
+    },
+    {
+      "count": 1,
+      "message": "docstring reshaped to multi-line form",
+      "path": "scripts/tests/test_db_backup_base.py",
+      "rule": "KDF-401"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestCheckPgDump' is missing a docstring",
+      "path": "scripts/tests/test_db_backup_base.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestLoadEnvFile' is missing a docstring",
+      "path": "scripts/tests/test_db_backup_base.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestRunBackup' is missing a docstring",
+      "path": "scripts/tests/test_db_backup_base.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 11,
+      "message": "wrapped to canonical form",
+      "path": "scripts/tests/test_db_backup_base.py",
+      "rule": "KDF-502"
+    },
+    {
+      "count": 5,
+      "message": "comment should start lowercase (unless an ALL-CAPS tag)",
+      "path": "scripts/tests/test_db_backup_base.py",
+      "rule": "KDF-603"
+    },
+    {
+      "count": 6,
+      "message": "blank lines normalized",
+      "path": "scripts/tests/test_db_backup_tenants.py",
+      "rule": "KDF-205"
+    },
+    {
+      "count": 7,
+      "message": "spaces normalized around '='",
+      "path": "scripts/tests/test_db_backup_tenants.py",
+      "rule": "KDF-301"
+    },
+    {
+      "count": 8,
+      "message": "'=' aligned within run",
+      "path": "scripts/tests/test_db_backup_tenants.py",
+      "rule": "KDF-302"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestAuthDbBackup' is missing a docstring",
+      "path": "scripts/tests/test_db_backup_tenants.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestFitnessAppDbBackup' is missing a docstring",
+      "path": "scripts/tests/test_db_backup_tenants.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestTiffanysSpaceDbBackup' is missing a docstring",
+      "path": "scripts/tests/test_db_backup_tenants.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "logger/constant out of preamble order (belongs above the code)",
+      "path": "scripts/tests/test_distribute_app_secrets.py",
+      "rule": "KDF-102"
+    },
+    {
+      "count": 1,
+      "message": "import region normalized (groups + sorting)",
+      "path": "scripts/tests/test_distribute_app_secrets.py",
+      "rule": "KDF-103"
+    },
+    {
+      "count": 7,
+      "message": "blank lines normalized",
+      "path": "scripts/tests/test_distribute_app_secrets.py",
+      "rule": "KDF-204"
+    },
+    {
+      "count": 2,
+      "message": "spaces normalized around '='",
+      "path": "scripts/tests/test_distribute_app_secrets.py",
+      "rule": "KDF-301"
+    },
+    {
+      "count": 4,
+      "message": "'=' aligned within run",
+      "path": "scripts/tests/test_distribute_app_secrets.py",
+      "rule": "KDF-302"
+    },
+    {
+      "count": 5,
+      "message": "docstring reshaped to multi-line form",
+      "path": "scripts/tests/test_distribute_app_secrets.py",
+      "rule": "KDF-401"
+    },
+    {
+      "count": 5,
+      "message": "wrapped to canonical form",
+      "path": "scripts/tests/test_distribute_app_secrets.py",
+      "rule": "KDF-502"
+    },
+    {
+      "count": 1,
+      "message": "comment should start lowercase (unless an ALL-CAPS tag)",
+      "path": "scripts/tests/test_distribute_app_secrets.py",
+      "rule": "KDF-603"
+    },
+    {
+      "count": 1,
+      "message": "import region normalized (groups + sorting)",
+      "path": "scripts/tests/test_distribute_kit.py",
+      "rule": "KDF-103"
+    },
+    {
+      "count": 9,
+      "message": "blank lines normalized",
+      "path": "scripts/tests/test_distribute_kit.py",
+      "rule": "KDF-204"
+    },
+    {
+      "count": 27,
+      "message": "spaces normalized around '='",
+      "path": "scripts/tests/test_distribute_kit.py",
+      "rule": "KDF-301"
+    },
+    {
+      "count": 8,
+      "message": "'=' aligned within run",
+      "path": "scripts/tests/test_distribute_kit.py",
+      "rule": "KDF-302"
+    },
+    {
+      "count": 4,
+      "message": "docstring reshaped to multi-line form",
+      "path": "scripts/tests/test_distribute_kit.py",
+      "rule": "KDF-401"
+    },
+    {
+      "count": 1,
+      "message": "wrapped to canonical form",
+      "path": "scripts/tests/test_distribute_kit.py",
+      "rule": "KDF-502"
+    },
+    {
+      "count": 1,
+      "message": "comment should start lowercase (unless an ALL-CAPS tag)",
+      "path": "scripts/tests/test_distribute_kit.py",
+      "rule": "KDF-603"
+    },
+    {
+      "count": 1,
+      "message": "import region normalized (groups + sorting)",
+      "path": "scripts/tests/test_http.py",
+      "rule": "KDF-103"
+    },
+    {
+      "count": 1,
+      "message": "docstring reshaped to multi-line form",
+      "path": "scripts/tests/test_http.py",
+      "rule": "KDF-401"
+    },
+    {
+      "count": 1,
+      "message": "comment should start lowercase (unless an ALL-CAPS tag)",
+      "path": "scripts/tests/test_http.py",
+      "rule": "KDF-603"
+    },
+    {
+      "count": 1,
+      "message": "import region normalized (groups + sorting)",
+      "path": "scripts/tests/test_provision_projects.py",
+      "rule": "KDF-103"
+    },
+    {
+      "count": 7,
+      "message": "blank lines normalized",
+      "path": "scripts/tests/test_provision_projects.py",
+      "rule": "KDF-204"
+    },
+    {
+      "count": 37,
+      "message": "spaces normalized around '='",
+      "path": "scripts/tests/test_provision_projects.py",
+      "rule": "KDF-301"
+    },
+    {
+      "count": 16,
+      "message": "'=' aligned within run",
+      "path": "scripts/tests/test_provision_projects.py",
+      "rule": "KDF-302"
+    },
+    {
+      "count": 11,
+      "message": "docstring reshaped to multi-line form",
+      "path": "scripts/tests/test_provision_projects.py",
+      "rule": "KDF-401"
+    },
+    {
+      "count": 4,
+      "message": "wrapped to canonical form",
+      "path": "scripts/tests/test_provision_projects.py",
+      "rule": "KDF-502"
+    },
+    {
+      "count": 2,
+      "message": "comment should start lowercase (unless an ALL-CAPS tag)",
+      "path": "scripts/tests/test_provision_projects.py",
+      "rule": "KDF-603"
+    },
+    {
+      "count": 1,
+      "message": "import region normalized (groups + sorting)",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-103"
+    },
+    {
+      "count": 11,
+      "message": "blank lines normalized",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-204"
+    },
+    {
+      "count": 79,
+      "message": "blank lines normalized",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-205"
+    },
+    {
+      "count": 92,
+      "message": "spaces normalized around '='",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-301"
+    },
+    {
+      "count": 11,
+      "message": "'=' aligned within run",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-302"
+    },
+    {
+      "count": 2,
+      "message": "docstring reshaped to multi-line form",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-401"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestCheck' is missing a docstring",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestCli' is missing a docstring",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestDeleteGitHubEnvSecret' is missing a docstring",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestEncrypt' is missing a docstring",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestGenerateRandom' is missing a docstring",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestGenerateSharedVercelToken' is missing a docstring",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestGenerateVercelToken' is missing a docstring",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestGetEnvPublicKey' is missing a docstring",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestGetRepoPublicKey' is missing a docstring",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestHeaders' is missing a docstring",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestMain' is missing a docstring",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestParseFilter' is missing a docstring",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestPaste' is missing a docstring",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestRecordExpiry' is missing a docstring",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestSelectSecrets' is missing a docstring",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestTerraformGuard' is missing a docstring",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestUpdateGitHubEnvSecret' is missing a docstring",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestUpdateGitHubRepoSecret' is missing a docstring",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestUpsertVercelEnvVar' is missing a docstring",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestVercelTokenApi' is missing a docstring",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "line too long (121 > 120)",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-501"
+    },
+    {
+      "count": 1,
+      "message": "line too long (124 > 120)",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-501"
+    },
+    {
+      "count": 1,
+      "message": "line too long (128 > 120)",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-501"
+    },
+    {
+      "count": 1,
+      "message": "line too long (130 > 120)",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-501"
+    },
+    {
+      "count": 1,
+      "message": "line too long (134 > 120)",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-501"
+    },
+    {
+      "count": 1,
+      "message": "line too long (185 > 120)",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-501"
+    },
+    {
+      "count": 1,
+      "message": "line too long (191 > 120)",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-501"
+    },
+    {
+      "count": 1,
+      "message": "line too long (195 > 120)",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-501"
+    },
+    {
+      "count": 8,
+      "message": "wrapped to canonical form",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-502"
+    },
+    {
+      "count": 3,
+      "message": "comment should start lowercase (unless an ALL-CAPS tag)",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-603"
+    },
+    {
+      "count": 1,
+      "message": "module is 1050 lines (> 1000) \u2014 consider splitting: 1 constants -> constants.py; 5 functions -> helpers.py",
+      "path": "scripts/tests/test_rotate_secret.py",
+      "rule": "KDF-605"
+    },
+    {
+      "count": 1,
+      "message": "import region normalized (groups + sorting)",
+      "path": "scripts/tests/test_trigger_triage.py",
+      "rule": "KDF-103"
+    },
+    {
+      "count": 7,
+      "message": "blank lines normalized",
+      "path": "scripts/tests/test_trigger_triage.py",
+      "rule": "KDF-204"
+    },
+    {
+      "count": 29,
+      "message": "blank lines normalized",
+      "path": "scripts/tests/test_trigger_triage.py",
+      "rule": "KDF-205"
+    },
+    {
+      "count": 15,
+      "message": "spaces normalized around '='",
+      "path": "scripts/tests/test_trigger_triage.py",
+      "rule": "KDF-301"
+    },
+    {
+      "count": 5,
+      "message": "'=' aligned within run",
+      "path": "scripts/tests/test_trigger_triage.py",
+      "rule": "KDF-302"
+    },
+    {
+      "count": 1,
+      "message": "docstring reshaped to multi-line form",
+      "path": "scripts/tests/test_trigger_triage.py",
+      "rule": "KDF-401"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestFireOne' is missing a docstring",
+      "path": "scripts/tests/test_trigger_triage.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestParseCliArgs' is missing a docstring",
+      "path": "scripts/tests/test_trigger_triage.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestRealRegistryContract' is missing a docstring",
+      "path": "scripts/tests/test_trigger_triage.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestResolveSecrets' is missing a docstring",
+      "path": "scripts/tests/test_trigger_triage.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestRun' is missing a docstring",
+      "path": "scripts/tests/test_trigger_triage.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestSelectEntries' is missing a docstring",
+      "path": "scripts/tests/test_trigger_triage.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 1,
+      "message": "class 'TestTransportContract' is missing a docstring",
+      "path": "scripts/tests/test_trigger_triage.py",
+      "rule": "KDF-402"
+    },
+    {
+      "count": 5,
+      "message": "wrapped to canonical form",
+      "path": "scripts/tests/test_trigger_triage.py",
+      "rule": "KDF-502"
+    },
+    {
+      "count": 5,
+      "message": "comment should start lowercase (unless an ALL-CAPS tag)",
+      "path": "scripts/tests/test_trigger_triage.py",
+      "rule": "KDF-603"
+    },
+    {
+      "count": 1,
+      "message": "module has no docstring",
+      "path": "scripts/tiffanys-space/db_backup.py",
+      "rule": "KDF-101"
+    },
+    {
+      "count": 1,
+      "message": "import out of preamble order (belongs above the code)",
+      "path": "scripts/tiffanys-space/db_backup.py",
+      "rule": "KDF-102"
+    },
+    {
+      "count": 1,
+      "message": "no import-group header comments (e.g. '# standard library imports')",
+      "path": "scripts/tiffanys-space/db_backup.py",
+      "rule": "KDF-104"
+    },
+    {
+      "count": 1,
+      "message": "spaces normalized around '='",
+      "path": "scripts/tiffanys-space/db_backup.py",
+      "rule": "KDF-301"
+    },
+    {
+      "count": 1,
+      "message": "no import-group header comments (e.g. '# standard library imports')",
+      "path": "scripts/trigger_triage.py",
+      "rule": "KDF-104"
+    },
+    {
+      "count": 6,
+      "message": "banner normalized to width 120",
+      "path": "scripts/trigger_triage.py",
+      "rule": "KDF-106b"
+    },
+    {
+      "count": 3,
+      "message": "blank lines normalized",
+      "path": "scripts/trigger_triage.py",
+      "rule": "KDF-204"
+    },
+    {
+      "count": 10,
+      "message": "spaces normalized around '='",
+      "path": "scripts/trigger_triage.py",
+      "rule": "KDF-301"
+    },
+    {
+      "count": 6,
+      "message": "'=' aligned within run",
+      "path": "scripts/trigger_triage.py",
+      "rule": "KDF-302"
+    },
+    {
+      "count": 4,
+      "message": "docstring reshaped to multi-line form",
+      "path": "scripts/trigger_triage.py",
+      "rule": "KDF-401"
+    },
+    {
+      "count": 1,
+      "message": "function '_cron_url' is missing a docstring",
+      "path": "scripts/trigger_triage.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_is_todo' is missing a docstring",
+      "path": "scripts/trigger_triage.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function '_load_registry' is missing a docstring",
+      "path": "scripts/trigger_triage.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'main' is missing a docstring",
+      "path": "scripts/trigger_triage.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'parse_cli_args' is missing a docstring",
+      "path": "scripts/trigger_triage.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "function 'run' is missing a docstring",
+      "path": "scripts/trigger_triage.py",
+      "rule": "KDF-403"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): entries",
+      "path": "scripts/trigger_triage.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): entry, secret_value",
+      "path": "scripts/trigger_triage.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): registry, raw_apps, environment",
+      "path": "scripts/trigger_triage.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 1,
+      "message": "undocumented parameter(s): resp",
+      "path": "scripts/trigger_triage.py",
+      "rule": "KDF-404"
+    },
+    {
+      "count": 3,
+      "message": "missing Returns section (function returns a value)",
+      "path": "scripts/trigger_triage.py",
+      "rule": "KDF-405"
+    },
+    {
+      "count": 1,
+      "message": "line too long (124 > 120)",
+      "path": "scripts/trigger_triage.py",
+      "rule": "KDF-501"
+    },
+    {
+      "count": 1,
+      "message": "line too long (126 > 120)",
+      "path": "scripts/trigger_triage.py",
+      "rule": "KDF-501"
+    },
+    {
+      "count": 1,
+      "message": "line too long (154 > 120)",
+      "path": "scripts/trigger_triage.py",
+      "rule": "KDF-501"
+    },
+    {
+      "count": 2,
+      "message": "wrapped to canonical form",
+      "path": "scripts/trigger_triage.py",
+      "rule": "KDF-502"
+    },
+    {
+      "count": 1,
+      "message": "non-descriptive name 'p' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/trigger_triage.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 1,
+      "message": "non-descriptive name 'w' (1-2 chars) \u2014 use a descriptive name",
+      "path": "scripts/trigger_triage.py",
+      "rule": "KDF-602"
+    },
+    {
+      "count": 6,
+      "message": "comment should start lowercase (unless an ALL-CAPS tag)",
+      "path": "scripts/trigger_triage.py",
+      "rule": "KDF-603"
+    }
+  ],
+  "schema": 1,
+  "tool": "kdf-fmt 1.0.0"
+}
