@@ -9,7 +9,7 @@ surface** (the original `CICD_PAT` automation) still mints its App token **behin
 flag with a `CICD_PAT` fallback**, so the last remaining rollout step there is flipping (or confirming)
 that repo variable on `kriegerdataforge-cicd`. **Phase 2** (the CI-runner + Vercel-build
 `GH_PACKAGES_PAT`) is scoped below and still deferred — though the E2E engine already App-ifies its own
-private-SDK clone (`run-e2e/action.yml:135`), proving the CI-runner half is feasible.
+private-SDK clone (`run-e2e/action.yml:144`), proving the CI-runner half is feasible.
 
 > **Note:** the former dormant registry-checkout PAT was **retired/removed on 2026-06-30**. It was only a
 > `|| github.token` fallback for checking out the **public** cicd repo, which `github.token` already
@@ -41,7 +41,7 @@ authoritative).
 
 | Workflow / action | Token | Scope | Gate |
 |---|---|---|---|
-| `.github/actions/run-e2e` | App token (`contents:read`) | dynamic — the caller's `e2e/manifest.json` repos + shared identity repos + SDK (`run-e2e/action.yml:65-73`) | **none** — always App token |
+| `.github/actions/run-e2e` | App token (`contents:read`) | dynamic — the caller's `e2e/manifest.json` repos + shared identity repos + SDK (`run-e2e/action.yml:74-82`) | **none** — always App token |
 | `ops-setup-e2e.yml` (E2E-repo provisioner) | App token (Secrets **+ Variables** write) | the single target repo via `repositories:` (`ops-setup-e2e.yml:93-101`) | `USE_GITHUB_APP` → `CICD_PAT` (`:95,105`); *writes* `USE_GITHUB_APP=true` into the target for parity (`:11,109`) |
 
 ### Flag-gated — the rotation/kit surface (App token when `USE_GITHUB_APP=true`, else `CICD_PAT`)
@@ -145,7 +145,7 @@ minted tokens request — `contents:read` for `run-e2e`, Secrets+Variables write
 `secrets`+`environments:write` for the rotators, `contents`+`pull-requests:write` for kit distribution); a
 private key was generated and
 installed on the ecosystem repos. `KDF_APP_ID` + `KDF_APP_PRIVATE_KEY` are `kriegerdataforge-cicd` repo
-secrets (`KDF_APP_PRIVATE_KEY` monitored — no expiry, manual rotation — in `secret_registry.json:75-79`).
+secrets (`KDF_APP_PRIVATE_KEY` monitored — tracked expiry 2026-12-29 in the registry, manual rotation — in `secret_registry.json:118-140`).
 The E2E engine mints App tokens on every run and `ops-setup-e2e.yml` copies the App secrets into each
 journey repo. Setup walkthrough: `MANUAL_SETUP.md`; key-rotation recipe: `SECRET_ROTATION.md §8.3a`.
 
@@ -161,7 +161,7 @@ journey repo. Setup walkthrough: `MANUAL_SETUP.md`; key-rotation recipe: `SECRET
 **Phase 2 (deferred):** App-ify the general CI-runner SDK install (`ci-python-*.yml`) and pick the Vercel
 SDK-install path (option 1 now / option 2 long-term) to retire `GH_PACKAGES_PAT`. The E2E engine already
 proves the CI-runner half works — its image build clones the private SDK using the minted App token as
-`GH_PACKAGES_PAT` (`run-e2e/action.yml:135`) — but generalising that to every consumer's reusable workflow
+`GH_PACKAGES_PAT` (`run-e2e/action.yml:144`) — but generalising that to every consumer's reusable workflow
 (`secrets: inherit`) and resolving the Vercel-build path is still staged work.
 
 Cost: $0 (GitHub Apps are free).

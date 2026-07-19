@@ -93,8 +93,8 @@ additive → `minor`; breaking → `major`); the CI check enforces consistency a
 not your level choice:
 
 ```bash
-make bump-patch    # Windows: PYTHONIOENCODING=utf-8 make bump-patch
-                   # (the bump script's emoji output can crash on cp1252 consoles)
+make bump-patch    # Windows: some repos' bump scripts emit emoji and can crash on
+                   # cp1252 consoles — on UnicodeEncodeError rerun with PYTHONUTF8=1
 ```
 
 {Repo-mandatory post-build sync, if any — e.g. `make vercel-compact` after any `api/` change.}
@@ -111,7 +111,7 @@ make bump-patch    # Windows: PYTHONIOENCODING=utf-8 make bump-patch
 
 {3–5 rules distilled from `AGENTS.md` — the full list lives there. Examples of the *kind* of
 rule that belongs here: import boundaries, "server is authoritative", post-build syncs,
-identity-decoupling (plain `user_id`, no FK to `kdf_users`).}
+identity-decoupling (plain `user_id`, no FK to `kdfusers`).}
 
 ---
 

@@ -40,7 +40,7 @@ backstops.
 | --- | --- | --- |
 | **This repo is public.** Anyone can read the workflows and open an issue. | *Authorization, not obscurity,* is the control. Every privileged path re-checks identity server-side. | `_authorize-owner.yml:5-12`; `ops-setup-e2e.yml:5-7` |
 | **GitHub cannot restrict *who* may `workflow_dispatch`** — any collaborator with write access can click "Run workflow". | Deploy authorization is enforced *in-workflow* against an allow-list, not by repo permissions. | `check_deployer.py:4-9` |
-| **First-party + sister-tenant trust.** The hub and tenant repos are the owner's; the boundary is between the KDF ecosystem and the outside world, and between *tenants* (one tenant can't arm another). | Ops workflows validate targets against fixed allow-lists; the E2E engine scopes tokens to just the journey's repos. | `ops-setup-e2e.yml:73-78`; `run-e2e/action.yml:65-73` |
+| **First-party + sister-tenant trust.** The hub and tenant repos are the owner's; the boundary is between the KDF ecosystem and the outside world, and between *tenants* (one tenant can't arm another). | Ops workflows validate targets against fixed allow-lists; the E2E engine scopes tokens to just the journey's repos. | `ops-setup-e2e.yml:73-78`; `run-e2e/action.yml:74-82` |
 | **A reusable workflow change ripples to all consumers at once** (`@main`). | Interface changes are breaking-change candidates; the version gate + pinning defend integrity. | `AGENTS.md:64-68`; `SECURITY.md:38-39` |
 | **The control plane never holds *app* data.** It moves credentials and orchestrates deploys; it does not read user data or app databases. | Secret-scoping/least-privilege is the whole game; there is no PII surface here. | — |
 
@@ -57,8 +57,9 @@ the exact file that implements it.
 beyond the job that used them.
 
 Privileged and cross-repo jobs mint a **short-lived GitHub App installation token** via
-`actions/create-github-app-token` (pinned to the v2.2.2 commit SHA `fee1f7d…`) instead of a
-standing PAT. The action **auto-revokes the token when the job ends**, so the real exposure window
+`actions/create-github-app-token` (pinned to the v3.2.0 commit SHA `bcd2ba49…` since PR #148; the
+one remaining v2.2.2 `fee1f7d…` pin is `run-e2e/action.yml:76` — a known follow-up, not fixed in
+this docs pass) instead of a standing PAT. The action **auto-revokes the token when the job ends**, so the real exposure window
 is the job's runtime (minutes), not the 1-hour nominal TTL (`ops-rotate-secrets.yml:53-71`). Two
 axes of least privilege are applied:
 
@@ -67,14 +68,14 @@ axes of least privilege are applied:
   and delete retired per-environment shadows (`ops-rotate-secrets.yml:62-71`).
 - **Repository scoping.** The E2E engine mints a token with `permission-contents: read` scoped to
   *only* the repos this journey needs — resolved dynamically from the caller's manifest, never a
-  hardcoded tenant list (`run-e2e/action.yml:65-73`, `39-63`).
+  hardcoded tenant list (`run-e2e/action.yml:74-82`, `47-72`).
 
 The private key + App ID are themselves referenced by name only (`secrets.KDF_APP_ID`,
 `secrets.KDF_APP_PRIVATE_KEY`) and never inlined; the App private key is registered as a monitored,
-manually-rotated credential (`secret_registry.json:75-79`).
+manually-rotated credential (`secret_registry.json:118-140`).
 
 > **Least-privilege nuance (documented, not a gap).** `ops-setup-e2e.yml` mints a token with **no**
-> per-permission filter, because `create-github-app-token@v2.2.2` has no `permission-variables`
+> per-permission filter, because `create-github-app-token@v3.2.0` still has no `permission-variables`
 > input and the job must write both Secrets *and* Variables; it is instead scoped to the **single**
 > target repo via `repositories:` (`ops-setup-e2e.yml:86-101`). Scoping is by-repo there, not
 > by-permission.
@@ -161,14 +162,14 @@ that needs it opts in with `secrets: [gh_packages_pat]` (`e2e/docker-compose.sha
 The composite action reinforces this: after the shallow clone of each sibling repo it **strips the
 credentialed remote** from `<repo>/.git/config`, precisely so a later Docker `COPY . .` build
 context can't bake the token into a layer and regress the `--mount=type=secret` hardening
-(`run-e2e/action.yml:96-102`). The App token doubling as `GH_PACKAGES_PAT` is auto-masked by
-Actions (`run-e2e/action.yml:134-135`).
+(`run-e2e/action.yml:107-111`). The App token doubling as `GH_PACKAGES_PAT` is auto-masked by
+Actions (`run-e2e/action.yml:142-144`).
 
 **Repo-level vs environment-scoped shadowing.** The rotation registry encodes a subtle invariant:
 the singular tokens (`GH_PACKAGES_PAT`, `VERCEL_DEPLOYMENT_TOKEN`) live **only** at repository level,
 because a same-named environment secret would *shadow* the repo value (env wins over repo). The
 engine tracks `retired_github_env_secrets` and **deletes** those env-level copies on rotation,
-revoking the old token only after every shadow is gone (`secret_registry.json:2, 9, 32-58`).
+revoking the old token only after every shadow is gone (`secret_registry.json:2, 9, 66-81`).
 
 **Rotation engine + guardrails.** `rotate_secret.py` + `secret_registry.json` are the single source
 of truth. App-plane (Terraform-owned) secrets are **refused** by a `terraform_managed` guard so a
@@ -180,11 +181,21 @@ Paste-mode requires the value be staged in the `SECRET_VALUE_NEW` repo secret fi
 reads **only** the registry's expiry metadata, no secret values — and maintains one deduplicated
 tracking issue, auto-closing it when everything is healthy (`check-secret-expiry.yml:1-16, 41-96`).
 Auto-mintable Vercel tokens self-heal; the PATs and the Vercel master token are flagged as
-hand-rotated because no API can mint them (`secret_registry.json:61-72`).
+hand-rotated because no API can mint them (`secret_registry.json:84-96`).
 
 **CI SDK-auth git credential.** Where a CI job must resolve the private SDK, the token is injected
 via `git config insteadOf` from `secrets.GH_PACKAGES_PAT` only when `needs_sdk_auth` is set — never
 unconditionally (`ci-python-security.yml:54-57`; `cd-python-vercel.yml:110-115`).
+
+**Dual-store reports-cron secrets.** The reports-triage trigger authenticates to each app's
+`POST /reports/triage/cron` with an `X-Cron-Secret` value held as a cicd-side **copy**
+(`REPORTS_CRON_SECRET_FITNESS_APP` / `REPORTS_CRON_SECRET_TIFFANYS_SPACE`) of the Terraform-owned
+app-side secret; the app side is **authoritative** — rotate there first, then paste the same value
+here (`secret_registry.json:141-162`). Both halves fail closed: the trigger engine refuses to POST
+until the cicd copy is set, and the endpoint answers 503 until the app-side value exists (PL-056).
+The rotation recipe is [`SECRET_ROTATION.md`](../guides/SECRET_ROTATION.md) §8.13a and the ops
+runbook is [`REPORTS_TRIAGE_OPS.md`](../guides/REPORTS_TRIAGE_OPS.md) — cross-referenced here
+rather than duplicated.
 
 ### C5 — Strict +1 version discipline
 
@@ -209,7 +220,7 @@ credentials (CICD-SEC-3 / SLSA class).
 - **Third-party actions pinned to a specific tag or full commit SHA**, never `@main`/`@latest`
   (policy: `AGENTS.md:62` rule #2, `SECURITY.md:38-39`) — and in practice every third-party action
   is pinned to a **full commit SHA** with a version comment, e.g. `actions/checkout@9c091bb…` (`# v7.0.0`),
-  `create-github-app-token@fee1f7d…` (`# v2.2.2`) (`cd-python-vercel.yml:66`, `ops-rotate-secrets.yml:65`).
+  `create-github-app-token@bcd2ba49…` (`# v3.2.0`) (`cd-python-vercel.yml:66`, `ops-rotate-secrets.yml:65`).
 - **The Vercel CLI is pinned to an exact version** (`vercel@48.0.0`) precisely because that job
   holds `VERCEL_DEPLOYMENT_TOKEN`, `GH_PACKAGES_PAT`, and (on migrations) `DB_DATABASE_URL`; an
   unpinned floating install is called out as a dependency-chain risk (`cd-python-vercel.yml:134-139`).
@@ -227,7 +238,7 @@ onboarding a new tenant would require editing a file here, the file must be made
 (`AGENTS.md:77-83`). The E2E engine is the worked example: the composite action reads the **caller's**
 `e2e/manifest.json` to discover which *other* repos the journey needs, so it never hardcodes a tenant
 list, and mints its App token scoped to exactly that discovered set plus the shared identity repos
-and the SDK (`run-e2e/action.yml:38-73`). A tenant thus depends only on its own downstream
+and the SDK (`run-e2e/action.yml:47-82`). A tenant thus depends only on its own downstream
 dependency subgraph; the App secrets it is armed with are validated against a **fixed allow-list of
 the six E2E-journey repos** and copied nowhere else (`ops-setup-e2e.yml:71-78`). ADR **D-006**
 captures the decoupling (`docs/design/e2e-test-decoupling.md`); its follow-on ADR **D-007**
@@ -236,7 +247,24 @@ captures the decoupling (`docs/design/e2e-test-decoupling.md`); its follow-on AD
 
 The engine also **fails closed on an empty gate**: after `npm test`, the N2e guard asserts at least
 one Playwright test actually ran, refusing a green-but-empty result that would prove nothing
-(`run-e2e/action.yml:150-166`).
+(`run-e2e/action.yml:160-178`).
+
+### C8 — OIDC-RP drift guard (PL-084) — a monitored cross-repo credential use
+
+**Threat closed:** the copy-pasted OIDC relying-party core (`oidc.ts` + the callback/initiate/logout
+route cores) silently diverging between the two tenant frontends — a security fix landing in one app
+and not the other — until the shared `@kriegerdataforge/oidc-rp` package is extracted
+(owner-deferred post-launch).
+
+`check-oidc-rp-drift.yml` (PR #145; weekly cron Mon 12:30 UTC + `workflow_dispatch`) runs
+`scripts/check_oidc_drift.py`, which compares each pair in `scripts/oidc_drift_manifest.json` across
+`fitness-app-frontend` and `tiffanys-space`. This is a deliberate **cross-repo credential use**: both
+frontends are private, so the reads authenticate with a minted App token (`permission-contents:
+read`, gated on `USE_GITHUB_APP`) falling back to `CICD_PAT` (`check-oidc-rp-drift.yml:42-58`).
+Output is **metadata-only** — paths + changed-line counts, never file contents, so the tracking
+issue in this public repo can't leak private code — and the workflow maintains one deduplicated
+`ops:oidc-rp-drift` issue that auto-closes when all pairs are identical again
+(`check-oidc-rp-drift.yml:7-13, 76-124`).
 
 ---
 
@@ -256,10 +284,11 @@ granted **only** where Vercel OIDC needs it.
 | `ops-rotate-secrets.yml` → `run` | read | — | write | issues:write to comment result (`ops-rotate-secrets.yml:38-40`) |
 | `ops-setup-e2e.yml` → `setup` | read | — | write | `ops-setup-e2e.yml:50-52` |
 | `check-secret-expiry.yml` | read | — | write | maintains the tracking issue (`check-secret-expiry.yml:18-20`) |
+| `check-oidc-rp-drift.yml` | read | — | write | cross-repo reads via App token / `CICD_PAT` fallback (`check-oidc-rp-drift.yml:20-22, 42-58`) |
 
 The `run-e2e` composite action requests no permissions of its own — it runs under the **caller
 job's** permissions and derives all cross-repo access from its minted, scoped App token
-(`run-e2e/action.yml:25-27, 65-73`).
+(`run-e2e/action.yml:34-36, 74-82`).
 
 ---
 
@@ -278,7 +307,7 @@ task); they are recorded for the owner in the summary.
    otherwise they fall back to `secrets.CICD_PAT` (`ops-rotate-secrets.yml:62-64, 123`;
    `ops-setup-e2e.yml:93-95, 105`). `CICD_PAT` carries full Administration/Contents/Environments/
    Secrets/Variables/Actions/Issues/PRs read-write over **all** repos on a 30-day manual expiry
-   (`secret_registry.json:61-65`). So the least-privilege story (C1) is fully realized only with the
+   (`secret_registry.json:84-89`). So the least-privilege story (C1) is fully realized only with the
    flag on; with it off, these ops run under the broad PAT.
 3. **The deployer-gate checkout depends on this repo being public.** The `authorize` job clones the
    registry using the caller's default `github.token`, which works only because

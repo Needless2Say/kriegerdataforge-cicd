@@ -39,8 +39,10 @@ belongs there and how to use it:
 
 **How to work here:** read [`AGENTS.md`](AGENTS.md) (this repo's vision + critical rules) →
 [`WORKFLOW.md`](WORKFLOW.md) (the three-lane task loop) → [`skills.md`](skills.md) (the security
-playbook, before any security-sensitive work). Those three plus `docs/agent/` are the kit —
-centrally synced from `kit/common/` in this repo; never edit the synced copies locally.
+playbook, before any security-sensitive work). `WORKFLOW.md`, `skills.md`, and `docs/agent/` are the
+kit — centrally synced from `kit/common/` in this repo; never edit the synced copies locally.
+`AGENTS.md` is **not** kit-synced: it is this repo's own per-repo vision/rules entry point
+(see `scripts/kit_registry.json` — `AGENTS.md`/`CLAUDE.md` are deliberately excluded from the sync).
 
 ---
 
@@ -60,11 +62,13 @@ Keeping CI/CD logic in one place means deploy behavior is consistent across all 
 | `create-github-release.yml` | Create a GitHub Release and git tag from the `VERSION` file | All repos with a `release.yml` caller |
 | `bump-version-check.yml` | Validate that `VERSION` has been bumped on a PR | All versioned repos |
 | `ci-python-security.yml` | Bandit SAST + pip-audit CVE scan for Python repos | kriegerdataforge, kriegerdataforge-sdk |
+| `ci-python-kdf-fmt.yml` | kdf-fmt formatter/linter style gate (the required `style / Style (kdf-fmt)` check) | All 8 Python repos (hub, sdk, reports-sdk, backends, templates, cicd) |
 | `ci-codeql.yml` | CodeQL static analysis (gated by `ENABLE_CODEQL`; needs public repo or Code Security) | kriegerdataforge, kriegerdataforge-sdk |
 | `issue-create-repo.yml` | Auto-provision new repositories from an issue template | Internal |
 | `rotate-vercel-tokens.yml` | Scheduled rotation of Vercel tokens | Internal |
 | `distribute-gh-pat.yml` | Distribute a staged `GH_PACKAGES_PAT` to all targets | Internal |
 | `check-secret-expiry.yml` | Weekly credential-expiry monitor → opens/closes a deduped rotation issue | Internal |
+| `check-oidc-rp-drift.yml` | Weekly PL-084 guard: detects drift of the copy-pasted OIDC-RP core across the two tenant frontends → deduped tracking issue | Internal |
 | `ops-rotate-secrets.yml` | Owner-only on-demand secret rotation (driven by the `Ops · Rotate a secret` issue form) | Internal |
 
 ---

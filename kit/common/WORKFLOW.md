@@ -39,9 +39,9 @@ most expensive mistake.
 ## Quick lane
 
 Implement → `make ci` **green** (plus any repo-mandatory post-build sync — `AGENTS.md` calls these
-out, e.g. `make vercel-compact` after an `api/` change) → bump version → branch → PR (say *what* and
-*why*) → confirm GitHub CI green → hand back. No formal plan needed. The moment it stops being a
-1-file no-behavior change, switch to Standard.
+out; e.g. repos with an `api/` + Vercel compactor run `make vercel-compact` after an `api/` change)
+→ bump version → branch → PR (say *what* and *why*) → confirm GitHub CI green → hand back. No formal
+plan needed. The moment it stops being a 1-file no-behavior change, switch to Standard.
 
 ---
 
@@ -91,10 +91,12 @@ Makefile. Then bump the version with the repo's script (`make bump-patch` / `bum
 `bump-major`) — **pick the level by impact:** no behavior/contract change → patch; a
 backward-compatible feature or additive contract → minor; a breaking API/schema/contract change →
 major. (The CI version check only verifies the version is consistent across files and strictly ahead
-of `main` — it does **not** police your level choice; that judgment is yours. On Windows consoles
-the bump script's emoji output can crash on cp1252 — run `PYTHONIOENCODING=utf-8 make bump-<level>`.)
+of `main` — it does **not** police your level choice; that judgment is yours. Some repos' bump
+scripts emit emoji and can crash on cp1252 Windows consoles — if `make bump-<level>` fails with
+`UnicodeEncodeError`, rerun with `PYTHONUTF8=1`.)
 **Sequence PRs within a repo** — two open PRs in one repo collide on `VERSION`. Some repos need a
-follow-up sync (the auth service: `make vercel-compact`) — `AGENTS.md` calls these out. Stage files
+follow-up sync (those with an `api/` + Vercel compactor: `make vercel-compact`; none for
+static-export sites or package repos) — `AGENTS.md` calls these out. Stage files
 **explicitly**; never `git add -A`. Confirm your change meets
 [`docs/agent/DEFINITION_OF_DONE.md`](docs/agent/DEFINITION_OF_DONE.md) for its change type.
 
@@ -139,12 +141,14 @@ Standard-lane PRs. Full detail: [`docs/agent/DESIGN_AND_EPICS.md`](docs/agent/DE
 3. **Decompose** — break the work into **flag-gated vertical slices**, each independently
    shippable and reviewable. Ship dark behind a feature flag; enable last.
 4. **Sequence — contract-first** — order slices by dependency: **define each contract in the repo
-   that owns it, then regenerate/extend its consumers.** Identity/JWT lives in
-   `kriegerdataforge-sdk`; a *per-app* API contract lives in **that app's own backend** and reaches
-   its frontend through an OpenAPI-generated client (e.g. `fitness-app-backend: make openapi` →
-   `fitness-app-frontend: make generate-client`) — the SDK is **not** in that path unless the
-   auth/JWT contract itself changes. Never build a consumer against a contract that doesn't exist
-   yet. Create the **epic tracker** in the hub: `kriegerdataforge/docs/epics/<name>.md` (template:
+   that owns it, then regenerate/extend its consumers.** (The OpenAPI/SDK mechanics below apply to
+   repos with an API surface — static-export sites and package repos just sequence by dependency
+   order.) Identity/JWT lives in `kriegerdataforge-sdk`; a *per-app* API contract lives in **that
+   app's own backend** and reaches its frontend through an OpenAPI-generated client (e.g.
+   `fitness-app-backend: make openapi` → `fitness-app-frontend: make generate-client`) — the SDK is
+   **not** in that path unless the auth/JWT contract itself changes. Never build a consumer against
+   a contract that doesn't exist yet. Create the **epic tracker** in the hub:
+   `kriegerdataforge/docs/epics/<name>.md` (template:
    [`docs/agent/templates/epic-tracker.template.md`](docs/agent/templates/epic-tracker.template.md)).
 5. **Execute slices** — run **each slice through the Standard lane** as its own PR in its own
    repo, linked back to the epic tracker. Update the tracker's status grid as each slice lands.

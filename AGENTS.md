@@ -115,8 +115,8 @@ Quick lookups: workflow inputs/secrets → `docs/reference/WORKFLOWS.md`; setup/
 
 **Every task follows the tiered loop in [`WORKFLOW.md`](./WORKFLOW.md)** — pick a lane:
 
-- **Quick** — tiny, no-behavior change → implement → `make ci` → PR.
-- **Standard** — a one-repo feature → orient → **plan & owner approves** → implement → `make ci`
+- **Quick** — tiny, no-behavior change → implement → `make check-all` → PR.
+- **Standard** — a one-repo feature → orient → **plan & owner approves** → implement → `make check-all`
   green (+ version bump) → PR → **GitHub CI green** → **owner merges**.
 - **Epic** — complex/novel design or anything that **spans repos** → the design gate + cross-repo
   coordination below.

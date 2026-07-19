@@ -95,8 +95,8 @@ security audit (`PL-###` findings); the canonical audit lives in the `kriegerdat
 - **AuthZ on every endpoint** via the SDK deps (`current_user` / `admin_user`); the user PK is
   `user.user_id` (`int`), not `.id`.
 - **Identity decoupling** *(tenant app DBs)*: user-owning tables carry a **plain indexed `user_id`** from the
-  verified JWT — no **cross-DB** FK to `kdf_users`, no ORM `Relationship` to `KDFUser`, no per-app user table.
-  Identity resolves from token claims, never a join. (In the **hub** itself, same-DB FKs to `kdf_users.id`
+  verified JWT — no **cross-DB** FK to `kdfusers`, no ORM `Relationship` to `KDFUser`, no per-app user table.
+  Identity resolves from token claims, never a join. (In the **hub** itself, same-DB FKs to `kdfusers.id`
   are the convention — see the DoD's schema section, which enforces both sides at migration time.)
 - **Mass-assignment:** bind to a CLOSED request schema (`ConfigDict(extra="forbid")`) + an explicit field
   allow-list in the service. Never blind `setattr` over `model_dump()` — `extra="ignore"` hides unknown keys
@@ -140,7 +140,7 @@ server-authoritative rule above is necessary but **not** sufficient — also:
   and claim endpoints; alert on anomalies (impossible velocity, negative deltas).
 - **Leaderboards are server-computed.** Rank from server-owned totals only; the read endpoint is
   **paginated and rate-limited**, and renders *other* users via the **hub's read-only public-profile
-  lookup** (display name / avatar) — never a per-app user table or a cross-DB FK to `kdf_users` (the
+  lookup** (display name / avatar) — never a per-app user table or a cross-DB FK to `kdfusers` (the
   identity-decoupling rule).
 - **Spend / redeem is a transaction.** Spending points (rewards, unlocks) re-checks the **server-side
   balance** inside the same transaction as the debit — never trust a client-sent balance, and guard

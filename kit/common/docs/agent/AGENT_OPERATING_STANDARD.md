@@ -114,7 +114,7 @@ mega-PR:
    the env vars, and the user surfaces. **Crucially**, it opens each repo's `AGENTS.md` and reads its
    **Vision & purpose** and **Critical rules first**. That's what catches, for example, that a
    gamification `points` table in the fitness DB must use a **plain `user_id` column from the verified
-   JWT — never a cross-DB foreign key to `kdf_users`** (the identity-decoupling rule), and that the
+   JWT — never a cross-DB foreign key to `kdfusers`** (the identity-decoupling rule), and that the
    frontend's generated API client is **read-only**. It also catches that the **leaderboard** must
    render *other* users' names/avatars — data the tenant DB can't own — so it needs the **hub's
    read-only public-profile lookup** (contract map, row 4), an auth-adjacent contract that leads the
@@ -162,7 +162,7 @@ owns it, then regenerate/extend its consumers:**
 | --- | --- | --- |
 | **Identity / auth** — the JWT, `KDFUser`, claims, scopes, per-client audience | `kriegerdataforge-sdk` (verification) + the **hub** (issuance) | every tenant backend verifies via the SDK; touch the SDK slice **only** when this contract changes |
 | **A per-app API** — endpoints + request/response schemas | that **app's own backend** | its frontend consumes a **read-only OpenAPI-generated client** (`make openapi` → `make generate-client`); the SDK is **not** in this path |
-| **The user/identity store** | the **hub** (`kdf_users`) | tenant app DBs reference identity by a **plain `user_id` column from the verified JWT — no cross-DB FK**, no per-app user table |
+| **The user/identity store** | the **hub** (`kdfusers`) | tenant app DBs reference identity by a **plain `user_id` column from the verified JWT — no cross-DB FK**, no per-app user table |
 | **Other users' public profile** — display name / avatar for leaderboards, social, mentions | the **hub** (`kriegerdataforge`) | tenant backends resolve arbitrary `user_id`s via a **hub-owned read-only batch endpoint** (e.g. `GET /users/public?ids=…`) returning display fields only — **never** a per-app user table or cross-DB FK. It's a hub contract change, so it leads the contract-first sequence and carries a design note |
 
 The single most common cross-repo mistake is treating the SDK as the carrier for a *per-app* API
@@ -239,7 +239,7 @@ The standard does a lot, but a good prompt makes it sing:
   migrate, then remove the old shape (contract) — `main` works against both at every step.
 - **`KDFUser`** — the verified identity principal the SDK returns from a valid JWT; `user.user_id`
   (int), never `user.id`.
-- **Hub** — `kriegerdataforge`, the ecosystem's OIDC/identity platform and the home of `kdf_users`
+- **Hub** — `kriegerdataforge`, the ecosystem's OIDC/identity platform and the home of `kdfusers`
   and the epic trackers.
 - **Tenant app** — a product built on the platform (fitness, tiffanys, …); its DB references identity
   by a plain `user_id` column, never a cross-DB FK.

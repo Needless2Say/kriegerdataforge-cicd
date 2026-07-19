@@ -30,7 +30,7 @@ Never vendor/copy the module source into an app — that is exactly what this st
    D-004 flag `FEATURE_REPORTS_ENABLED`, dark by default).
 2. **One Alembic revision** copied from the reports-sdk repo's
    `docs/reference/alembic_template_revision.py` (the package owns no Alembic env; `app_slug` is
-   born VARCHAR — never a shared enum, never an FK to `kdf_users`).
+   born VARCHAR — never a shared enum, never an FK to `kdfusers`).
 3. Env block (all fail-closed): `REPORTS_APP_SLUG` (server-stamped identity — inbound `app_slug`
    is ignored), `REPORTS_CRON_SECRET` (empty ⇒ cron endpoint answers **503**), `GH_REPORTS_REPO`,
    `GH_REPORTS_PROJECT_ID` (the board node id — metadata, not a secret),

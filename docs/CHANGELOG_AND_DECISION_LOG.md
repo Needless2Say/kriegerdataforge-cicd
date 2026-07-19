@@ -657,3 +657,45 @@ kit release. Post-epic review backlog lives at the end of the hub PLAN doc (next
 hub adoption, fitness TriageDashboard port, terraform backfill of fitness `GH_REPORTS_*`, E2E
 journey extension). Runtime arming (cron secrets, base_urls, board Status reshape, schedule
 variables) remains owner-paced — the standard ships complete and OFF.
+
+## D-012 — Agentic-Workflow Standard v1.4.1: docs-freshness corrections to the kit
+
+- **Date:** 2026-07-19
+- **Status:** Accepted
+- **Tier / scope:** Kit patch (docs-freshness wave 2026-07-19) · kit v1.4.0 → **v1.4.1** ·
+  all 16 kit-synced repos
+
+**Context.** The 2026-07-19 docs-freshness effort across the ecosystem flagged three defects in
+the distributed kit: (1) every identity-decoupling passage named the hub's auth table
+`kdf_users` — the real table is `kdfusers` (no underscore; verified against the hub's models and
+both app backends); (2) the Windows bump caveat (added in D-009) claimed "the bump script's
+emoji output can crash on cp1252 — run `PYTHONIOENCODING=utf-8`", which misdescribes repos whose
+bump scripts are ASCII-only (the npm template family); (3) app-centric mechanics shipped
+unqualified to every repo type — `WORKFLOW.md` taught vercel-compact-after-`api/`-changes and
+OpenAPI-client regeneration as if universal, and `DEFINITION_OF_DONE.md`'s conditional sections
+(test tiers, migration + rollback, cross-repo contract rows) read as demands even for
+static-export portfolios and package repos.
+
+**Decision.** Ship a **correction-only kit patch — v1.4.1** (no files added or removed; registry
+`files[]` unchanged at 13): (1) `kdf_users` → `kdfusers` in `skills.md`,
+`AGENT_OPERATING_STANDARD.md`, `DEFINITION_OF_DONE.md`, `REPORTS_STANDARD.md`, and the
+design-spec + contributor-onboarding templates; (2) the Windows caveat reworded generically in
+`WORKFLOW.md` and the onboarding template — some repos' bump scripts emit emoji and can crash on
+cp1252 Windows consoles; on `UnicodeEncodeError` rerun with `PYTHONUTF8=1`; (3) applicability
+qualifiers, not deletions: `WORKFLOW.md`'s Quick lane and Step 4 scope `make vercel-compact` to
+repos with an `api/` + Vercel compactor, Epic step 4 gains a one-line "OpenAPI/SDK mechanics
+apply to repos with an API surface" scoping, and `DEFINITION_OF_DONE.md` gains a scope note
+("conditional sections apply only to repos that have that surface") plus a "tiers this repo
+actually has" qualifier on the test row. All three `KIT_VERSION` markers bump together; cicd's
+root copies hand-synced byte-identical.
+
+**Alternatives considered.** Per-repo kit forks (rejected: the kit's value is byte-identical
+sameness; qualifiers keep one text true everywhere) · deleting the app-centric sections
+(rejected: most kit consumers ARE app repos; scoping is a two-line fix) · rewriting the
+`kdf_users` mentions inside historical ADRs (rejected: this log is append-only — D-005/D-009
+record what was written then; this entry supersedes the detail).
+
+**Consequences.** Owner runs **Distribute** (`ops:distribute-kit`) to fan v1.4.1 out to the 16
+consumer repos; until then the weekly drift check stays red for the consumer repos (kit-only
+sync PRs remain version-gate-exempt). Docs-only — no behavior, contract, or registry-shape
+change.
