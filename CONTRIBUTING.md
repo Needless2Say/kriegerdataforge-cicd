@@ -50,7 +50,7 @@ is a thin caller — all deploy logic lives in this repo.
 | App source code | — | `api/`, `src/`, etc. |
 | App-specific Docker / Makefile | — | `Dockerfile`, `Makefile` |
 | Issue templates for repo provisioning | `.github/ISSUE_TEMPLATE/` | — |
-| Onboarding and setup docs | `docs/MANUAL_SETUP.md` | — |
+| Onboarding and setup docs | `docs/guides/MANUAL_SETUP.md` | — |
 | **Reusable E2E engine** (driver `ci_stack.py`, `docker-compose.shared.yml`, the `run-e2e` composite action, Playwright harness) | `e2e/` + `.github/actions/run-e2e/` | — |
 | **A tenant's E2E journey** (its Playwright spec, its compose service fragment, its seed data, its `e2e/manifest.json`) | — | `e2e/` in that tenant repo |
 | **E2E gate job** (a thin CI job that `uses:` the `run-e2e` action, gated by `RUN_E2E_GATE`) | — | `.github/workflows/e2e.yml` |
@@ -74,13 +74,13 @@ it belongs here. If it's specific to one app's stack, it stays in that tenant re
 2. Add `permissions:` at the workflow level — minimum necessary only.
 3. All secrets must flow via `secrets: inherit` from the caller; never hard-code values.
 4. All inputs must have explicit `type:` and `description:` fields.
-5. Document it in `docs/WORKFLOWS.md`:
+5. Document it in `docs/reference/WORKFLOWS.md`:
    - Purpose and what it does (numbered steps).
    - Caller pattern (copy-paste YAML).
    - Required secrets table.
    - Inputs table.
    - Add to the Consumer Repo Summary table.
-6. Add to the Implemented Workflows table in `AGENTS.md`.
+6. Add it to the "Module map" table in `AGENTS.md`.
 7. Run `make lint` to validate the YAML.
 
 ---
@@ -108,7 +108,7 @@ repos is much higher than the cost of an extra unused input.
 ## PR Process
 
 - One logical change per PR.
-- If the change touches a workflow YAML, also update `docs/WORKFLOWS.md` in the same PR.
+- If the change touches a workflow YAML, also update `docs/reference/WORKFLOWS.md` in the same PR.
 - If the change is a breaking change: open a tracking issue on every affected consumer repo
   and coordinate the update before merging here.
 - Run `make lint` before opening the PR.
@@ -129,7 +129,7 @@ repos is much higher than the cost of an extra unused input.
          version: ${{ inputs.version }}
        secrets: inherit
    ```
-3. Add the new repo to the Consumer Repo Summary table in `docs/WORKFLOWS.md`.
+3. Add the new repo to the Consumer Repo Summary table in `docs/reference/WORKFLOWS.md`.
 4. Add it to the "Called by" column of the matching workflow in `AGENTS.md`.
 
 ---

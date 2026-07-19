@@ -134,7 +134,7 @@ private (post org-move), this checkout needs a read-only token — tracked in
 
 ## Reusable workflow catalog
 
-19 workflows are `on: workflow_call`. None declares an explicit `secrets:` block, so callers pass
+20 workflows are `on: workflow_call`. None declares an explicit `secrets:` block, so callers pass
 `secrets: inherit`. Permissions are stated as declared in each file (top-level and/or per-job); an
 undeclared scope means the workflow relies on the caller's / default token.
 
@@ -457,11 +457,11 @@ tenant repo's `.github/workflows/e2e.yml` job (composite action, not `workflow_c
 **tenant-agnostic**: it reads the *caller's* `e2e/manifest.json` to learn which sibling repos the
 journey needs, so it hardcodes no tenant list (ADR D-006/D-007).
 
-**What it does** (`action.yml:25-197`): free disk → read the caller's manifest (`:38-63`) → mint a
-GitHub App token scoped `contents:read` to just this journey's repos + the SDK (`:65-73`) → check out
-cicd + the sibling repos into the sibling layout (`:75-103`) → set up Python/Node/Playwright →
+**What it does** (`action.yml:34-208`): free disk → read the caller's manifest (`:44-72`) → mint a
+GitHub App token scoped `contents:read` to just this journey's repos + the SDK (`:74-82`) → check out
+cicd + the sibling repos into the sibling layout (`:84-112`) → set up Python/Node/Playwright →
 `python e2e/ci_stack.py up --journey <journey>` → `npm test` (with a fail-closed "≥1 test ran" gate,
-N2e, `:148-166`) → dump compose logs on failure → upload the Playwright report (1-day retention, GOOD-6)
+N2e, `:160-178`) → dump compose logs on failure → upload the Playwright report (1-day retention, GOOD-6)
 → tear the stack down.
 
 **Inputs:**
@@ -472,13 +472,15 @@ N2e, `:148-166`) → dump compose logs on failure → upload the Playwright repo
 | `app-id` | **yes** | — | GitHub App ID — pass `${{ secrets.KDF_APP_ID }}` (composite actions can't read secrets directly) (`:14-16`) |
 | `app-private-key` | **yes** | — | GitHub App private key — pass `${{ secrets.KDF_APP_PRIVATE_KEY }}` (`:17-19`) |
 | `cicd-ref` | no | `main` | Ref of `kriegerdataforge-cicd` to run the engine from (`:20-23`) |
+| `gh-npm-token` | no | `""` | **Classic** `read:packages` PAT for the `npm ci` of the private `@needless2say/*` npm scope during frontend image builds — pass the caller's `GH_NPM_TOKEN` secret for journeys whose manifest repos include such a frontend; backend-only journeys omit it. GH Packages npm rejects fine-grained PATs and App tokens, so the minted App token cannot serve here (`:24-32`) |
 
 - **Outputs:** none declared.
 - **Permissions:** none in the action (a composite action inherits the calling **job's** permissions;
   the App token supplies its own scopes).
 - **Secrets:** none read directly — the App credentials arrive as the `app-id` / `app-private-key`
   inputs; the minted App token doubles as `GH_PACKAGES_PAT` for the private-SDK clone during the image
-  build (`:135`).
+  build (`:144`). Browser journeys additionally pass the caller's `GH_NPM_TOKEN` secret via the
+  `gh-npm-token` input, wired to the `GH_NPM_TOKEN` env of the stack build (`:147`).
 
 **Caller job** (verified against `action.yml` + ADR D-007 `docs/design/e2e-cijob-refactor.md`): the
 job **checks itself out into a path equal to its own repo name** (sibling layout) — the action reads
@@ -501,6 +503,7 @@ jobs:
           journey: fitness                 # must match e2e/manifest.json
           app-id: ${{ secrets.KDF_APP_ID }}
           app-private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
+          gh-npm-token: ${{ secrets.GH_NPM_TOKEN }}   # browser journeys only (private npm scope)
 ```
 
 The `KDF_APP_ID` / `KDF_APP_PRIVATE_KEY` secrets + the `RUN_E2E_GATE` variable are provisioned into a
@@ -533,7 +536,7 @@ shown where it differs from top-level):
 
 ## Repo-internal event-triggered workflows
 
-The remaining fourteen `.github/workflows/*.yml` (of 33 total: 19 `workflow_call` above + these 14) are
+The remaining fifteen `.github/workflows/*.yml` (of 35 total: 20 `workflow_call` above + these 15) are
 **not** `workflow_call`, so they cannot be `uses:`-d by a tenant. They run inside `kriegerdataforge-cicd` on schedules / issues / dispatch, and the ops ones are
 owner-gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for completeness of the
 `.github/workflows/` enumeration.
