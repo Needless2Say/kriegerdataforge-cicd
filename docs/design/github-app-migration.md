@@ -145,7 +145,7 @@ minted tokens request — `contents:read` for `run-e2e`, Secrets+Variables write
 `secrets`+`environments:write` for the rotators, `contents`+`pull-requests:write` for kit distribution); a
 private key was generated and
 installed on the ecosystem repos. `KDF_APP_ID` + `KDF_APP_PRIVATE_KEY` are `kriegerdataforge-cicd` repo
-secrets (`KDF_APP_PRIVATE_KEY` monitored — no expiry, manual rotation — in `secret_registry.json:118-140`).
+secrets (`KDF_APP_PRIVATE_KEY` monitored — tracked expiry 2026-12-29 in the registry, manual rotation — in `secret_registry.json:118-140`).
 The E2E engine mints App tokens on every run and `ops-setup-e2e.yml` copies the App secrets into each
 journey repo. Setup walkthrough: `MANUAL_SETUP.md`; key-rotation recipe: `SECRET_ROTATION.md §8.3a`.
 

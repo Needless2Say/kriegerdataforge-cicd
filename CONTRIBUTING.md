@@ -130,7 +130,7 @@ repos is much higher than the cost of an extra unused input.
        secrets: inherit
    ```
 3. Add the new repo to the Consumer Repo Summary table in `docs/reference/WORKFLOWS.md`.
-4. Add it to the "Called by" column of the matching workflow in `AGENTS.md`.
+4. Add it to the caller list in the matching workflow's row of the Module map in `AGENTS.md`.
 
 ---
 
