@@ -7,6 +7,10 @@ section should reduce to a single **`make ci`** gate rather than a hand-maintain
 sub-commands (which drift from the Makefile), and **every command it names must be a real target in
 that repo's Makefile** (`make help`).
 
+**Scope note:** the conditional sections below apply **only to repos that have that surface** — a
+static-export site or a package repo has no migrations, generated API clients, or Vercel compactor;
+skip those sections rather than inventing the ceremony.
+
 ---
 
 ## Baseline — every change
@@ -24,9 +28,9 @@ that repo's Makefile** (`make help`).
 
 ## If it changes behavior or adds a feature
 
-- [ ] **Tests added at the right tier** — unit for pure logic/validation/calculations; integration
-      for endpoints/components/flows; end-to-end for a critical user path. New endpoints and server
-      actions always get tests.
+- [ ] **Tests added at the right tier** (of the tiers this repo actually has — `make help`) — unit
+      for pure logic/validation/calculations; integration for endpoints/components/flows; end-to-end
+      for a critical user path. New endpoints and server actions always get tests.
 - [ ] **Edge cases + failure paths** covered, not just the happy path.
 - [ ] **Docs updated** — the doc that describes this behavior (README/`docs/*`) reflects reality:
       organized, front-doored, and deprecated-not-deleted per
@@ -49,8 +53,8 @@ that repo's Makefile** (`make help`).
 - [ ] **Rollback path** stated — how to revert safely if the deploy goes bad.
 - [ ] **Migration runs cleanly** forward (and the down-path is sane).
 - [ ] **Identity decoupling respected** — in the **hub** (`kriegerdataforge`), user FKs reference
-      `kdf_users.id`. In a **tenant app DB** (fitness, tiffanys, …), `user_id` is a **plain column
-      from the verified JWT — no cross-DB FK to `kdf_users`**, and no per-app user/identity table.
+      `kdfusers.id`. In a **tenant app DB** (fitness, tiffanys, …), `user_id` is a **plain column
+      from the verified JWT — no cross-DB FK to `kdfusers`**, and no per-app user/identity table.
 
 ## If it's security-relevant (auth, OIDC, tokens, sessions, authz, secrets, CSP, infra, CI)
 

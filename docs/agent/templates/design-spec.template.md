@@ -43,8 +43,8 @@ User flow (entry → steps → exit), key screens/components, mobile + accessibi
 ## 6. Data
 
 Tables / fields / enums; migration plan (expand→contract); backward-compatibility + rollback.
-**Identity:** in the **hub**, user FKs reference `kdf_users.id`; in a **tenant app DB**, `user_id`
-is a plain column from the verified JWT — **no cross-DB FK to `kdf_users`**, no per-app user table.
+**Identity:** in the **hub**, user FKs reference `kdfusers.id`; in a **tenant app DB**, `user_id`
+is a plain column from the verified JWT — **no cross-DB FK to `kdfusers`**, no per-app user table.
 
 ## 7. Cross-repo / blast radius
 
