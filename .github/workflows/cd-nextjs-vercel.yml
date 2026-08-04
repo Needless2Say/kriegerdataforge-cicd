@@ -9,8 +9,14 @@
 #      secrets together, so the shared token lives at REPOSITORY level (one value
 #      everywhere) while the per-env values stay environment-scoped.
 #
-# Repository secret (one global value — set at repo level, NOT per environment):
+# Repository secrets (one global value — set at repo level, NOT per environment):
 #   VERCEL_DEPLOYMENT_TOKEN — shared Vercel deploy/management token
+#   GH_NPM_TOKEN            — CLASSIC read:packages PAT for the private
+#                             @needless2say/* GitHub Packages scope. Required by
+#                             any consumer whose package.json depends on it; the
+#                             build happens HERE (see the prebuilt note below), so
+#                             this Actions secret is the ONLY place it is needed —
+#                             the Vercel projects do not carry an npm credential.
 # Environment secrets (set per environment in the caller repo):
 #   VERCEL_ORG_ID      — Vercel team / org ID
 #   VERCEL_PROJECT_ID  — Vercel project ID for the target environment
@@ -95,16 +101,6 @@ jobs:
           node-version: "22"
           cache: "npm"
 
-      - name: Install dependencies
-        env:
-          # Private GH-Packages npm auth (reports-ecosystem epic W3.5): consumers that
-          # depend on @needless2say/* commit an .npmrc interpolating ${GH_NPM_TOKEN} — a
-          # CLASSIC read:packages PAT (GH Packages rejects fine-grained PATs and App
-          # installation tokens). Always exported; empty for token-less consumers.
-          # (Vercel's own remote build reads the GH_NPM_TOKEN PROJECT env var instead.)
-          GH_NPM_TOKEN: ${{ secrets.GH_NPM_TOKEN }}
-        run: npm ci
-
       - name: Validate Vercel project binding
         run: |
           if [ -z "${VERCEL_PROJECT_ID:-}" ]; then
@@ -126,20 +122,78 @@ jobs:
         # dependency-chain risk (CICD-SEC-3 / SLSA). Bump via Dependabot.
         run: npm install -g vercel@48.0.0
 
-      - name: Deploy to Vercel
+      - name: Prepare Vercel token
+        # A VERCEL_DEPLOYMENT_TOKEN env secret pasted by hand often carries a trailing newline/space, which
+        # the Vercel CLI rejects ("The specified token is not valid") even though the token itself is valid.
+        # Trim once here and reuse across the pull/build/deploy steps below. The TRIMMED value is a different
+        # string from the raw secret, so GitHub's automatic masking does not cover it — ::add-mask:: is what
+        # keeps it out of the logs. (Only the LENGTH is echoed, for debugging.)
         run: |
-          # A VERCEL_DEPLOYMENT_TOKEN env secret pasted by hand often carries a trailing newline/space, which
-          # the Vercel CLI rejects ("The specified token is not valid") even though the token itself is valid.
-          # Strip whitespace, fail fast if empty, and pass it explicitly via --token. (Only the LENGTH is
-          # logged for debugging — the token value is never printed.)
           TOKEN="$(printf '%s' "$VERCEL_DEPLOYMENT_TOKEN" | tr -d '[:space:]')"
           if [ -z "$TOKEN" ]; then
             echo "::error::VERCEL_DEPLOYMENT_TOKEN is empty in the '${{ inputs.environment }}' environment — set the VERCEL_DEPLOYMENT_TOKEN environment secret on this repo (correct environment)."
             exit 1
           fi
-          echo "VERCEL_DEPLOYMENT_TOKEN trimmed length=${#TOKEN}; org=${VERCEL_ORG_ID}; project=${VERCEL_PROJECT_ID}"
-          vercel --prod --yes --token "$TOKEN"
+          echo "::add-mask::$TOKEN"
+          echo "VERCEL_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+          echo "VERCEL_DEPLOYMENT_TOKEN trimmed length=${#TOKEN}"
         env:
           VERCEL_DEPLOYMENT_TOKEN: ${{ secrets.VERCEL_DEPLOYMENT_TOKEN }}
+
+      # ── Why this deploys a PREBUILT artifact ──────────────────────────────────
+      # A plain `vercel --prod` uploads SOURCE and builds on Vercel's machine. That
+      # remote builder cannot see any GitHub Actions secret, so `npm install` there
+      # has no credential for the private @needless2say/* GitHub Packages scope and
+      # dies with "401 … cannot be authenticated with the token provided" — even
+      # though the runner's own `npm ci` a few steps earlier succeeded.
+      #
+      # Building here instead moves the install to the one machine that already
+      # holds a working GH_NPM_TOKEN, and ships only the compiled output. Vercel
+      # never talks to npm, so the npm credential never has to be copied into a
+      # Vercel project env var and kept in sync in two places.
+      #
+      # Safe because every route in these apps is `ƒ (Dynamic) — server-rendered on
+      # demand`: `next build` never evaluates the server env module, so the build
+      # needs no runtime secret. Verified by building all three apps with every
+      # sensitive var unset — all exit 0. This matters because `vercel pull` below
+      # CANNOT retrieve Sensitive env var values (Vercel makes them write-only), so
+      # a build that did need one at build time would fail here while passing on
+      # Vercel's remote builder. If a future app statically prerenders a page that
+      # reads a sensitive var, that app must stay on the remote-build path.
+      - name: Pull Vercel project settings and build env
+        # Writes .vercel/project.json + .vercel/.env.production.local so the local
+        # build sees the same NEXT_PUBLIC_* values the remote builder would inline.
+        #
+        # DO NOT keep a GH_NPM_TOKEN env var on the Vercel projects. It is useless
+        # on this path, and actively harmful: whatever `vercel pull` writes for it
+        # lands in .env.production.local and can shadow the real token exported into
+        # the build step below — and a Sensitive var pulls back with no value, so it
+        # would shadow it with an EMPTY string and resurrect the original 401.
+        run: vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Install dependencies
+        env:
+          # Private GH-Packages npm auth (reports-ecosystem epic W3.5): consumers that
+          # depend on @needless2say/* commit an .npmrc interpolating ${GH_NPM_TOKEN} — a
+          # CLASSIC read:packages PAT (GH Packages rejects fine-grained PATs and App
+          # installation tokens). Always exported; empty for token-less consumers.
+          GH_NPM_TOKEN: ${{ secrets.GH_NPM_TOKEN }}
+        run: npm ci
+
+      - name: Build
+        env:
+          # `vercel build` re-runs the project's install command, so the npm scope
+          # credential must be present for this step too — not just the `npm ci` above.
+          GH_NPM_TOKEN: ${{ secrets.GH_NPM_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: vercel build --prod --token "$VERCEL_TOKEN"
+
+      - name: Deploy prebuilt artifact to Vercel
+        run: vercel deploy --prebuilt --prod --yes --token "$VERCEL_TOKEN"
+        env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

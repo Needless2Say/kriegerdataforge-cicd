@@ -9,13 +9,11 @@ from __future__ import annotations
 import base64
 from unittest.mock import MagicMock, patch
 
+import distribute_kit as dk
 import pytest
 
-import distribute_kit as dk
 
 # ── Fixtures ────────────────────────────────────────────────────────────────────
-
-
 @pytest.fixture
 def registry():
     return {
@@ -28,8 +26,6 @@ def registry():
 
 
 # ── Pure helpers ─────────────────────────────────────────────────────────────────
-
-
 def test_normalize_ignores_crlf():
     assert dk._normalize("a\r\nb\r\n") == "a\nb\n"
     assert dk._normalize("a\r\nb") == dk._normalize("a\nb")
@@ -88,29 +84,26 @@ def test_select_repos_no_match_exits(registry):
 
 
 # ── Contents API helper ──────────────────────────────────────────────────────────
-
-
 def test_get_remote_file_404_returns_none():
-    resp = MagicMock(status_code=404)
-    with patch.object(dk._SESSION, "get", return_value=resp):
+    resp = MagicMock(status_code = 404)
+    with patch.object(dk._SESSION, "get", return_value = resp):
         assert dk._get_remote_file("tok", "o/r", "main", "a.md") == (None, None)
 
 
 def test_get_remote_file_decodes_content():
-    resp = MagicMock(status_code=200)
+    resp                   = MagicMock(status_code = 200)
     resp.json.return_value = {"content": base64.b64encode(b"hello").decode(), "sha": "abc"}
-    resp.raise_for_status = MagicMock()
-    with patch.object(dk._SESSION, "get", return_value=resp):
+    resp.raise_for_status  = MagicMock()
+    with patch.object(dk._SESSION, "get", return_value = resp):
         content, sha = dk._get_remote_file("tok", "o/r", "main", "a.md")
     assert content == "hello"
     assert sha == "abc"
 
 
 # ── HTTP retry hardening ─────────────────────────────────────────────────────────
-
-
 def test_session_retries_transient_failures():
-    """Regression guard: the shared session must retry transient GitHub failures.
+    """
+    Regression guard: the shared session must retry transient GitHub failures.
 
     A fan-out check/distribute across ~14 repos routinely hits a 502/503/429 or a
     DNS/connection blip; without retries a single hiccup aborts a whole repo (the
@@ -134,10 +127,9 @@ def test_session_retries_transient_failures():
 
 
 # ── Drift detection ──────────────────────────────────────────────────────────────
-
-
 def test_compute_drift_detects_diff_and_missing():
     files = ["a.md", "b.md", "c.md"]
+
 
     def fake_remote(_token, _repo, _branch, path):
         if path == "a.md":
@@ -146,9 +138,10 @@ def test_compute_drift_detects_diff_and_missing():
             return ("DIFFERENT", "sha")     # content drift
         return (None, None)                 # missing -> drift
 
+
     with (
-        patch.object(dk, "_read_local", side_effect=lambda rel: f"local-{rel}"),
-        patch.object(dk, "_get_remote_file", side_effect=fake_remote),
+        patch.object(dk, "_read_local", side_effect = lambda rel: f"local-{rel}"),
+        patch.object(dk, "_get_remote_file", side_effect = fake_remote),
     ):
         drift = dk.compute_drift("tok", "o/r", "main", files)
     assert drift == ["b.md", "c.md"]
@@ -156,57 +149,57 @@ def test_compute_drift_detects_diff_and_missing():
 
 def test_compute_drift_normalizes_line_endings():
     with (
-        patch.object(dk, "_read_local", return_value="x\ny\n"),
-        patch.object(dk, "_get_remote_file", return_value=("x\r\ny\r\n", "sha")),
+        patch.object(dk, "_read_local", return_value = "x\ny\n"),
+        patch.object(dk, "_get_remote_file", return_value = ("x\r\ny\r\n", "sha")),
     ):
         assert dk.compute_drift("tok", "o/r", "main", ["a.md"]) == []
 
 
 # ── check mode ───────────────────────────────────────────────────────────────────
-
-
 def test_cmd_check_returns_0_when_in_sync(registry):
-    with patch.object(dk, "compute_drift", return_value=[]):
+    with patch.object(dk, "compute_drift", return_value = []):
         assert dk.cmd_check(registry, "tok", None) == 0
 
 
 def test_cmd_check_returns_1_on_drift(registry):
-    with patch.object(dk, "compute_drift", side_effect=[["skills.md"], []]):
+    with patch.object(dk, "compute_drift", side_effect = [["skills.md"], []]):
         assert dk.cmd_check(registry, "tok", None) == 1
 
 
 def test_cmd_check_returns_1_on_error(registry):
-    with patch.object(dk, "compute_drift", side_effect=RuntimeError("boom")):
+    with patch.object(dk, "compute_drift", side_effect = RuntimeError("boom")):
         assert dk.cmd_check(registry, "tok", None) == 1
 
 
 def test_cmd_check_respects_repos_filter(registry):
-    """With --repos, only the selected repos are checked."""
+    """
+    With --repos, only the selected repos are checked.
+    """
     checked: list[str] = []
+
 
     def fake_drift(_token, repo, _branch, _files):
         checked.append(repo)
         return []
 
-    with patch.object(dk, "compute_drift", side_effect=fake_drift):
+
+    with patch.object(dk, "compute_drift", side_effect = fake_drift):
         rc = dk.cmd_check(registry, "tok", None, "repo-b")
     assert rc == 0
     assert checked == ["Needless2Say/repo-b"]
 
 
 # ── distribute mode ──────────────────────────────────────────────────────────────
-
-
 def test_cmd_distribute_opens_pr_for_drifted_repo():
     reg = {"files": ["skills.md"], "repos": [{"repo": "Needless2Say/repo-a", "branch": "main"}]}
     with (
-        patch.object(dk, "compute_drift", return_value=["skills.md"]),
-        patch.object(dk, "_read_local", return_value="content"),
-        patch.object(dk, "_get_branch_sha", return_value="basesha"),
+        patch.object(dk, "compute_drift", return_value = ["skills.md"]),
+        patch.object(dk, "_read_local", return_value = "content"),
+        patch.object(dk, "_get_branch_sha", return_value = "basesha"),
         patch.object(dk, "_create_branch") as create_branch,
-        patch.object(dk, "_get_remote_file", return_value=("old", "blobsha")),
+        patch.object(dk, "_get_remote_file", return_value = ("old", "blobsha")),
         patch.object(dk, "_put_file") as put_file,
-        patch.object(dk, "_create_pr", return_value="https://pr") as create_pr,
+        patch.object(dk, "_create_pr", return_value = "https://pr") as create_pr,
     ):
         rc = dk.cmd_distribute(reg, "tok", None)
     assert rc == 0
@@ -218,7 +211,7 @@ def test_cmd_distribute_opens_pr_for_drifted_repo():
 def test_cmd_distribute_skips_in_sync_repo():
     reg = {"files": ["skills.md"], "repos": [{"repo": "Needless2Say/repo-a", "branch": "main"}]}
     with (
-        patch.object(dk, "compute_drift", return_value=[]),
+        patch.object(dk, "compute_drift", return_value = []),
         patch.object(dk, "_create_pr") as create_pr,
     ):
         rc = dk.cmd_distribute(reg, "tok", None)
@@ -229,46 +222,44 @@ def test_cmd_distribute_skips_in_sync_repo():
 def test_cmd_distribute_reports_failure_rc():
     reg = {"files": ["skills.md"], "repos": [{"repo": "Needless2Say/repo-a", "branch": "main"}]}
     with (
-        patch.object(dk, "compute_drift", return_value=["skills.md"]),
-        patch.object(dk, "_read_local", return_value="content"),
-        patch.object(dk, "_get_branch_sha", side_effect=RuntimeError("api down")),
+        patch.object(dk, "compute_drift", return_value = ["skills.md"]),
+        patch.object(dk, "_read_local", return_value = "content"),
+        patch.object(dk, "_get_branch_sha", side_effect = RuntimeError("api down")),
     ):
         rc = dk.cmd_distribute(reg, "tok", None)
     assert rc == 1
 
 
 # ── version-marker consistency ───────────────────────────────────────────────────
-
-
 def test_assert_version_consistency_passes_when_match():
-    marker = MagicMock()
-    marker.is_file.return_value = True
+    marker                        = MagicMock()
+    marker.is_file.return_value   = True
     marker.read_text.return_value = "v1.2.0\n"
     with (
         patch.object(dk, "VENDORED_VERSION_FILE", marker),
-        patch.object(dk, "_kit_version", return_value="v1.2.0"),
+        patch.object(dk, "_kit_version", return_value = "v1.2.0"),
     ):
         dk._assert_version_consistency()  # no SystemExit
 
 
 def test_assert_version_consistency_exits_on_mismatch():
-    marker = MagicMock()
-    marker.is_file.return_value = True
+    marker                        = MagicMock()
+    marker.is_file.return_value   = True
     marker.read_text.return_value = "v1.1.0"
     with (
         patch.object(dk, "VENDORED_VERSION_FILE", marker),
-        patch.object(dk, "_kit_version", return_value="v1.2.0"),
+        patch.object(dk, "_kit_version", return_value = "v1.2.0"),
         pytest.raises(SystemExit),
     ):
         dk._assert_version_consistency()
 
 
 def test_assert_version_consistency_noop_when_marker_absent():
-    marker = MagicMock()
+    marker                      = MagicMock()
     marker.is_file.return_value = False
     with (
         patch.object(dk, "VENDORED_VERSION_FILE", marker),
-        patch.object(dk, "_kit_version", return_value="v1.2.0"),
+        patch.object(dk, "_kit_version", return_value = "v1.2.0"),
     ):
         dk._assert_version_consistency()  # returns early, no error
 
@@ -279,26 +270,26 @@ def test_assert_version_consistency_noop_when_marker_absent():
 # registry are self-consistent — the gap that let kit/KIT_VERSION lag the
 # vendored marker slip through a kit-version bump PR.
 # ---------------------------------------------------------------------------
-
-
 def test_real_kit_version_markers_match():
-    """kit/KIT_VERSION (canonical) == kit/common/docs/agent/KIT_VERSION (vendored)
-    == the root docs/agent/KIT_VERSION hand-copy. A bump must touch all three."""
-    canonical = dk.KIT_VERSION_FILE.read_text(encoding="utf-8").strip()
-    vendored = dk.VENDORED_VERSION_FILE.read_text(encoding="utf-8").strip()
-    root_copy = (dk.REPO_ROOT / "docs" / "agent" / "KIT_VERSION").read_text(encoding="utf-8").strip()
+    """
+    kit/KIT_VERSION (canonical) == kit/common/docs/agent/KIT_VERSION (vendored)
+    == the root docs/agent/KIT_VERSION hand-copy. A bump must touch all three.
+    """
+    canonical = dk.KIT_VERSION_FILE.read_text(encoding = "utf-8").strip()
+    vendored  = dk.VENDORED_VERSION_FILE.read_text(encoding = "utf-8").strip()
+    root_copy = (dk.REPO_ROOT / "docs" / "agent" / "KIT_VERSION").read_text(encoding = "utf-8").strip()
     assert canonical == vendored, (
         f"kit/KIT_VERSION ({canonical}) != vendored marker ({vendored}) — "
         "distribute_kit._assert_version_consistency() would hard-exit; bump both."
     )
-    assert canonical == root_copy, (
-        f"kit/KIT_VERSION ({canonical}) != root docs/agent/KIT_VERSION ({root_copy})."
-    )
+    assert canonical == root_copy, (f"kit/KIT_VERSION ({canonical}) != root docs/agent/KIT_VERSION ({root_copy}).")
 
 
 def test_real_kit_registry_files_all_exist_under_kit_common():
-    """Every kit_registry.json files[] entry must resolve under kit/common/ — a
-    stale/typo'd path would silently drop a file from the synced set."""
+    """
+    Every kit_registry.json files[] entry must resolve under kit/common/ — a
+    stale/typo'd path would silently drop a file from the synced set.
+    """
     registry = dk._load_registry()
     files: list[str] = registry.get("files", [])
     assert files, "kit_registry.json files[] is empty"

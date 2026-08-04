@@ -53,8 +53,8 @@ jobs:
   style:
     uses: ./.github/workflows/ci-python-kdf-fmt.yml
     with:
-      kdf_fmt_ref: v1.0.0
-      check_command: "python -m kdf_fmt.cli check --no-cache --baseline .kdf-fmt-baseline.json"
+      kdf_fmt_ref: v1.1.0
+      check_command: "python -m kdf_fmt.cli check --no-cache --baseline kdf-style-debt.json"
     secrets: inherit
 
   test:

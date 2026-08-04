@@ -1,0 +1,10 @@
+# Coverage settings for the ops scripts' unit tests.
+#
+# The omit list used to be passed as `--cov-omit=...` on the pytest command line, which is not a
+# pytest-cov option (it offers --cov-config, not --cov-omit). pytest rejected the unknown argument
+# and exited 4, so `make test` had never actually run here. coverage.py picks this file up
+# automatically from the rootdir, so the exclusions apply with no flag at all.
+[run]
+omit =
+    tests/*
+    backups/*

@@ -37,6 +37,7 @@ Usage
 
 from __future__ import annotations
 
+# standard imports
 import argparse
 import base64
 import json
@@ -47,18 +48,18 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+# third party imports
 import requests
+from common.http import build_session
 from nacl import encoding, public
 
-from common.http import build_session
-
-# ============================================================
+# ======================================================================================================================
 # Configuration
-# ============================================================
+# ======================================================================================================================
 
 REGISTRY_FILE = Path(__file__).parent / "secret_registry.json"
-VERCEL_API = "https://api.vercel.com"
-GITHUB_API = "https://api.github.com"
+VERCEL_API    = "https://api.vercel.com"
+GITHUB_API    = "https://api.github.com"
 
 # New Vercel tokens expire after 45 days. The monthly cron rotates ~every 30 (worst-case 31-day gap),
 # leaving ~2 weeks of slack so a single missed run never expires the one shared deploy token.
@@ -70,10 +71,9 @@ TOKEN_EXPIRY_DAYS = 45
 # token, delete secret) are not status-retried, so a 502-after-success can't duplicate/revoke twice.
 _SESSION = build_session()
 
-# ============================================================
+# ======================================================================================================================
 # GitHub helpers
-# ============================================================
-
+# ======================================================================================================================
 
 def _github_headers(token: str) -> dict[str, str]:
     return {
@@ -84,11 +84,13 @@ def _github_headers(token: str) -> dict[str, str]:
 
 
 def _get_env_public_key(gh_token: str, owner: str, repo: str, environment: str) -> tuple[str, str]:
-    """Return (key_id, base64_public_key) for a repo environment's secret box."""
+    """
+    Return (key_id, base64_public_key) for a repo environment's secret box.
+    """
     resp = _SESSION.get(
         f"{GITHUB_API}/repos/{owner}/{repo}/environments/{environment}/secrets/public-key",
-        headers=_github_headers(gh_token),
-        timeout=30,
+        headers = _github_headers(gh_token),
+        timeout = 30,
     )
     resp.raise_for_status()
     data = resp.json()
@@ -96,9 +98,11 @@ def _get_env_public_key(gh_token: str, owner: str, repo: str, environment: str) 
 
 
 def _encrypt_secret(public_key_b64: str, secret_value: str) -> str:
-    """Seal `secret_value` to the repo's libsodium public key (base64 out)."""
-    pub_key = public.PublicKey(public_key_b64.encode(), encoding.Base64Encoder)
-    sealed = public.SealedBox(pub_key)
+    """
+    Seal `secret_value` to the repo's libsodium public key (base64 out).
+    """
+    pub_key   = public.PublicKey(public_key_b64.encode(), encoding.Base64Encoder)
+    sealed    = public.SealedBox(pub_key)
     encrypted = sealed.encrypt(secret_value.encode())
     return base64.b64encode(encrypted).decode()
 
@@ -110,25 +114,29 @@ def update_github_env_secret(
     secret_name: str,
     secret_value: str,
 ) -> None:
-    """Encrypt + PUT a value into repo `owner_repo`'s environment secret."""
+    """
+    Encrypt + PUT a value into repo `owner_repo`'s environment secret.
+    """
     owner, repo = owner_repo.split("/", 1)
     key_id, pub_key_b64 = _get_env_public_key(gh_token, owner, repo, environment)
     encrypted = _encrypt_secret(pub_key_b64, secret_value)
-    resp = _SESSION.put(
+    resp      = _SESSION.put(
         f"{GITHUB_API}/repos/{owner}/{repo}/environments/{environment}/secrets/{secret_name}",
-        headers=_github_headers(gh_token),
-        json={"encrypted_value": encrypted, "key_id": key_id},
-        timeout=30,
+        headers = _github_headers(gh_token),
+        json = {"encrypted_value": encrypted, "key_id": key_id},
+        timeout = 30,
     )
     resp.raise_for_status()
 
 
 def _get_repo_public_key(gh_token: str, owner: str, repo: str) -> tuple[str, str]:
-    """Return (key_id, base64_public_key) for a repo's REPOSITORY (Actions) secret box."""
+    """
+    Return (key_id, base64_public_key) for a repo's REPOSITORY (Actions) secret box.
+    """
     resp = _SESSION.get(
         f"{GITHUB_API}/repos/{owner}/{repo}/actions/secrets/public-key",
-        headers=_github_headers(gh_token),
-        timeout=30,
+        headers = _github_headers(gh_token),
+        timeout = 30,
     )
     resp.raise_for_status()
     data = resp.json()
@@ -141,7 +149,8 @@ def update_github_repo_secret(
     secret_name: str,
     secret_value: str,
 ) -> None:
-    """Encrypt + PUT a value into repo `owner_repo`'s REPOSITORY (Actions) secret.
+    """
+    Encrypt + PUT a value into repo `owner_repo`'s REPOSITORY (Actions) secret.
 
     Repository secrets are a DIFFERENT store from environment secrets. A CI job that
     does NOT declare `environment:` (e.g. the reusable ci-python-*.yml SDK-install step,
@@ -154,11 +163,11 @@ def update_github_repo_secret(
     owner, repo = owner_repo.split("/", 1)
     key_id, pub_key_b64 = _get_repo_public_key(gh_token, owner, repo)
     encrypted = _encrypt_secret(pub_key_b64, secret_value)
-    resp = _SESSION.put(
+    resp      = _SESSION.put(
         f"{GITHUB_API}/repos/{owner}/{repo}/actions/secrets/{secret_name}",
-        headers=_github_headers(gh_token),
-        json={"encrypted_value": encrypted, "key_id": key_id},
-        timeout=30,
+        headers = _github_headers(gh_token),
+        json = {"encrypted_value": encrypted, "key_id": key_id},
+        timeout = 30,
     )
     resp.raise_for_status()
 
@@ -169,7 +178,8 @@ def delete_github_env_secret(
     environment: str,
     secret_name: str,
 ) -> None:
-    """DELETE a repo ENVIRONMENT secret.
+    """
+    DELETE a repo ENVIRONMENT secret.
 
     Used to reap the environment-level copy of a secret that has migrated to repository-level
     (see `retired_github_env_secrets`). A leftover env copy shadows the repo value — an env
@@ -180,29 +190,30 @@ def delete_github_env_secret(
     owner, repo = owner_repo.split("/", 1)
     resp = _SESSION.delete(
         f"{GITHUB_API}/repos/{owner}/{repo}/environments/{environment}/secrets/{secret_name}",
-        headers=_github_headers(gh_token),
-        timeout=30,
+        headers = _github_headers(gh_token),
+        timeout = 30,
     )
     if resp.status_code == 404:
         return
     resp.raise_for_status()
 
-
-# ============================================================
+# ======================================================================================================================
 # Vercel helpers
-# ============================================================
-
+# ======================================================================================================================
 
 def _vercel_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
 
 class VercelMasterScopeError(RuntimeError):
-    """Raised when the Vercel token API returns 403 — VERCEL_MASTER_TOKEN lacks Full Account scope."""
+    """
+    Raised when the Vercel token API returns 403 — VERCEL_MASTER_TOKEN lacks Full Account scope.
+    """
 
 
 def _raise_for_token_api(resp: requests.Response) -> None:
-    """``raise_for_status`` for the ``/v3/user/tokens`` calls, with a clear hint on 403.
+    """
+    ``raise_for_status`` for the ``/v3/user/tokens`` calls, with a clear hint on 403.
 
     The token-management API is personal-account-only: a team / "all projects" scoped
     VERCEL_MASTER_TOKEN is rejected there with 403. Surface that as an actionable message instead of a
@@ -219,21 +230,20 @@ def _raise_for_token_api(resp: requests.Response) -> None:
 
 
 def create_vercel_token(master_token: str, name: str, team_id: str = "") -> tuple[str, str]:
-    """Create a new Vercel API token (TOKEN_EXPIRY_DAYS expiry). Returns (token_id, token_value).
+    """
+    Create a new Vercel API token (TOKEN_EXPIRY_DAYS expiry). Returns (token_id, token_value).
 
     When ``team_id`` is set, the token is scoped to that Vercel team (the ``teamId`` query param) so it
     can deploy/manage the team's projects. A token minted WITHOUT a team is personal-account-scoped, and
     Vercel rejects it ("The specified token is not valid") the moment the CLI targets a team project.
     """
-    expires_at_ms = int(
-        (datetime.now(timezone.utc) + timedelta(days=TOKEN_EXPIRY_DAYS)).timestamp() * 1000
-    )
-    resp = _SESSION.post(
+    expires_at_ms = int((datetime.now(timezone.utc) + timedelta(days = TOKEN_EXPIRY_DAYS)).timestamp() * 1000)
+    resp          = _SESSION.post(
         f"{VERCEL_API}/v3/user/tokens",
-        headers=_vercel_headers(master_token),
-        params={"teamId": team_id} if team_id else None,
-        json={"name": name, "expiresAt": expires_at_ms},
-        timeout=30,
+        headers = _vercel_headers(master_token),
+        params = {"teamId": team_id} if team_id else None,
+        json = {"name": name, "expiresAt": expires_at_ms},
+        timeout = 30,
     )
     _raise_for_token_api(resp)
     data = resp.json()
@@ -243,8 +253,8 @@ def create_vercel_token(master_token: str, name: str, team_id: str = "") -> tupl
 def list_vercel_tokens(master_token: str) -> list[dict]:
     resp = _SESSION.get(
         f"{VERCEL_API}/v3/user/tokens",
-        headers=_vercel_headers(master_token),
-        timeout=30,
+        headers = _vercel_headers(master_token),
+        timeout = 30,
     )
     _raise_for_token_api(resp)
     return resp.json().get("tokens", [])
@@ -253,8 +263,8 @@ def list_vercel_tokens(master_token: str) -> list[dict]:
 def delete_vercel_token(master_token: str, token_id: str) -> None:
     resp = _SESSION.delete(
         f"{VERCEL_API}/v3/user/tokens/{token_id}",
-        headers=_vercel_headers(master_token),
-        timeout=30,
+        headers = _vercel_headers(master_token),
+        timeout = 30,
     )
     _raise_for_token_api(resp)
 
@@ -262,53 +272,55 @@ def delete_vercel_token(master_token: str, token_id: str) -> None:
 def _list_vercel_env_vars(master_token: str, project_id: str) -> list[dict]:
     resp = _SESSION.get(
         f"{VERCEL_API}/v10/projects/{project_id}/env",
-        headers=_vercel_headers(master_token),
-        timeout=30,
+        headers = _vercel_headers(master_token),
+        timeout = 30,
     )
     resp.raise_for_status()
     return resp.json().get("envs", [])
 
 
 def upsert_vercel_env_var(master_token: str, project_id: str, key: str, value: str) -> None:
-    """Patch every existing entry for `key` in place, or create one covering all 3 targets."""
+    """
+    Patch every existing entry for `key` in place, or create one covering all 3 targets.
+    """
     existing = [e for e in _list_vercel_env_vars(master_token, project_id) if e["key"] == key]
     if existing:
         for entry in existing:
             resp = _SESSION.patch(
                 f"{VERCEL_API}/v10/projects/{project_id}/env/{entry['id']}",
-                headers=_vercel_headers(master_token),
-                json={"value": value, "type": "encrypted", "target": entry["target"]},
-                timeout=30,
+                headers = _vercel_headers(master_token),
+                json = {"value": value, "type": "encrypted", "target": entry["target"]},
+                timeout = 30,
             )
             resp.raise_for_status()
     else:
         resp = _SESSION.post(
             f"{VERCEL_API}/v10/projects/{project_id}/env",
-            headers=_vercel_headers(master_token),
-            json={
+            headers = _vercel_headers(master_token),
+            json = {
                 "key": key,
                 "value": value,
                 "type": "encrypted",
                 "target": ["production", "preview", "development"],
             },
-            timeout=30,
+            timeout = 30,
         )
         resp.raise_for_status()
 
-
-# ============================================================
+# ======================================================================================================================
 # Registry + filters
-# ============================================================
-
+# ======================================================================================================================
 
 def _load_registry() -> dict:
     if not REGISTRY_FILE.is_file():
         sys.exit(f"Error: registry file not found: {REGISTRY_FILE}")
-    return json.loads(REGISTRY_FILE.read_text(encoding="utf-8"))
+    return json.loads(REGISTRY_FILE.read_text(encoding = "utf-8"))
 
 
 def _parse_filter(raw: str) -> frozenset[str]:
-    """Empty / 'all' -> empty frozenset (match all); else a set of lowercased names."""
+    """
+    Empty / 'all' -> empty frozenset (match all); else a set of lowercased names.
+    """
     stripped = (raw or "").strip().lower()
     if stripped in ("", "all"):
         return frozenset()
@@ -316,7 +328,9 @@ def _parse_filter(raw: str) -> frozenset[str]:
 
 
 def _select_secrets(registry: dict, names: frozenset[str]) -> list[dict]:
-    """Registry entries matching `names` (empty = all). Exits if a named secret is unknown."""
+    """
+    Registry entries matching `names` (empty = all). Exits if a named secret is unknown.
+    """
     entries = registry.get("secrets", [])
     by_name = {e["name"].lower(): e for e in entries}
     if not names:
@@ -350,7 +364,8 @@ def _gh_targets(entry: dict, apps: frozenset[str], envs: frozenset[str]) -> list
 
 
 def _gh_repo_targets(entry: dict) -> list[dict]:
-    """Repository-level (Actions) secret targets.
+    """
+    Repository-level (Actions) secret targets.
 
     Unlike environment secrets these are NOT env-scoped — a repository secret is a single
     global value read by CI jobs that declare no `environment:` — so the app/env filters
@@ -360,7 +375,8 @@ def _gh_repo_targets(entry: dict) -> list[dict]:
 
 
 def _delete_retired_env_secrets(entry: dict, gh_token: str, errors: list[str]) -> int:
-    """Reap the environment-level copies a secret has migrated away from (repository-level now).
+    """
+    Reap the environment-level copies a secret has migrated away from (repository-level now).
 
     A secret that moved from `github_env_secrets` to `github_repo_secrets` (e.g. the single shared
     VERCEL_DEPLOYMENT_TOKEN / GH_PACKAGES_PAT) leaves stale env copies that SHADOW the repo value —
@@ -377,7 +393,7 @@ def _delete_retired_env_secrets(entry: dict, gh_token: str, errors: list[str]) -
           "(migrated to repository-level; a leftover env copy would shadow it):")
     for t in retired:
         label = f"{t['repo']} [{t['environment']}] {t['secret_name']}"
-        print(f"  delete {label}", end=" ... ", flush=True)
+        print(f"  delete {label}", end = " ... ", flush = True)
         try:
             delete_github_env_secret(gh_token, t["repo"], t["environment"], t["secret_name"])
             print("OK")
@@ -396,26 +412,26 @@ def _vercel_targets(entry: dict, envs: frozenset[str]) -> list[dict]:
         out.append(t)
     return out
 
-
-# ============================================================
+# ======================================================================================================================
 # Mode: check
-# ============================================================
-
+# ======================================================================================================================
 
 def _check_one(entry: dict) -> int:
-    """Advisory expiry check for one secret. 0 = ok, 1 = warn/expired/misconfigured/no-check."""
+    """
+    Advisory expiry check for one secret. 0 = ok, 1 = warn/expired/misconfigured/no-check.
+    """
     name = entry["name"]
-    chk = entry.get("check")
+    chk  = entry.get("check")
     if not chk:
         print(f"  {name}: no expiry tracked (nothing to check).")
         return 0
     expiry_raw = chk.get("expiry", "")
-    warn_days = chk.get("warn_days_before_expiry", 14)
+    warn_days  = chk.get("warn_days_before_expiry", 14)
     if not expiry_raw or str(expiry_raw).startswith("TODO"):
         print(f"  {name}: WARNING — expiry not set in the registry.")
         return 1
     try:
-        expiry = datetime.strptime(expiry_raw, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        expiry = datetime.strptime(expiry_raw, "%Y-%m-%d").replace(tzinfo = timezone.utc)
     except ValueError:
         print(f"  {name}: ERROR — expiry '{expiry_raw}' is not YYYY-MM-DD.")
         return 1
@@ -441,14 +457,13 @@ def cmd_check(entries: list[dict]) -> int:
     print("NEEDS_ROTATION: " + ",".join(needs))
     return 1 if needs else 0
 
-
-# ============================================================
+# ======================================================================================================================
 # Mode: record-expiry
-# ============================================================
-
+# ======================================================================================================================
 
 def set_registry_expiry(text: str, secret_name: str, new_expiry: str) -> tuple[str, str | None]:
-    """Replace one secret's ``check.expiry`` value in the raw registry JSON *text*.
+    """
+    Replace one secret's ``check.expiry`` value in the raw registry JSON *text*.
 
     The edit is SCOPED to ``secret_name``'s entry (bounded by the next entry's ``"name":`` key) so
     a string replacement can't bleed into another secret that happens to share the same expiry date.
@@ -459,31 +474,30 @@ def set_registry_expiry(text: str, secret_name: str, new_expiry: str) -> tuple[s
     or its ``expiry`` field isn't found.
     """
     marker = f'"name": "{secret_name}"'
-    start = text.find(marker)
+    start  = text.find(marker)
     if start == -1:
         return text, None
-    nxt = text.find('"name":', start + len(marker))
-    end = nxt if nxt != -1 else len(text)
+    nxt     = text.find('"name":', start + len(marker))
+    end     = nxt if nxt != -1 else len(text)
     segment = text[start:end]
-    m = re.search(r'("expiry":\s*")([^"]*)(")', segment)
+    m       = re.search(r'("expiry":\s*")([^"]*)(")', segment)
     if not m:
         return text, None
-    old = m.group(2)
+    old         = m.group(2)
     new_segment = segment[: m.start()] + m.group(1) + new_expiry + m.group(3) + segment[m.end():]
     return text[:start] + new_segment + text[end:], old
 
 
-def cmd_record_expiry(
-    entries: list[dict], days: int = TOKEN_EXPIRY_DAYS, today: datetime | None = None
-) -> int:
-    """Write ``check.expiry = today + days`` into the registry for the given auto-minted Vercel
+def cmd_record_expiry(entries: list[dict], days: int = TOKEN_EXPIRY_DAYS, today: datetime | None = None) -> int:
+    """
+    Write ``check.expiry = today + days`` into the registry for the given auto-minted Vercel
     token entries. Run by the rotation workflow right after a successful mint so the expiry the
     monitor sees matches the freshly issued token. Prints ``REGISTRY_UPDATED: true|false`` for the
     workflow to decide whether to open a PR.
     """
-    today = today or datetime.now(timezone.utc)
-    new_expiry = (today + timedelta(days=days)).strftime("%Y-%m-%d")
-    text = REGISTRY_FILE.read_text(encoding="utf-8")
+    today      = today or datetime.now(timezone.utc)
+    new_expiry = (today + timedelta(days = days)).strftime("%Y-%m-%d")
+    text       = REGISTRY_FILE.read_text(encoding = "utf-8")
     print(f"Recording expiry {new_expiry} (today + {days}d) for {len(entries)} selected secret(s):")
     changed = False
     for entry in entries:
@@ -503,20 +517,18 @@ def cmd_record_expiry(
         if old == new_expiry:
             print(f"  {name}: expiry already {new_expiry} — no change.")
             continue
-        text = new_text
+        text    = new_text
         changed = True
         print(f"  {name}: expiry {old} -> {new_expiry}")
     if changed:
-        REGISTRY_FILE.write_text(text, encoding="utf-8")
+        REGISTRY_FILE.write_text(text, encoding = "utf-8")
     print()
     print(f"REGISTRY_UPDATED: {'true' if changed else 'false'}")
     return 0
 
-
-# ============================================================
+# ======================================================================================================================
 # Mode: generate
-# ============================================================
-
+# ======================================================================================================================
 
 def _gen_value() -> str:
     return _secrets.token_urlsafe(32)
@@ -530,7 +542,8 @@ def _reap_old_vercel_tokens(
     errors: list[str],
     label: str,
 ) -> None:
-    """Delete EVERY existing Vercel token named ``token_name`` except ``new_id``.
+    """
+    Delete EVERY existing Vercel token named ``token_name`` except ``new_id``.
 
     Vercel allows several tokens to share a display name, so a name->id map would silently miss
     duplicates (left over from a prior partial-failure run that kept the old token, an operator-seeded
@@ -546,10 +559,15 @@ def _reap_old_vercel_tokens(
 
 
 def _generate_vercel_token_secret(
-    entry: dict, apps: frozenset[str], envs: frozenset[str], master_token: str, gh_token: str,
+    entry: dict,
+    apps: frozenset[str],
+    envs: frozenset[str],
+    master_token: str,
+    gh_token: str,
     team_id: str = "",
 ) -> list[str]:
-    """Mint Vercel token(s) and write them to the GitHub env secret targets.
+    """
+    Mint Vercel token(s) and write them to the GitHub env secret targets.
 
     A ``"shared": true`` entry mints ONE token (entry-level ``vercel_token_name``) and writes the
     same value to every target — easier to manage than one token per repo. Otherwise the default
@@ -567,8 +585,8 @@ def _generate_vercel_token_secret(
     all_tokens = list_vercel_tokens(master_token)
     for t in targets:
         token_name = t["vercel_token_name"]
-        label = f"{token_name} -> {t['repo']} [{t['environment']}] {t['secret_name']}"
-        print(f"  {label}", end=" ... ", flush=True)
+        label      = f"{token_name} -> {t['repo']} [{t['environment']}] {t['secret_name']}"
+        print(f"  {label}", end = " ... ", flush = True)
         try:
             new_id, new_value = create_vercel_token(master_token, token_name, team_id)
             update_github_env_secret(gh_token, t["repo"], t["environment"], t["secret_name"], new_value)
@@ -585,10 +603,15 @@ def _generate_vercel_token_secret(
 
 
 def _generate_shared_vercel_token(
-    entry: dict, apps: frozenset[str], envs: frozenset[str], master_token: str, gh_token: str,
+    entry: dict,
+    apps: frozenset[str],
+    envs: frozenset[str],
+    master_token: str,
+    gh_token: str,
     team_id: str = "",
 ) -> list[str]:
-    """Mint ONE Vercel token and fan the same value out to every target.
+    """
+    Mint ONE Vercel token and fan the same value out to every target.
 
     A shared token is a single value everywhere, so app/env filters are ignored (a partial write
     would leave repos out of sync). The previous token(s) of the same name are deleted only if EVERY
@@ -597,9 +620,9 @@ def _generate_shared_vercel_token(
     ``team_id`` scopes the minted token to a Vercel team (required for team projects).
     """
     errors: list[str] = []
-    env_targets = entry.get("github_env_secrets", [])
+    env_targets  = entry.get("github_env_secrets", [])
     repo_targets = _gh_repo_targets(entry)
-    total = len(env_targets) + len(repo_targets)
+    total        = len(env_targets) + len(repo_targets)
     if total == 0:
         print(f"  {entry['name']}: no targets — skipped.")
         return errors
@@ -620,7 +643,7 @@ def _generate_shared_vercel_token(
     wrote_all = True
     for t in env_targets:
         label = f"{t['repo']} [{t['environment']}] {t['secret_name']}"
-        print(f"    {label}", end=" ... ", flush=True)
+        print(f"    {label}", end = " ... ", flush = True)
         try:
             update_github_env_secret(gh_token, t["repo"], t["environment"], t["secret_name"], new_value)
             print("OK")
@@ -630,7 +653,7 @@ def _generate_shared_vercel_token(
             wrote_all = False
     for t in repo_targets:
         label = f"{t['repo']} [repo] {t['secret_name']}"
-        print(f"    {label}", end=" ... ", flush=True)
+        print(f"    {label}", end = " ... ", flush = True)
         try:
             update_github_repo_secret(gh_token, t["repo"], t["secret_name"], new_value)
             print("OK")
@@ -652,10 +675,10 @@ def _generate_shared_vercel_token(
     return errors
 
 
-def _generate_random_secret(
-    entry: dict, envs: frozenset[str], gh_token: str, master_token: str
-) -> list[str]:
-    """A random value (per-environment when per_env) written to all matching targets."""
+def _generate_random_secret(entry: dict, envs: frozenset[str], gh_token: str, master_token: str) -> list[str]:
+    """
+    A random value (per-environment when per_env) written to all matching targets.
+    """
     errors: list[str] = []
     gh = _gh_targets(entry, frozenset(), envs)
     vc = _vercel_targets(entry, envs)
@@ -666,15 +689,17 @@ def _generate_random_secret(
     # one value per environment (per_env) or a single shared value
     value_for: dict[str, str] = {}
 
+
     def value(env: str) -> str:
         key = env if per_env else "*"
         if key not in value_for:
             value_for[key] = _gen_value()
         return value_for[key]
 
+
     for t in gh:
         label = f"{entry['name']} -> {t['repo']} [{t['environment']}] {t['secret_name']}"
-        print(f"  {label}", end=" ... ", flush=True)
+        print(f"  {label}", end = " ... ", flush = True)
         try:
             update_github_env_secret(gh_token, t["repo"], t["environment"], t["secret_name"], value(t["environment"]))
             print("OK")
@@ -687,7 +712,7 @@ def _generate_random_secret(
         else:
             for t in _actionable_vercel(vc):
                 label = f"{entry['name']} -> Vercel {t['project_name']} [{t['environment']}] {t['env_key']}"
-                print(f"  {label}", end=" ... ", flush=True)
+                print(f"  {label}", end = " ... ", flush = True)
                 try:
                     upsert_vercel_env_var(master_token, t["project_id"], t["env_key"], value(t["environment"]))
                     print("OK")
@@ -698,7 +723,11 @@ def _generate_random_secret(
 
 
 def cmd_generate(
-    entries: list[dict], apps: frozenset[str], envs: frozenset[str], gh_token: str, master_token: str,
+    entries: list[dict],
+    apps: frozenset[str],
+    envs: frozenset[str],
+    gh_token: str,
+    master_token: str,
     team_id: str = "",
 ) -> int:
     if not gh_token:
@@ -721,14 +750,14 @@ def cmd_generate(
             sys.exit(f"Error: '{entry['name']}' has no/unknown generator '{generator}' — cannot generate.")
     return _summary(errors)
 
-
-# ============================================================
+# ======================================================================================================================
 # Mode: paste
-# ============================================================
-
+# ======================================================================================================================
 
 def _actionable_vercel(targets: list[dict]) -> list[dict]:
-    """Vercel targets whose project_id is real (skip TODO placeholders with a warning)."""
+    """
+    Vercel targets whose project_id is real (skip TODO placeholders with a warning).
+    """
     actionable, skipped = [], []
     for t in targets:
         (skipped if str(t["project_id"]).startswith("TODO") else actionable).append(t)
@@ -751,7 +780,7 @@ def cmd_paste(entry: dict, envs: frozenset[str], gh_token: str, master_token: st
     print(f"Pasting {entry['name']} to {len(gh)} GitHub environment secret(s):")
     for t in gh:
         label = f"{t['repo']} [{t['environment']}] {t['secret_name']}"
-        print(f"  {label}", end=" ... ", flush=True)
+        print(f"  {label}", end = " ... ", flush = True)
         try:
             update_github_env_secret(gh_token, t["repo"], t["environment"], t["secret_name"], value)
             print("OK")
@@ -763,12 +792,12 @@ def cmd_paste(entry: dict, envs: frozenset[str], gh_token: str, master_token: st
     # `environment:`. Distinct store from the env secrets above; both must be written or
     # CI is stranded on the old token while deploys use the new one (see github_repo_secrets).
     repo_targets = _gh_repo_targets(entry)
-    repo_ok = True
+    repo_ok      = True
     if repo_targets:
         print(f"\nPasting {entry['name']} to {len(repo_targets)} GitHub repository (CI) secret(s):")
         for t in repo_targets:
             label = f"{t['repo']} [repo] {t['secret_name']}"
-            print(f"  {label}", end=" ... ", flush=True)
+            print(f"  {label}", end = " ... ", flush = True)
             try:
                 update_github_repo_secret(gh_token, t["repo"], t["secret_name"], value)
                 print("OK")
@@ -795,7 +824,7 @@ def cmd_paste(entry: dict, envs: frozenset[str], gh_token: str, master_token: st
                 print(f"\nPasting to {len(actionable)} Vercel project(s):")
             for t in actionable:
                 label = f"{t['project_name']} [{t['environment']}] {t['env_key']}"
-                print(f"  {label}", end=" ... ", flush=True)
+                print(f"  {label}", end = " ... ", flush = True)
                 try:
                     upsert_vercel_env_var(master_token, t["project_id"], t["env_key"], value)
                     print("OK")
@@ -804,11 +833,9 @@ def cmd_paste(entry: dict, envs: frozenset[str], gh_token: str, master_token: st
                     errors.append(f"Vercel {label}: {exc}")
     return _summary(errors)
 
-
-# ============================================================
+# ======================================================================================================================
 # Shared summary
-# ============================================================
-
+# ======================================================================================================================
 
 def _summary(errors: list[str]) -> int:
     print()
@@ -820,40 +847,36 @@ def _summary(errors: list[str]) -> int:
     print("All targets updated successfully.")
     return 0
 
-
-# ============================================================
+# ======================================================================================================================
 # CLI
-# ============================================================
-
+# ======================================================================================================================
 
 def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Rotate CI-plane secrets across GitHub env secrets + Vercel projects.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description = "Rotate CI-plane secrets across GitHub env secrets + Vercel projects.",
+        formatter_class = argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument(
-        "--mode", required=True, choices=["generate", "paste", "check", "record-expiry"]
-    )
+    parser.add_argument("--mode", required = True, choices = ["generate", "paste", "check", "record-expiry"])
     parser.add_argument(
         "--secrets",
-        default="all",
-        help='Comma-separated secret names, or "all". Paste mode requires exactly one.',
+        default = "all",
+        help = 'Comma-separated secret names, or "all". Paste mode requires exactly one.',
     )
-    parser.add_argument("--apps", default="all", help='Vercel app filter for generate, or "all".')
-    parser.add_argument("--envs", default="all", help='Environment filter (prod,dev,infra), or "all".')
+    parser.add_argument("--apps", default = "all", help = 'Vercel app filter for generate, or "all".')
+    parser.add_argument("--envs", default = "all", help = 'Environment filter (prod,dev,infra), or "all".')
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> None:
-    args = parse_cli_args(argv)
+    args     = parse_cli_args(argv)
     registry = _load_registry()
-    names = _parse_filter(args.secrets)
-    apps = _parse_filter(args.apps)
-    envs = _parse_filter(args.envs)
+    names    = _parse_filter(args.secrets)
+    apps     = _parse_filter(args.apps)
+    envs     = _parse_filter(args.envs)
 
-    gh_token = os.environ.get("GH_TOKEN", "").strip()
+    gh_token     = os.environ.get("GH_TOKEN", "").strip()
     master_token = os.environ.get("VERCEL_MASTER_TOKEN", "").strip()
-    team_id = os.environ.get("VERCEL_TEAM_ID", "").strip()
+    team_id      = os.environ.get("VERCEL_TEAM_ID", "").strip()
     staged_value = os.environ.get("STAGED_SECRET_VALUE", "")
 
     entries = _select_secrets(registry, names)

@@ -1,4 +1,5 @@
-"""Unit tests for the shared retry/backoff HTTP session (common/http.py).
+"""
+Unit tests for the shared retry/backoff HTTP session (common/http.py).
 
 Regression guard: distribute_kit.py and rotate_secret.py both fan out GitHub/Vercel
 API calls; a single transient 502/503/429 or DNS blip must be retried, not abort a
@@ -8,7 +9,6 @@ whole target (the 2026-07 distribute check errored on two 502s + one DNS failure
 from __future__ import annotations
 
 import requests
-
 from common import http
 
 

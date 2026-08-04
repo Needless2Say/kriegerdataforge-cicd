@@ -1,4 +1,5 @@
-"""Shared HTTP session with retry/backoff for the CI-plane ops engines.
+"""
+Shared HTTP session with retry/backoff for the CI-plane ops engines.
 
 The kit-distribute (`distribute_kit.py`) and secret-rotation (`rotate_secret.py`)
 engines fan GitHub — and, for rotation, Vercel — API calls across many repos /
@@ -23,6 +24,7 @@ conflict) are NOT in the force-list — callers treat them as meaningful, not tr
 
 from __future__ import annotations
 
+# third party imports
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -30,22 +32,24 @@ from urllib3.util.retry import Retry
 # urllib3 sleeps 0 before the 1st retry, then backoff_factor * 2**(n-1): with 0.75
 # that's 0, 1.5, 3, 6, 12, 24s between the 6 retries (capped by urllib3 at 120s).
 _RETRY = Retry(
-    total=6,
-    connect=6,            # DNS / connection-refused blips (request never sent -> safe)
-    read=3,
-    status=5,
-    backoff_factor=0.75,
-    status_forcelist=(429, 500, 502, 503, 504),
-    allowed_methods=frozenset({"GET", "PUT", "HEAD"}),
-    respect_retry_after_header=True,
-    raise_on_status=False,  # let resp.raise_for_status() surface the final status code
+    total = 6,
+    connect = 6,            # DNS / connection-refused blips (request never sent -> safe)
+    read = 3,
+    status = 5,
+    backoff_factor = 0.75,
+    status_forcelist = (429, 500, 502, 503, 504),
+    allowed_methods = frozenset({"GET", "PUT", "HEAD"}),
+    respect_retry_after_header = True,
+    raise_on_status = False,  # let resp.raise_for_status() surface the final status code
 )
 
 
 def build_session() -> requests.Session:
-    """A ``requests.Session`` that retries transient GitHub/Vercel failures (see module docstring)."""
+    """
+    A ``requests.Session`` that retries transient GitHub/Vercel failures (see module docstring).
+    """
     session = requests.Session()
-    adapter = HTTPAdapter(max_retries=_RETRY)
+    adapter = HTTPAdapter(max_retries = _RETRY)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
     return session
