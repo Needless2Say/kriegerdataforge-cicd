@@ -37,6 +37,7 @@ Usage:
 
 from __future__ import annotations
 
+# standard imports
 import argparse
 import base64
 import json
@@ -44,18 +45,19 @@ import os
 import sys
 from pathlib import Path
 
+# third party imports
 from common.http import build_session
 
-# ============================================================
+# ======================================================================================================================
 # Configuration
-# ============================================================
+# ======================================================================================================================
 
-GITHUB_API = "https://api.github.com"
-SCRIPTS_DIR = Path(__file__).parent
-REPO_ROOT = SCRIPTS_DIR.parent
-REGISTRY_FILE = SCRIPTS_DIR / "kit_registry.json"
-KIT_DIR = REPO_ROOT / "kit" / "common"
-KIT_VERSION_FILE = REPO_ROOT / "kit" / "KIT_VERSION"
+GITHUB_API            = "https://api.github.com"
+SCRIPTS_DIR           = Path(__file__).parent
+REPO_ROOT             = SCRIPTS_DIR.parent
+REGISTRY_FILE         = SCRIPTS_DIR / "kit_registry.json"
+KIT_DIR               = REPO_ROOT / "kit" / "common"
+KIT_VERSION_FILE      = REPO_ROOT / "kit" / "KIT_VERSION"
 VENDORED_VERSION_FILE = KIT_DIR / "docs" / "agent" / "KIT_VERSION"
 
 # Shared HTTP session with retry/backoff so a transient GitHub 5xx / 429 / DNS blip
@@ -63,10 +65,9 @@ VENDORED_VERSION_FILE = KIT_DIR / "docs" / "agent" / "KIT_VERSION"
 # same session hardens rotate_secret.py). Retries idempotent methods (GET/PUT) only.
 _SESSION = build_session()
 
-# ============================================================
+# ======================================================================================================================
 # Helpers
-# ============================================================
-
+# ======================================================================================================================
 
 def _github_headers(token: str) -> dict[str, str]:
     return {
@@ -79,22 +80,24 @@ def _github_headers(token: str) -> dict[str, str]:
 def _load_registry() -> dict:
     if not REGISTRY_FILE.is_file():
         sys.exit(f"Error: registry file not found: {REGISTRY_FILE}")
-    return json.loads(REGISTRY_FILE.read_text(encoding="utf-8"))
+    return json.loads(REGISTRY_FILE.read_text(encoding = "utf-8"))
 
 
 def _kit_version() -> str:
     if KIT_VERSION_FILE.is_file():
-        return KIT_VERSION_FILE.read_text(encoding="utf-8").strip()
+        return KIT_VERSION_FILE.read_text(encoding = "utf-8").strip()
     return "unknown"
 
 
 def _assert_version_consistency() -> None:
-    """The vendored marker (``docs/agent/KIT_VERSION``, synced into every repo) must match the
-    canonical ``kit/KIT_VERSION`` — bump both together. Guards against shipping a wrong version."""
+    """
+    The vendored marker (``docs/agent/KIT_VERSION``, synced into every repo) must match the
+    canonical ``kit/KIT_VERSION`` — bump both together. Guards against shipping a wrong version.
+    """
     if not VENDORED_VERSION_FILE.is_file():
         return
     canonical = _kit_version()
-    vendored = VENDORED_VERSION_FILE.read_text(encoding="utf-8").strip()
+    vendored  = VENDORED_VERSION_FILE.read_text(encoding = "utf-8").strip()
     if vendored != canonical:
         sys.exit(
             f"Error: kit version mismatch — kit/KIT_VERSION={canonical!r} but "
@@ -103,11 +106,13 @@ def _assert_version_consistency() -> None:
 
 
 def _read_local(rel_path: str) -> str:
-    return (KIT_DIR / rel_path).read_text(encoding="utf-8")
+    return (KIT_DIR / rel_path).read_text(encoding = "utf-8")
 
 
 def _normalize(text: str) -> str:
-    """Compare on content only, ignoring CRLF/LF line-ending differences."""
+    """
+    Compare on content only, ignoring CRLF/LF line-ending differences.
+    """
     return text.replace("\r\n", "\n")
 
 
@@ -121,7 +126,8 @@ def _select_files(registry: dict, only: str | None) -> list[str]:
 
 
 def _select_repos(registry: dict, repos_arg: str | None) -> list[dict]:
-    """Filter the registry's repos to those named in --repos.
+    """
+    Filter the registry's repos to those named in --repos.
 
     --repos is a comma-separated list of names. A registry entry matches a name if the name
     **equals** its full ``owner/repo`` or its short name (case-insensitive) — an **exact** match,
@@ -136,10 +142,7 @@ def _select_repos(registry: dict, repos_arg: str | None) -> list[dict]:
     if not tokens:
         return repos
     selected = [
-        entry
-        for entry in repos
-        if entry["repo"].lower() in tokens
-        or entry["repo"].split("/", 1)[-1].lower() in tokens
+        entry for entry in repos if entry["repo"].lower() in tokens or entry["repo"].split("/", 1)[-1].lower() in tokens
     ]
     if not selected:
         sys.exit(f"Error: --repos '{repos_arg}' matched no repos in the registry (names are exact).")
@@ -152,24 +155,28 @@ def _get_remote_file(
     branch: str,
     path: str,
 ) -> tuple[str | None, str | None]:
-    """Return (content, blob_sha) for a file on a branch, or (None, None) if it does not exist."""
+    """
+    Return (content, blob_sha) for a file on a branch, or (None, None) if it does not exist.
+    """
     owner, repo = owner_repo.split("/", 1)
     resp = _SESSION.get(
         f"{GITHUB_API}/repos/{owner}/{repo}/contents/{path}",
-        headers=_github_headers(token),
-        params={"ref": branch},
-        timeout=30,
+        headers = _github_headers(token),
+        params = {"ref": branch},
+        timeout = 30,
     )
     if resp.status_code == 404:
         return None, None
     resp.raise_for_status()
-    data = resp.json()
+    data    = resp.json()
     content = base64.b64decode(data["content"]).decode("utf-8")
     return content, data["sha"]
 
 
 def compute_drift(token: str, owner_repo: str, branch: str, files: list[str]) -> list[str]:
-    """Return the kit files whose repo copy differs from kit/common (or is missing)."""
+    """
+    Return the kit files whose repo copy differs from kit/common (or is missing).
+    """
     drifted: list[str] = []
     for rel in files:
         local = _normalize(_read_local(rel))
@@ -178,18 +185,16 @@ def compute_drift(token: str, owner_repo: str, branch: str, files: list[str]) ->
             drifted.append(rel)
     return drifted
 
-
-# ============================================================
+# ======================================================================================================================
 # Distribute helpers (Contents + Git refs API)
-# ============================================================
-
+# ======================================================================================================================
 
 def _get_branch_sha(token: str, owner_repo: str, branch: str) -> str:
     owner, repo = owner_repo.split("/", 1)
     resp = _SESSION.get(
         f"{GITHUB_API}/repos/{owner}/{repo}/git/ref/heads/{branch}",
-        headers=_github_headers(token),
-        timeout=30,
+        headers = _github_headers(token),
+        timeout = 30,
     )
     resp.raise_for_status()
     return resp.json()["object"]["sha"]
@@ -199,9 +204,9 @@ def _create_branch(token: str, owner_repo: str, new_branch: str, base_sha: str) 
     owner, repo = owner_repo.split("/", 1)
     resp = _SESSION.post(
         f"{GITHUB_API}/repos/{owner}/{repo}/git/refs",
-        headers=_github_headers(token),
-        json={"ref": f"refs/heads/{new_branch}", "sha": base_sha},
-        timeout=30,
+        headers = _github_headers(token),
+        json = {"ref": f"refs/heads/{new_branch}", "sha": base_sha},
+        timeout = 30,
     )
     if resp.status_code == 422:  # ref already exists — reuse it
         return
@@ -227,9 +232,9 @@ def _put_file(
         body["sha"] = blob_sha
     resp = _SESSION.put(
         f"{GITHUB_API}/repos/{owner}/{repo}/contents/{path}",
-        headers=_github_headers(token),
-        json=body,
-        timeout=30,
+        headers = _github_headers(token),
+        json = body,
+        timeout = 30,
     )
     resp.raise_for_status()
 
@@ -245,21 +250,21 @@ def _create_pr(
     owner, repo = owner_repo.split("/", 1)
     resp = _SESSION.post(
         f"{GITHUB_API}/repos/{owner}/{repo}/pulls",
-        headers=_github_headers(token),
-        json={"title": title, "head": head, "base": base, "body": body},
-        timeout=30,
+        headers = _github_headers(token),
+        json = {"title": title, "head": head, "base": base, "body": body},
+        timeout = 30,
     )
     resp.raise_for_status()
     return resp.json()["html_url"]
 
-
-# ============================================================
+# ======================================================================================================================
 # Modes
-# ============================================================
-
+# ======================================================================================================================
 
 def cmd_check(registry: dict, token: str, only: str | None, repos_arg: str | None = None) -> int:
-    """Read-only drift report. Exit 1 if any repo is out of sync or errored."""
+    """
+    Read-only drift report. Exit 1 if any repo is out of sync or errored.
+    """
     files = _select_files(registry, only)
     repos: list[dict] = _select_repos(registry, repos_arg)
     version = _kit_version()
@@ -293,12 +298,14 @@ def cmd_check(registry: dict, token: str, only: str | None, repos_arg: str | Non
 
 
 def cmd_distribute(registry: dict, token: str, only: str | None, repos_arg: str | None = None) -> int:
-    """Open one sync PR per drifted repo. Never auto-merges."""
+    """
+    Open one sync PR per drifted repo. Never auto-merges.
+    """
     files = _select_files(registry, only)
     repos: list[dict] = _select_repos(registry, repos_arg)
-    version = _kit_version()
+    version     = _kit_version()
     sync_branch = f"chore/kit-sync-{version}"
-    title = f"chore(kit): sync agentic-workflow kit {version}"
+    title       = f"chore(kit): sync agentic-workflow kit {version}"
 
     opened: list[str] = []
     errors: list[str] = []
@@ -315,7 +322,12 @@ def cmd_distribute(registry: dict, token: str, only: str | None, repos_arg: str 
             for rel in drift:
                 _remote, blob_sha = _get_remote_file(token, repo, sync_branch, rel)
                 _put_file(
-                    token, repo, sync_branch, rel, _read_local(rel), blob_sha,
+                    token,
+                    repo,
+                    sync_branch,
+                    rel,
+                    _read_local(rel),
+                    blob_sha,
                     f"chore(kit): sync {rel} to {version}",
                 )
             body = (
@@ -324,7 +336,7 @@ def cmd_distribute(registry: dict, token: str, only: str | None, repos_arg: str 
                 f"Files updated: {', '.join(drift)}\n\n"
                 f"Docs-only. See ADR D-001 / the kit-distribution epic. Please review and merge."
             )
-            url = _create_pr(token, repo, sync_branch, branch, title, body)
+            url  = _create_pr(token, repo, sync_branch, branch, title, body)
             print(f"  {repo}: PR opened — {url}")
             opened.append(url)
         except Exception as exc:  # noqa: BLE001
@@ -340,50 +352,40 @@ def cmd_distribute(registry: dict, token: str, only: str | None, repos_arg: str 
         return 1
     return 0
 
-
-# ============================================================
+# ======================================================================================================================
 # CLI
-# ============================================================
-
+# ======================================================================================================================
 
 def parse_cli_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Check or distribute the agentic-workflow kit across the ecosystem.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  # Read-only drift report across all repos (scheduled drift alarm)\n"
-            "  GH_TOKEN=... python distribute_kit.py check\n\n"
-            "  # Open sync PRs for skills.md only (v1 scope)\n"
-            "  GH_TOKEN=... python distribute_kit.py distribute --only skills.md\n\n"
-            "  # Target a subset of repos (comma-separated EXACT names, not substrings); blank = all\n"
-            "  GH_TOKEN=... python distribute_kit.py distribute --repos kriegerdataforge-sdk,fitness-app-backend"
+        description = "Check or distribute the agentic-workflow kit across the ecosystem.",
+        formatter_class = argparse.RawDescriptionHelpFormatter,
+        epilog = (
+            "Examples:\n" "  # Read-only drift report across all repos (scheduled drift alarm)\n" "  GH_TOKEN=... python distribute_kit.py check\n\n" "  # Open sync PRs for skills.md only (v1 scope)\n" "  GH_TOKEN=... python distribute_kit.py distribute --only skills.md\n\n" "  # Target a subset of repos (comma-separated EXACT names, not substrings); blank = all\n" "  GH_TOKEN=... python distribute_kit.py distribute --repos kriegerdataforge-sdk,fitness-app-backend"
         ),
     )
     parser.add_argument(
         "mode",
-        choices=["check", "distribute"],
-        help="'check' reports drift (opens nothing). 'distribute' opens one PR per drifted repo.",
+        choices = ["check", "distribute"],
+        help = "'check' reports drift (opens nothing). 'distribute' opens one PR per drifted repo.",
     )
     parser.add_argument(
         "--only",
-        default=None,
-        help="Only operate on kit files whose path contains this substring (e.g. 'skills.md').",
+        default = None,
+        help = "Only operate on kit files whose path contains this substring (e.g. 'skills.md').",
     )
     parser.add_argument(
         "--repos",
-        default=None,
-        help=(
-            "Only operate on these repos (comma-separated EXACT names, e.g. "
-            "'kriegerdataforge-sdk,fitness-app-backend'). Matches the full owner/repo or the short "
-            "name exactly (not a substring). Blank = all repos in the registry."
+        default = None,
+        help = (
+            "Only operate on these repos (comma-separated EXACT names, e.g. " "'kriegerdataforge-sdk,fitness-app-backend'). Matches the full owner/repo or the short " "name exactly (not a substring). Blank = all repos in the registry."
         ),
     )
     return parser.parse_args()
 
 
 def main() -> None:
-    args = parse_cli_args()
+    args     = parse_cli_args()
     registry = _load_registry()
     _assert_version_consistency()
     token = os.environ.get("GH_TOKEN", "").strip()

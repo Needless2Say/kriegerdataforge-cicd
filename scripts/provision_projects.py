@@ -44,6 +44,7 @@ Usage:
 
 from __future__ import annotations
 
+# standard imports
 import argparse
 import json
 import os
@@ -51,15 +52,16 @@ import sys
 from pathlib import Path
 from typing import Any
 
+# third party imports
 from common.http import build_session
 
-# ============================================================
+# ======================================================================================================================
 # Configuration
-# ============================================================
+# ======================================================================================================================
 
-GITHUB_API = "https://api.github.com"
-GRAPHQL_API = f"{GITHUB_API}/graphql"
-SCRIPTS_DIR = Path(__file__).parent
+GITHUB_API    = "https://api.github.com"
+GRAPHQL_API   = f"{GITHUB_API}/graphql"
+SCRIPTS_DIR   = Path(__file__).parent
 REGISTRY_FILE = SCRIPTS_DIR / "projects_registry.json"
 DEFAULT_OWNER = "Needless2Say"
 
@@ -74,22 +76,23 @@ _SESSION = build_session()
 
 
 class ProjectsAuthError(RuntimeError):
-    """The token cannot access ProjectsV2 (missing scope/permission)."""
+    """
+    The token cannot access ProjectsV2 (missing scope/permission).
+    """
 
-
-# ============================================================
+# ======================================================================================================================
 # Registry + selection
-# ============================================================
-
+# ======================================================================================================================
 
 def _load_registry() -> dict:
     if not REGISTRY_FILE.is_file():
         sys.exit(f"Error: registry file not found: {REGISTRY_FILE}")
-    return json.loads(REGISTRY_FILE.read_text(encoding="utf-8"))
+    return json.loads(REGISTRY_FILE.read_text(encoding = "utf-8"))
 
 
 def _select_boards(registry: dict, boards_arg: str | None) -> list[dict]:
-    """Filter registry boards by --boards (comma-separated EXACT keys or titles; blank/ALL = all).
+    """
+    Filter registry boards by --boards (comma-separated EXACT keys or titles; blank/ALL = all).
 
     Mirrors distribute_kit._select_repos: exact match only, case-insensitive, no substrings —
     one key never fans out to siblings. No match is an error.
@@ -100,16 +103,15 @@ def _select_boards(registry: dict, boards_arg: str | None) -> list[dict]:
     tokens = {t.strip().lower() for t in boards_arg.split(",") if t.strip()}
     if not tokens or "all" in tokens:
         return boards
-    selected = [
-        b for b in boards if b["key"].lower() in tokens or b["title"].lower() in tokens
-    ]
+    selected = [b for b in boards if b["key"].lower() in tokens or b["title"].lower() in tokens]
     if not selected:
         sys.exit(f"Error: --boards '{boards_arg}' matched no boards in the registry (keys are exact).")
     return selected
 
 
 def _target_fields(registry: dict, board: dict) -> dict[str, list[str]]:
-    """The custom single-select fields this board must carry (the standard schema).
+    """
+    The custom single-select fields this board must carry (the standard schema).
 
     We deliberately do NOT add a 'Repo'/'Repository' field: those names are RESERVED by GitHub
     Projects v2 — it has a built-in Repository field that auto-populates from each item's issue/PR,
@@ -119,11 +121,9 @@ def _target_fields(registry: dict, board: dict) -> dict[str, list[str]]:
     """
     return dict(registry.get("standard_fields", {}))
 
-
-# ============================================================
+# ======================================================================================================================
 # GraphQL plumbing
-# ============================================================
-
+# ======================================================================================================================
 
 def _github_headers(token: str) -> dict[str, str]:
     return {
@@ -134,24 +134,25 @@ def _github_headers(token: str) -> dict[str, str]:
 
 
 def _gql(token: str, query: str, variables: dict[str, Any] | None = None) -> dict:
-    """POST one GraphQL request; raise on transport, HTTP, or GraphQL-level errors.
+    """
+    POST one GraphQL request; raise on transport, HTTP, or GraphQL-level errors.
 
     A FORBIDDEN / INSUFFICIENT_SCOPES GraphQL error (or HTTP 401/403) raises ProjectsAuthError so
     the caller can fall back to the staged classic PAT with a clear message.
     """
     resp = _SESSION.post(
         GRAPHQL_API,
-        headers=_github_headers(token),
-        json={"query": query, "variables": variables or {}},
-        timeout=30,
+        headers = _github_headers(token),
+        json = {"query": query, "variables": variables or {}},
+        timeout = 30,
     )
     if resp.status_code in (401, 403):
         raise ProjectsAuthError(f"GraphQL HTTP {resp.status_code}: {resp.text[:200]}")
     resp.raise_for_status()
     payload = resp.json()
-    errors = payload.get("errors") or []
+    errors  = payload.get("errors") or []
     if errors:
-        types = {e.get("type", "") for e in errors}
+        types   = {e.get("type", "") for e in errors}
         message = "; ".join(e.get("message", "?") for e in errors)
         if types & {"FORBIDDEN", "INSUFFICIENT_SCOPES"}:
             raise ProjectsAuthError(message)
@@ -162,13 +163,12 @@ def _gql(token: str, query: str, variables: dict[str, Any] | None = None) -> dic
 # The auth probe: a cheap READ of the owner's ProjectsV2. Requests project FIELDS (`nodes { id }`),
 # never `totalCount` — GitHub answers totalCount even without the read:project scope (verified live
 # 2026-07-12), so a totalCount probe would false-positive.
-_OWNER_PROJECTS_PROBE = (
-    "query($login: String!) { user(login: $login) { projectsV2(first: 1) { nodes { id } } } }"
-)
+_OWNER_PROJECTS_PROBE = ("query($login: String!) { user(login: $login) { projectsV2(first: 1) { nodes { id } } } }")
 
 
 def _resolve_token(token: str, owner: str) -> str:
-    """Validate the provisioning token can reach the owner's ProjectsV2; return it, or exit clean.
+    """
+    Validate the provisioning token can reach the owner's ProjectsV2; return it, or exit clean.
 
     Creating/managing USER-owned ProjectsV2 requires a CLASSIC PAT with the ``project`` scope acting
     AS the owner. Neither a GitHub App installation token nor a fine-grained PAT can do it — GitHub
@@ -188,7 +188,9 @@ def _resolve_token(token: str, owner: str) -> str:
 
 
 def _auth_guidance(exc: Exception) -> str:
-    """The one message a refused run should end with — printed, never a traceback."""
+    """
+    The one message a refused run should end with — printed, never a traceback.
+    """
     return (
         "Error: the token cannot access ProjectsV2 for user-owned boards "
         f"({exc}).\nProvisioning needs a CLASSIC PAT with the 'project' scope (add 'repo' too for "
@@ -198,10 +200,9 @@ def _auth_guidance(exc: Exception) -> str:
         "repo secret, re-run, then revoke it."
     )
 
-
-# ============================================================
+# ======================================================================================================================
 # Reads (shared by both modes)
-# ============================================================
+# ======================================================================================================================
 
 _PROJECT_FIELDS_FRAGMENT = """
 fields(first: 50) {
@@ -220,7 +221,9 @@ def _owner_node_id(token: str, owner: str) -> str:
 
 
 def _list_projects(token: str, owner: str) -> dict[str, dict]:
-    """All of the owner's ProjectsV2 as {title: {id, number, closed}} (first 100 is plenty)."""
+    """
+    All of the owner's ProjectsV2 as {title: {id, number, closed}} (first 100 is plenty).
+    """
     query = """
     query($login: String!) {
       user(login: $login) {
@@ -233,13 +236,15 @@ def _list_projects(token: str, owner: str) -> dict[str, dict]:
 
 
 def _get_project_state(token: str, project_id: str) -> dict:
-    """One project's fields (+options) and linked repos."""
+    """
+    One project's fields (+options) and linked repos.
+    """
     query = f"""
     query($id: ID!) {{
       node(id: $id) {{ ... on ProjectV2 {{ id title {_PROJECT_FIELDS_FRAGMENT} }} }}
     }}
     """
-    node = _gql(token, query, {"id": project_id})["node"]
+    node  = _gql(token, query, {"id": project_id})["node"]
     fields: dict[str, dict] = {}
     for f in node["fields"]["nodes"]:
         if not f:  # non-matching fragment members serialize as empty objects
@@ -254,7 +259,9 @@ def _get_project_state(token: str, project_id: str) -> dict:
 
 
 def _find_board(token: str, owner: str, board: dict, projects_by_title: dict[str, dict]) -> str | None:
-    """Resolve a registry board to an existing project node id (pinned id wins, else exact title)."""
+    """
+    Resolve a registry board to an existing project node id (pinned id wins, else exact title).
+    """
     pinned = board.get("existing_node_id")
     if pinned:
         return str(pinned)
@@ -263,7 +270,9 @@ def _find_board(token: str, owner: str, board: dict, projects_by_title: dict[str
 
 
 def _diff_board(registry: dict, board: dict, state: dict) -> list[str]:
-    """Human-readable drift lines for one existing board (empty = fully converged)."""
+    """
+    Human-readable drift lines for one existing board (empty = fully converged).
+    """
     drift: list[str] = []
     # Custom fields: missing field, wrong kind, or missing options.
     for name, want_options in _target_fields(registry, board).items():
@@ -284,7 +293,7 @@ def _diff_board(registry: dict, board: dict, state: dict) -> list[str]:
     status = state["fields"].get("Status")
     if status is not None:
         want_status = registry.get("status_options", [])
-        missing = [o for o in want_status if o not in status["options"]]
+        missing     = [o for o in want_status if o not in status["options"]]
         if missing:
             drift.append(
                 f"Status missing option(s): {', '.join(missing)} (built-in field — one-time "
@@ -296,11 +305,9 @@ def _diff_board(registry: dict, board: dict, state: dict) -> list[str]:
         drift.append(f"repo(s) not linked: {', '.join(unlinked)}")
     return drift
 
-
-# ============================================================
+# ======================================================================================================================
 # Mutations (execute mode only — each guarded by the reads above)
-# ============================================================
-
+# ======================================================================================================================
 
 def _create_project(token: str, owner_id: str, title: str) -> str:
     mutation = """
@@ -312,7 +319,7 @@ def _create_project(token: str, owner_id: str, title: str) -> str:
 
 
 def _create_single_select_field(token: str, project_id: str, name: str, options: list[str]) -> None:
-    mutation = """
+    mutation      = """
     mutation($projectId: ID!, $name: String!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) {
       createProjectV2Field(input: {
         projectId: $projectId, dataType: SINGLE_SELECT, name: $name,
@@ -321,8 +328,7 @@ def _create_single_select_field(token: str, project_id: str, name: str, options:
     }
     """
     option_inputs = [
-        {"name": o, "color": _OPTION_COLORS[i % len(_OPTION_COLORS)], "description": ""}
-        for i, o in enumerate(options)
+        {"name": o, "color": _OPTION_COLORS[i % len(_OPTION_COLORS)], "description": ""} for i, o in enumerate(options)
     ]
     _gql(token, mutation, {"projectId": project_id, "name": name, "options": option_inputs})
 
@@ -331,8 +337,8 @@ def _repo_node_id(token: str, owner_repo: str) -> str:
     owner, repo = owner_repo.split("/", 1)
     resp = _SESSION.get(
         f"{GITHUB_API}/repos/{owner}/{repo}",
-        headers=_github_headers(token),
-        timeout=30,
+        headers = _github_headers(token),
+        timeout = 30,
     )
     resp.raise_for_status()
     return resp.json()["node_id"]
@@ -350,7 +356,8 @@ def _link_repo(token: str, project_id: str, repo_node_id: str) -> None:
 
 
 def _invite_collaborators(token: str, project_id: str, collaborators: list[dict]) -> list[str]:
-    """Best-effort collaborator invites; returns warning lines instead of raising.
+    """
+    Best-effort collaborator invites; returns warning lines instead of raising.
 
     updateProjectV2Collaborators support for USER-owned projects varies — a refusal here must
     never fail the run (manual UI invite is the documented fallback).
@@ -359,8 +366,10 @@ def _invite_collaborators(token: str, project_id: str, collaborators: list[dict]
     for collab in collaborators:
         login, role = collab["login"], collab.get("role", "WRITER").upper()
         try:
-            user_id = _gql(
-                token, "query($login: String!) { user(login: $login) { id } }", {"login": login}
+            user_id  = _gql(
+                token,
+                "query($login: String!) { user(login: $login) { id } }",
+                {"login": login},
             )["user"]["id"]
             mutation = """
             mutation($projectId: ID!, $collaborators: [ProjectV2Collaborator!]!) {
@@ -378,15 +387,15 @@ def _invite_collaborators(token: str, project_id: str, collaborators: list[dict]
             warnings.append(f"collaborator '{login}' not invited via API ({exc}) — invite in the UI")
     return warnings
 
-
-# ============================================================
+# ======================================================================================================================
 # Modes
-# ============================================================
-
+# ======================================================================================================================
 
 def cmd_check(registry: dict, token: str, owner: str, boards_arg: str | None) -> int:
-    """Read-only drift report. Exit 1 on any drift or error. Mutates nothing."""
-    boards = _select_boards(registry, boards_arg)
+    """
+    Read-only drift report. Exit 1 on any drift or error. Mutates nothing.
+    """
+    boards            = _select_boards(registry, boards_arg)
     projects_by_title = _list_projects(token, owner)
     print(f"Checking {len(boards)} board(s) against @{owner}'s ProjectsV2:")
 
@@ -428,15 +437,17 @@ def cmd_check(registry: dict, token: str, owner: str, boards_arg: str | None) ->
 
 
 def cmd_execute(registry: dict, token: str, owner: str, boards_arg: str | None) -> int:
-    """Create/adopt boards, create missing fields, link repos, best-effort invites. Idempotent."""
-    boards = _select_boards(registry, boards_arg)
-    owner_id = _owner_node_id(token, owner)
+    """
+    Create/adopt boards, create missing fields, link repos, best-effort invites. Idempotent.
+    """
+    boards            = _select_boards(registry, boards_arg)
+    owner_id          = _owner_node_id(token, owner)
     projects_by_title = _list_projects(token, owner)
     print(f"Provisioning {len(boards)} board(s) for @{owner}:")
 
-    node_ids: dict[str, str] = {}
+    node_ids:     dict[str, str] = {}
     manual_steps: list[str] = []
-    errors: list[str] = []
+    errors:       list[str] = []
     for board in boards:
         title = board["title"]
         try:
@@ -467,7 +478,7 @@ def cmd_execute(registry: dict, token: str, owner: str, boards_arg: str | None) 
                 except Exception as exc:  # noqa: BLE001 — linking is optional (needs `repo` scope)
                     print(f"    ! link {owner_repo} skipped ({exc})")
                     manual_steps.append(
-                        f"{title}: link repo {owner_repo} (add the PAT's `repo` scope, or link in the UI)"
+                        f"{title}: link repo {owner_repo} (add the PAT's `repo` scope, or link in the UI)",
                     )
             # Best-effort collaborators.
             for warning in _invite_collaborators(token, project_id, board.get("collaborators", [])):
@@ -498,38 +509,33 @@ def cmd_execute(registry: dict, token: str, owner: str, boards_arg: str | None) 
         return 1
     return 0
 
-
-# ============================================================
+# ======================================================================================================================
 # CLI
-# ============================================================
-
+# ======================================================================================================================
 
 def parse_cli_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Check or provision the ecosystem's GitHub Projects v2 boards.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples (GH_TOKEN = a classic PAT with the 'project' scope):\n"
-            "  GH_TOKEN=... python provision_projects.py check\n"
-            "  GH_TOKEN=... python provision_projects.py check --boards fitness,tiffanys\n"
-            "  GH_TOKEN=... python provision_projects.py execute"
+        description = "Check or provision the ecosystem's GitHub Projects v2 boards.",
+        formatter_class = argparse.RawDescriptionHelpFormatter,
+        epilog = (
+            "Examples (GH_TOKEN = a classic PAT with the 'project' scope):\n" "  GH_TOKEN=... python provision_projects.py check\n" "  GH_TOKEN=... python provision_projects.py check --boards fitness,tiffanys\n" "  GH_TOKEN=... python provision_projects.py execute"
         ),
     )
     parser.add_argument(
         "mode",
-        choices=["check", "execute"],
-        help="'check' reports drift (mutates nothing). 'execute' creates/links idempotently.",
+        choices = ["check", "execute"],
+        help = "'check' reports drift (mutates nothing). 'execute' creates/links idempotently.",
     )
     parser.add_argument(
         "--boards",
-        default=None,
-        help="Only operate on these boards (comma-separated EXACT keys or titles). Blank/ALL = all.",
+        default = None,
+        help = "Only operate on these boards (comma-separated EXACT keys or titles). Blank/ALL = all.",
     )
     return parser.parse_args()
 
 
 def main() -> None:
-    args = parse_cli_args()
+    args     = parse_cli_args()
     registry = _load_registry()
     gh_token = os.environ.get("GH_TOKEN", "").strip()
     if not gh_token:

@@ -11,9 +11,8 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock
 
-import pytest
-
 import distribute_app_secrets as das
+import pytest
 from distribute_app_secrets import (
     _distributable,
     _looks_valid,
@@ -25,9 +24,8 @@ from distribute_app_secrets import (
     list_repo_secret_meta,
 )
 
+
 # ── fixtures ────────────────────────────────────────────────────────────────────
-
-
 @pytest.fixture
 def sample_registry():
     return {
@@ -78,8 +76,6 @@ def source_env(monkeypatch):
 
 
 # ── selection ───────────────────────────────────────────────────────────────────
-
-
 def test_distributable_keeps_only_entries_with_a_source_env(sample_registry):
     names = [e["name"] for e in _distributable(sample_registry)]
     assert names == ["KDF_APP_ID", "KDF_APP_PRIVATE_KEY"]
@@ -99,8 +95,10 @@ def test_select_entries_refuses_unknown_name(sample_registry):
 
 
 def test_select_entries_refuses_rotation_engine_secrets(sample_registry):
-    """A registry entry WITHOUT distribute_source_env must be refused even though it
-    exists — this engine must never become a second write path for rotation secrets."""
+    """
+    A registry entry WITHOUT distribute_source_env must be refused even though it
+    exists — this engine must never become a second write path for rotation secrets.
+    """
     with pytest.raises(SystemExit) as exc:
         _select_entries(sample_registry, "VERCEL_DEPLOYMENT_TOKEN")
     assert "not distributable" in str(exc.value)
@@ -111,8 +109,6 @@ def test_target_repos_is_the_sorted_union(entries):
 
 
 # ── value shape checks ──────────────────────────────────────────────────────────
-
-
 def test_looks_valid_numeric():
     assert _looks_valid("123456", "numeric")
     assert not _looks_valid("12a", "numeric")
@@ -130,19 +126,18 @@ def test_looks_valid_unknown_format_is_a_no_op():
 
 
 # ── targets mode ────────────────────────────────────────────────────────────────
-
-
 def test_cmd_targets_prints_short_names(sample_registry, capsys):
     assert cmd_targets(sample_registry) == 0
     assert capsys.readouterr().out.strip() == "r1,r2"
 
 
 # ── check mode ──────────────────────────────────────────────────────────────────
-
-
 def _session_returning(payload_by_repo):
-    """A fake session whose .get() answers per-repo from `payload_by_repo`."""
+    """
+    A fake session whose .get() answers per-repo from `payload_by_repo`.
+    """
     session = MagicMock()
+
 
     def _get(url, **kwargs):
         resp = MagicMock()
@@ -154,6 +149,7 @@ def _session_returning(payload_by_repo):
                     resp.json.return_value = {"secrets": secrets}
                 return resp
         raise AssertionError(f"unexpected URL {url}")
+
 
     session.get.side_effect = _get
     return session
@@ -215,8 +211,6 @@ def test_list_repo_secret_meta_maps_names(monkeypatch):
 
 
 # ── execute mode ────────────────────────────────────────────────────────────────
-
-
 def test_cmd_execute_writes_every_target(entries, source_env, capsys, monkeypatch):
     calls = []
     monkeypatch.setattr(
@@ -233,12 +227,10 @@ def test_cmd_execute_writes_every_target(entries, source_env, capsys, monkeypatc
 
 
 def test_cmd_execute_missing_env_aborts_before_any_write(entries, capsys, monkeypatch):
-    monkeypatch.delenv("KDF_APP_ID", raising=False)
+    monkeypatch.delenv("KDF_APP_ID", raising = False)
     monkeypatch.setenv("KDF_APP_PRIVATE_KEY", PEM)
     written = []
-    monkeypatch.setattr(
-        das, "update_github_repo_secret", lambda *a: written.append(a)
-    )
+    monkeypatch.setattr(das, "update_github_repo_secret", lambda *a: written.append(a))
     with pytest.raises(SystemExit) as exc:
         cmd_execute(entries, "tok")
     assert "KDF_APP_ID is not set" in str(exc.value)
@@ -246,17 +238,15 @@ def test_cmd_execute_missing_env_aborts_before_any_write(entries, capsys, monkey
     assert written == []
 
 
-def test_cmd_execute_swapped_values_refused_and_value_never_leaks(
-    entries, capsys, monkeypatch
-):
-    """A PEM wired into KDF_APP_ID (classic swapped-env mistake) must abort before any
-    write, and the error must name the expected SHAPE — never echo the value."""
+def test_cmd_execute_swapped_values_refused_and_value_never_leaks(entries, capsys, monkeypatch):
+    """
+    A PEM wired into KDF_APP_ID (classic swapped-env mistake) must abort before any
+    write, and the error must name the expected SHAPE — never echo the value.
+    """
     monkeypatch.setenv("KDF_APP_ID", PEM)
     monkeypatch.setenv("KDF_APP_PRIVATE_KEY", PEM)
     written = []
-    monkeypatch.setattr(
-        das, "update_github_repo_secret", lambda *a: written.append(a)
-    )
+    monkeypatch.setattr(das, "update_github_repo_secret", lambda *a: written.append(a))
     with pytest.raises(SystemExit) as exc:
         cmd_execute(entries, "tok")
     message = str(exc.value)
@@ -266,12 +256,11 @@ def test_cmd_execute_swapped_values_refused_and_value_never_leaks(
     assert written == []
 
 
-def test_cmd_execute_partial_failure_aggregates_and_continues(
-    entries, source_env, capsys, monkeypatch
-):
+def test_cmd_execute_partial_failure_aggregates_and_continues(entries, source_env, capsys, monkeypatch):
     def _update(tok, repo, name, value):
         if repo == "Needless2Say/r1" and name == "KDF_APP_ID":
             raise RuntimeError("boom")
+
 
     monkeypatch.setattr(das, "update_github_repo_secret", _update)
     assert cmd_execute(entries, "tok") == 1
@@ -297,10 +286,8 @@ def test_cmd_execute_requires_token(entries, source_env):
 
 
 # ── the real registry (drift guards binding data <-> engine expectations) ────────
-
-
 def _real_registry():
-    return json.loads(das.REGISTRY_FILE.read_text(encoding="utf-8"))
+    return json.loads(das.REGISTRY_FILE.read_text(encoding = "utf-8"))
 
 
 def test_real_registry_carries_both_app_secret_entries():
@@ -309,7 +296,7 @@ def test_real_registry_carries_both_app_secret_entries():
     assert by_name["KDF_APP_ID"]["value_format"] == "numeric"
     assert by_name["KDF_APP_PRIVATE_KEY"]["value_format"] == "pem"
     # the pair must travel together: identical target sets
-    id_targets = {t["repo"] for t in by_name["KDF_APP_ID"]["github_repo_secrets"]}
+    id_targets  = {t["repo"] for t in by_name["KDF_APP_ID"]["github_repo_secrets"]}
     key_targets = {t["repo"] for t in by_name["KDF_APP_PRIVATE_KEY"]["github_repo_secrets"]}
     assert id_targets == key_targets
     # the source repo must never be a target (it holds the originals)
@@ -320,13 +307,11 @@ def test_real_registry_carries_both_app_secret_entries():
 
 
 def test_real_registry_covers_the_epic_consumers():
-    """Wave 2.5 contract: the six E2E-journey repos + both package repos + the four
-    templates hold App-credential copies (superset of ops-setup-e2e's allow-list)."""
-    targets = {
-        t["repo"]
-        for e in _distributable(_real_registry())
-        for t in e["github_repo_secrets"]
-    }
+    """
+    Wave 2.5 contract: the six E2E-journey repos + both package repos + the four
+    templates hold App-credential copies (superset of ops-setup-e2e's allow-list).
+    """
+    targets  = {t["repo"] for e in _distributable(_real_registry()) for t in e["github_repo_secrets"]}
     expected = {
         "Needless2Say/kriegerdataforge",
         "Needless2Say/kriegerdataforge-auth-ui",
@@ -345,9 +330,11 @@ def test_real_registry_covers_the_epic_consumers():
 
 
 def test_real_registry_gh_packages_pat_covers_the_reports_sdk_repo():
-    """reports-sdk CI installs kdf_sdk via git+https, so the PAT fallback must reach it
-    (the exact gap cicd PR #84 fixed for the first four SDK consumers)."""
+    """
+    reports-sdk CI installs kdf_sdk via git+https, so the PAT fallback must reach it
+    (the exact gap cicd PR #84 fixed for the first four SDK consumers).
+    """
     registry = _real_registry()
-    pat = next(e for e in registry["secrets"] if e["name"] == "GH_PACKAGES_PAT")
-    repos = {t["repo"] for t in pat["github_repo_secrets"]}
+    pat      = next(e for e in registry["secrets"] if e["name"] == "GH_PACKAGES_PAT")
+    repos    = {t["repo"] for t in pat["github_repo_secrets"]}
     assert "Needless2Say/kriegerdataforge-reports-sdk" in repos

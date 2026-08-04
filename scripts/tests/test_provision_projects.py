@@ -12,13 +12,11 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import provision_projects as pp
 import pytest
 
-import provision_projects as pp
 
 # ── Fixtures ────────────────────────────────────────────────────────────────────
-
-
 @pytest.fixture
 def registry():
     return {
@@ -48,23 +46,21 @@ def registry():
 
 
 def _gql_response(data: dict) -> MagicMock:
-    resp = MagicMock()
-    resp.status_code = 200
+    resp                   = MagicMock()
+    resp.status_code       = 200
     resp.json.return_value = {"data": data}
     return resp
 
 
 # ── The real registry file ───────────────────────────────────────────────────────
-
-
 def test_real_registry_is_valid():
-    """The committed registry parses, has 6 unique boards, and every repo is owner-qualified."""
-    reg = json.loads(
-        (Path(pp.__file__).parent / "projects_registry.json").read_text(encoding="utf-8")
-    )
+    """
+    The committed registry parses, has 6 unique boards, and every repo is owner-qualified.
+    """
+    reg    = json.loads((Path(pp.__file__).parent / "projects_registry.json").read_text(encoding = "utf-8"))
     boards = reg["boards"]
     assert len(boards) == 6
-    keys = [b["key"] for b in boards]
+    keys   = [b["key"] for b in boards]
     titles = [b["title"] for b in boards]
     assert len(set(keys)) == len(keys)
     assert len(set(titles)) == len(titles)
@@ -78,14 +74,14 @@ def test_real_registry_is_valid():
 
 
 def test_real_registry_covers_every_kit_repo_exactly_once():
-    """Board membership must partition the ecosystem: every kit-synced repo on exactly one board
-    (+ cicd itself, which the kit registry excludes as the source)."""
-    reg = json.loads(
-        (Path(pp.__file__).parent / "projects_registry.json").read_text(encoding="utf-8")
-    )
+    """
+    Board membership must partition the ecosystem: every kit-synced repo on exactly one board
+    (+ cicd itself, which the kit registry excludes as the source).
+    """
+    reg         = json.loads((Path(pp.__file__).parent / "projects_registry.json").read_text(encoding = "utf-8"))
     board_repos = [r for b in reg["boards"] for r in b["repos"]]
     assert len(board_repos) == len(set(board_repos)), "a repo appears on two boards"
-    kit = json.loads((Path(pp.__file__).parent / "kit_registry.json").read_text(encoding="utf-8"))
+    kit       = json.loads((Path(pp.__file__).parent / "kit_registry.json").read_text(encoding = "utf-8"))
     kit_repos = {entry["repo"] for entry in kit["repos"]}
     kit_repos.add("Needless2Say/kriegerdataforge-cicd")  # sync-excluded source repo
     missing = kit_repos - set(board_repos)
@@ -95,8 +91,6 @@ def test_real_registry_covers_every_kit_repo_exactly_once():
 
 
 # ── Selection ───────────────────────────────────────────────────────────────────
-
-
 def test_select_boards_all(registry):
     assert pp._select_boards(registry, None) == registry["boards"]
     assert pp._select_boards(registry, "") == registry["boards"]
@@ -114,55 +108,59 @@ def test_select_boards_is_exact_not_substring(registry):
 
 
 def test_target_fields_are_the_standard_schema_no_repo(registry):
-    """No custom 'Repo'/'Repository' field — the name is RESERVED by Projects v2 (built-in field)."""
+    """
+    No custom 'Repo'/'Repository' field — the name is RESERVED by Projects v2 (built-in field).
+    """
     fields = pp._target_fields(registry, registry["boards"][0])
     assert set(fields) == {"Priority", "Type", "Severity"}
     assert "Repo" not in fields and "Repository" not in fields
 
 
 # ── GraphQL plumbing + auth fallback ─────────────────────────────────────────────
-
-
 def test_gql_raises_auth_error_on_http_401_403():
     for code in (401, 403):
-        resp = MagicMock()
+        resp             = MagicMock()
         resp.status_code = code
-        resp.text = "denied"
-        with patch.object(pp._SESSION, "post", return_value=resp):
+        resp.text        = "denied"
+        with patch.object(pp._SESSION, "post", return_value = resp):
             with pytest.raises(pp.ProjectsAuthError):
                 pp._gql("tok", "query { x }")
 
 
 def test_gql_raises_auth_error_on_graphql_forbidden():
-    resp = MagicMock()
-    resp.status_code = 200
+    resp                   = MagicMock()
+    resp.status_code       = 200
     resp.json.return_value = {"errors": [{"type": "FORBIDDEN", "message": "no projects for you"}]}
-    with patch.object(pp._SESSION, "post", return_value=resp):
+    with patch.object(pp._SESSION, "post", return_value = resp):
         with pytest.raises(pp.ProjectsAuthError):
             pp._gql("tok", "query { x }")
 
 
 def test_gql_raises_runtime_on_other_graphql_errors():
-    resp = MagicMock()
-    resp.status_code = 200
+    resp                   = MagicMock()
+    resp.status_code       = 200
     resp.json.return_value = {"errors": [{"type": "NOT_FOUND", "message": "nope"}]}
-    with patch.object(pp._SESSION, "post", return_value=resp):
+    with patch.object(pp._SESSION, "post", return_value = resp):
         with pytest.raises(RuntimeError):
             pp._gql("tok", "query { x }")
 
 
 def test_resolve_token_validates_and_returns_the_token():
-    """Single-token model: a token that can read the owner's ProjectsV2 is returned unchanged."""
-    with patch.object(pp, "_gql", return_value={"user": {"projectsV2": {"nodes": []}}}) as gql:
+    """
+    Single-token model: a token that can read the owner's ProjectsV2 is returned unchanged.
+    """
+    with patch.object(pp, "_gql", return_value = {"user": {"projectsV2": {"nodes": []}}}) as gql:
         token = pp._resolve_token("classic-pat", "Needless2Say")
     assert token == "classic-pat"
     assert gql.call_count == 1
 
 
 def test_resolve_token_exits_with_guidance_on_refusal():
-    """A token that can't reach ProjectsV2 exits with classic-PAT guidance — the message must name
-    why an App/fine-grained token (CICD_PAT) can't do it and point at SECRET_VALUE_NEW."""
-    with patch.object(pp, "_gql", side_effect=pp.ProjectsAuthError("no project scope")):
+    """
+    A token that can't reach ProjectsV2 exits with classic-PAT guidance — the message must name
+    why an App/fine-grained token (CICD_PAT) can't do it and point at SECRET_VALUE_NEW.
+    """
+    with patch.object(pp, "_gql", side_effect = pp.ProjectsAuthError("no project scope")):
         with pytest.raises(SystemExit) as exc:
             pp._resolve_token("bad-token", "Needless2Say")
     msg = str(exc.value)
@@ -173,35 +171,39 @@ def test_resolve_token_exits_with_guidance_on_refusal():
 
 
 def test_probe_requests_project_fields_not_just_totalcount():
-    """Live-caught regression (2026-07-12): GitHub answers projectsV2.totalCount even WITHOUT the
+    """
+    Live-caught regression (2026-07-12): GitHub answers projectsV2.totalCount even WITHOUT the
     read:project scope, so a totalCount-only probe false-positives and the run then dies mid-
-    flight. The probe must request real project fields (nodes { id })."""
+    flight. The probe must request real project fields (nodes { id }).
+    """
     captured: dict = {}
 
-    def fake_gql(token, query, variables=None):
+
+    def fake_gql(token, query, variables = None):
         captured["query"] = query
         return {"user": {"projectsV2": {"nodes": []}}}
 
-    with patch.object(pp, "_gql", side_effect=fake_gql):
+
+    with patch.object(pp, "_gql", side_effect = fake_gql):
         pp._resolve_token("tok", "Needless2Say")
     assert "nodes" in captured["query"] and "id" in captured["query"]
     assert "totalCount" not in captured["query"]
 
 
 def test_mid_run_auth_error_propagates_not_aggregated(registry):
-    """A ProjectsAuthError inside the per-board loop must escape (every board fails identically —
-    one guidance message beats six aggregated errors), unlike ordinary per-board errors."""
+    """
+    A ProjectsAuthError inside the per-board loop must escape (every board fails identically —
+    one guidance message beats six aggregated errors), unlike ordinary per-board errors.
+    """
     with (
-        patch.object(pp, "_list_projects", return_value={"KDF — Fitness": {"id": "PVT_a"}}),
-        patch.object(pp, "_get_project_state", side_effect=pp.ProjectsAuthError("scope")),
+        patch.object(pp, "_list_projects", return_value = {"KDF — Fitness": {"id": "PVT_a"}}),
+        patch.object(pp, "_get_project_state", side_effect = pp.ProjectsAuthError("scope")),
     ):
         with pytest.raises(pp.ProjectsAuthError):
             pp.cmd_check(registry, "tok", "Needless2Say", "fitness")
 
 
 # ── Diffing ─────────────────────────────────────────────────────────────────────
-
-
 def _converged_state(registry, board):
     fields = {
         name: {"id": f"F_{name}", "dataType": "SINGLE_SELECT", "options": list(options)}
@@ -232,7 +234,7 @@ def test_diff_board_reports_missing_field_and_option_and_link(registry):
     state["fields"]["Priority"]["options"].remove("P1")
     state["fields"]["Status"]["options"].remove("Triage")
     state["linked_repos"].discard("Needless2Say/fitness-app-backend")
-    drift = pp._diff_board(registry, board, state)
+    drift  = pp._diff_board(registry, board, state)
     joined = "\n".join(drift)
     assert "field 'Severity' missing" in joined
     assert "field 'Priority' missing option(s): P1" in joined
@@ -250,14 +252,14 @@ def test_diff_board_flags_wrong_field_kind(registry):
 
 
 # ── check mode: read-only + aggregation ─────────────────────────────────────────
-
-
 def test_cmd_check_never_mutates(registry):
-    """check must not call any mutation helper even when boards are missing or drifted."""
+    """
+    check must not call any mutation helper even when boards are missing or drifted.
+    """
     infra_state = _converged_state(registry, registry["boards"][1])
     with (
-        patch.object(pp, "_list_projects", return_value={}),
-        patch.object(pp, "_get_project_state", return_value=infra_state),
+        patch.object(pp, "_list_projects", return_value = {}),
+        patch.object(pp, "_get_project_state", return_value = infra_state),
         patch.object(pp, "_create_project") as create,
         patch.object(pp, "_create_single_select_field") as create_field,
         patch.object(pp, "_link_repo") as link,
@@ -272,15 +274,19 @@ def test_cmd_check_never_mutates(registry):
 
 
 def test_cmd_check_converged_returns_zero(registry):
-    boards = registry["boards"]
-    states = {b["title"]: _converged_state(registry, b) for b in boards}
+    boards   = registry["boards"]
+    states   = {b["title"]: _converged_state(registry, b) for b in boards}
     by_title = {b["title"]: {"id": states[b["title"]]["id"], "number": 1} for b in boards}
 
     with (
-        patch.object(pp, "_list_projects", return_value=by_title),
-        patch.object(pp, "_get_project_state", side_effect=lambda t, pid: states[
-            next(b["title"] for b in boards if (b.get("existing_node_id") or by_title[b["title"]]["id"]) == pid)
-        ]),
+        patch.object(pp, "_list_projects", return_value = by_title),
+        patch.object(
+            pp,
+            "_get_project_state",
+            side_effect = lambda t, pid: states[
+                next(b["title"] for b in boards if (b.get("existing_node_id") or by_title[b["title"]]["id"]) == pid)
+            ],
+        ),
     ):
         # the pinned infra board resolves by node id, the fitness board by title
         rc = pp.cmd_check(registry, "tok", "Needless2Say", None)
@@ -289,20 +295,20 @@ def test_cmd_check_converged_returns_zero(registry):
 
 def test_cmd_check_aggregates_per_board_errors(registry):
     with (
-        patch.object(pp, "_list_projects", return_value={"KDF — Fitness": {"id": "PVT_a"}}),
-        patch.object(pp, "_get_project_state", side_effect=RuntimeError("boom")),
+        patch.object(pp, "_list_projects", return_value = {"KDF — Fitness": {"id": "PVT_a"}}),
+        patch.object(pp, "_get_project_state", side_effect = RuntimeError("boom")),
     ):
         rc = pp.cmd_check(registry, "tok", "Needless2Say", "fitness")
     assert rc == 1
 
 
 # ── execute mode: guarded mutations + idempotency ────────────────────────────────
-
-
 def test_cmd_execute_creates_only_whats_missing(registry):
-    """Fitness board missing entirely -> created + fields + links; pinned infra board converged
-    -> adopted with zero mutations. Proves the existence-guarded idempotency contract."""
-    boards = registry["boards"]
+    """
+    Fitness board missing entirely -> created + fields + links; pinned infra board converged
+    -> adopted with zero mutations. Proves the existence-guarded idempotency contract.
+    """
+    boards      = registry["boards"]
     infra_state = _converged_state(registry, boards[1])
     infra_state["id"] = "PVT_pinned123"
     created_state = _converged_state(registry, boards[0])
@@ -312,13 +318,16 @@ def test_cmd_execute_creates_only_whats_missing(registry):
     created_state["linked_repos"] = set()
     final_fitness = _converged_state(registry, boards[0])
 
+
     def state_for(token, pid):
         if pid == "PVT_pinned123":
             return infra_state
         # first read after create: bare; the post-reconcile drift re-read: converged
         return created_state if state_for.first else final_fitness
 
+
     state_for.first = True
+
 
     def get_state(token, pid):
         result = state_for(token, pid)
@@ -326,15 +335,16 @@ def test_cmd_execute_creates_only_whats_missing(registry):
             state_for.first = False
         return result
 
+
     with (
-        patch.object(pp, "_owner_node_id", return_value="U_owner"),
-        patch.object(pp, "_list_projects", return_value={}),
-        patch.object(pp, "_create_project", return_value="PVT_new") as create,
-        patch.object(pp, "_get_project_state", side_effect=get_state),
+        patch.object(pp, "_owner_node_id", return_value = "U_owner"),
+        patch.object(pp, "_list_projects", return_value = {}),
+        patch.object(pp, "_create_project", return_value = "PVT_new") as create,
+        patch.object(pp, "_get_project_state", side_effect = get_state),
         patch.object(pp, "_create_single_select_field") as create_field,
-        patch.object(pp, "_repo_node_id", side_effect=lambda t, r: f"R_{r}"),
+        patch.object(pp, "_repo_node_id", side_effect = lambda t, r: f"R_{r}"),
         patch.object(pp, "_link_repo") as link,
-        patch.object(pp, "_invite_collaborators", return_value=[]) as invite,
+        patch.object(pp, "_invite_collaborators", return_value = []) as invite,
     ):
         rc = pp.cmd_execute(registry, "tok", "Needless2Say", None)
 
@@ -349,16 +359,20 @@ def test_cmd_execute_creates_only_whats_missing(registry):
 
 
 def test_cmd_execute_collaborator_failure_is_warning_not_error(registry):
-    """An updateProjectV2Collaborators refusal must not fail the run (user-owned support varies)."""
+    """
+    An updateProjectV2Collaborators refusal must not fail the run (user-owned support varies).
+    """
     board = registry["boards"][1]
     state = _converged_state(registry, board)
     state["id"] = "PVT_pinned123"
     with (
-        patch.object(pp, "_owner_node_id", return_value="U_owner"),
-        patch.object(pp, "_list_projects", return_value={}),
-        patch.object(pp, "_get_project_state", return_value=state),
+        patch.object(pp, "_owner_node_id", return_value = "U_owner"),
+        patch.object(pp, "_list_projects", return_value = {}),
+        patch.object(pp, "_get_project_state", return_value = state),
         patch.object(
-            pp, "_invite_collaborators", return_value=["collaborator 'somefriend' not invited via API (x)"]
+            pp,
+            "_invite_collaborators",
+            return_value = ["collaborator 'somefriend' not invited via API (x)"],
         ),
     ):
         rc = pp.cmd_execute(registry, "tok", "Needless2Say", "infra")
@@ -366,19 +380,21 @@ def test_cmd_execute_collaborator_failure_is_warning_not_error(registry):
 
 
 def test_cmd_execute_repo_link_failure_is_warning_not_error(registry):
-    """A repo-link failure (e.g. a project-only PAT lacking the `repo` scope) must NOT fail the
-    board — boards/fields still get created and the unlinked repo becomes a manual step."""
+    """
+    A repo-link failure (e.g. a project-only PAT lacking the `repo` scope) must NOT fail the
+    board — boards/fields still get created and the unlinked repo becomes a manual step.
+    """
     board = registry["boards"][1]  # pinned infra board
     state = _converged_state(registry, board)
     state["id"] = "PVT_pinned123"
     state["linked_repos"] = set()  # force a link attempt
     with (
-        patch.object(pp, "_owner_node_id", return_value="U_owner"),
-        patch.object(pp, "_list_projects", return_value={}),
-        patch.object(pp, "_get_project_state", return_value=state),
-        patch.object(pp, "_repo_node_id", side_effect=RuntimeError("404 — repo scope missing")),
+        patch.object(pp, "_owner_node_id", return_value = "U_owner"),
+        patch.object(pp, "_list_projects", return_value = {}),
+        patch.object(pp, "_get_project_state", return_value = state),
+        patch.object(pp, "_repo_node_id", side_effect = RuntimeError("404 — repo scope missing")),
         patch.object(pp, "_link_repo") as link,
-        patch.object(pp, "_invite_collaborators", return_value=[]),
+        patch.object(pp, "_invite_collaborators", return_value = []),
     ):
         rc = pp.cmd_execute(registry, "tok", "Needless2Say", "infra")
     assert rc == 0  # the link failure did not fail the run
@@ -387,16 +403,16 @@ def test_cmd_execute_repo_link_failure_is_warning_not_error(registry):
 
 def test_cmd_execute_aggregates_board_failures(registry):
     with (
-        patch.object(pp, "_owner_node_id", return_value="U_owner"),
-        patch.object(pp, "_list_projects", return_value={}),
-        patch.object(pp, "_create_project", side_effect=RuntimeError("boom")),
+        patch.object(pp, "_owner_node_id", return_value = "U_owner"),
+        patch.object(pp, "_list_projects", return_value = {}),
+        patch.object(pp, "_create_project", side_effect = RuntimeError("boom")),
     ):
         rc = pp.cmd_execute(registry, "tok", "Needless2Say", "fitness")
     assert rc == 1
 
 
 def test_invite_collaborators_catches_and_warns():
-    with patch.object(pp, "_gql", side_effect=pp.ProjectsAuthError("user projects unsupported")):
+    with patch.object(pp, "_gql", side_effect = pp.ProjectsAuthError("user projects unsupported")):
         warnings = pp._invite_collaborators("tok", "PVT_x", [{"login": "friend", "role": "WRITER"}])
     assert len(warnings) == 1
     assert "friend" in warnings[0]

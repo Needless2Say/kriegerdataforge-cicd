@@ -61,21 +61,60 @@ lint: ## Lint GitHub Actions workflow files with actionlint
 
 # KDF house style (kdf-fmt spec §8; ADR D-003 toolchain split): kdf-fmt owns
 # formatting + style for the Python scripts (config: kdf-fmt.toml). Baseline-gated:
-# pre-existing findings in .kdf-fmt-baseline.json are recorded debt, only NEW
+# pre-existing findings in kdf-style-debt.json are recorded debt, only NEW
 # violations fail. First local run auto-installs the pinned tool.
-KDF_FMT_VERSION ?= v1.0.0
+# ============================================================
+# Private package auth (kriegerdataforge-fmt)
+# ============================================================
+# kdf-fmt is a PRIVATE repo installed over git+https, so pip shells out to git
+# and git needs a credential. Precedence: an already-exported env var wins --
+# that is how CI injects it -- otherwise it is read from .env.local, so local
+# dev needs no shell setup.
+#
+# Quotes, stray spaces and CRs are stripped: copying .env.example on Windows
+# leaves CRLF endings, and a trailing \r corrupts the token silently.
+ifeq ($(GH_PACKAGES_PAT),)
+  ifneq ($(wildcard .env.local),)
+    GH_PACKAGES_PAT := $(shell grep -E '^[[:space:]]*GH_PACKAGES_PAT=' .env.local | head -1 | cut -d= -f2- | tr -d '\042\047\015 ')
+  endif
+endif
+export GH_PACKAGES_PAT
+
+# Prefix for every pip call that can resolve a git+https dep.
+#
+# Process-scoped by design: it never writes the global .gitconfig, whose
+# pollution previously caused 403-on-push across every repo.
+#
+# Deliberately expands to NOTHING when the PAT is absent, so git falls back to
+# whatever credentials it already has (e.g. Git Credential Manager). Injecting
+# an empty credential instead would stop the helper from being consulted.
+#
+# $$GH_PACKAGES_PAT is left for the recipe's shell to resolve from the exported
+# variable, so the token never enters the recipe text -- `make -n` prints the
+# variable name, not the secret.
+ifneq ($(GH_PACKAGES_PAT),)
+  PIP_GIT_AUTH := GIT_CONFIG_COUNT=1 \
+    GIT_CONFIG_KEY_0="url.https://__token__:$$GH_PACKAGES_PAT@github.com/.insteadOf" \
+    GIT_CONFIG_VALUE_0="https://github.com/"
+endif
+
+KDF_FMT_VERSION ?= v1.1.0
 
 style: ## Style check with kdf-fmt (the KDF house style, baseline-gated)
-	@$(PY3) -c "import kdf_fmt" 2>/dev/null || $(PY3) -m pip install --quiet "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@$(KDF_FMT_VERSION)"
-	$(PY3) -m kdf_fmt.cli check --no-cache --baseline .kdf-fmt-baseline.json
+	@$(PY3) -c "import kdf_fmt" 2>/dev/null || $(PIP_GIT_AUTH) $(PY3) -m pip install --quiet "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@$(KDF_FMT_VERSION)"
+	$(PY3) -m kdf_fmt.cli check --no-cache --baseline kdf-style-debt.json
 
 test: ## Run Python script unit tests with coverage
 	@printf "$(BLUE)========================================$(NC)\n"
 	@printf "$(BLUE)  Running Python unit tests$(NC)\n"
 	@printf "$(BLUE)========================================$(NC)\n"
-	cd scripts && pip install -r requirements-test.txt -q && \
-		pytest tests/ --cov=. --cov-report=term-missing \
-		       --cov-omit="tests/*,backups/*"
+	@# `$(PY3) -m pip` / `-m pytest`, never the bare console scripts: on Windows the
+	@# `pip`/`pytest` shims are not on PATH under Git Bash, so this target failed
+	@# locally while passing in CI (where the runner's Python is on PATH).
+	@# Exclusions live in scripts/.coveragerc, not on the command line: `--cov-omit`
+	@# is not a pytest-cov option, so pytest rejected it and this target exited 4.
+	cd scripts && $(PY3) -m pip install -r requirements-test.txt -q && \
+		$(PY3) -m pytest tests/ --cov=. --cov-report=term-missing
 	@printf "$(GREEN)Tests passed!$(NC)\n"
 
 check-all: lint style test ## Run all local checks

@@ -31,6 +31,7 @@ not leak code).
 
 from __future__ import annotations
 
+# standard imports
 import base64
 import difflib
 import json
@@ -38,11 +39,12 @@ import os
 import sys
 from pathlib import Path
 
+# third party imports
 from common.http import build_session
 
 GITHUB_API = "https://api.github.com"
 
-SCRIPTS_DIR = Path(__file__).resolve().parent
+SCRIPTS_DIR   = Path(__file__).resolve().parent
 MANIFEST_FILE = SCRIPTS_DIR / "oidc_drift_manifest.json"
 
 # Shared HTTP session with retry/backoff (same hardening as distribute_kit /
@@ -61,7 +63,7 @@ def _github_headers(token: str) -> dict[str, str]:
 def load_manifest(path: Path = MANIFEST_FILE) -> dict:
     if not path.is_file():
         sys.exit(f"Error: manifest not found: {path}")
-    manifest = json.loads(path.read_text(encoding="utf-8"))
+    manifest = json.loads(path.read_text(encoding = "utf-8"))
     for key in ("left", "right", "pairs"):
         if key not in manifest:
             sys.exit(f"Error: manifest missing required key: {key!r}")
@@ -69,20 +71,24 @@ def load_manifest(path: Path = MANIFEST_FILE) -> dict:
 
 
 def normalize(text: str) -> str:
-    """Compare on content only: normalize CRLF/LF and strip trailing
-    per-line whitespace (cosmetic editor differences are not RP drift)."""
+    """
+    Compare on content only: normalize CRLF/LF and strip trailing
+    per-line whitespace (cosmetic editor differences are not RP drift).
+    """
     lines = text.replace("\r\n", "\n").split("\n")
     return "\n".join(line.rstrip() for line in lines)
 
 
 def fetch_file(token: str, owner_repo: str, branch: str, path: str) -> str | None:
-    """Return the decoded file content, or None if it does not exist."""
+    """
+    Return the decoded file content, or None if it does not exist.
+    """
     owner, repo = owner_repo.split("/", 1)
     resp = _SESSION.get(
         f"{GITHUB_API}/repos/{owner}/{repo}/contents/{path}",
-        headers=_github_headers(token),
-        params={"ref": branch},
-        timeout=30,
+        headers = _github_headers(token),
+        params = {"ref": branch},
+        timeout = 30,
     )
     if resp.status_code == 404:
         return None
@@ -91,29 +97,28 @@ def fetch_file(token: str, owner_repo: str, branch: str, path: str) -> str | Non
 
 
 def changed_line_count(left: str, right: str) -> int:
-    """Number of +/- lines in the unified diff (headers excluded)."""
-    diff = difflib.unified_diff(
-        left.split("\n"), right.split("\n"), lineterm="", n=0
-    )
+    """
+    Number of +/- lines in the unified diff (headers excluded).
+    """
+    diff = difflib.unified_diff(left.split("\n"), right.split("\n"), lineterm = "", n = 0)
     return sum(
-        1
-        for line in diff
-        if (line.startswith("+") or line.startswith("-"))
-        and not line.startswith(("+++", "---"))
+        1 for line in diff if (line.startswith("+") or line.startswith("-")) and not line.startswith(("+++", "---"))
     )
 
 
 def compare_pairs(token: str, manifest: dict) -> list[dict]:
-    """Compare every manifest pair; return one result dict per pair."""
-    left_repo = manifest["left"]["repo"]
-    left_branch = manifest["left"].get("branch", "main")
-    right_repo = manifest["right"]["repo"]
+    """
+    Compare every manifest pair; return one result dict per pair.
+    """
+    left_repo    = manifest["left"]["repo"]
+    left_branch  = manifest["left"].get("branch", "main")
+    right_repo   = manifest["right"]["repo"]
     right_branch = manifest["right"].get("branch", "main")
 
     results: list[dict] = []
     for pair in manifest["pairs"]:
-        path = pair["path"]
-        left = fetch_file(token, left_repo, left_branch, path)
+        path  = pair["path"]
+        left  = fetch_file(token, left_repo, left_branch, path)
         right = fetch_file(token, right_repo, right_branch, path)
 
         if left is None or right is None:

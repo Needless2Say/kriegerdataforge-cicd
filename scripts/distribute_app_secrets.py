@@ -43,14 +43,15 @@ failure, never the value.
 
 from __future__ import annotations
 
+# standard imports
 import argparse
 import json
 import os
 import sys
 from pathlib import Path
 
+# third party imports
 from common.http import build_session
-
 # The sealed-box PUT (libsodium encrypt against the target repo's public key) is
 # single-sourced in the rotation engine — a second implementation here could drift on
 # the crypto. Its module-level session also carries the shared retry/backoff config.
@@ -67,7 +68,8 @@ _FORMAT_HUMAN = {
 
 
 def _looks_valid(value: str, fmt: str) -> bool:
-    """Best-effort shape check so swapped env wiring fails BEFORE any write.
+    """
+    Best-effort shape check so swapped env wiring fails BEFORE any write.
 
     Callers report the expected shape (`_FORMAT_HUMAN`) on failure — never the value.
     An unknown/absent `value_format` label means no check (the write itself is the
@@ -79,25 +81,26 @@ def _looks_valid(value: str, fmt: str) -> bool:
         return "-----BEGIN" in value and "PRIVATE KEY-----" in value
     return True
 
-
-# ============================================================
+# ======================================================================================================================
 # Registry + selection
-# ============================================================
-
+# ======================================================================================================================
 
 def _load_registry() -> dict:
     if not REGISTRY_FILE.is_file():
         sys.exit(f"Error: registry file not found: {REGISTRY_FILE}")
-    return json.loads(REGISTRY_FILE.read_text(encoding="utf-8"))
+    return json.loads(REGISTRY_FILE.read_text(encoding = "utf-8"))
 
 
 def _distributable(registry: dict) -> list[dict]:
-    """Entries opted into distribution (they carry `distribute_source_env`)."""
+    """
+    Entries opted into distribution (they carry `distribute_source_env`).
+    """
     return [e for e in registry.get("secrets", []) if e.get("distribute_source_env")]
 
 
 def _select_entries(registry: dict, raw: str) -> list[dict]:
-    """Distributable entries matching the CSV filter (empty / 'all' = every one).
+    """
+    Distributable entries matching the CSV filter (empty / 'all' = every one).
 
     Refuses unknown names AND known-but-non-distributable names (e.g.
     VERCEL_DEPLOYMENT_TOKEN): this engine must never become a second write path for
@@ -110,28 +113,28 @@ def _select_entries(registry: dict, raw: str) -> list[dict]:
     if stripped in ("", "all"):
         return entries
     by_name = {e["name"].lower(): e for e in entries}
-    wanted = {p.strip() for p in stripped.split(",") if p.strip()}
+    wanted  = {p.strip() for p in stripped.split(",") if p.strip()}
     unknown = sorted(w for w in wanted if w not in by_name)
     if unknown:
         sys.exit(
-            f"Error: not distributable: {', '.join(unknown)}. "
-            f"Distributable secrets: {', '.join(sorted(by_name))}."
+            f"Error: not distributable: {', '.join(unknown)}. " f"Distributable secrets: {', '.join(sorted(by_name))}.",
         )
     return [e for e in entries if e["name"].lower() in wanted]
 
 
 def _target_repos(entries: list[dict]) -> list[str]:
-    """Sorted union of `owner/repo` targets across the entries."""
+    """
+    Sorted union of `owner/repo` targets across the entries.
+    """
     return sorted({t["repo"] for e in entries for t in e.get("github_repo_secrets", [])})
 
-
-# ============================================================
+# ======================================================================================================================
 # GitHub read helper (check mode)
-# ============================================================
-
+# ======================================================================================================================
 
 def list_repo_secret_meta(gh_token: str, owner_repo: str) -> dict[str, str]:
-    """Map of secret NAME -> updated_at for a repo's Actions secrets.
+    """
+    Map of secret NAME -> updated_at for a repo's Actions secrets.
 
     The list endpoint returns metadata only (GitHub cannot return secret values).
     GitHub caps a repo at 100 Actions secrets, so one `per_page=100` call is complete.
@@ -139,21 +142,20 @@ def list_repo_secret_meta(gh_token: str, owner_repo: str) -> dict[str, str]:
     owner, repo = owner_repo.split("/", 1)
     resp = _SESSION.get(
         f"{GITHUB_API}/repos/{owner}/{repo}/actions/secrets",
-        headers=_github_headers(gh_token),
-        params={"per_page": 100},
-        timeout=30,
+        headers = _github_headers(gh_token),
+        params = {"per_page": 100},
+        timeout = 30,
     )
     resp.raise_for_status()
     return {s["name"]: s.get("updated_at", "?") for s in resp.json().get("secrets", [])}
 
-
-# ============================================================
+# ======================================================================================================================
 # Mode: check
-# ============================================================
-
+# ======================================================================================================================
 
 def cmd_check(entries: list[dict], gh_token: str) -> int:
-    """Audit which targets hold / lack each distributable secret. Read-only.
+    """
+    Audit which targets hold / lack each distributable secret. Read-only.
 
     Prints a machine-greppable `MISSING: <n>` line for the ops workflow's summary.
     """
@@ -161,10 +163,7 @@ def cmd_check(entries: list[dict], gh_token: str) -> int:
         sys.exit("Error: GH_TOKEN not set.")
     repos = _target_repos(entries)
     names = [e["name"] for e in entries]
-    print(
-        f"Auditing {len(repos)} target repo(s) for {len(names)} distributable "
-        f"secret(s): {', '.join(names)}\n"
-    )
+    print(f"Auditing {len(repos)} target repo(s) for {len(names)} distributable " f"secret(s): {', '.join(names)}\n")
     errors: list[str] = []
     missing = 0
     for owner_repo in repos:
@@ -197,11 +196,9 @@ def cmd_check(entries: list[dict], gh_token: str) -> int:
         print("Audit complete. Every target holds every copy.")
     return 0
 
-
-# ============================================================
+# ======================================================================================================================
 # Mode: execute
-# ============================================================
-
+# ======================================================================================================================
 
 def cmd_execute(entries: list[dict], gh_token: str) -> int:
     if not gh_token:
@@ -211,7 +208,7 @@ def cmd_execute(entries: list[dict], gh_token: str) -> int:
     values: dict[str, str] = {}
     for entry in entries:
         env_name = entry["distribute_source_env"]
-        value = os.environ.get(env_name, "")
+        value    = os.environ.get(env_name, "")
         if not value:
             sys.exit(
                 f"Error: {env_name} is not set — the ops workflow passes it from this "
@@ -231,11 +228,9 @@ def cmd_execute(entries: list[dict], gh_token: str) -> int:
         print(f"Distributing {entry['name']} to {len(targets)} repo(s):")
         for t in targets:
             label = f"{t['repo']} [repo] {t['secret_name']}"
-            print(f"  {label}", end=" ... ", flush=True)
+            print(f"  {label}", end = " ... ", flush = True)
             try:
-                update_github_repo_secret(
-                    gh_token, t["repo"], t["secret_name"], values[entry["name"]]
-                )
+                update_github_repo_secret(gh_token, t["repo"], t["secret_name"], values[entry["name"]])
                 print("OK")
             except Exception as exc:  # noqa: BLE001
                 print(f"FAILED - {exc}")
@@ -249,14 +244,13 @@ def cmd_execute(entries: list[dict], gh_token: str) -> int:
     print("All targets updated successfully.")
     return 0
 
-
-# ============================================================
+# ======================================================================================================================
 # Mode: targets
-# ============================================================
-
+# ======================================================================================================================
 
 def cmd_targets(registry: dict) -> int:
-    """Print the comma-separated SHORT names of every distribution target.
+    """
+    Print the comma-separated SHORT names of every distribution target.
 
     Always the union over ALL distributable entries (ignores --secrets): the ops
     workflow scopes its App token once, before knowing which secrets a run touches.
@@ -267,35 +261,32 @@ def cmd_targets(registry: dict) -> int:
     print(",".join(r.split("/", 1)[1] for r in repos))
     return 0
 
-
-# ============================================================
+# ======================================================================================================================
 # CLI
-# ============================================================
-
+# ======================================================================================================================
 
 def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description=(
-            "Distribute the cicd-held GitHub App credentials to every consumer repo "
-            "in secret_registry.json (entries carrying distribute_source_env)."
+        description = (
+            "Distribute the cicd-held GitHub App credentials to every consumer repo " "in secret_registry.json (entries carrying distribute_source_env)."
         ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        formatter_class = argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("mode", choices=["check", "execute", "targets"])
+    parser.add_argument("mode", choices = ["check", "execute", "targets"])
     parser.add_argument(
         "--secrets",
-        default="all",
-        help='Comma-separated distributable secret names, or "all" (targets mode ignores this).',
+        default = "all",
+        help = 'Comma-separated distributable secret names, or "all" (targets mode ignores this).',
     )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> None:
-    args = parse_cli_args(argv)
+    args     = parse_cli_args(argv)
     registry = _load_registry()
     if args.mode == "targets":
         sys.exit(cmd_targets(registry))
-    entries = _select_entries(registry, args.secrets)
+    entries  = _select_entries(registry, args.secrets)
     gh_token = os.environ.get("GH_TOKEN", "").strip()
     if args.mode == "check":
         sys.exit(cmd_check(entries, gh_token))

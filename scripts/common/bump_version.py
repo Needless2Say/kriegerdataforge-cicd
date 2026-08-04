@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Bump the project version (patch | minor | major) across all version files."""
+"""
+Bump the project version (patch | minor | major) across all version files.
+"""
 
 from __future__ import annotations
 
+# standard imports
 import re
 import sys
 from pathlib import Path
@@ -55,7 +58,7 @@ def main() -> None:
         print(f"ERROR: {e}")
         sys.exit(1)
 
-    new = bump(old, bump_type)
+    new     = bump(old, bump_type)
     new_str = fmt(new)
     print(f"Bumping {bump_type}: {old_str} -> {new_str}\n")
     updated: list[str] = []
@@ -66,12 +69,12 @@ def main() -> None:
     # ── pyproject.toml ──────────────────────────────────────────────────────
     pyproject = root / "pyproject.toml"
     if pyproject.exists():
-        text = pyproject.read_text()
+        text     = pyproject.read_text()
         new_text = re.sub(
             r'(?m)^(version\s*=\s*)"[^"]+"',
             f'\\1"{new_str}"',
             text,
-            count=1,
+            count = 1,
         )
         if new_text != text:
             pyproject.write_text(new_text)
@@ -79,12 +82,12 @@ def main() -> None:
 
     # ── src/**/__init__.py ──────────────────────────────────────────────────
     for init_file in sorted(root.glob("src/**/__init__.py")):
-        text = init_file.read_text()
+        text     = init_file.read_text()
         new_text = re.sub(
             r'(?m)^(__version__\s*=\s*)"[^"]+"',
             f'\\1"{new_str}"',
             text,
-            count=1,
+            count = 1,
         )
         if new_text != text:
             init_file.write_text(new_text)
@@ -93,12 +96,12 @@ def main() -> None:
     # ── package.json ────────────────────────────────────────────────────────
     package_json = root / "package.json"
     if package_json.exists():
-        text = package_json.read_text()
+        text     = package_json.read_text()
         new_text = re.sub(
             r'"version":\s*"[^"]+"',
             f'"version": "{new_str}"',
             text,
-            count=1,
+            count = 1,
         )
         if new_text != text:
             package_json.write_text(new_text)

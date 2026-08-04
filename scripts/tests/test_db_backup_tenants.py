@@ -24,8 +24,8 @@ def _run_script_as_main(script_path: Path) -> MagicMock:
     Execute script_path as __main__ with common.db_backup_base mocked.
     Returns the mock for run_backup so callers can assert on it.
     """
-    mock_run_backup = MagicMock()
-    mock_module = MagicMock()
+    mock_run_backup        = MagicMock()
+    mock_module            = MagicMock()
     mock_module.run_backup = mock_run_backup
 
     with patch.dict(
@@ -35,7 +35,7 @@ def _run_script_as_main(script_path: Path) -> MagicMock:
             "common.db_backup_base": mock_module,
         },
     ):
-        runpy.run_path(str(script_path), run_name="__main__")
+        runpy.run_path(str(script_path), run_name = "__main__")
 
     return mock_run_backup
 
@@ -43,15 +43,17 @@ def _run_script_as_main(script_path: Path) -> MagicMock:
 class TestAuthDbBackup:
     def test_calls_run_backup_with_auth_app_name(self):
         mock_run = _run_script_as_main(SCRIPTS_DIR / "auth" / "db_backup.py")
-        mock_run.assert_called_once_with(app_name="auth")
+        mock_run.assert_called_once_with(app_name = "auth")
+
 
     def test_called_exactly_once(self):
         mock_run = _run_script_as_main(SCRIPTS_DIR / "auth" / "db_backup.py")
         assert mock_run.call_count == 1
 
+
     def test_not_called_when_imported_not_as_main(self):
-        mock_run_backup = MagicMock()
-        mock_module = MagicMock()
+        mock_run_backup        = MagicMock()
+        mock_module            = MagicMock()
         mock_module.run_backup = mock_run_backup
 
         with patch.dict(
@@ -61,7 +63,7 @@ class TestAuthDbBackup:
             # run_name="not_main" means __name__ != "__main__"
             runpy.run_path(
                 str(SCRIPTS_DIR / "auth" / "db_backup.py"),
-                run_name="not_main",
+                run_name = "not_main",
             )
 
         mock_run_backup.assert_not_called()
@@ -70,15 +72,17 @@ class TestAuthDbBackup:
 class TestFitnessAppDbBackup:
     def test_calls_run_backup_with_fitness_app_app_name(self):
         mock_run = _run_script_as_main(SCRIPTS_DIR / "fitness-app" / "db_backup.py")
-        mock_run.assert_called_once_with(app_name="fitness-app")
+        mock_run.assert_called_once_with(app_name = "fitness-app")
+
 
     def test_called_exactly_once(self):
         mock_run = _run_script_as_main(SCRIPTS_DIR / "fitness-app" / "db_backup.py")
         assert mock_run.call_count == 1
 
+
     def test_not_called_when_imported_not_as_main(self):
-        mock_run_backup = MagicMock()
-        mock_module = MagicMock()
+        mock_run_backup        = MagicMock()
+        mock_module            = MagicMock()
         mock_module.run_backup = mock_run_backup
 
         with patch.dict(
@@ -87,7 +91,7 @@ class TestFitnessAppDbBackup:
         ):
             runpy.run_path(
                 str(SCRIPTS_DIR / "fitness-app" / "db_backup.py"),
-                run_name="not_main",
+                run_name = "not_main",
             )
 
         mock_run_backup.assert_not_called()
@@ -96,15 +100,17 @@ class TestFitnessAppDbBackup:
 class TestTiffanysSpaceDbBackup:
     def test_calls_run_backup_with_tiffanys_space_app_name(self):
         mock_run = _run_script_as_main(SCRIPTS_DIR / "tiffanys-space" / "db_backup.py")
-        mock_run.assert_called_once_with(app_name="tiffanys-space")
+        mock_run.assert_called_once_with(app_name = "tiffanys-space")
+
 
     def test_called_exactly_once(self):
         mock_run = _run_script_as_main(SCRIPTS_DIR / "tiffanys-space" / "db_backup.py")
         assert mock_run.call_count == 1
 
+
     def test_not_called_when_imported_not_as_main(self):
-        mock_run_backup = MagicMock()
-        mock_module = MagicMock()
+        mock_run_backup        = MagicMock()
+        mock_module            = MagicMock()
         mock_module.run_backup = mock_run_backup
 
         with patch.dict(
@@ -113,7 +119,7 @@ class TestTiffanysSpaceDbBackup:
         ):
             runpy.run_path(
                 str(SCRIPTS_DIR / "tiffanys-space" / "db_backup.py"),
-                run_name="not_main",
+                run_name = "not_main",
             )
 
         mock_run_backup.assert_not_called()

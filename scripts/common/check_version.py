@@ -17,8 +17,10 @@ Options:
     --skip-init           Skip the src/*/__init__.py __version__ check.
     --check-package-json  Also verify that package.json "version" matches VERSION.
 """
+
 from __future__ import annotations
 
+# standard imports
 import argparse
 import json
 import os
@@ -29,23 +31,25 @@ from pathlib import Path
 
 
 def _read_version_file(root: Path) -> str:
-    return (root / "VERSION").read_text(encoding="utf-8-sig").strip()
+    return (root / "VERSION").read_text(encoding = "utf-8-sig").strip()
 
 
 def _read_pyproject_version(root: Path) -> str | None:
     path = root / "pyproject.toml"
     if not path.exists():
         return None
-    text = path.read_text(encoding="utf-8")
+    text  = path.read_text(encoding = "utf-8")
     match = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
     return match.group(1) if match else None
 
 
 def _read_init_versions(root: Path) -> list[tuple[str, str]]:
-    """Return [(version, relative_path)] for every src/*/__init__.py with __version__."""
+    """
+    Return [(version, relative_path)] for every src/*/__init__.py with __version__.
+    """
     versions: list[tuple[str, str]] = []
     for path in sorted(root.glob("src/*/__init__.py")):
-        text = path.read_text(encoding="utf-8")
+        text  = path.read_text(encoding = "utf-8")
         match = re.search(r'^__version__\s*=\s*"([^"]+)"', text, re.MULTILINE)
         if match:
             versions.append((match.group(1), str(path.relative_to(root))))
@@ -57,7 +61,7 @@ def _read_package_json_version(root: Path) -> str | None:
     if not path.exists():
         return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding = "utf-8"))
         return data.get("version")
     except (json.JSONDecodeError, OSError):
         return None
@@ -73,19 +77,19 @@ def _parse_semver(v: str) -> tuple[int, int, int]:
 def _fetch_main(cwd: Path) -> None:
     subprocess.run(
         ["git", "fetch", "origin", "main", "--depth=1"],
-        capture_output=True,
-        check=False,
-        cwd=cwd,
+        capture_output = True,
+        check = False,
+        cwd = cwd,
     )
 
 
 def _get_main_version(cwd: Path) -> str | None:
     result = subprocess.run(
         ["git", "show", "origin/main:VERSION"],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=cwd,
+        capture_output = True,
+        text = True,
+        check = False,
+        cwd = cwd,
     )
     return result.stdout.strip() if result.returncode == 0 else None
 
@@ -102,17 +106,19 @@ def _get_main_version(cwd: Path) -> str | None:
 # synced set. The static fallback is used only if the registry isn't co-located with this
 # script (consumer CI checks out cicd beside it as `.cicd/`, so it normally is). The prefix
 # covers docs/agent/** without enumerating every template path.
-_REGISTRY_FILE = Path(__file__).resolve().parent.parent / "kit_registry.json"
+_REGISTRY_FILE            = Path(__file__).resolve().parent.parent / "kit_registry.json"
 KIT_EXEMPT_FILES_FALLBACK = {"skills.md", "WORKFLOW.md"}
-KIT_EXEMPT_PREFIXES = ("docs/agent/",)
+KIT_EXEMPT_PREFIXES       = ("docs/agent/",)
 
 
 def _kit_exempt_files() -> set[str]:
-    """Kit files exempt from the version check — the kit registry's file list unioned with
-    the static fallback. Returns just the fallback if the registry can't be read."""
+    """
+    Kit files exempt from the version check — the kit registry's file list unioned with
+    the static fallback. Returns just the fallback if the registry can't be read.
+    """
     files = set(KIT_EXEMPT_FILES_FALLBACK)
     try:
-        data = json.loads(_REGISTRY_FILE.read_text(encoding="utf-8"))
+        data = json.loads(_REGISTRY_FILE.read_text(encoding = "utf-8"))
     except (OSError, ValueError):
         return files
     files.update(f for f in data.get("files", []) if isinstance(f, str))
@@ -122,16 +128,16 @@ def _kit_exempt_files() -> set[str]:
 def _changed_files(cwd: Path, base_ref: str) -> list[str]:
     subprocess.run(
         ["git", "fetch", "origin", base_ref, "--depth=1"],
-        capture_output=True,
-        check=False,
-        cwd=cwd,
+        capture_output = True,
+        check = False,
+        cwd = cwd,
     )
     result = subprocess.run(
         ["git", "diff", "--name-only", f"origin/{base_ref}", "HEAD"],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=cwd,
+        capture_output = True,
+        text = True,
+        check = False,
+        cwd = cwd,
     )
     if result.returncode != 0:
         return []
@@ -139,7 +145,9 @@ def _changed_files(cwd: Path, base_ref: str) -> list[str]:
 
 
 def _is_kit_only_pr(cwd: Path) -> bool:
-    """True if this is a PR whose changed files are ALL agentic-workflow kit paths."""
+    """
+    True if this is a PR whose changed files are ALL agentic-workflow kit paths.
+    """
     base_ref = os.environ.get("GITHUB_BASE_REF")
     if not base_ref:
         return False  # not a PR context — run the normal check
@@ -157,22 +165,22 @@ def _is_kit_only_pr(cwd: Path) -> bool:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="CI version checker")
+    parser = argparse.ArgumentParser(description = "CI version checker")
     parser.add_argument(
         "--root",
-        type=Path,
-        default=None,
-        help="Repo root to check (default: current working directory)",
+        type = Path,
+        default = None,
+        help = "Repo root to check (default: current working directory)",
     )
     parser.add_argument(
         "--skip-init",
-        action="store_true",
-        help="Skip src/*/__init__.py __version__ check",
+        action = "store_true",
+        help = "Skip src/*/__init__.py __version__ check",
     )
     parser.add_argument(
         "--check-package-json",
-        action="store_true",
-        help="Also verify that package.json version matches VERSION",
+        action = "store_true",
+        help = "Also verify that package.json version matches VERSION",
     )
     args = parser.parse_args()
 
@@ -188,9 +196,9 @@ def main() -> None:
     passed = True
 
     # Read version from each source
-    version = _read_version_file(root)
-    pyproject_version = _read_pyproject_version(root)
-    init_versions = [] if args.skip_init else _read_init_versions(root)
+    version              = _read_version_file(root)
+    pyproject_version    = _read_pyproject_version(root)
+    init_versions        = [] if args.skip_init else _read_init_versions(root)
     package_json_version = _read_package_json_version(root) if args.check_package_json else None
 
     # Print discovered values
@@ -207,10 +215,7 @@ def main() -> None:
         for init_version, init_path in init_versions:
             print(f"__init__.py        : {init_version}  ({init_path})")
     else:
-        print(
-            "WARNING: no __version__ found in src/*/__init__.py"
-            " -- pass --skip-init to suppress this warning"
-        )
+        print("WARNING: no __version__ found in src/*/__init__.py" " -- pass --skip-init to suppress this warning")
 
     if args.check_package_json:
         if package_json_version is not None:
@@ -225,10 +230,7 @@ def main() -> None:
         if pyproject_version == version:
             print(f"OK  : pyproject.toml matches VERSION ({version})")
         else:
-            print(
-                f"FAIL: pyproject.toml version ({pyproject_version!r})"
-                f" != VERSION ({version!r})"
-            )
+            print(f"FAIL: pyproject.toml version ({pyproject_version!r})" f" != VERSION ({version!r})")
             print("      Run: make bump-patch (or bump-minor / bump-major) to sync files.")
             passed = False
 
@@ -236,10 +238,7 @@ def main() -> None:
         if init_version == version:
             print(f"OK  : {init_path} matches VERSION ({version})")
         else:
-            print(
-                f"FAIL: {init_path} __version__ ({init_version!r})"
-                f" != VERSION ({version!r})"
-            )
+            print(f"FAIL: {init_path} __version__ ({init_version!r})" f" != VERSION ({version!r})")
             print("      Run: make bump-patch (or bump-minor / bump-major) to sync files.")
             passed = False
 
@@ -250,10 +249,7 @@ def main() -> None:
         elif package_json_version == version:
             print(f"OK  : package.json matches VERSION ({version})")
         else:
-            print(
-                f"FAIL: package.json version ({package_json_version!r})"
-                f" != VERSION ({version!r})"
-            )
+            print(f"FAIL: package.json version ({package_json_version!r})" f" != VERSION ({version!r})")
             print("      Run: make bump-patch (or bump-minor / bump-major) to sync files.")
             passed = False
 
@@ -265,29 +261,21 @@ def main() -> None:
     main_version = _get_main_version(root)
 
     if main_version is None:
-        print(
-            "WARNING: could not read VERSION from origin/main -- skipping increment check."
-        )
-        print(
-            "         This is expected on a brand-new repo before the first commit to main."
-        )
+        print("WARNING: could not read VERSION from origin/main -- skipping increment check.")
+        print("         This is expected on a brand-new repo before the first commit to main.")
     else:
         print(f"origin/main        : {main_version}")
         try:
             current_tuple = _parse_semver(version)
-            main_tuple = _parse_semver(main_version)
+            main_tuple    = _parse_semver(main_version)
             if current_tuple > main_tuple:
                 print(f"OK  : {main_version} -> {version} (increment valid)")
             elif current_tuple == main_tuple:
-                print(
-                    f"FAIL: version ({version}) is the same as main ({main_version})."
-                )
+                print(f"FAIL: version ({version}) is the same as main ({main_version}).")
                 print("      Bump the version before merging: make bump-patch")
                 passed = False
             else:
-                print(
-                    f"FAIL: version ({version}) is less than main ({main_version})."
-                )
+                print(f"FAIL: version ({version}) is less than main ({main_version}).")
                 print(
                     "      Check that your branch is up to date with main"
                     " and that the VERSION file was not accidentally reverted."
