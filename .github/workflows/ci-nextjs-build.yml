@@ -6,7 +6,7 @@ on:
       node_version:
         description: Node.js version to use
         type: string
-        default: "22"
+        default: "24"
       upload_artifact:
         description: Upload the build output as a GitHub Actions artifact
         type: boolean
