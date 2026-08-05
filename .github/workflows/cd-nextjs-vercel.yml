@@ -98,7 +98,17 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
-          node-version: "22"
+          # Must match BOTH the ci-nextjs-* workflows' node_version input (default
+          # "24" — no consumer overrides it) AND each Vercel project's Node.js
+          # Version setting. Since the build now happens here and ships prebuilt,
+          # this is the version the deployed artifact is actually compiled on; the
+          # step after `vercel pull` asserts the project agrees.
+          #
+          # Raising this REQUIRES a Vercel CLI that accepts the new major — the
+          # supported list is baked into @vercel/build-utils, and the CLI rejects
+          # anything outside it. 58.5.1 accepts up to 24.x; the previous 48.0.0
+          # pin stopped at 22.x, which is what broke the first Node 24 deploy.
+          node-version: "24"
           cache: "npm"
 
       - name: Validate Vercel project binding
@@ -120,7 +130,7 @@ jobs:
         # resolves "latest" from the registry at deploy time. This job holds
         # VERCEL_DEPLOYMENT_TOKEN, so floating the CLI is a poisoned-pipeline /
         # dependency-chain risk (CICD-SEC-3 / SLSA). Bump via Dependabot.
-        run: npm install -g vercel@48.0.0
+        run: npm install -g vercel@58.5.1
 
       - name: Prepare Vercel token
         # A VERCEL_DEPLOYMENT_TOKEN env secret pasted by hand often carries a trailing newline/space, which
@@ -173,6 +183,38 @@ jobs:
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      # `vercel pull` writes the project's own Node.js Version into
+      # .vercel/project.json. On the old remote-build path that setting was resolved
+      # by Vercel's builder and never had to agree with anything here, so it was free
+      # to drift — projects sat on 24.x while every CI lane validated on 22. Building
+      # locally makes it binding, and the CLI reports a mismatch as the opaque
+      # "Found invalid Node.js Version", which names the setting but not the pipeline
+      # it now has to agree with. Fail with the actual instruction instead.
+      - name: Verify Vercel project Node version matches this runner
+        run: |
+          if [ ! -f .vercel/project.json ]; then
+            echo "::error::.vercel/project.json missing — 'vercel pull' did not link the project."
+            exit 1
+          fi
+          SETTING="$(node -p "((require('./.vercel/project.json').settings)||{}).nodeVersion||''")"
+          RUNNER="$(node -p "process.versions.node.split('.')[0]")"
+          if [ -z "$SETTING" ]; then
+            echo "::warning::Vercel project declares no explicit Node.js Version — skipping match check."
+            exit 0
+          fi
+          if [ "${SETTING%%.*}" != "$RUNNER" ]; then
+            echo "::error::Node mismatch — Vercel project is set to '${SETTING}', this workflow builds on Node ${RUNNER}.x. The prebuilt artifact is compiled here, so the two must agree."
+            echo "Fix ONE of:"
+            echo "  (a) Vercel -> Project Settings -> Node.js Version -> ${RUNNER}.x"
+            echo "      Recommended: every ci-nextjs-* lane already validates on ${RUNNER}.x,"
+            echo "      so this aligns build, test and runtime on one version."
+            echo "  (b) Raise node-version here AND the ci-nextjs-* node_version inputs to"
+            echo "      match '${SETTING}', and pin a Vercel CLI new enough to accept it —"
+            echo "      the pinned 58.5.1 supports 10/12/14/16/18/20/22/24.x only."
+            exit 1
+          fi
+          echo "Node OK — Vercel project '${SETTING}' matches runner Node ${RUNNER}.x"
 
       - name: Install dependencies
         env:
