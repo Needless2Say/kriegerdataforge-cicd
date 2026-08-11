@@ -39,20 +39,32 @@ from __future__ import annotations
 
 # standard imports
 import argparse
-import base64
 import json
 import os
 import sys
 from pathlib import Path
 
 # third party imports
-from common.http import build_session
+# local imports — the shared sync engine (transport + retry session live there; see
+# common/repo_sync.py). Imported INTO this module's namespace on purpose: the
+# check/distribute loops below call these module-level names, which keeps them
+# patchable as `dk._get_remote_file` etc. in the white-box test suite.
+from common.repo_sync import (  # noqa: F401  (re-exported for tests/callers)
+    _SESSION,
+    _create_branch,
+    _create_pr,
+    _get_branch_sha,
+    _get_remote_file,
+    _github_headers,
+    _normalize,
+    _put_file,
+    _select_repos,
+)
 
 # ======================================================================================================================
 # Configuration
 # ======================================================================================================================
 
-GITHUB_API            = "https://api.github.com"
 SCRIPTS_DIR           = Path(__file__).parent
 REPO_ROOT             = SCRIPTS_DIR.parent
 REGISTRY_FILE         = SCRIPTS_DIR / "kit_registry.json"
@@ -60,22 +72,9 @@ KIT_DIR               = REPO_ROOT / "kit" / "common"
 KIT_VERSION_FILE      = REPO_ROOT / "kit" / "KIT_VERSION"
 VENDORED_VERSION_FILE = KIT_DIR / "docs" / "agent" / "KIT_VERSION"
 
-# Shared HTTP session with retry/backoff so a transient GitHub 5xx / 429 / DNS blip
-# doesn't abort a repo mid-fan-out. Config + rationale live in common/http.py (the
-# same session hardens rotate_secret.py). Retries idempotent methods (GET/PUT) only.
-_SESSION = build_session()
-
 # ======================================================================================================================
 # Helpers
 # ======================================================================================================================
-
-def _github_headers(token: str) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-
 
 def _load_registry() -> dict:
     if not REGISTRY_FILE.is_file():
@@ -109,13 +108,6 @@ def _read_local(rel_path: str) -> str:
     return (KIT_DIR / rel_path).read_text(encoding = "utf-8")
 
 
-def _normalize(text: str) -> str:
-    """
-    Compare on content only, ignoring CRLF/LF line-ending differences.
-    """
-    return text.replace("\r\n", "\n")
-
-
 def _select_files(registry: dict, only: str | None) -> list[str]:
     files: list[str] = registry.get("files", [])
     if only:
@@ -123,54 +115,6 @@ def _select_files(registry: dict, only: str | None) -> list[str]:
         if not files:
             sys.exit(f"Error: --only '{only}' matched no files in the registry.")
     return files
-
-
-def _select_repos(registry: dict, repos_arg: str | None) -> list[dict]:
-    """
-    Filter the registry's repos to those named in --repos.
-
-    --repos is a comma-separated list of names. A registry entry matches a name if the name
-    **equals** its full ``owner/repo`` or its short name (case-insensitive) — an **exact** match,
-    not a substring, so one name never fans out to siblings (e.g. ``kriegerdataforge`` selects only
-    the hub, not ``kriegerdataforge-sdk``). An empty/absent value selects ALL repos. No match is an
-    error. To target several repos, list them: ``--repos tiffanys-space,tiffanys-space-backend``.
-    """
-    repos: list[dict] = registry.get("repos", [])
-    if not repos_arg:
-        return repos
-    tokens = {t.strip().lower() for t in repos_arg.split(",") if t.strip()}
-    if not tokens:
-        return repos
-    selected = [
-        entry for entry in repos if entry["repo"].lower() in tokens or entry["repo"].split("/", 1)[-1].lower() in tokens
-    ]
-    if not selected:
-        sys.exit(f"Error: --repos '{repos_arg}' matched no repos in the registry (names are exact).")
-    return selected
-
-
-def _get_remote_file(
-    token: str,
-    owner_repo: str,
-    branch: str,
-    path: str,
-) -> tuple[str | None, str | None]:
-    """
-    Return (content, blob_sha) for a file on a branch, or (None, None) if it does not exist.
-    """
-    owner, repo = owner_repo.split("/", 1)
-    resp = _SESSION.get(
-        f"{GITHUB_API}/repos/{owner}/{repo}/contents/{path}",
-        headers = _github_headers(token),
-        params = {"ref": branch},
-        timeout = 30,
-    )
-    if resp.status_code == 404:
-        return None, None
-    resp.raise_for_status()
-    data    = resp.json()
-    content = base64.b64decode(data["content"]).decode("utf-8")
-    return content, data["sha"]
 
 
 def compute_drift(token: str, owner_repo: str, branch: str, files: list[str]) -> list[str]:
@@ -184,78 +128,6 @@ def compute_drift(token: str, owner_repo: str, branch: str, files: list[str]) ->
         if remote is None or _normalize(remote) != local:
             drifted.append(rel)
     return drifted
-
-# ======================================================================================================================
-# Distribute helpers (Contents + Git refs API)
-# ======================================================================================================================
-
-def _get_branch_sha(token: str, owner_repo: str, branch: str) -> str:
-    owner, repo = owner_repo.split("/", 1)
-    resp = _SESSION.get(
-        f"{GITHUB_API}/repos/{owner}/{repo}/git/ref/heads/{branch}",
-        headers = _github_headers(token),
-        timeout = 30,
-    )
-    resp.raise_for_status()
-    return resp.json()["object"]["sha"]
-
-
-def _create_branch(token: str, owner_repo: str, new_branch: str, base_sha: str) -> None:
-    owner, repo = owner_repo.split("/", 1)
-    resp = _SESSION.post(
-        f"{GITHUB_API}/repos/{owner}/{repo}/git/refs",
-        headers = _github_headers(token),
-        json = {"ref": f"refs/heads/{new_branch}", "sha": base_sha},
-        timeout = 30,
-    )
-    if resp.status_code == 422:  # ref already exists — reuse it
-        return
-    resp.raise_for_status()
-
-
-def _put_file(
-    token: str,
-    owner_repo: str,
-    branch: str,
-    path: str,
-    content: str,
-    blob_sha: str | None,
-    message: str,
-) -> None:
-    owner, repo = owner_repo.split("/", 1)
-    body: dict[str, str] = {
-        "message": message,
-        "content": base64.b64encode(content.encode("utf-8")).decode(),
-        "branch": branch,
-    }
-    if blob_sha:
-        body["sha"] = blob_sha
-    resp = _SESSION.put(
-        f"{GITHUB_API}/repos/{owner}/{repo}/contents/{path}",
-        headers = _github_headers(token),
-        json = body,
-        timeout = 30,
-    )
-    resp.raise_for_status()
-
-
-def _create_pr(
-    token: str,
-    owner_repo: str,
-    head: str,
-    base: str,
-    title: str,
-    body: str,
-) -> str:
-    owner, repo = owner_repo.split("/", 1)
-    resp = _SESSION.post(
-        f"{GITHUB_API}/repos/{owner}/{repo}/pulls",
-        headers = _github_headers(token),
-        json = {"title": title, "head": head, "base": base, "body": body},
-        timeout = 30,
-    )
-    resp.raise_for_status()
-    return resp.json()["html_url"]
 
 # ======================================================================================================================
 # Modes

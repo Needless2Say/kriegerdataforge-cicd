@@ -1,0 +1,74 @@
+name: "Ops · Distribute Ecosystem Dev Scripts"
+description: "Owner-only: sync bump_version/check_version/version_targets + the ci-version-check Makefile recipe to selected repos (check or open PRs)."
+title: "[Ops] Distribute scripts: "
+labels:
+  - ops
+assignees:
+  - Needless2Say
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Distribute the ecosystem dev scripts
+        Fill in the fields, submit, then **add the `ops:distribute-scripts` label** to run.
+        Only the repository owner can actually run it (the workflow fails closed otherwise).
+
+        - **check** — read-only drift report; opens nothing.
+        - **distribute** — opens **one review-gated PR per drifted repo** (never auto-merges).
+          Each PR carries the vendored scripts AND rewrites the repo's `ci-version-check`
+          Makefile recipe to call the vendored checker.
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      description: "check = drift report only · distribute = open sync PRs"
+      options:
+        - check
+        - distribute
+    validations:
+      required: true
+
+  - type: dropdown
+    id: repos
+    attributes:
+      label: Target repos
+      description: "Multi-select. Pick ALL, or any subset. (If ALL is selected, the rest is ignored.)"
+      multiple: true
+      options:
+        - ALL
+        - kriegerdataforge
+        - kriegerdataforge-sdk
+        - kriegerdataforge-reports-sdk
+        - kriegerdataforge-report-form
+        - kriegerdataforge-terraform
+        - kriegerdataforge-auth-ui
+        - kriegerdataforge-fmt
+        - fitness-app-frontend
+        - fitness-app-backend
+        - tiffanys-space
+        - tiffanys-space-backend
+        - arthurs-portfolio
+        - kriegerdataforge-portfolio
+        - kriegerdataforge-template-nextjs
+        - kriegerdataforge-template-fastapi
+        - kriegerdataforge-template-npm-package
+        - kriegerdataforge-template-python-package
+    validations:
+      required: true
+
+  - type: input
+    id: only
+    attributes:
+      label: File filter
+      description: "Optional: only sync one item, by DEST path substring (e.g. check_version.py, or Makefile). Blank = all items."
+      placeholder: "(blank = all items)"
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        ▶ **To run:** add the **`ops:distribute-scripts`** label to this issue. Re-add it to re-run.

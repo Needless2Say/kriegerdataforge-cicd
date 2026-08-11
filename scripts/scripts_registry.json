@@ -1,0 +1,30 @@
+{
+	"_comment": "Registry for the ecosystem dev-script sync (distribute_scripts.py, ADR D-013). The canonical sources are the 'src' paths under kriegerdataforge-cicd/scripts/common/; each is vendored byte-identical to every repo in 'repos' at its 'dest' path so `make ci` and `make bump-*` work standalone (local-dev is decoupled from this repo). 'makefile_patch': the distributor additionally rewrites each repo's `ci-version-check:` Makefile recipe to the canonical thin call of the vendored checker. check mode reports drift; distribute mode opens one PR per drifted repo (never auto-merges). See docs/features/version-scripts-sync.md.",
+	"scripts_version_file": "scripts/SCRIPTS_VERSION",
+	"files": [
+		{ "src": "scripts/common/check_version.py", "dest": "scripts/check_version.py" },
+		{ "src": "scripts/common/bump_version.py", "dest": "scripts/bump_version.py" },
+		{ "src": "scripts/common/version_targets.py", "dest": "scripts/version_targets.py" }
+	],
+	"makefile_patch": true,
+	"repos": [
+		{ "repo": "Needless2Say/kriegerdataforge", "branch": "main" },
+		{ "repo": "Needless2Say/kriegerdataforge-sdk", "branch": "main" },
+		{ "repo": "Needless2Say/kriegerdataforge-reports-sdk", "branch": "main" },
+		{ "repo": "Needless2Say/kriegerdataforge-report-form", "branch": "main" },
+		{ "repo": "Needless2Say/kriegerdataforge-terraform", "branch": "main" },
+		{ "repo": "Needless2Say/kriegerdataforge-auth-ui", "branch": "main" },
+		{ "repo": "Needless2Say/kriegerdataforge-fmt", "branch": "main" },
+		{ "repo": "Needless2Say/fitness-app-frontend", "branch": "main" },
+		{ "repo": "Needless2Say/fitness-app-backend", "branch": "main" },
+		{ "repo": "Needless2Say/tiffanys-space", "branch": "main" },
+		{ "repo": "Needless2Say/tiffanys-space-backend", "branch": "main" },
+		{ "repo": "Needless2Say/arthurs-portfolio", "branch": "main" },
+		{ "repo": "Needless2Say/kriegerdataforge-portfolio", "branch": "main" },
+		{ "repo": "Needless2Say/kriegerdataforge-template-nextjs", "branch": "main" },
+		{ "repo": "Needless2Say/kriegerdataforge-template-fastapi", "branch": "main" },
+		{ "repo": "Needless2Say/kriegerdataforge-template-npm-package", "branch": "main" },
+		{ "repo": "Needless2Say/kriegerdataforge-template-python-package", "branch": "main" }
+	],
+	"_excluded_notes": "kriegerdataforge-cicd is the SOURCE — its scripts/common/ copies ARE the canonical, so it is not a sync target (no self-PRs; its own Makefile calls scripts/common/check_version.py directly). Unlike the kit registry this one INCLUDES kriegerdataforge-fmt (the kit deliberately omits it; the dev scripts must not — it has VERSION-gated CI like everyone else). The 4 template repos are included so a /generate'd repo is born with current scripts. Per-repo scripts/version_targets.json manifests are NOT synced (they are per-repo configuration, see version_targets.py). A scripts-sync PR does not bump VERSION: the central scripts/common/check_version.py exempts PRs that touch only these dest paths (plus Makefile, on chore/scripts-sync-* branches only) — ADR D-013, mirroring the kit's ADR D-001 option B."
+}
