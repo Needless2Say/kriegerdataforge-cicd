@@ -218,6 +218,24 @@ def test_write_lockfile_touches_root_entries_only(tmp_path):
     assert data["packages"]["node_modules/react"]["version"] == "19.0.0"   # untouched
 
 
+def test_write_package_json_preserves_hand_formatting(tmp_path):
+    """
+    Regression (auth-ui, 2026-08-11): package.json is often hand-formatted; the write
+    must be a surgical version-line change, never a whole-file re-dump.
+    """
+    content = (
+        '{\n'
+        '    "name": "x",\n'
+        '    "version": "1.2.3",\n'
+        '    "files": ["dist"],\n'
+        '    "scripts": { "build": "tsc" }\n'
+        '}\n'
+    )
+    root    = _make_repo(tmp_path, {"package.json": content})
+    vt.write_version(root, vt.Target("package.json", vt.KIND_PACKAGE_JSON), "1.2.4")
+    assert (root / "package.json").read_text(encoding = "utf-8") == content.replace("1.2.3", "1.2.4")
+
+
 def test_write_pyproject_first_version_line_only(tmp_path):
     # A dependency pin further down must not be rewritten.
     content = '[project]\nversion = "1.2.3"\n\n[tool.other]\nversion = "9.9.9"\n'
