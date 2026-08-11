@@ -699,3 +699,54 @@ record what was written then; this entry supersedes the detail).
 consumer repos; until then the weekly drift check stays red for the consumer repos (kit-only
 sync PRs remain version-gate-exempt). Docs-only — no behavior, contract, or registry-shape
 change.
+
+## D-013 — Version-scripts sync: strict single-increment gate + distributed dev-script tooling
+
+- **Date:** 2026-08-11
+- **Status:** Accepted
+- **Tier / scope:** Standard · repos: all 17 consumers (scripts synced from `cicd/scripts/common/`)
+  · feature doc: [`docs/features/version-scripts-sync.md`](./features/version-scripts-sync.md)
+
+**Context.** An invalid version jump (`0.10.6 → 0.10.8` in the hub) passed every gate. The
+per-repo `scripts/bump_version.py` copies — forked into four drifted variants (plain-Python,
+npm+lockfile, auth-ui one-off, script-call) — blindly increment the LOCAL VERSION file, so two
+`make bump-patch` runs silently produce +2. Each repo's `ci-version-check` Makefile recipe only
+failed on "unchanged" or "behind" (`sort -V`), and the central
+`scripts/common/check_version.py` that every consumer CI runs only required "strictly greater".
+The one strict +1 implementation (`bump-version-check.yml`, with a dead double-read hack) was
+consumed solely by this repo's own ci.yml.
+
+**Decision.** (1) **One canonical script family** in `scripts/common/` — `bump_version.py`
+(computes the bump FROM `origin/main`'s VERSION: double-bump idempotent, bump-minor-after-patch
+corrects instead of stacking; local-file fallback with a warning), `check_version.py` (strict
+single-increment vs the base branch + consistency of every version target; legacy flags accepted
+as no-ops), and `version_targets.py` (shared target resolution: auto-detect by presence across
+all repo shapes — FastAPI incl. `vercel_api/pyproject.toml`, Python package, Next.js/npm,
+VERSION-only — with an optional per-repo `scripts/version_targets.json` manifest that is
+authoritative and hard-fails on declared-but-missing files). One configurable family, never
+per-type forks. (2) **A script-sync engine mirroring the kit's** (ADR D-001): registry
+`scripts/scripts_registry.json` (src→dest, 17 repos = kit's 16 + kriegerdataforge-fmt), marker
+`scripts/SCRIPTS_VERSION`, engine `distribute_scripts.py` on a new shared
+`common/repo_sync.py` (transport + generic SyncItem fan-out extracted from `distribute_kit.py`,
+whose CLI and white-box tests are unchanged), ops issue-form + `ops:distribute-scripts`
+label-triggered owner-gated workflow. Each sync PR also REWRITES the repo's `ci-version-check:`
+Makefile recipe (target line + tab-indented block, idempotent regex patch) to a thin
+`$(PYTHON) scripts/check_version.py --base-branch …` call. (3) **Version-gate exemption
+extended** registry-derived to script-sync paths; `Makefile` exempt ONLY on
+`chore/scripts-sync-*` head branches. (4) `bump-version-check.yml` rewritten as a thin runner of
+the canonical checker.
+
+**Alternatives considered.** Per-repo-type scripts (rejected: recreates the copy-drift disease
+this cures) · refuse-on-invalid bump keeping local-file basis (rejected: origin/main basis makes
+the failure mode unrepresentable rather than merely detected) · `--registry` parameterization of
+distribute_kit.py (rejected: can't express the Makefile patch item; pollutes a working engine) ·
+distributing scripts without the Makefile patch (rejected: `make ci` would stay weak locally —
+the exact gap that let the jump through).
+
+**Consequences.** Consumer CI gets strict the moment this merges (consumers run the central
+script from `.cicd@main`). Local `make ci` gets strict per repo as its sync PR merges. Four
+repos (fmt/sdk/reports-sdk/template-python-package) move from consistency-only to strict local
+checks; auth-ui gains a local increment check it never had; the `SKIP_INIT` knob and per-repo
+`CI [x/y]` recipe numbering are retired; backends' `vercel_api/pyproject.toml` stays covered by
+auto-detection, and the hub's becomes bump-managed. Sync PRs are review-gated, never
+auto-merged; owner runs check → distribute via the ops issue.

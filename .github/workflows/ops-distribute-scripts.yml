@@ -1,0 +1,153 @@
+name: Ops · Distribute scripts (issue-triggered)
+
+# Issue-form front-end for distribute_scripts.py (the script-sync sibling of
+# ops-distribute-kit.yml — ADR D-013). Triggered ONLY when the `ops:distribute-scripts`
+# label is added (a deliberate, owner-applied "go"). Authorization is enforced by the
+# reusable owner-only gate; this repo is public, so the gate — not obscurity — is the control.
+#
+# Issue content is untrusted: parsed values flow through env vars into an argv array, never
+# inlined into a shell string, and `mode` is allow-listed before use.
+
+on:
+  issues:
+    types:
+      - labeled
+
+permissions:
+  contents: read
+
+jobs:
+  authorize:
+    if: github.event.action == 'labeled' && github.event.label.name == 'ops:distribute-scripts'
+    uses: ./.github/workflows/_authorize-owner.yml
+
+  run:
+    name: Distribute scripts
+    needs: authorize
+    # Belt-and-suspenders: needs-success (the gate exit 1s on a non-owner) AND the gate's explicit
+    # authorized output AND the label/action pins. No status function here, so the implicit
+    # needs:authorize success requirement is preserved (a denied gate skips this job).
+    if: >-
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'ops:distribute-scripts' &&
+      needs.authorize.outputs.authorized == 'true'
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      # Short-lived GitHub App installation token (auto-revoked at job end; effective lifetime =
+      # job runtime, not the 1-hour nominal TTL). Downscoped to contents + pull-requests write —
+      # what distribute_scripts needs to push a sync branch and open a PR. Gated on USE_GITHUB_APP,
+      # falls back to CICD_PAT.
+      - name: Mint GitHub App token
+        id: app-token
+        if: vars.USE_GITHUB_APP == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.KDF_APP_ID }}
+          private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Extract and validate fields
+        id: fields
+        env:
+          # Untrusted issue-form body — only ever read as awk DATA (here-string), never inlined into
+          # a command, and every extracted value is allow-listed/normalized below.
+          BODY: ${{ github.event.issue.body }}
+        run: |
+          # Self-parse the issue-form body ("### <Label>\n\n<value>...") — no third-party action
+          # (so no Node-20 deprecation, no marker-config quirks). field() prints the non-empty lines
+          # under a "### <Label>" heading, up to the next heading.
+          field() {
+            awk -v lbl="### $1" '
+              { sub(/\r$/, "") }
+              $0 == lbl { cap = 1; next }
+              /^### / { cap = 0 }
+              cap && NF { print }
+            ' <<< "$BODY"
+          }
+          MODE="$(field "Mode" | head -1)"
+          REPOS="$(field "Target repos" | tr '\n' ',')"
+          ONLY="$(field "File filter" | head -1)"
+
+          # Allow-list the mode — never trust the parsed value.
+          case "$MODE" in
+            check|distribute) ;;
+            *) echo "::error::invalid or missing mode: '${MODE}'"; exit 1 ;;
+          esac
+
+          # Issue forms render an empty optional field as "_No response_".
+          if [ "$ONLY" = "_No response_" ]; then ONLY=""; fi
+          ONLY="$(printf '%s' "$ONLY" | tr -d '\r\n')"
+
+          # repos arrives comma-joined; trim trailing comma + CR. ALL (an exact comma-token) means
+          # "no repo filter" -> sync every registry repo.
+          REPOS="$(printf '%s' "$REPOS" | tr -d '\r')"
+          REPOS="${REPOS%,}"
+          if printf '%s' "$REPOS" | tr ',' '\n' | grep -qix "ALL"; then REPOS=""; fi
+
+          {
+            echo "mode=$MODE"
+            echo "repos=$REPOS"
+            echo "only=$ONLY"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run distribute_scripts
+        id: dist
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
+          MODE: ${{ steps.fields.outputs.mode }}
+          REPOS: ${{ steps.fields.outputs.repos }}
+          ONLY: ${{ steps.fields.outputs.only }}
+        run: |
+          ARGS=("$MODE")
+          if [ -n "$REPOS" ]; then ARGS+=(--repos "$REPOS"); fi
+          if [ -n "$ONLY" ]; then ARGS+=(--only "$ONLY"); fi
+          echo "cmd=distribute_scripts.py ${ARGS[*]}" >> "$GITHUB_OUTPUT"
+          echo "Running: distribute_scripts.py ${ARGS[*]}"
+          set +e
+          python scripts/distribute_scripts.py "${ARGS[@]}" > result.txt 2>&1
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          cat result.txt
+
+      - name: Comment result on the issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          CMD: ${{ steps.dist.outputs.cmd }}
+        run: |
+          {
+            echo "### Ops — scripts distribution result"
+            echo
+            echo "Command: \`${CMD:-distribute_scripts.py (did not run)}\`"
+            echo
+            echo '```'
+            cat result.txt 2>/dev/null || echo "(no output captured — an earlier step failed)"
+            echo '```'
+          } > comment.md
+          gh issue comment "$ISSUE" --repo "$REPO" --body-file comment.md
+
+      - name: Fail the run if a distribute pass errored
+        if: steps.fields.outputs.mode == 'distribute' && steps.dist.outputs.rc != '0'
+        env:
+          RC: ${{ steps.dist.outputs.rc }}
+        run: |
+          echo "::error::distribute_scripts exited ${RC} — see the issue comment."
+          exit 1
