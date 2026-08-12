@@ -750,3 +750,44 @@ checks; auth-ui gains a local increment check it never had; the `SKIP_INIT` knob
 `CI [x/y]` recipe numbering are retired; backends' `vercel_api/pyproject.toml` stays covered by
 auto-detection, and the hub's becomes bump-managed. Sync PRs are review-gated, never
 auto-merged; owner runs check → distribute via the ops issue.
+
+## D-014 — Vendored script layout: scripts/kdf_scripts/ excluded from tenant style/lint
+
+- **Date:** 2026-08-11
+- **Status:** Accepted
+- **Tier / scope:** Standard patch to D-013 · repos: all 17 consumers · SCRIPTS_VERSION 1.0.1 → **1.1.0**
+
+**Context.** The distributed version scripts landed at flat `scripts/` paths inside each
+tenant's kdf-fmt (and ruff) scope. They are only guaranteed clean under CICD's configs;
+tenant configs vary (different `[rules.overrides]`, several repos check baseline-less), so
+sync PRs sometimes failed tenant style CI — a distribution being vetoed by the very
+configs it cannot control.
+
+**Decision.** Treat distributed scripts as **vendored code**: they move to
+`scripts/kdf_scripts/`, and every tenant's `kdf-fmt.toml` (plus ruff config where one
+exists — 4× `ruff.toml` exclude, 4× `pyproject.toml [tool.ruff] extend-exclude`) excludes
+that directory. CICD alone governs the style of what it ships. Mechanics: the sync engine
+gains **delete items** (`SyncItem.desired = None`, Contents-API DELETE, drift iff the file
+exists) and per-repo item builders; the registry gains `deletes[]`, `kdf_fmt_patch`, and
+per-repo `ruff_config`; the Makefile patcher path-rewrites every script reference with a
+negative-lookbehind guard (`kdf_scripts/bump_version.py` itself ends with the substring
+`scripts/bump_version.py` — a naive replace would double-nest on re-runs) before
+re-asserting the canonical recipe; the version-gate exemption derives from
+`files[].dest ∪ deletes[]` and the branch-gated config set widens to
+{Makefile, kdf-fmt.toml, ruff.toml, pyproject.toml}. Per-repo
+`scripts/version_targets.json` manifests deliberately stay OUTSIDE the vendor dir
+(tenant-owned config).
+
+**Alternatives considered.** Teaching kdf-fmt a vendored-dir marker convention (rejected:
+the owner wants the formatter generic for any codebase, not coupled to this ecosystem's
+distribution feature; also needs a tool release + re-pin across 9 repos) · keeping flat
+paths with per-file excludes in every tenant config (rejected: grows per file, invisible
+ownership boundary) · maintaining the canonical scripts clean against all 17 tenant
+configs forever (rejected: unbounded maintenance, already failed once).
+
+**Consequences.** One distribute wave (17 PRs): adds the three files under
+`kdf_scripts/`, deletes the flat copies, patches Makefile (`_BUMP` + recipe paths),
+kdf-fmt.toml, and the declared ruff config. Future distributed scripts are born excluded
+in every repo and template. Minor version (1.1.0), not major: consumer-facing entry
+points (`make bump-*`, `make ci-version-check`) are unchanged; only the vendored file
+locations moved, and the wave itself performs the migration.

@@ -61,6 +61,30 @@ def test_drift_patch_item_computed_from_remote():
         assert rs.compute_item_drift("tok", "o/r", "main", [_patch_item("Makefile")]) == []
 
 
+def test_drift_delete_item_drifts_iff_exists():
+    stale = rs.SyncItem(dest = "old.py", desired = None)
+    with patch.object(rs, "_get_remote_file", return_value = ("still here", "sha")):
+        assert [i.dest for i in rs.compute_item_drift("tok", "o/r", "main", [stale])] == ["old.py"]
+    with patch.object(rs, "_get_remote_file", return_value = (None, None)):
+        assert rs.compute_item_drift("tok", "o/r", "main", [stale]) == []
+
+
+# ── callable per-repo items ──────────────────────────────────────────────────
+def test_callable_items_resolved_per_repo():
+    built: list[str] = []
+
+
+    def items_for(entry):
+        built.append(entry["repo"])
+        return [_file_item(f"{entry['repo'].split('/')[-1]}.md", "x")]
+
+
+    with patch.object(rs, "_get_remote_file", return_value = ("x", "sha")):
+        rc = rs.run_check("tok", REPOS, items_for, "banner")
+    assert rc == 0
+    assert built == ["Needless2Say/repo-a", "Needless2Say/repo-b"]
+
+
 # ── run_check ────────────────────────────────────────────────────────────────
 def test_run_check_in_sync_returns_0():
     with patch.object(rs, "compute_item_drift", return_value = []):
@@ -175,6 +199,40 @@ def test_distribute_patch_error_does_not_abort_fanout(capsys):
     assert rc == 1                                       # repo-a needs a human
     assert mocks["_create_pr"].call_count == 1           # repo-b still synced
     assert "NEEDS MANUAL ATTENTION" in capsys.readouterr().out
+
+
+def test_distribute_deletes_stale_file_on_sync_branch():
+    stale = rs.SyncItem(dest = "old.py", desired = None)
+    with patch.object(rs, "_get_remote_file", return_value = ("still here", "blobsha")):
+        rc, mocks = _distribute([stale], _delete_file = {})
+    assert rc == 0
+    assert mocks["_delete_file"].call_count == 2          # both repos carried the stale file
+    args = mocks["_delete_file"].call_args[0]
+    assert args[3] == "old.py"                            # path
+    assert args[4] == "blobsha"                           # sha required by the Contents API
+    mocks["_put_file"].assert_not_called()
+
+
+def test_distribute_delete_skips_when_already_gone_on_sync_branch():
+    """
+    Drift computed vs main (file exists there), but the sync branch already deleted
+    it on a previous run -> no duplicate delete call, PR still opened.
+    """
+    stale = rs.SyncItem(dest = "old.py", desired = None)
+
+
+    def fake_remote(_token, _repo, branch, _path):
+        return ("still here", "sha") if branch == "main" else (None, None)
+
+
+    with (
+        patch.object(rs, "_get_remote_file", side_effect = fake_remote),
+        patch.object(rs, "_delete_file") as delete_file,
+    ):
+        rc, mocks = _distribute([stale])
+    assert rc == 0
+    delete_file.assert_not_called()
+    assert mocks["_create_pr"].call_count == 2
 
 
 def test_distribute_api_failure_reported():

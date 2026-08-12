@@ -151,18 +151,42 @@ def test_all_script_paths_is_exempt(tmp_path):
         patch.object(
             cv,
             "_changed_files",
-            return_value = ["scripts/check_version.py", "scripts/bump_version.py", "scripts/version_targets.py"],
+            return_value = [
+                "scripts/kdf_scripts/check_version.py",
+                "scripts/kdf_scripts/bump_version.py",
+                "scripts/kdf_scripts/version_targets.py",
+            ],
         ),
     ):
         assert cv._is_exempt_sync_pr(tmp_path) is True
 
 
-def test_makefile_exempt_only_on_scripts_sync_branch(tmp_path):
-    changed = ["scripts/check_version.py", "Makefile"]
+def test_deleted_superseded_paths_are_exempt(tmp_path):
+    # A layout-move sync PR DELETES the old flat copies; those paths appear in the
+    # diff and must be exempt (derived from the registry's deletes[]).
+    with (
+        patch.dict(cv.os.environ, {"GITHUB_BASE_REF": "main"}),
+        patch.object(
+            cv,
+            "_changed_files",
+            return_value = ["scripts/kdf_scripts/bump_version.py", "scripts/bump_version.py"],
+        ),
+    ):
+        assert cv._is_exempt_sync_pr(tmp_path) is True
+
+
+def test_patched_configs_exempt_only_on_scripts_sync_branch(tmp_path):
+    changed = [
+        "scripts/kdf_scripts/check_version.py",
+        "Makefile",
+        "kdf-fmt.toml",
+        "ruff.toml",
+        "pyproject.toml",
+    ]
     with (
         patch.dict(
             cv.os.environ,
-            {"GITHUB_BASE_REF": "main", "GITHUB_HEAD_REF": "chore/scripts-sync-1.0.0"},
+            {"GITHUB_BASE_REF": "main", "GITHUB_HEAD_REF": "chore/scripts-sync-1.1.0"},
         ),
         patch.object(cv, "_changed_files", return_value = changed),
     ):
@@ -182,6 +206,15 @@ def test_makefile_only_pr_not_exempt_off_sync_branch(tmp_path):
     with (
         patch.dict(cv.os.environ, {"GITHUB_BASE_REF": "main", "GITHUB_HEAD_REF": "fix/makefile"}),
         patch.object(cv, "_changed_files", return_value = ["Makefile"]),
+    ):
+        assert cv._is_exempt_sync_pr(tmp_path) is False
+
+
+def test_pyproject_only_pr_not_exempt_off_sync_branch(tmp_path):
+    # pyproject.toml carries the version; only scripts-sync branches may skip the gate.
+    with (
+        patch.dict(cv.os.environ, {"GITHUB_BASE_REF": "main", "GITHUB_HEAD_REF": "feature/deps"}),
+        patch.object(cv, "_changed_files", return_value = ["pyproject.toml"]),
     ):
         assert cv._is_exempt_sync_pr(tmp_path) is False
 
@@ -284,6 +317,10 @@ def test_fallback_when_registries_unreadable(tmp_path):
         assert cv._scripts_exempt_files() == cv.SCRIPTS_EXEMPT_FILES_FALLBACK
         with (
             patch.dict(cv.os.environ, {"GITHUB_BASE_REF": "main"}),
-            patch.object(cv, "_changed_files", return_value = ["skills.md", "scripts/bump_version.py"]),
+            patch.object(
+                cv,
+                "_changed_files",
+                return_value = ["skills.md", "scripts/kdf_scripts/bump_version.py"],
+            ),
         ):
             assert cv._is_exempt_sync_pr(tmp_path) is True

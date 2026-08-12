@@ -60,22 +60,28 @@ _GIT = shutil.which("git") or "git"
 # always runs.
 #
 # The exempt FILE set is DERIVED from the registries (kit_registry.json files[],
-# scripts_registry.json files[].dest) — the single sources of truth for what the
+# scripts_registry.json files[].dest UNION deletes[] — a layout-move sync PR both adds
+# the new paths and deletes the old ones) — the single sources of truth for what the
 # distributors sync — so it can never drift from the synced sets. The static
 # fallbacks are used only when a registry isn't co-located with this script
 # (consumer CI checks out cicd beside it as `.cicd/`, so it normally is; the
 # VENDORED copy has no registries, but the exemption only fires in PR CI, which
-# runs the `.cicd` copy). `Makefile` is exempt ONLY on a `chore/scripts-sync-*`
-# head branch (the script distributor rewrites one recipe) — an ordinary
-# Makefile-only PR still requires a version bump.
+# runs the `.cicd` copy). The config files the distributor patches (Makefile,
+# kdf-fmt.toml, ruff.toml, pyproject.toml) are exempt ONLY on a `chore/scripts-sync-*`
+# head branch — an ordinary PR touching them still requires a version bump.
 _REGISTRY_CANDIDATES          = (
     Path(__file__).resolve().parent.parent,   # canonical: scripts/common/.. -> scripts/
-    Path(__file__).resolve().parent,          # vendored:  scripts/
+    Path(__file__).resolve().parent,          # vendored:  scripts/kdf_scripts/ (registries absent there)
 )
 KIT_EXEMPT_FILES_FALLBACK     = {"skills.md", "WORKFLOW.md"}
-SCRIPTS_EXEMPT_FILES_FALLBACK = {"scripts/check_version.py", "scripts/bump_version.py", "scripts/version_targets.py"}
+SCRIPTS_EXEMPT_FILES_FALLBACK = {
+    "scripts/kdf_scripts/check_version.py",
+    "scripts/kdf_scripts/bump_version.py",
+    "scripts/kdf_scripts/version_targets.py",
+}
 KIT_EXEMPT_PREFIXES           = ("docs/agent/",)
 SCRIPTS_SYNC_BRANCH_PREFIX    = "chore/scripts-sync-"
+SCRIPTS_SYNC_PATCHED_CONFIGS  = {"Makefile", "kdf-fmt.toml", "ruff.toml", "pyproject.toml"}
 
 # local imports — same-directory vendored layout fails over to the canonical package
 # layout (scripts/common/ under the cicd checkout / test runs). Sits below the constants
@@ -213,12 +219,13 @@ def _kit_exempt_files() -> set[str]:
 
 def _scripts_exempt_files() -> set[str]:
     """
-    Collect the synced-script destination paths exempt from the version check.
+    Collect the synced-script paths exempt from the version check.
 
-    Derived from scripts_registry.json files[].dest, with a static fallback.
+    Derived from scripts_registry.json files[].dest UNION deletes[] (a layout-move
+    sync PR deletes the superseded paths in the same diff), with a static fallback.
 
     Returns:
-        set[str]: exempt script destination paths
+        set[str]: exempt script destination + deleted paths
     """
     files = set(SCRIPTS_EXEMPT_FILES_FALLBACK)
     data  = _read_registry("scripts_registry.json")
@@ -228,6 +235,7 @@ def _scripts_exempt_files() -> set[str]:
             for entry in data.get("files", [])
             if isinstance(entry, dict) and isinstance(entry.get("dest"), str)
         )
+        files.update(path for path in data.get("deletes", []) if isinstance(path, str))
     return files
 
 
@@ -264,8 +272,9 @@ def _is_exempt_sync_pr(cwd: Path) -> bool:
     """
     Decide whether this run is a PR whose changed files are ALL centrally-synced paths.
 
-    Covers the agentic-workflow kit and the distributed dev scripts (plus their
-    Makefile recipe, on scripts-sync branches only).
+    Covers the agentic-workflow kit and the distributed dev scripts (plus the config
+    files the distributor patches — Makefile / kdf-fmt.toml / ruff.toml /
+    pyproject.toml — on scripts-sync branches only).
 
     Args:
         cwd: repo directory to run git in
@@ -287,7 +296,7 @@ def _is_exempt_sync_pr(cwd: Path) -> bool:
             continue
         if any(changed.startswith(prefix) for prefix in KIT_EXEMPT_PREFIXES):
             continue
-        if changed == "Makefile" and on_sync_branch:
+        if changed in SCRIPTS_SYNC_PATCHED_CONFIGS and on_sync_branch:
             continue
         return False
     return True
