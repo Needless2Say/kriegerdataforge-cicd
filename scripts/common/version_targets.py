@@ -49,8 +49,9 @@ KIND_PACKAGE_LOCK = "package-lock"
 
 _KNOWN_KINDS = {KIND_VERSION_FILE, KIND_PYPROJECT, KIND_INIT_PY, KIND_PACKAGE_JSON, KIND_PACKAGE_LOCK}
 
-_PYPROJECT_RE = re.compile(r'^(version\s*=\s*)"([^"]+)"', re.MULTILINE)
-_INIT_RE      = re.compile(r'^(__version__\s*=\s*)"([^"]+)"', re.MULTILINE)
+_PYPROJECT_RE    = re.compile(r'^(version\s*=\s*)"([^"]+)"', re.MULTILINE)
+_INIT_RE         = re.compile(r'^(__version__\s*=\s*)"([^"]+)"', re.MULTILINE)
+_PACKAGE_JSON_RE = re.compile(r'("version"\s*:\s*)"([^"]+)"')
 
 
 class TargetError(ValueError):
@@ -274,19 +275,38 @@ def write_version(root: Path, target: Target, new_version: str) -> bool:
         path.write_text(new, encoding = "utf-8")
         return True
 
-    # KIND_PACKAGE_JSON / KIND_PACKAGE_LOCK — parse, mutate, re-dump npm-style
-    # (2-space indent, no ASCII escaping, trailing newline: byte-stable with npm's
-    # own JSON.stringify(data, null, 2) output).
+    if target.kind == KIND_PACKAGE_JSON:
+        # package.json is often HAND-formatted (compact arrays, custom spacing), so a
+        # parse+re-dump would reformat the whole file just to move one version. Surgical
+        # regex on the FIRST "version" key instead — top-level "version" precedes
+        # scripts/dependencies in every ecosystem manifest. Validity is still checked
+        # by parsing first.
+        old = path.read_text(encoding = "utf-8-sig")
+        try:
+            json.loads(old)
+        except ValueError as exc:
+            raise TargetError(f"{target.path}: invalid JSON -- {exc}") from exc
+        if not _PACKAGE_JSON_RE.search(old):
+            raise TargetError(f"{target.path}: no top-level 'version' field")
+        new = _PACKAGE_JSON_RE.sub(f'\\g<1>"{new_version}"', old, count = 1)
+        if new == old:
+            return False
+        path.write_text(new, encoding = "utf-8")
+        return True
+
+    # KIND_PACKAGE_LOCK — machine-written by npm (JSON.stringify(data, null, 2)), so a
+    # parse + re-dump in the same style is byte-stable apart from the two version keys:
+    # the top level and packages[""] (the root-package entry). Nested dependency
+    # versions are never touched.
     old = path.read_text(encoding = "utf-8-sig")
     try:
         data = json.loads(old)
     except ValueError as exc:
         raise TargetError(f"{target.path}: invalid JSON -- {exc}") from exc
     data["version"] = new_version
-    if target.kind == KIND_PACKAGE_LOCK:
-        root_pkg = data.get("packages", {}).get("")
-        if isinstance(root_pkg, dict):
-            root_pkg["version"] = new_version
+    root_pkg = data.get("packages", {}).get("")
+    if isinstance(root_pkg, dict):
+        root_pkg["version"] = new_version
     new = json.dumps(data, indent = 2, ensure_ascii = False) + "\n"
     if new == old:
         return False
