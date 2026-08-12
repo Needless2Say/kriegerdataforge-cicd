@@ -1,6 +1,18 @@
 # Feature — Version-scripts sync engine
 
-_Last updated: 2026-08-11 · Status: draft_
+_Last updated: 2026-08-11 (vendored layout, ADR D-014) · Status: draft_
+
+> **Vendored layout (since 1.1.0, ADR D-014).** The scripts are vendored to each repo's
+> **`scripts/kdf_scripts/`** directory, which every tenant's `kdf-fmt.toml` — and ruff
+> config, where one exists — excludes: distributed code is styled/linted ONLY by cicd's
+> own configs, so tenant formatting can never fail a sync PR. Each sync PR can also
+> DELETE superseded paths (registry `deletes[]`, engine delete items), patch
+> `kdf-fmt.toml` (`kdf_fmt_patch`), and patch the repo's declared `ruff_config`
+> (`ruff.toml` exclude list or `pyproject.toml` `[tool.ruff] extend-exclude`). The
+> Makefile patcher rewrites every script reference (incl. `_BUMP :=`) to the vendor-dir
+> paths with a lookbehind-guarded regex before re-asserting the canonical recipe.
+> Per-repo `scripts/version_targets.json` manifests stay OUTSIDE the vendor dir —
+> tenant-owned config, never synced.
 
 ## 1. Overview
 

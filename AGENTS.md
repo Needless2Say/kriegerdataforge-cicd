@@ -50,8 +50,8 @@ agent workflows (`agents/`, skeleton only) so automation scales with the platfor
 | `.github/actions/run-e2e/`, `e2e/`, `.github/workflows/ops-setup-e2e.yml` | Reusable E2E engine (composite action + data-driven `ci_stack.py` driver + secret-distribution workflow) |
 | `scripts/check_deployer.py` + `deployer_registry.json` | Per-repo/per-env deployer authorization gate (fail closed) |
 | `scripts/rotate_secret.py` + `secret_registry.json` | Unified CI-plane secret rotation engine (modes: generate / paste / check; env-aware) |
-| `scripts/common/bump_version.py`, `check_version.py`, `version_targets.py` | Canonical version tooling: origin/main-based bump + strict +1 consistency/increment check + shared target resolution (vendored to every repo via the scripts-sync engine) |
-| `scripts/distribute_scripts.py` + `scripts_registry.json` + `SCRIPTS_VERSION` | Version-scripts sync engine: vendors the version tooling to all repos + rewrites their `ci-version-check` Makefile recipe (check / distribute, review-gated PRs; ADR D-013) |
+| `scripts/common/bump_version.py`, `check_version.py`, `version_targets.py` | Canonical version tooling: origin/main-based bump + strict +1 consistency/increment check + shared target resolution (vendored to every repo's `scripts/kdf_scripts/` via the scripts-sync engine) |
+| `scripts/distribute_scripts.py` + `scripts_registry.json` + `SCRIPTS_VERSION` | Version-scripts sync engine: vendors the version tooling to all repos' `scripts/kdf_scripts/` (style-isolated: tenant kdf-fmt/ruff configs exclude it), deletes superseded paths, and patches Makefile + kdf-fmt.toml + ruff config (check / distribute, review-gated PRs; ADR D-013/D-014) |
 | `scripts/*/db_backup.py` | Per-tenant Neon DB backup |
 | `docs/reference/WORKFLOWS.md`, `docs/guides/MANUAL_SETUP.md` | Workflow catalog (inputs/secrets/callers) + manual setup runbook |
 | `agents/` | Skeleton for future AI-driven agent workflows — **not yet implemented** |

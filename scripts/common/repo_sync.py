@@ -65,10 +65,11 @@ class SyncItem:
     ``desired`` receives the repo's current content for ``dest`` (None if the
     file does not exist there) and returns the content it should have.
     Whole-file items ignore the argument; patch items transform it and raise
-    ``PatchError`` when they cannot.
+    ``PatchError`` when they cannot. ``desired = None`` means the file must NOT
+    exist (a delete item, e.g. a superseded path after a layout move).
     """
     dest: str
-    desired: Callable[[str | None], str]
+    desired: Callable[[str | None], str] | None
 
 # ======================================================================================================================
 # GitHub API helpers (Contents + Git refs)
@@ -212,6 +213,43 @@ def _put_file(
     resp.raise_for_status()
 
 
+def _delete_file(
+    token: str,
+    owner_repo: str,
+    branch: str,
+    path: str,
+    blob_sha: str,
+    message: str,
+) -> None:
+    """
+    Delete one file on a branch via the Contents API.
+
+    Not retried on status (same policy as POST: a 502 GitHub already processed
+    must not replay); the caller treats a 404 as already-deleted.
+
+    Args:
+        token: GitHub token (contents:write)
+        owner_repo: full ``owner/repo`` slug
+        branch: branch to commit the deletion to
+        path: repo-relative file path
+        blob_sha: current blob sha of the file being deleted
+        message: commit message
+
+    Returns:
+        None
+    """
+    owner, repo = owner_repo.split("/", 1)
+    resp = _SESSION.delete(
+        f"{GITHUB_API}/repos/{owner}/{repo}/contents/{path}",
+        headers = _github_headers(token),
+        json = {"message": message, "sha": blob_sha, "branch": branch},
+        timeout = 30,
+    )
+    if resp.status_code == 404:  # already gone — idempotent re-run
+        return
+    resp.raise_for_status()
+
+
 def _create_pr(
     token: str,
     owner_repo: str,
@@ -319,20 +357,46 @@ def compute_item_drift(
     drifted: list[SyncItem] = []
     for item in items:
         remote, _sha = _get_remote_file(token, owner_repo, branch, item.dest)
+        if item.desired is None:  # delete item: drift iff the file still exists
+            if remote is not None:
+                drifted.append(item)
+            continue
         desired = item.desired(remote)
         if remote is None or _normalize(remote) != _normalize(desired):
             drifted.append(item)
     return drifted
 
 
-def run_check(token: str, repos: list[dict], items: list[SyncItem], banner: str) -> int:
+def _resolve_items(
+    items: list[SyncItem] | Callable[[dict], list[SyncItem]],
+    entry: dict,
+) -> list[SyncItem]:
+    """
+    Resolve the items for one registry repo entry.
+
+    Args:
+        items: a static item list, or a callable building the list per repo entry
+        entry: the registry repo entry
+
+    Returns:
+        list[SyncItem]: the items to evaluate for this repo
+    """
+    return items(entry) if callable(items) else items
+
+
+def run_check(
+    token: str,
+    repos: list[dict],
+    items: list[SyncItem] | Callable[[dict], list[SyncItem]],
+    banner: str,
+) -> int:
     """
     Print a read-only drift report across repos (opens nothing).
 
     Args:
         token: GitHub token (contents:read)
         repos: registry repo entries to check
-        items: the sync items to evaluate per repo
+        items: the sync items to evaluate per repo (static list, or a callable building them per repo entry)
         banner: heading line printed before the per-repo report
 
     Returns:
@@ -344,7 +408,7 @@ def run_check(token: str, repos: list[dict], items: list[SyncItem], banner: str)
     for entry in repos:
         repo, branch = entry["repo"], entry.get("branch", "main")
         try:
-            drift = compute_item_drift(token, repo, branch, items)
+            drift = compute_item_drift(token, repo, branch, _resolve_items(items, entry))
         except PatchError as exc:
             print(f"  {repo}: NEEDS MANUAL ATTENTION — {exc}")
             errors.append(f"{repo}: {exc}")
@@ -373,7 +437,7 @@ def run_check(token: str, repos: list[dict], items: list[SyncItem], banner: str)
 def run_distribute(
     token: str,
     repos: list[dict],
-    items: list[SyncItem],
+    items: list[SyncItem] | Callable[[dict], list[SyncItem]],
     *,
     sync_branch: str,
     pr_title: str,
@@ -390,7 +454,7 @@ def run_distribute(
     Args:
         token: GitHub token (contents + pull-requests write)
         repos: registry repo entries to distribute to
-        items: the sync items to evaluate per repo
+        items: the sync items to evaluate per repo (static list, or a callable building them per repo entry)
         sync_branch: branch name created in each drifted repo
         pr_title: title for every opened PR
         pr_body_fn: builds the PR body from the repo's drifted items
@@ -404,7 +468,7 @@ def run_distribute(
     for entry in repos:
         repo, branch = entry["repo"], entry.get("branch", "main")
         try:
-            drift = compute_item_drift(token, repo, branch, items)
+            drift = compute_item_drift(token, repo, branch, _resolve_items(items, entry))
             if not drift:
                 print(f"  {repo}: in sync — no PR")
                 continue
@@ -412,6 +476,10 @@ def run_distribute(
             _create_branch(token, repo, sync_branch, base_sha)
             for item in drift:
                 remote, blob_sha = _get_remote_file(token, repo, sync_branch, item.dest)
+                if item.desired is None:  # delete item
+                    if remote is not None and blob_sha is not None:
+                        _delete_file(token, repo, sync_branch, item.dest, blob_sha, commit_msg_fn(item))
+                    continue  # already gone on the sync branch (re-run)
                 desired = item.desired(remote)
                 if remote is not None and _normalize(remote) == _normalize(desired):
                     continue  # sync branch already carries this item (re-run)

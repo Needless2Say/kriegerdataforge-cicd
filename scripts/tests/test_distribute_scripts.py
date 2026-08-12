@@ -1,7 +1,8 @@
 """
-Unit tests for scripts/distribute_scripts.py — the Makefile recipe patcher (against
-captured fixtures of every REAL ci-version-check variant in the ecosystem) and the
-registry/item plumbing. Network-touching flows are covered in test_repo_sync.py.
+Unit tests for scripts/distribute_scripts.py — the Makefile path-rewrite + recipe
+patcher (incl. the double-nesting regression the vendor-dir layout makes possible),
+the kdf-fmt.toml / ruff config patchers, and the registry/item plumbing.
+Network-touching flows are covered in test_repo_sync.py.
 """
 
 from __future__ import annotations
@@ -12,175 +13,292 @@ import distribute_scripts as ds
 import pytest
 from common.repo_sync import PatchError
 
-# ── Captured real-world recipe variants (as of the 2026-08 census) ───────────
-# Variant 1 — plain inline shell (hub, backends, terraform, template-fastapi)
-PLAIN = (
-    "ci-version-check: ## CI: VERSION bumped vs the base branch - mirrors the CI version-check job\n"
-    '\t@printf "$(GREEN)CI [7/7]: version check...$(NC)\\n"\n'
-    "\t@cur=\"$$(tr -d ' \\r\\n' < VERSION)\"; \\\n"
-    '\tif [ -z "$$cur" ]; then printf "$(RED)FAIL: VERSION is empty$(NC)\\n"; exit 1; fi; \\\n'
-    "\tbase=\"$$(git show origin/$(BASE_BRANCH):VERSION 2>/dev/null | tr -d ' \\r\\n')\"; \\\n"
-    '\tif [ -z "$$base" ]; then \\\n'
-    '\t\tprintf "$(YELLOW)SKIP$(NC)\\n"; \\\n'
-    '\telse \\\n'
-    '\t\tprintf "$(GREEN)OK: $$base -> $$cur$(NC)\\n"; \\\n'
-    "\tfi\n"
-)
-
-# Variant 2 — inline shell + node package.json check (Next.js/npm repos)
-NODE_CHECK = (
-    "# Skips (does not fail) when origin/$(BASE_BRANCH) is not fetched locally.\n"
-    "ci-version-check: ## CI: VERSION bumped vs the base branch -- mirrors the CI version-check job\n"
-    '\t@printf "$(GREEN)CI [7/7]: version check...$(NC)\\n"\n'
-    "\t@cur=\"$$(tr -d ' \\r\\n' < VERSION)\"; \\\n"
-    "\tman=\"$$(node -p \"require('./package.json').version\" 2>/dev/null || echo \"\")\"; \\\n"
-    '\tif [ -n "$$man" ] && [ "$$man" != "$$cur" ]; then \\\n'
-    '\t\tprintf "$(RED)FAIL$(NC)\\n"; exit 1; \\\n'
-    "\tfi\n"
+# ── Makefile fixtures ────────────────────────────────────────────────────────
+# The post-1.0.x state every repo is in today: canonical recipe + flat script paths.
+FLAT_CANONICAL = (
+    "# banner\n"
+    "_BUMP := PYTHONUTF8=1 $(PYTHON) scripts/bump_version.py\n"
     "\n"
-    "ci-docker-build:\n"
-    "\t@echo build\n"
-)
-
-# Variant 3 — already calls a per-repo script, SKIP_INIT knob (python packages)
-SCRIPT_CALL = (
-    "ci-version-check: _ensure-venv ## CI: VERSION bumped vs the base branch - mirrors the CI"
-    " version-check job (SKIP_INIT = 1, skips __init__.py)\n"
-    '\t@printf "$(GREEN)CI [8/8]: version check...$(NC)\\n"\n'
-    "\t@$(PYTHON) scripts/check_version.py $(if $(SKIP_INIT),--skip-init,)\n"
+    "bump-patch: _ensure-venv ## Bump patch\n"
+    "\t@$(_BUMP) patch\n"
+    "\n"
+    "ci-version-check: _ensure-venv ## CI: version consistency + strict +1 increment"
+    " vs origin/main (vendored scripts/check_version.py)\n"
+    '\t@printf "$(GREEN)CI: version check...$(NC)\\n"\n'
+    '\t@PYTHONUTF8=1 $(PYTHON) scripts/check_version.py --base-branch "$(if $(BASE_BRANCH),$(BASE_BRANCH),main)"\n'
     "\n"
     "ci: ci-lint ci-version-check\n"
     '\t@printf "done\\n"\n'
 )
 
-# Variant 4 — auth-ui inline python -c one-liner (no increment check at all)
-AUTH_UI = (
-    "ci-version-check: _ensure-venv ## Validate VERSION == package.json (mirrors the CI version-check job)\n"
-    '\t@printf "$(GREEN)CI [7/7]: version consistency (VERSION vs package.json)...$(NC)\\n"\n'
-    "\t@$(PYTHON) -c \"import json,pathlib,sys; v=pathlib.Path('VERSION')"
-    ".read_text(encoding='utf-8-sig').strip(); sys.exit(0)\"\n"
+# Legacy pre-canonical variant (still patchable: target exists).
+LEGACY_INLINE = (
+    "ci-version-check: ## CI: VERSION bumped vs the base branch\n"
+    '\t@printf "$(GREEN)CI [7/7]: version check...$(NC)\\n"\n'
+    "\t@cur=\"$$(tr -d ' \\r\\n' < VERSION)\"; \\\n"
+    '\tif [ -z "$$cur" ]; then exit 1; fi\n'
     "\n"
-    "##@ CodeQL Security Scanning\n"
+    "##@ Next section\n"
 )
 
-# Variant 5 — reports-sdk bannerless one-liner
-BANNERLESS = (
-    "# SKIP_INIT=1 skips the __init__.py consistency half.\n"
-    "ci-version-check: _ensure-venv ## Check version consistency and the +1 increment vs main"
-    " (SKIP_INIT=1 skips __init__.py)\n"
-    "\t@$(PYTHON) scripts/check_version.py $(if $(SKIP_INIT),--skip-init,)\n"
-    "\n"
-    "##@ Versioning & Release\n"
+
+# config-file fixtures for the kdf-fmt / ruff patchers
+KDF_WITH_EXCLUDE = (
+    'line_length = 120\n'
+    '\n'
+    'roots = ["api", "scripts"]\n'
+    '\n'
+    '# backup snapshots are frozen artifacts\n'
+    'exclude = ["vercel_api/"]\n'
+    '\n'
+    '[rules]\n'
+    '"KDF-105" = "off"\n'
 )
 
-ALL_VARIANTS = [PLAIN, NODE_CHECK, SCRIPT_CALL, AUTH_UI, BANNERLESS]
+KDF_NO_EXCLUDE = ('line_length = 120\n' '\n' 'roots = ["scripts"]\n' '\n' '[rules]\n' '"KDF-105" = "off"\n')
+
+RUFF_TOML = ("exclude = [\n" '    ".venv",\n' '    "vercel_api",\n' "]\n" "\n" "[lint]\n" 'select = ["F", "S", "B"]\n')
+
+PYPROJECT_PLAIN = (
+    "[project]\n"
+    'name = "x"\n'
+    'version = "1.2.3"\n'
+    "\n"
+    "[tool.ruff]\n"
+    "line-length = 120\n"
+    "\n"
+    "[tool.ruff.lint]\n"
+    'select = ["F", "B", "S"]\n'
+)
+
+PYPROJECT_WITH_EXTEND = (
+    "[project]\n" 'version = "1.2.3"\n' "\n" "[tool.ruff]\n" 'extend-exclude = ["tests/fixtures"]\n'
+)
 
 
-# ── Patcher ──────────────────────────────────────────────────────────────────
-@pytest.mark.parametrize("variant", ALL_VARIANTS)
-def test_patch_replaces_recipe_with_canonical(variant):
-    patched = ds.patch_ci_version_check(variant)
+# ── patch_makefile ───────────────────────────────────────────────────────────
+def test_patch_rewrites_all_script_paths():
+    patched = ds.patch_makefile(FLAT_CANONICAL)
+    assert "scripts/kdf_scripts/bump_version.py" in patched
+    assert "scripts/kdf_scripts/check_version.py" in patched
+    # no flat references left (lookbehind-safe check: every old path is now prefixed)
+    assert "$(PYTHON) scripts/bump_version.py" not in patched
+    assert "$(PYTHON) scripts/check_version.py" not in patched
+    assert ds.CANONICAL_RECIPE in patched
+
+
+def test_patch_is_idempotent_no_double_nesting():
+    """
+    Regression guard for the substring trap: "kdf_scripts/bump_version.py" ends with
+    "scripts/bump_version.py", so a naive replace would double-nest on re-runs.
+    """
+    once  = ds.patch_makefile(FLAT_CANONICAL)
+    twice = ds.patch_makefile(once)
+    assert once == twice
+    assert "kdf_scripts/kdf_scripts" not in twice
+
+
+def test_patch_legacy_variant_still_converges():
+    patched = ds.patch_makefile(LEGACY_INLINE)
     assert ds.CANONICAL_RECIPE in patched
     assert patched.count("ci-version-check:") == 1
-    # Old recipe bodies are gone.
-    assert "sort -V" not in patched
-    assert "node -p" not in patched
-    assert "SKIP_INIT" not in patched.split("ci-version-check:")[1].split("\n\n")[0]
+    assert "##@ Next section" in patched
 
 
-@pytest.mark.parametrize("variant", ALL_VARIANTS)
-def test_patch_is_idempotent(variant):
-    once  = ds.patch_ci_version_check(variant)
-    twice = ds.patch_ci_version_check(once)
-    assert once == twice
-
-
-@pytest.mark.parametrize("variant", [NODE_CHECK, SCRIPT_CALL, AUTH_UI, BANNERLESS])
-def test_patch_preserves_surrounding_content(variant):
-    patched = ds.patch_ci_version_check(variant)
-    # Neighbors (comments above, next targets/sections below) survive untouched.
-    for line in variant.splitlines():
-        if line.startswith(("#", "##@", "ci:", "ci-docker-build:")):
-            assert line in patched
+def test_patch_preserves_unrelated_content():
+    patched = ds.patch_makefile(FLAT_CANONICAL)
+    assert "bump-patch: _ensure-venv" in patched
+    assert "ci: ci-lint ci-version-check" in patched
 
 
 def test_patch_handles_crlf_input():
-    patched = ds.patch_ci_version_check(PLAIN.replace("\n", "\r\n"))
+    patched = ds.patch_makefile(FLAT_CANONICAL.replace("\n", "\r\n"))
     assert ds.CANONICAL_RECIPE in patched
     assert "\r\n" not in patched
 
 
 def test_patch_missing_makefile_raises():
     with pytest.raises(PatchError, match = "not found"):
-        ds.patch_ci_version_check(None)
+        ds.patch_makefile(None)
 
 
 def test_patch_missing_target_raises():
     with pytest.raises(PatchError, match = "no `ci-version-check:`"):
-        ds.patch_ci_version_check("build:\n\t@echo hi\n")
+        ds.patch_makefile("build:\n\t@echo hi\n")
 
 
 def test_canonical_recipe_matches_its_own_regex():
-    # Idempotency-by-construction depends on this invariant.
+    # idempotency-by-construction depends on this invariant
     match = ds._RECIPE_RE.search(ds.CANONICAL_RECIPE)
     assert match is not None
     assert match.group(0) == ds.CANONICAL_RECIPE
+
+
+def test_canonical_recipe_uses_vendor_dir_paths():
+    assert "scripts/kdf_scripts/check_version.py" in ds.CANONICAL_RECIPE
+    # the recipe itself must be a fixed point of the path rewrite
+    assert ds._PATH_REWRITE_RE.sub(r"scripts/kdf_scripts/\1.py", ds.CANONICAL_RECIPE) == ds.CANONICAL_RECIPE
+
+
+# ── patch_kdf_fmt_toml ───────────────────────────────────────────────────────
+def test_kdf_fmt_inserts_into_existing_exclude():
+    patched = ds.patch_kdf_fmt_toml(KDF_WITH_EXCLUDE)
+    assert 'exclude = ["scripts/kdf_scripts/", "vercel_api/"]' in patched
+
+
+def test_kdf_fmt_creates_exclude_before_first_table():
+    patched = ds.patch_kdf_fmt_toml(KDF_NO_EXCLUDE)
+    assert 'exclude = ["scripts/kdf_scripts/"]' in patched
+    assert patched.index("scripts/kdf_scripts/") < patched.index("[rules]")
+
+
+def test_kdf_fmt_noop_when_already_excluded():
+    once = ds.patch_kdf_fmt_toml(KDF_WITH_EXCLUDE)
+    assert ds.patch_kdf_fmt_toml(once) == once
+    once = ds.patch_kdf_fmt_toml(KDF_NO_EXCLUDE)
+    assert ds.patch_kdf_fmt_toml(once) == once
+
+
+def test_kdf_fmt_no_tables_appends_at_end():
+    patched = ds.patch_kdf_fmt_toml('roots = ["scripts"]\n')
+    assert 'exclude = ["scripts/kdf_scripts/"]' in patched
+
+
+def test_kdf_fmt_missing_raises():
+    with pytest.raises(PatchError, match = "kdf-fmt.toml not found"):
+        ds.patch_kdf_fmt_toml(None)
+
+
+# ── ruff patchers ────────────────────────────────────────────────────────────
+def test_ruff_toml_inserts_into_exclude():
+    patched = ds.patch_ruff_toml(RUFF_TOML)
+    assert '"scripts/kdf_scripts/",' in patched
+    assert patched.index("scripts/kdf_scripts/") < patched.index(".venv")
+    assert ds.patch_ruff_toml(patched) == patched
+
+
+def test_ruff_toml_missing_exclude_raises():
+    with pytest.raises(PatchError, match = "no top-level `exclude`"):
+        ds.patch_ruff_toml('[lint]\nselect = ["F"]\n')
+
+
+def test_ruff_pyproject_adds_extend_exclude_under_header():
+    patched = ds.patch_ruff_pyproject(PYPROJECT_PLAIN)
+    assert 'extend-exclude = ["scripts/kdf_scripts/"]' in patched
+    assert patched.index("scripts/kdf_scripts/") < patched.index("[tool.ruff.lint]")
+    assert 'version = "1.2.3"' in patched   # version line untouched
+    assert ds.patch_ruff_pyproject(patched) == patched
+
+
+def test_ruff_pyproject_inserts_into_existing_extend_exclude():
+    patched = ds.patch_ruff_pyproject(PYPROJECT_WITH_EXTEND)
+    assert 'extend-exclude = ["scripts/kdf_scripts/", "tests/fixtures"]' in patched
+    assert ds.patch_ruff_pyproject(patched) == patched
+
+
+def test_ruff_pyproject_without_tool_ruff_raises():
+    with pytest.raises(PatchError, match = "no \\[tool.ruff\\]"):
+        ds.patch_ruff_pyproject('[project]\nname = "x"\n')
 
 
 # ── Item building / registry plumbing ────────────────────────────────────────
 def _fake_registry():
     return {
         "files": [
-            {"src": "scripts/common/check_version.py", "dest": "scripts/check_version.py"},
-            {"src": "scripts/common/bump_version.py", "dest": "scripts/bump_version.py"},
+            {"src": "scripts/common/check_version.py", "dest": "scripts/kdf_scripts/check_version.py"},
+            {"src": "scripts/common/bump_version.py", "dest": "scripts/kdf_scripts/bump_version.py"},
         ],
+        "deletes": ["scripts/check_version.py", "scripts/bump_version.py"],
         "makefile_patch": True,
+        "kdf_fmt_patch": True,
     }
 
 
-def test_build_items_includes_files_and_makefile():
-    items = ds._build_items(_fake_registry(), None)
-    assert [i.dest for i in items] == ["scripts/check_version.py", "scripts/bump_version.py", "Makefile"]
+def test_build_items_full_set_with_ruff():
+    items = ds._build_items(_fake_registry(), None, {"repo": "o/r", "ruff_config": "ruff.toml"})
+    assert [item.dest for item in items] == [
+        "scripts/kdf_scripts/check_version.py",
+        "scripts/kdf_scripts/bump_version.py",
+        "scripts/check_version.py",
+        "scripts/bump_version.py",
+        "Makefile",
+        "kdf-fmt.toml",
+        "ruff.toml",
+    ]
+
+
+def test_build_items_delete_items_have_no_desired():
+    items   = ds._build_items(_fake_registry(), None, {"repo": "o/r"})
+    deletes = [item for item in items if item.desired is None]
+    assert [item.dest for item in deletes] == ["scripts/check_version.py", "scripts/bump_version.py"]
+
+
+def test_build_items_without_ruff_config():
+    items = ds._build_items(_fake_registry(), None, {"repo": "o/r"})
+    assert "ruff.toml" not in [item.dest for item in items]
+    assert "pyproject.toml" not in [item.dest for item in items]
+
+
+def test_build_items_pyproject_ruff_config():
+    items = ds._build_items(_fake_registry(), None, {"repo": "o/r", "ruff_config": "pyproject.toml"})
+    assert items[-1].dest == "pyproject.toml"
+
+
+def test_build_items_unknown_ruff_config_raises():
+    with pytest.raises(PatchError, match = "unknown ruff_config"):
+        ds._build_items(_fake_registry(), None, {"repo": "o/r", "ruff_config": "setup.cfg"})
 
 
 def test_build_items_file_content_is_canonical_source():
-    items    = ds._build_items(_fake_registry(), "check_version.py")
+    items    = ds._build_items(_fake_registry(), "kdf_scripts/check_version.py", {"repo": "o/r"})
     expected = (ds.REPO_ROOT / "scripts/common/check_version.py").read_text(encoding = "utf-8")
     assert items[0].desired("whatever the repo currently has") == expected
 
 
 def test_build_items_only_filters_by_dest():
-    items = ds._build_items(_fake_registry(), "Makefile")
-    assert [i.dest for i in items] == ["Makefile"]
+    items = ds._build_items(_fake_registry(), "Makefile", {"repo": "o/r"})
+    assert [item.dest for item in items] == ["Makefile"]
 
 
 def test_build_items_only_no_match_exits():
     with pytest.raises(SystemExit):
-        ds._build_items(_fake_registry(), "does-not-exist")
+        ds._build_items(_fake_registry(), "does-not-exist", {"repo": "o/r"})
 
 
-def test_build_items_without_makefile_patch():
-    registry = _fake_registry()
-    registry["makefile_patch"] = False
-    assert [i.dest for i in ds._build_items(registry, None)] == [
-        "scripts/check_version.py",
-        "scripts/bump_version.py",
-    ]
-
-
-# ── REAL-FILE consistency guards (mirrors test_distribute_kit real-file tests) ─
+# ── REAL-FILE consistency guards ─────────────────────────────────────────────
 def test_real_registry_srcs_all_exist():
     registry = ds._load_registry()
     files    = registry.get("files", [])
     assert files, "scripts_registry.json files[] is empty"
-    missing = [e["src"] for e in files if not (ds.REPO_ROOT / e["src"]).is_file()]
+    missing = [entry["src"] for entry in files if not (ds.REPO_ROOT / entry["src"]).is_file()]
     assert not missing, f"scripts_registry files[].src paths missing: {missing}"
 
 
-def test_real_registry_dests_are_exempt_in_check_version():
+def test_real_registry_dests_under_vendor_dir():
+    registry = ds._load_registry()
+    for entry in registry.get("files", []):
+        assert entry["dest"].startswith(ds.VENDOR_DIR), entry["dest"]
+
+
+def test_real_registry_deletes_disjoint_from_dests():
+    registry = ds._load_registry()
+    dests    = {entry["dest"] for entry in registry.get("files", [])}
+    deletes  = set(registry.get("deletes", []))
+    assert deletes, "deletes[] should list the superseded flat paths"
+    assert not (dests & deletes)
+
+
+def test_real_registry_ruff_configs_valid():
+    registry = ds._load_registry()
+    for entry in registry.get("repos", []):
+        ruff_config = entry.get("ruff_config")
+        assert ruff_config in (None, "ruff.toml", "pyproject.toml"), entry["repo"]
+
+
+def test_real_registry_paths_are_exempt_in_check_version():
     """
-    Every synced dest must be in check_version.py's exempt set, or the sync PRs
-    this tool opens would fail every consumer's version gate.
+    Every synced dest AND delete must be in check_version.py's exempt set, or the
+    sync PRs this tool opens would fail every consumer's version gate.
     """
     import common.check_version as cv
 
@@ -188,6 +306,8 @@ def test_real_registry_dests_are_exempt_in_check_version():
     exempt   = cv._scripts_exempt_files()
     for entry in registry.get("files", []):
         assert entry["dest"] in exempt, f"{entry['dest']} not exempt in check_version.py"
+    for stale in registry.get("deletes", []):
+        assert stale in exempt, f"deleted path {stale} not exempt in check_version.py"
 
 
 def test_real_scripts_version_marker_exists():
@@ -196,12 +316,11 @@ def test_real_scripts_version_marker_exists():
 
 def test_real_registry_repo_names_unique():
     registry = ds._load_registry()
-    names    = [e["repo"] for e in registry.get("repos", [])]
+    names    = [entry["repo"] for entry in registry.get("repos", [])]
     assert len(names) == len(set(names))
 
 
-def test_check_mode_needs_no_makefile_fetch_when_only_files(tmp_path):
-    # --only narrowing to a plain file must not build the Makefile patch item.
+def test_missing_registry_exits(tmp_path):
     with patch.object(ds, "REGISTRY_FILE", tmp_path / "missing.json"):
         with pytest.raises(SystemExit):
             ds._load_registry()

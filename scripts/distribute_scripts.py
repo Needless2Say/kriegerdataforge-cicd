@@ -1,22 +1,27 @@
 """
 Check and distribute the ecosystem dev scripts (bump_version.py / check_version.py /
 version_targets.py) from the canonical source in kriegerdataforge-cicd/scripts/common/
-to every consumer repo in scripts/scripts_registry.json — plus the one Makefile recipe
-that wires them into `make ci`.
+to every consumer repo's scripts/kdf_scripts/ vendor directory — plus the config edits
+that wire them into `make ci` and keep them OUT of tenant lint/style scope.
 
 This is the script-sync sibling of distribute_kit.py (ADR D-013 mirrors the kit's
-ADR D-001): ONE source of truth (scripts/common/), ONE registry (scripts_registry.json),
-owner-gated PRs, built on the shared engine in common/repo_sync.py. It exists so the
-per-repo copies of the version tooling can never drift again (they had forked into four
-variants, one of which let an invalid 0.10.6 -> 0.10.8 jump through).
+ADR D-001; the vendored layout is ADR D-014): ONE source of truth (scripts/common/),
+ONE registry (scripts_registry.json), owner-gated PRs, built on the shared engine in
+common/repo_sync.py. The vendor directory exists because the shipped scripts are only
+guaranteed clean under CICD's kdf-fmt/ruff configs — tenant configs vary, so tenants
+exclude scripts/kdf_scripts/ and cicd alone governs the style of what it ships.
 
-Synced items:
-  - The registry's files[] (src -> dest), vendored byte-identical.
-  - The `ci-version-check:` Makefile recipe, REWRITTEN to the canonical thin call of
-    the vendored checker (registry key "makefile_patch"). The patch replaces the target
-    line plus its tab-indented recipe lines — a well-delimited make block — and is
-    idempotent (patching an already-canonical block is a no-op). A Makefile without the
-    target raises PatchError -> that repo is reported NEEDS MANUAL ATTENTION.
+Synced items (per repo, from the registry):
+  - files[]:   the three scripts, vendored byte-identical to scripts/kdf_scripts/.
+  - deletes[]: the superseded flat scripts/ copies, removed in the same PR.
+  - Makefile ("makefile_patch"): every scripts/<name>.py reference is rewritten to
+    scripts/kdf_scripts/<name>.py (covers the `_BUMP :=` line and comments), then the
+    `ci-version-check:` recipe block is re-asserted to the canonical thin call.
+    Idempotent; a Makefile without the target raises PatchError -> NEEDS MANUAL ATTENTION.
+  - kdf-fmt.toml ("kdf_fmt_patch"): appends "scripts/kdf_scripts/" to the top-level
+    `exclude` list (creating the key before the first TOML table when absent).
+  - ruff config (per-repo "ruff_config": ruff.toml | pyproject.toml): same exclusion,
+    into ruff.toml's `exclude` list or [tool.ruff]'s `extend-exclude`.
 
 Modes:
   check       Read-only drift report. Exits non-zero if any repo is out of sync. OPENS NOTHING.
@@ -24,8 +29,9 @@ Modes:
               dev scripts <SCRIPTS_VERSION>"). NEVER auto-merges.
 
 IMPORTANT — version-check: scripts-sync PRs do not bump VERSION. The central
-scripts/common/check_version.py exempts PRs touching only the registry dest paths
-(plus Makefile, on chore/scripts-sync-* branches only), so the sync PRs pass the gate.
+scripts/common/check_version.py exempts PRs touching only the registry dest+delete paths
+(plus Makefile / kdf-fmt.toml / ruff.toml / pyproject.toml, on chore/scripts-sync-*
+branches only), so the sync PRs pass the gate.
 
 Requirements:
     pip install requests
@@ -66,6 +72,8 @@ REGISTRY_FILE        = SCRIPTS_DIR / "scripts_registry.json"
 SCRIPTS_VERSION_FILE = SCRIPTS_DIR / "SCRIPTS_VERSION"
 
 MAKEFILE_DEST = "Makefile"
+KDF_FMT_DEST  = "kdf-fmt.toml"
+VENDOR_DIR    = "scripts/kdf_scripts/"
 
 # The canonical `ci-version-check` recipe every repo converges on: a thin call of the
 # vendored checker, which owns ALL the logic (consistency + strict increment +
@@ -73,13 +81,27 @@ MAKEFILE_DEST = "Makefile"
 # PYTHONUTF8=1 matches the `_BUMP` convention (cp1252 Windows consoles).
 CANONICAL_RECIPE = (
     "ci-version-check: _ensure-venv ## CI: version consistency + strict +1 increment"
-    " vs origin/main (vendored scripts/check_version.py)\n"
+    " vs origin/main (vendored scripts/kdf_scripts/check_version.py)\n"
     '\t@printf "$(GREEN)CI: version check...$(NC)\\n"\n'
-    '\t@PYTHONUTF8=1 $(PYTHON) scripts/check_version.py --base-branch "$(if $(BASE_BRANCH),$(BASE_BRANCH),main)"\n'
+    '\t@PYTHONUTF8=1 $(PYTHON) scripts/kdf_scripts/check_version.py'
+    ' --base-branch "$(if $(BASE_BRANCH),$(BASE_BRANCH),main)"\n'
 )
 
 # A make recipe block: the target line plus the maximal run of tab-prefixed lines.
 _RECIPE_RE = re.compile(r"^ci-version-check:[^\n]*\n(?:\t[^\n]*\n)*", re.MULTILINE)
+
+# Old flat script paths -> vendor-dir paths, everywhere in the Makefile (the `_BUMP :=`
+# line, the recipe, comments). The negative lookbehind is LOAD-BEARING for idempotency:
+# "kdf_scripts/bump_version.py" itself ENDS WITH the substring "scripts/bump_version.py",
+# so a naive replace would double-nest the path on every re-run.
+_PATH_REWRITE_RE = re.compile(r"(?<!kdf_)scripts/(check_version|bump_version|version_targets)\.py")
+
+# The exclusion appended to tenant style/lint configs (trailing slash = directory).
+_VENDOR_EXCLUDE_ENTRY  = f'"{VENDOR_DIR}"'
+_KDF_FMT_EXCLUDE_BLOCK = (
+    "\n# distributed ecosystem scripts are vendored -- their style is governed in kriegerdataforge-cicd\n"
+    f"exclude = [{_VENDOR_EXCLUDE_ENTRY}]\n"
+)
 
 _CLI_EPILOG = """Examples:
   GH_TOKEN=... python distribute_scripts.py check
@@ -91,15 +113,16 @@ _REPOS_HELP = """Only operate on these repos (comma-separated EXACT names, e.g.
 exactly (not a substring). Blank = all repos in the registry."""
 
 _PR_BODY_TEMPLATE = """Automated sync of the ecosystem dev scripts to **{version}** from
-`kriegerdataforge-cicd/scripts/common/` (ADR D-013).
+`kriegerdataforge-cicd/scripts/common/` (ADR D-013 / vendored layout ADR D-014).
 
 Items updated: {items}
 
-The vendored `scripts/check_version.py` now enforces the STRICT single-increment rule locally
-(`make ci` fails on jumps like 0.10.6 -> 0.10.8), and `scripts/bump_version.py` computes bumps
-from origin/main so double-bumps are impossible. The `ci-version-check` Makefile recipe is
-rewritten to call the vendored checker (the old SKIP_INIT knob and per-repo inline checks are
-retired; target detection is automatic via `scripts/version_targets.py`).
+The version tooling now lives in the **`scripts/kdf_scripts/` vendor directory**: the old
+flat `scripts/` copies are deleted in this PR, every Makefile reference (including
+`_BUMP :=` and the `ci-version-check` recipe) points at the new paths, and the directory
+is excluded from this repo's `kdf-fmt.toml` (and ruff config, where present) — the style
+of vendored scripts is governed in kriegerdataforge-cicd, so tenant formatting configs
+can never fail a sync PR again.
 
 No VERSION bump: scripts-sync PRs are exempt from the version gate (see check_version.py /
 ADR D-013). Please review and merge."""
@@ -131,19 +154,24 @@ def _scripts_version() -> str:
         return SCRIPTS_VERSION_FILE.read_text(encoding = "utf-8").strip()
     return "unknown"
 
+# ======================================================================================================================
+# Patchers (all idempotent; PatchError -> repo reported NEEDS MANUAL ATTENTION)
+# ======================================================================================================================
 
-def patch_ci_version_check(text: str | None) -> str:
+def patch_makefile(text: str | None) -> str:
     """
-    Rewrite the `ci-version-check:` recipe block to CANONICAL_RECIPE.
+    Point every script reference at the vendor dir and re-assert the canonical recipe.
 
-    Idempotent by construction: the canonical block itself matches the recipe regex
-    and maps to itself.
+    Step 1 rewrites all `scripts/<name>.py` references to `scripts/kdf_scripts/<name>.py`
+    (the lookbehind in _PATH_REWRITE_RE keeps already-rewritten paths untouched). Step 2
+    replaces the `ci-version-check:` recipe block with CANONICAL_RECIPE. Idempotent by
+    construction: the canonical block matches the recipe regex and maps to itself.
 
     Args:
         text: the target repo's current Makefile content, or None when absent
 
     Returns:
-        str: the Makefile content with the canonical recipe in place (LF endings)
+        str: the patched Makefile content (LF endings)
 
     Raises:
         PatchError: when the Makefile is missing or has no `ci-version-check` target
@@ -153,35 +181,143 @@ def patch_ci_version_check(text: str | None) -> str:
     normalized = text.replace("\r\n", "\n")
     if not _RECIPE_RE.search(normalized):
         raise PatchError("Makefile has no `ci-version-check:` recipe to rewrite")
+    rewritten = _PATH_REWRITE_RE.sub(r"scripts/kdf_scripts/\1.py", normalized)
     # function replacement -> inserted literally (no \-escape processing of the recipe)
-    return _RECIPE_RE.sub(lambda _match: CANONICAL_RECIPE, normalized, count = 1)
+    return _RECIPE_RE.sub(lambda _match: CANONICAL_RECIPE, rewritten, count = 1)
 
 
-def _build_items(registry: dict, only: str | None) -> list[SyncItem]:
+def patch_kdf_fmt_toml(text: str | None) -> str:
     """
-    Build the SyncItems this run operates on.
+    Append the vendor-dir exclusion to a tenant's kdf-fmt.toml.
 
-    The registry's src->dest files (byte-identical) plus the Makefile recipe patch,
-    optionally narrowed by --only (dest substring).
+    No-op when the path is already excluded. When a top-level `exclude = [` list exists,
+    the entry is inserted after the opening bracket; otherwise the key is created before
+    the first TOML table header (top-level keys must precede tables).
+
+    Args:
+        text: the repo's current kdf-fmt.toml content, or None when absent
+
+    Returns:
+        str: the patched config (LF endings)
+
+    Raises:
+        PatchError: when kdf-fmt.toml is missing from the repo
+    """
+    if text is None:
+        raise PatchError("kdf-fmt.toml not found in the target repo")
+    normalized = text.replace("\r\n", "\n")
+    if VENDOR_DIR in normalized:
+        return normalized
+    match = re.search(r"^(exclude\s*=\s*\[)", normalized, re.MULTILINE)
+    if match:
+        return normalized[: match.end()] + _VENDOR_EXCLUDE_ENTRY + ", " + normalized[match.end():]
+    table = re.search(r"^\[", normalized, re.MULTILINE)
+    if table:
+        return normalized[: table.start()] + _KDF_FMT_EXCLUDE_BLOCK + "\n" + normalized[table.start():]
+    return normalized.rstrip("\n") + "\n" + _KDF_FMT_EXCLUDE_BLOCK
+
+
+def patch_ruff_toml(text: str | None) -> str:
+    """
+    Append the vendor-dir exclusion to a tenant's ruff.toml `exclude` list.
+
+    Args:
+        text: the repo's current ruff.toml content, or None when absent
+
+    Returns:
+        str: the patched config (LF endings)
+
+    Raises:
+        PatchError: when ruff.toml is missing or has no top-level `exclude` list
+    """
+    if text is None:
+        raise PatchError("declared ruff.toml not found in the target repo")
+    normalized = text.replace("\r\n", "\n")
+    if VENDOR_DIR in normalized:
+        return normalized
+    match = re.search(r"^(exclude\s*=\s*\[)", normalized, re.MULTILINE)
+    if not match:
+        raise PatchError("ruff.toml has no top-level `exclude` list to extend")
+    return normalized[: match.end()] + "\n    " + _VENDOR_EXCLUDE_ENTRY + "," + normalized[match.end():]
+
+
+def patch_ruff_pyproject(text: str | None) -> str:
+    """
+    Append the vendor-dir exclusion to `[tool.ruff]` in a tenant's pyproject.toml.
+
+    Inserts into an existing `extend-exclude = [` list, or adds the key directly under
+    the `[tool.ruff]` header. Never touches anything else in the file (notably the
+    project version line).
+
+    Args:
+        text: the repo's current pyproject.toml content, or None when absent
+
+    Returns:
+        str: the patched config (LF endings)
+
+    Raises:
+        PatchError: when pyproject.toml is missing or has no `[tool.ruff]` table
+    """
+    if text is None:
+        raise PatchError("declared pyproject.toml not found in the target repo")
+    normalized = text.replace("\r\n", "\n")
+    if VENDOR_DIR in normalized:
+        return normalized
+    extend = re.search(r"^(extend-exclude\s*=\s*\[)", normalized, re.MULTILINE)
+    if extend:
+        return normalized[: extend.end()] + _VENDOR_EXCLUDE_ENTRY + ", " + normalized[extend.end():]
+    header = re.search(r"^\[tool\.ruff\]\s*$", normalized, re.MULTILINE)
+    if not header:
+        raise PatchError("pyproject.toml has no [tool.ruff] table to extend")
+    insert = (
+        "\n# distributed ecosystem scripts are vendored -- linted in kriegerdataforge-cicd\n"
+        f"extend-exclude = [{_VENDOR_EXCLUDE_ENTRY}]"
+    )
+    return normalized[: header.end()] + insert + normalized[header.end():]
+
+
+def _build_items(registry: dict, only: str | None, entry: dict) -> list[SyncItem]:
+    """
+    Build the SyncItems for ONE registry repo entry.
+
+    The registry's src->dest files (byte-identical), the deletes[] of superseded paths,
+    the Makefile patch, the kdf-fmt.toml exclusion, and — when the entry declares a
+    `ruff_config` — the matching ruff exclusion. Optionally narrowed by --only
+    (dest substring).
 
     Args:
         registry: the parsed scripts registry
         only: dest-substring filter, or None for all items
+        entry: the registry repo entry the items are built for
 
     Returns:
-        list[SyncItem]: the items to check or distribute
+        list[SyncItem]: the items to check or distribute for this repo
+
+    Raises:
+        PatchError: when the entry declares an unknown ruff_config value
     """
     items: list[SyncItem] = []
-    for entry in registry.get("files", []):
-        src, dest = entry["src"], entry["dest"]
+    for file_entry in registry.get("files", []):
+        src, dest = file_entry["src"], file_entry["dest"]
         canonical = (REPO_ROOT / src).read_text(encoding = "utf-8")
         items.append(SyncItem(dest = dest, desired = lambda _remote, content = canonical: content))
+    for stale in registry.get("deletes", []):
+        items.append(SyncItem(dest = stale, desired = None))
     if registry.get("makefile_patch"):
-        items.append(SyncItem(dest = MAKEFILE_DEST, desired = patch_ci_version_check))
+        items.append(SyncItem(dest = MAKEFILE_DEST, desired = patch_makefile))
+    if registry.get("kdf_fmt_patch"):
+        items.append(SyncItem(dest = KDF_FMT_DEST, desired = patch_kdf_fmt_toml))
+    ruff_config = entry.get("ruff_config")
+    if ruff_config:
+        ruff_patchers = {"ruff.toml": patch_ruff_toml, "pyproject.toml": patch_ruff_pyproject}
+        patcher       = ruff_patchers.get(ruff_config)
+        if patcher is None:
+            raise PatchError(f"unknown ruff_config {ruff_config!r} (use 'ruff.toml' or 'pyproject.toml')")
+        items.append(SyncItem(dest = ruff_config, desired = patcher))
     if only:
         items = [item for item in items if only in item.dest]
         if not items:
-            sys.exit(f"Error: --only '{only}' matched no synced files (dests + {MAKEFILE_DEST!r}).")
+            sys.exit(f"Error: --only '{only}' matched no synced items for this run.")
     return items
 
 # ======================================================================================================================
@@ -208,7 +344,7 @@ def parse_cli_args() -> argparse.Namespace:
     parser.add_argument(
         "--only",
         default = None,
-        help = "Only operate on synced files whose DEST path contains this substring (e.g. 'check_version.py').",
+        help = "Only operate on synced items whose DEST path contains this substring (e.g. 'check_version.py').",
     )
     parser.add_argument(
         "--repos",
@@ -232,26 +368,43 @@ def main() -> None:
         sys.exit("Error: GH_TOKEN environment variable not set.")
 
     version = _scripts_version()
-    items   = _build_items(registry, args.only)
     repos   = _select_repos(registry, args.repos)
 
+
+    def items_for(entry: dict) -> list[SyncItem]:
+        """
+        Build this repo entry's items (closure over the registry and --only filter).
+
+        Args:
+            entry: the registry repo entry
+
+        Returns:
+            list[SyncItem]: the items for this repo
+        """
+        return _build_items(registry, args.only, entry)
+
+
     if args.mode == "check":
-        banner = (f"Checking ecosystem dev scripts {version} across {len(repos)} repo(s), {len(items)} item(s):")
-        sys.exit(run_check(token, repos, items, banner))
+        banner = f"Checking ecosystem dev scripts {version} across {len(repos)} repo(s):"
+        sys.exit(run_check(token, repos, items_for, banner))
     else:
-        print(f"Distributing ecosystem dev scripts {version} ({len(items)} item(s)) to {len(repos)} repo(s):")
+        print(f"Distributing ecosystem dev scripts {version} to {len(repos)} repo(s):")
         sys.exit(
             run_distribute(
                 token,
                 repos,
-                items,
+                items_for,
                 sync_branch = f"chore/scripts-sync-{version}",
                 pr_title = f"chore(scripts): sync ecosystem dev scripts {version}",
                 pr_body_fn = lambda drift: _PR_BODY_TEMPLATE.format(
                     version = version,
                     items = ", ".join(item.dest for item in drift),
                 ),
-                commit_msg_fn = lambda item: f"chore(scripts): sync {item.dest} to {version}",
+                commit_msg_fn = lambda item: (
+                    f"chore(scripts): remove superseded {item.dest} ({version})"
+                    if item.desired is None
+                    else f"chore(scripts): sync {item.dest} to {version}"
+                ),
             )
         )
 
