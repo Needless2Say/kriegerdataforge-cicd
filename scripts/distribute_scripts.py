@@ -325,7 +325,12 @@ def patch_ci_yaml(text: str | None, expected_ref: str) -> str:
         raise PatchError(f"{CI_YAML_DEST} not found in the target repo")
     match = _KDF_FMT_REF_RE.search(text.replace("\r\n", "\n"))
     if match is None:
-        raise PatchError(f"{CI_YAML_DEST} declares no kdf_fmt_ref to compare")
+        # NOT drift, and emphatically not a reason to block the repo: a workflow with
+        # no kdf_fmt_ref simply does not call the reusable style job, so there is no
+        # second pin to disagree with. Raising here failed the WHOLE repo -- the
+        # requirements pin and the three vendored scripts along with it -- for 8 of
+        # the 17 registry repos, which is how this was found.
+        return text
     found = match.group(2).strip().strip("\"'")
     if found != expected_ref:
         raise PatchError(
