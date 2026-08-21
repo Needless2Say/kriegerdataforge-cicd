@@ -98,7 +98,7 @@ as its first job.
 
 1. `cd-nextjs-vercel.yml`, `cd-python-vercel.yml`, and `cd-terraform.yml` each start with an
    `authorize` job that the `deploy`/`apply` job `needs:`. (`arthurs-portfolio`'s self-contained
-   `nextjs.yml` runs the same gate before its build.)
+   `cd.yml` runs the same gate before its build.)
 2. `authorize` sparse-checks-out this repo's `scripts/` and runs
    [`scripts/check_deployer.py`](../../scripts/check_deployer.py) (`cd-nextjs-vercel.yml:47-70`).
 3. The script matches `github.triggering_actor` (whoever clicked **Run workflow**) against
@@ -583,7 +583,7 @@ The authoritative allow-list is [`scripts/deployer_registry.json`](../../scripts
 | `tiffanys-space` | `dev`, `prod` | `cd-nextjs-vercel.yml` |
 | `tiffanys-space-backend` | `dev`, `prod` | `cd-python-vercel.yml` |
 | `kriegerdataforge-terraform` | `dev`, `prod` | `cd-terraform.yml` |
-| `arthurs-portfolio` | `github-pages` | self-contained `nextjs.yml` → GitHub Pages (runs the gate) |
+| `arthurs-portfolio` | `github-pages` | self-contained `cd.yml` → GitHub Pages (runs the gate) |
 | `kriegerdataforge-template-nextjs` | `dev`, `prod` | `cd-nextjs-vercel.yml` (prepared-files placeholder) |
 | `kriegerdataforge-template-fastapi` | `dev`, `prod` | `cd-python-vercel.yml` (prepared-files placeholder) |
 

@@ -1,0 +1,23 @@
+name: "kriegerdataforge-cicd - CodeQL Config"
+
+# Language is PYTHON, not javascript-typescript. That is deliberate and was changed
+# on 2026-08-09 after a real scan showed the TS setup analyzed almost nothing:
+# e2e/ contains only playwright.config.ts plus whatever ci_stack.py has *staged*
+# into e2e/staged-tests/ at that moment -- the journey specs live in the app repos
+# (ADR D-006, cicd is the engine only), so a scan saw 2 files, one of them transient.
+#
+# The security-relevant code here is Python: secret rotation, deployer authorization,
+# project provisioning, app-secret distribution. That is what this now scans.
+paths:
+  - scripts
+  - e2e
+
+paths-ignore:
+  - node_modules
+  - e2e/node_modules
+  # Transient: ci_stack.py copies specs in from sibling repos and removes them again.
+  - e2e/staged-tests
+  - e2e/test-results
+  - e2e/playwright-report
+  - scripts/tests
+  - "**/__pycache__"

@@ -53,7 +53,7 @@ Copy the tracked example file to the gitignored local file and fill in real valu
 values live only in the gitignored file — never in any tracked file, commit, or log.**
 
 ```bash
-cp {.env.example / .env.local.example} {.env.development / .env.local}
+cp {.env.example / .env.local.example} {.env.dev / .env.local}
 ```
 
 | Variable | Required | Where the value comes from |
