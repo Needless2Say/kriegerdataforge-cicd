@@ -5,7 +5,7 @@ GitHub cannot restrict *who* may trigger a `workflow_dispatch` (anyone with writ
 access can), so deploy authorization is enforced in-workflow instead. The common
 `authorize` job in each reusable CD workflow (cd-nextjs-vercel.yml,
 cd-python-vercel.yml, cd-terraform.yml — and arthurs-portfolio's self-contained
-nextjs.yml) runs this script BEFORE the deploy job and BEFORE the GitHub
+cd.yml) runs this script BEFORE the deploy job and BEFORE the GitHub
 Environment approval gate is requested.
 
 The script looks up the dispatching user (github.triggering_actor) against the

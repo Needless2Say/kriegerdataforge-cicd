@@ -46,3 +46,15 @@ e2e/staged-tests/
 # Self-contained-stack secrets generated per-run by ci_stack.py (RSA keypair,
 # OIDC client creds, DB password) — never commit.
 e2e/.e2e-ci.json
+
+# -- Python (managed: keep these together) ----------------------------------
+# Virtual environments. `python -m venv` self-ignores from 3.11 (it writes
+# a .gitignore containing `*`); virtualenv and older interpreters do not.
+# /env/ is ROOT-ANCHORED on purpose -- a bare env/ also matches tracked
+# application source such as src/core/config/env/.
+/env/
+
+# Python tool caches
+.kdf-fmt-cache/
+.mypy_cache/
+.ruff_cache/

@@ -81,7 +81,17 @@ SCRIPTS_EXEMPT_FILES_FALLBACK = {
 }
 KIT_EXEMPT_PREFIXES           = ("docs/agent/",)
 SCRIPTS_SYNC_BRANCH_PREFIX    = "chore/scripts-sync-"
-SCRIPTS_SYNC_PATCHED_CONFIGS  = {"Makefile", "kdf-fmt.toml", "ruff.toml", "pyproject.toml"}
+# requirements-dev.in joined this set when the distributor began merging the canonical
+# Python toolchain pins into every repo (ADR D-013). Without it a scripts-sync PR that
+# adds the kdf-fmt pin would trip the strict +1 gate it is itself exempt from, in every
+# repo at once. ci.yml is deliberately ABSENT: the distributor only READS it.
+SCRIPTS_SYNC_PATCHED_CONFIGS = {
+    "Makefile",
+    "kdf-fmt.toml",
+    "ruff.toml",
+    "pyproject.toml",
+    "requirements-dev.in",
+}
 
 # local imports — same-directory vendored layout fails over to the canonical package
 # layout (scripts/common/ under the cicd checkout / test runs). Sits below the constants

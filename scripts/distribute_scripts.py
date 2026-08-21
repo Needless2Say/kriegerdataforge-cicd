@@ -71,9 +71,34 @@ REPO_ROOT            = SCRIPTS_DIR.parent
 REGISTRY_FILE        = SCRIPTS_DIR / "scripts_registry.json"
 SCRIPTS_VERSION_FILE = SCRIPTS_DIR / "SCRIPTS_VERSION"
 
-MAKEFILE_DEST = "Makefile"
-KDF_FMT_DEST  = "kdf-fmt.toml"
-VENDOR_DIR    = "scripts/kdf_scripts/"
+MAKEFILE_DEST     = "Makefile"
+KDF_FMT_DEST      = "kdf-fmt.toml"
+REQUIREMENTS_DEST = "requirements-dev.in"
+CI_YAML_DEST      = ".github/workflows/ci.yml"
+VENDOR_DIR        = "scripts/kdf_scripts/"
+
+# Header written above the pins when a repo has no requirements-dev.in at all. Every
+# repo carries the vendored scripts, so every repo needs somewhere to declare the
+# Python toolchain that lints and formats them -- including the JS repos, which get
+# this file and nothing else Python-shaped. Deliberately NOT compiled to a
+# requirements.txt there: with no application dependencies there is nothing to lock,
+# and a lockfile would add a compile-requirements target to six Makefiles for no gain.
+_REQUIREMENTS_HEADER = (
+    "# Managed by kriegerdataforge-cicd (distribute_scripts.py, ADR D-013).\n"
+    "# Pins the Python toolchain that operates on the vendored scripts/kdf_scripts/\n"
+    "# copies. The scripts themselves are stdlib-only and need nothing to RUN.\n"
+    "#\n"
+    "# The distributor never rewrites a pin it did not expect: a version here that\n"
+    "# disagrees with the canonical one fails the sync as NEEDS MANUAL ATTENTION\n"
+    "# rather than silently moving you to another release.\n"
+)
+
+# `name @ git+https://...` and plain `name==x.y.z` both start with the distribution
+# name, which is all we need to decide "is this package already declared here".
+_REQ_NAME_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:@|==|>=|<=|~=|!=|<|>|\[|$)")
+
+# The reusable style job pins kdf-fmt itself, separately from the requirements file.
+_KDF_FMT_REF_RE = re.compile(r"^(\s*kdf_fmt_ref\s*:\s*)(\S+)\s*$", re.MULTILINE)
 
 # The canonical `ci-version-check` recipe every repo converges on: a thin call of the
 # vendored checker, which owns ALL the logic (consistency + strict increment +
@@ -217,6 +242,101 @@ def patch_kdf_fmt_toml(text: str | None) -> str:
     return normalized.rstrip("\n") + "\n" + _KDF_FMT_EXCLUDE_BLOCK
 
 
+def patch_requirements(text: str | None, packages: list[dict]) -> str:
+    """
+    Merge the canonical toolchain pins into a repo's requirements-dev.in.
+
+    Four cases per package, and only two of them write anything:
+      absent            -> the pinned spec is appended
+      present, same     -> untouched (idempotent; a re-run produces no diff)
+      present, differs  -> PatchError, so the repo is reported NEEDS MANUAL ATTENTION
+      file absent       -> created with the header, then the pins appended
+
+    The third case is the point of the whole exercise. Silently rewriting a pin would
+    move a repo onto a different kdf-fmt without anyone deciding to, and a kdf-fmt
+    version change shifts style findings against the baselines -- so divergence is
+    surfaced for a human instead of resolved by a tool.
+
+    Args:
+        text: the repo's current requirements-dev.in content, or None when absent
+        packages: canonical entries, each ``{"name": ..., "spec": ...}``
+
+    Returns:
+        str: the merged file content (LF endings)
+
+    Raises:
+        PatchError: when a package is already declared at a different version
+    """
+    normalized = (text or _REQUIREMENTS_HEADER).replace("\r\n", "\n")
+    lines      = normalized.split("\n")
+
+    declared: dict[str, tuple[int, str]] = {}
+    for index, line in enumerate(lines):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        match = _REQ_NAME_RE.match(line)
+        if match:
+            declared[match.group(1).lower().replace("_", "-")] = (index, line.strip())
+
+    additions: list[str] = []
+    for package in packages:
+        key  = package["name"].lower().replace("_", "-")
+        spec = package["spec"]
+        if key not in declared:
+            additions.append(spec)
+            continue
+        _index, existing = declared[key]
+        if existing != spec:
+            raise PatchError(
+                f"{package['name']} is pinned as {existing!r} but the canonical pin is "
+                f"{spec!r}. Reconcile it by hand -- the distributor will not move a pin "
+                "for you, because changing kdf-fmt versions moves style baselines too."
+            )
+
+    if not additions:
+        return normalized
+    body = normalized.rstrip("\n")
+    return (body + "\n" if body else "") + "\n".join(additions) + "\n"
+
+
+def patch_ci_yaml(text: str | None, expected_ref: str) -> str:
+    """
+    Verify the reusable style job pins the same kdf-fmt the requirements file does.
+
+    Returns the content UNCHANGED when the two agree, which the engine treats as "no
+    drift" and therefore never writes. That is deliberate: pushing a change to
+    .github/workflows/ requires the `workflow` token scope, and no other distributor
+    in this repo writes workflow files. Drift is reported instead of repaired.
+
+    This is the check that would have caught kriegerdataforge-sdk, which pinned
+    kdf-fmt v1.1.1 for local dev while its CI style job ran v1.1.0.
+
+    Args:
+        text: the repo's current ci.yml content, or None when absent
+        expected_ref: the canonical git ref, e.g. ``v1.1.1``
+
+    Returns:
+        str: the content exactly as received, when it is already consistent
+
+    Raises:
+        PatchError: when ci.yml is missing, has no kdf_fmt_ref, or pins another ref
+    """
+    if text is None:
+        raise PatchError(f"{CI_YAML_DEST} not found in the target repo")
+    match = _KDF_FMT_REF_RE.search(text.replace("\r\n", "\n"))
+    if match is None:
+        raise PatchError(f"{CI_YAML_DEST} declares no kdf_fmt_ref to compare")
+    found = match.group(2).strip().strip("\"'")
+    if found != expected_ref:
+        raise PatchError(
+            f"{CI_YAML_DEST} pins kdf_fmt_ref {found} but the canonical pin is "
+            f"{expected_ref}. Local dev and CI would format with different kdf-fmt "
+            "versions. Update the workflow by hand (the distributor never writes "
+            "workflow files)."
+        )
+    return text
+
+
 def patch_ruff_toml(text: str | None) -> str:
     """
     Append the vendor-dir exclusion to a tenant's ruff.toml `exclude` list.
@@ -307,6 +427,23 @@ def _build_items(registry: dict, only: str | None, entry: dict) -> list[SyncItem
         items.append(SyncItem(dest = MAKEFILE_DEST, desired = patch_makefile))
     if registry.get("kdf_fmt_patch"):
         items.append(SyncItem(dest = KDF_FMT_DEST, desired = patch_kdf_fmt_toml))
+    # A repo that PROVIDES one of the canonical packages must not pin it: kdf-fmt's own
+    # repo would end up depending on itself, and it carries no kdf_fmt_ref in ci.yml
+    # because it is the formatter rather than a consumer of one.
+    requirements = registry.get("requirements_patch")
+    if requirements and not entry.get("skip_requirements"):
+        packages = requirements.get("packages", [])
+        items.append(SyncItem(
+            dest = requirements.get("target", REQUIREMENTS_DEST),
+            desired = lambda text, pkgs = packages: patch_requirements(text, pkgs),
+        ))
+        # Read-only companion: proves the workflow pins the same ref, writes nothing.
+        toolchain_ref = requirements.get("kdf_fmt_ref")
+        if toolchain_ref:
+            items.append(SyncItem(
+                dest = CI_YAML_DEST,
+                desired = lambda text, ref = toolchain_ref: patch_ci_yaml(text, ref),
+            ))
     ruff_config = entry.get("ruff_config")
     if ruff_config:
         ruff_patchers = {"ruff.toml": patch_ruff_toml, "pyproject.toml": patch_ruff_pyproject}

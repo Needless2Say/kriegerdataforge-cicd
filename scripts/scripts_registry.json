@@ -1,36 +1,117 @@
 {
-	"_comment": "Registry for the ecosystem dev-script sync (distribute_scripts.py, ADR D-013; vendored layout ADR D-014). The canonical sources are the 'src' paths under kriegerdataforge-cicd/scripts/common/; each is vendored byte-identical to every repo in 'repos' at its 'dest' path under scripts/kdf_scripts/ -- a vendor directory that every tenant's kdf-fmt.toml and ruff config EXCLUDES, so cicd alone governs the style of what it ships. 'deletes' are superseded paths removed by the same sync PR (the pre-1.1.0 flat scripts/ layout). 'makefile_patch' rewrites script paths + the canonical ci-version-check recipe; 'kdf_fmt_patch' appends the vendor-dir exclude to kdf-fmt.toml; a repo's optional 'ruff_config' names the file (ruff.toml or pyproject.toml) that gets the same exclude. check mode reports drift; distribute mode opens one PR per drifted repo (never auto-merges). See docs/features/version-scripts-sync.md.",
-	"scripts_version_file": "scripts/SCRIPTS_VERSION",
-	"files": [
-		{ "src": "scripts/common/check_version.py", "dest": "scripts/kdf_scripts/check_version.py" },
-		{ "src": "scripts/common/bump_version.py", "dest": "scripts/kdf_scripts/bump_version.py" },
-		{ "src": "scripts/common/version_targets.py", "dest": "scripts/kdf_scripts/version_targets.py" }
-	],
-	"deletes": [
-		"scripts/check_version.py",
-		"scripts/bump_version.py",
-		"scripts/version_targets.py"
-	],
-	"makefile_patch": true,
-	"kdf_fmt_patch": true,
-	"repos": [
-		{ "repo": "Needless2Say/kriegerdataforge", "branch": "main", "ruff_config": "ruff.toml" },
-		{ "repo": "Needless2Say/kriegerdataforge-sdk", "branch": "main", "ruff_config": "pyproject.toml" },
-		{ "repo": "Needless2Say/kriegerdataforge-reports-sdk", "branch": "main", "ruff_config": "pyproject.toml" },
-		{ "repo": "Needless2Say/kriegerdataforge-report-form", "branch": "main" },
-		{ "repo": "Needless2Say/kriegerdataforge-terraform", "branch": "main" },
-		{ "repo": "Needless2Say/kriegerdataforge-auth-ui", "branch": "main" },
-		{ "repo": "Needless2Say/kriegerdataforge-fmt", "branch": "main", "ruff_config": "pyproject.toml" },
-		{ "repo": "Needless2Say/fitness-app-frontend", "branch": "main" },
-		{ "repo": "Needless2Say/fitness-app-backend", "branch": "main", "ruff_config": "ruff.toml" },
-		{ "repo": "Needless2Say/tiffanys-space", "branch": "main" },
-		{ "repo": "Needless2Say/tiffanys-space-backend", "branch": "main", "ruff_config": "ruff.toml" },
-		{ "repo": "Needless2Say/arthurs-portfolio", "branch": "main" },
-		{ "repo": "Needless2Say/kriegerdataforge-portfolio", "branch": "main" },
-		{ "repo": "Needless2Say/kriegerdataforge-template-nextjs", "branch": "main" },
-		{ "repo": "Needless2Say/kriegerdataforge-template-fastapi", "branch": "main", "ruff_config": "ruff.toml" },
-		{ "repo": "Needless2Say/kriegerdataforge-template-npm-package", "branch": "main" },
-		{ "repo": "Needless2Say/kriegerdataforge-template-python-package", "branch": "main", "ruff_config": "pyproject.toml" }
-	],
-	"_excluded_notes": "kriegerdataforge-cicd is the SOURCE — its scripts/common/ copies ARE the canonical, so it is not a sync target (no self-PRs; its own Makefile calls scripts/common/check_version.py directly and its kdf-fmt config governs the canonical style). Unlike the kit registry this one INCLUDES kriegerdataforge-fmt. The 4 template repos are included so a /generate'd repo is born with current scripts AND the vendor-dir excludes. Per-repo scripts/version_targets.json manifests are NOT synced and deliberately stay OUTSIDE scripts/kdf_scripts/ (tenant-owned config, see version_targets.py). A scripts-sync PR does not bump VERSION: the central scripts/common/check_version.py exempts PRs that touch only these dest+delete paths (plus Makefile / kdf-fmt.toml / ruff.toml / pyproject.toml, on chore/scripts-sync-* branches only) — ADR D-013, mirroring the kit's ADR D-001 option B."
+  "_comment": "Registry for the ecosystem dev-script sync (distribute_scripts.py, ADR D-013; vendored layout ADR D-014). The canonical sources are the 'src' paths under kriegerdataforge-cicd/scripts/common/; each is vendored byte-identical to every repo in 'repos' at its 'dest' path under scripts/kdf_scripts/ -- a vendor directory that every tenant's kdf-fmt.toml and ruff config EXCLUDES, so cicd alone governs the style of what it ships. 'deletes' are superseded paths removed by the same sync PR (the pre-1.1.0 flat scripts/ layout). 'makefile_patch' rewrites script paths + the canonical ci-version-check recipe; 'kdf_fmt_patch' appends the vendor-dir exclude to kdf-fmt.toml; a repo's optional 'ruff_config' names the file (ruff.toml or pyproject.toml) that gets the same exclude. check mode reports drift; distribute mode opens one PR per drifted repo (never auto-merges). See docs/features/version-scripts-sync.md.",
+  "scripts_version_file": "scripts/SCRIPTS_VERSION",
+  "files": [
+    {
+      "src": "scripts/common/check_version.py",
+      "dest": "scripts/kdf_scripts/check_version.py"
+    },
+    {
+      "src": "scripts/common/bump_version.py",
+      "dest": "scripts/kdf_scripts/bump_version.py"
+    },
+    {
+      "src": "scripts/common/version_targets.py",
+      "dest": "scripts/kdf_scripts/version_targets.py"
+    }
+  ],
+  "deletes": [
+    "scripts/check_version.py",
+    "scripts/bump_version.py",
+    "scripts/version_targets.py"
+  ],
+  "makefile_patch": true,
+  "kdf_fmt_patch": true,
+  "requirements_patch": {
+    "_comment": "Canonical Python toolchain pins merged into every repo's requirements-dev.in. The vendored scripts are stdlib-only and need nothing to RUN; this pins the tools that LINT and FORMAT them, so local dev and CI agree. A package already declared at a different version fails the sync as NEEDS MANUAL ATTENTION -- never rewritten, because a kdf-fmt version change moves style baselines. 'kdf_fmt_ref' is checked read-only against .github/workflows/ci.yml and never written (pushing workflow files needs the 'workflow' token scope).",
+    "target": "requirements-dev.in",
+    "kdf_fmt_ref": "v1.1.1",
+    "packages": [
+      {
+        "name": "kdf-fmt",
+        "spec": "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@v1.1.1"
+      }
+    ]
+  },
+  "repos": [
+    {
+      "repo": "Needless2Say/kriegerdataforge",
+      "branch": "main",
+      "ruff_config": "ruff.toml"
+    },
+    {
+      "repo": "Needless2Say/kriegerdataforge-sdk",
+      "branch": "main",
+      "ruff_config": "pyproject.toml"
+    },
+    {
+      "repo": "Needless2Say/kriegerdataforge-reports-sdk",
+      "branch": "main",
+      "ruff_config": "pyproject.toml"
+    },
+    {
+      "repo": "Needless2Say/kriegerdataforge-report-form",
+      "branch": "main"
+    },
+    {
+      "repo": "Needless2Say/kriegerdataforge-terraform",
+      "branch": "main"
+    },
+    {
+      "repo": "Needless2Say/kriegerdataforge-auth-ui",
+      "branch": "main"
+    },
+    {
+      "repo": "Needless2Say/kriegerdataforge-fmt",
+      "branch": "main",
+      "ruff_config": "pyproject.toml",
+      "skip_requirements": true,
+      "_skip_reason": "kdf-fmt is the package this pin POINTS AT; pinning it here would make the repo depend on itself, and it has no kdf_fmt_ref in ci.yml because it is the formatter, not a consumer of one."
+    },
+    {
+      "repo": "Needless2Say/fitness-app-frontend",
+      "branch": "main"
+    },
+    {
+      "repo": "Needless2Say/fitness-app-backend",
+      "branch": "main",
+      "ruff_config": "ruff.toml"
+    },
+    {
+      "repo": "Needless2Say/tiffanys-space",
+      "branch": "main"
+    },
+    {
+      "repo": "Needless2Say/tiffanys-space-backend",
+      "branch": "main",
+      "ruff_config": "ruff.toml"
+    },
+    {
+      "repo": "Needless2Say/arthurs-portfolio",
+      "branch": "main"
+    },
+    {
+      "repo": "Needless2Say/kriegerdataforge-portfolio",
+      "branch": "main"
+    },
+    {
+      "repo": "Needless2Say/kriegerdataforge-template-nextjs",
+      "branch": "main"
+    },
+    {
+      "repo": "Needless2Say/kriegerdataforge-template-fastapi",
+      "branch": "main",
+      "ruff_config": "ruff.toml"
+    },
+    {
+      "repo": "Needless2Say/kriegerdataforge-template-npm-package",
+      "branch": "main"
+    },
+    {
+      "repo": "Needless2Say/kriegerdataforge-template-python-package",
+      "branch": "main",
+      "ruff_config": "pyproject.toml"
+    }
+  ],
+  "_excluded_notes": "kriegerdataforge-cicd is the SOURCE — its scripts/common/ copies ARE the canonical, so it is not a sync target (no self-PRs; its own Makefile calls scripts/common/check_version.py directly and its kdf-fmt config governs the canonical style). Unlike the kit registry this one INCLUDES kriegerdataforge-fmt. The 4 template repos are included so a /generate'd repo is born with current scripts AND the vendor-dir excludes. Per-repo scripts/version_targets.json manifests are NOT synced and deliberately stay OUTSIDE scripts/kdf_scripts/ (tenant-owned config, see version_targets.py). A scripts-sync PR does not bump VERSION: the central scripts/common/check_version.py exempts PRs that touch only these dest+delete paths (plus Makefile / kdf-fmt.toml / ruff.toml / pyproject.toml, on chore/scripts-sync-* branches only) — ADR D-013, mirroring the kit's ADR D-001 option B."
 }
