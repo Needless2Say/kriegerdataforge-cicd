@@ -144,12 +144,14 @@ def test_ci_yaml_drift_raises() -> None:
     assert "v1.1.0" in str(excinfo.value)
 
 
-def test_ci_yaml_missing_key_raises() -> None:
+def test_ci_yaml_missing_key_is_a_no_op_not_a_block() -> None:
     """
-    No kdf_fmt_ref at all cannot be compared, so it needs a human.
+    A workflow that never calls the reusable style job has no second pin to disagree
+    with, so it is not drift. Raising here failed the ENTIRE repo -- requirements pin
+    and vendored scripts included -- for 8 of the 17 registry repos.
     """
-    with pytest.raises(PatchError):
-        ds.patch_ci_yaml("jobs:\n  style:\n    with:\n      other: 1\n", "v1.1.1")
+    no_key = "jobs:\n  style:\n    with:\n      other: 1\n"
+    assert ds.patch_ci_yaml(no_key, "v1.1.1") is no_key
 
 
 def test_ci_yaml_absent_file_raises() -> None:
