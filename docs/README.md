@@ -12,6 +12,7 @@ CI/CD platform repo — agentic-workflow kit source, repo provisioning, and ops 
 
 Interface, config, and technical reference.
 
+- [Glossary](reference/GLOSSARY.md). Every coined term and prefix these docs assume, defined inline (new 2026-08-22)
 - [Makefile reference](reference/MAKEFILE.md) — every `make` target and the reasoning: the three `make ci` lanes (the target did not exist until 2026-08-09), why renaming a lane here can break other repos' CI, and the two E2E stacks.
 - [Workflow Catalog](reference/WORKFLOWS.md) — per-workflow reference: inputs, secrets, caller patterns, the deployer-authorization gate, and the consumer-repo summary.
 

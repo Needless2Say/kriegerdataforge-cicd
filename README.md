@@ -31,6 +31,7 @@ belongs there and how to use it:
 | [`docs/agent/`](docs/agent/) | **The agentic-workflow kit** — the shared operating standard (kit-synced; its [README](docs/agent/README.md) explains every kit file and the reading order) |
 | [`docs/guides/`](docs/guides/README.md) | How-to walkthroughs: onboarding, E2E testing, secret rotation, manual setup |
 | [`docs/reference/`](docs/reference/README.md) | Source-verified contracts: the reusable-workflow catalog |
+| [`docs/reference/GLOSSARY.md`](docs/reference/GLOSSARY.md) | The glossary. Every coined term and prefix these docs assume, defined inline |
 | [`docs/features/`](docs/features/README.md) | One doc per shipped feature (kit-sync engine, ops console, …) |
 | [`docs/design/`](docs/design/README.md) | Design specs from the design gate, paired with ADRs |
 | [`docs/security/`](docs/security/README.md) | Security posture and audit notes |
