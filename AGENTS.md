@@ -3,7 +3,8 @@
 > **This is the canonical agent guide for this repo.** `CLAUDE.md`, `.cursorrules`, and
 > `.github/copilot-instructions.md` all point here. Read this first, then follow
 > [`WORKFLOW.md`](./WORKFLOW.md) for every task and [`skills.md`](./skills.md) for
-> security-sensitive work.
+> security-sensitive work. Unfamiliar term, acronym, or ID prefix? Resolve it in
+> [`docs/reference/GLOSSARY.md`](docs/reference/GLOSSARY.md) before acting on it.
 
 ## Vision & purpose — what you're building toward
 

@@ -6,6 +6,9 @@ automation that every tenant repo calls instead of maintaining its own pipelines
 `cd.yml` is a thin caller (`uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/<wf>.yml@main`
 + `secrets: inherit`) — all the real logic lives here.
 
+Unfamiliar term or acronym anywhere in these docs? It is defined in
+[`docs/reference/GLOSSARY.md`](../reference/GLOSSARY.md).
+
 This guide gets you from a fresh clone to a green local gate and your first PR. For the *why* behind
 the platform, read [`AGENTS.md`](../../AGENTS.md) first; for the task loop, read
 [`WORKFLOW.md`](../../WORKFLOW.md). This doc is the practical setup layer underneath both.

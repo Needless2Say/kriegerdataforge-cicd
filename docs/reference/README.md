@@ -5,6 +5,7 @@ if a claim and the code disagree, the code wins — fix the doc).
 
 | Reference | What it catalogs |
 | --- | --- |
+| [`GLOSSARY.md`](GLOSSARY.md) | Every coined term, prefix, and piece of shorthand these docs assume, defined inline (new 2026-08-22) |
 | [`MAKEFILE.md`](MAKEFILE.md) | Every `make` target and the reasoning: the three `make ci` lanes, why several lane names here are load-bearing for other repos' CI, the two-interpreter split, and the local-vs-self-contained E2E stacks |
 | [`WORKFLOWS.md`](WORKFLOWS.md) | The full reusable-workflow catalog: every workflow this repo ships, its inputs/secrets, and its consumers |
 
