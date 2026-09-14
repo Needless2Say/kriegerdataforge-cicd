@@ -1,9 +1,9 @@
-# [Agent Name] — Context Document
+# [Agent Name], Context Document
 
-**Agent:** [agent-name]-agent
-**Workflow:** `.github/workflows/[agent-name]-agent.yml`
-**Status:** TODO / Draft
-**Last updated:** [YYYY-MM-DD]
+**Agent.** [agent-name]-agent
+**Workflow.** `.github/workflows/[agent-name]-agent.yml`
+**Status.** TODO / Draft
+**Last updated.** [YYYY-MM-DD]
 
 ---
 
@@ -40,7 +40,7 @@
 ## Agent Prompt
 
 The system prompt loaded into the AI for this agent's task. This should be the canonical
-source — keep it in sync with the workflow's actual prompt string.
+source. Keep it in sync with the workflow's actual prompt string.
 
 ```
 [Paste the system prompt here]
@@ -52,15 +52,15 @@ source — keep it in sync with the workflow's actual prompt string.
 
 Context the agent needs to understand the repository it's working in:
 
-**Repo:** [owner/repo]
-**Language(s):** [e.g., Python 3.12, TypeScript 5.9]
-**Framework(s):** [e.g., FastAPI, Next.js]
+**Repo.** [owner/repo]
+**Language(s).** [e.g., Python 3.12, TypeScript 5.9]
+**Framework(s).** [e.g., FastAPI, Next.js]
 **Key directories:**
-- `[path/]` — [what it contains]
-- `[path/]` — [what it contains]
+- `[path/]`. [what it contains]
+- `[path/]`. [what it contains]
 
-**Coding standards ref:** `[path/to/CODING_STANDARDS.md]`
-**Architecture ref:** `[path/to/ARCHITECTURE.md]`
+**Coding standards ref.** `[path/to/CODING_STANDARDS.md]`
+**Architecture ref.** `[path/to/ARCHITECTURE.md]`
 
 ---
 
@@ -68,7 +68,7 @@ Context the agent needs to understand the repository it's working in:
 
 Explicit constraints to prevent unintended behavior:
 
-- [ ] Do NOT modify source files — only comment/report
+- [ ] Do NOT modify source files, only comment/report
 - [ ] Do NOT approve or merge PRs
 - [ ] Do NOT expose secrets or internal paths in output
 - [ ] [Add agent-specific constraints]

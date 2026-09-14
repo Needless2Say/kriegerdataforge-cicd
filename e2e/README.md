@@ -1,25 +1,25 @@
-# Tier 2 full-stack E2E (Playwright)
+# Tier 2 full stack E2E (Playwright)
 
-Browser E2E for the **real** KriegerDataForge ecosystem stack — the tier that
-proves the pieces only integrate in a browser: the BFF proxy, the cross-origin
+Browser E2E for the **real** KriegerDataForge ecosystem stack. The tier that
+proves the pieces only integrate in a browser. The BFF proxy, the cross origin
 OIDC redirect chain, the callback's real code→token exchange, and
-server-rendered backend data, all as a user experiences them.
+server rendered backend data, all as a user experiences them.
 
 Unit + integration tests (including the hub OIDC E2E in
 `kriegerdataforge/integration_tests/test_oidc_e2e_db.py`) cover the OIDC
-*protocol*; this covers the *journey*.
+*protocol*. This covers the *journey*.
 
-> **Status:** two ways to bring the stack up — the **delegated** local stack
-> (`make e2e-up`, reuses each repo's `.env.local` + bind-mounts) and the
-> **self-contained** stack (`make e2e-ci`, builds every image from source with
-> generated secrets, no `.env.local`). The self-contained stack also runs in
+> **Status.** Two ways to bring the stack up. The **delegated** local stack
+> (`make e2e-up`, reuses each repo's `.env.local` + bind mounts) and the
+> **self contained** stack (`make e2e-ci`, builds every image from source with
+> generated secrets, no `.env.local`). The self contained stack also runs in
 > GitHub Actions via each repo's own `e2e.yml` job (the `run-e2e` composite
-> action) — see [CI (GitHub Actions)](#ci-github-actions).
+> action). See [CI (GitHub Actions)](#ci-github-actions-a-per-repo-job-via-a-composite-action-adr-d-007).
 
 ## The journeys under test
 
-Two tenants share the hub + auth-UI, each with a **distinct OIDC client** — the
-same browser-only integration, proven per tenant. Each journey's spec lives in
+Two tenants share the hub + auth-UI, each with a **distinct OIDC client**. The
+same browser only integration, proven per tenant. Each journey's spec lives in
 **its own repo** (`fitness-app-frontend/e2e/tests/fitness.spec.ts` `@fitness`,
 `tiffanys-space/e2e/tests/tiffanys.spec.ts` `@tiffanys`):
 
@@ -37,14 +37,14 @@ tiffanys FE (:3001)  gated route "/shop"   (OIDC-only; default-deny proxy)
 ```
 
 A third journey, **`auth`** (`kriegerdataforge-auth-ui/e2e/tests/auth.spec.ts`
-`@auth`), tests the shared identity layer at its own level — auth-UI + hub + db, a
+`@auth`), tests the shared identity layer at its own level. Auth-UI + hub + db, a
 **synthetic** OIDC client and **no tenant app** (login → consent → an authorization
-code, plus a wrong-password case).
+code, plus a wrong password case).
 
-**Per-repo journeys (ADR D-008).** Every repo owns a *distinct* journey scoped to its
-dependency subgraph — the repo plus what it depends on downstream, never its upstream
+**Per repo journeys (ADR D-008).** Every repo owns a *distinct* journey scoped to its
+dependency subgraph. The repo plus what it depends on downstream, never its upstream
 consumers. Beyond the three browser journeys above, three **headless** journeys
-(`app: false`, opt-in) exercise the backends + hub directly: the spec itself mints a
+(`app: false`, opt in) exercise the backends + hub directly. The spec itself mints a
 **real** hub token via a headless OIDC login (no frontend BFF), then calls the target's
 API:
 
@@ -59,14 +59,14 @@ tiffanys-api (tiffanys-space-backend)  tiffanys backend + identity, no frontend 
                                         rejected WITHOUT it
 ```
 
-**Data-driven, tenant-agnostic (ADR D-006 / D-008).** Each journey is declared by an
-`e2e/manifest.json` the driver *discovers* in its **own repo** — nothing repo-specific
+**Data driven, tenant agnostic (ADR D-006 / D-008).** Each journey is declared by an
+`e2e/manifest.json` the driver *discovers* in its **own repo**. Nothing repo specific
 lives in cicd, so onboarding a repo never edits this one.
 `ci_stack.py up --journey fitness` (or `tiffanys`, `auth`, `hub`, `fitness-api`,
-`tiffanys-api`, a comma-list, or `all` for the app browser journeys) reads that
+`tiffanys-api`, a comma list, or `all` for the app browser journeys) reads that
 manifest, merges the shared compose with the journey's fragment, brings up only what it
 needs, and **stages that journey's spec** into `staged-tests/` so `npm test` runs
-exactly it — no `--grep`. See
+exactly it. No `--grep`. See
 [`docs/design/e2e-every-repo-journeys.md`](../docs/design/e2e-every-repo-journeys.md).
 
 ## Prerequisites
@@ -76,9 +76,9 @@ exactly it — no `--grep`. See
   `kriegerdataforge-auth-ui`, `fitness-app-backend`, `fitness-app-frontend`),
   each with its `.env.local` provisioned (RSA dev keypair, `GH_PACKAGES_PAT`,
   a seeded fitness OIDC client). See each repo's `.env.local.example`.
-- For the **browser journeys** (`fitness`, `tiffanys`): `GH_NPM_TOKEN` in the
-  frontend repo's `.env.local` (or exported) — the frontend images `npm ci` the
-  private `@needless2say/report-form` package and fail-closed (npm E401) without it.
+- For the **browser journeys** (`fitness`, `tiffanys`). `GH_NPM_TOKEN` in the
+  frontend repo's `.env.local` (or exported). The frontend images `npm ci` the
+  private `@needless2say/report-form` package and fail closed (npm E401) without it.
 
 ## Run it locally
 
@@ -104,7 +104,7 @@ npm run report           # open the last HTML report
 
 The stack must already be up and a matching **active** user seeded (the
 `E2E_USERNAME`/`E2E_PASSWORD` in `.env`). The spec **skips cleanly** if those
-are unset, so `npm test` never hard-fails on an unconfigured checkout.
+are unset, so `npm test` never hard fails on an unconfigured checkout.
 
 ### Seeding the test user
 
@@ -119,13 +119,13 @@ docker exec kdf-api python -c "from api.auth.service import AuthDatabaseService;
 ```
 
 The fitness OIDC client and food catalogue are seeded by the stack's init/seed
-step; `/database` needs ≥ 1 food for the data-render assertion.
+step, `/database` needs ≥ 1 food for the data render assertion.
 
-## Self-contained CI stack (no local checkout state)
+## Self contained CI stack (no local checkout state)
 
 `make e2e-up` above delegates to `fitness-app-frontend`'s `make docker-up`, which
-bind-mounts each repo's source and reads secrets from each repo's gitignored
-`.env.local`. Great for local iteration, but it **can't run in CI** — a fresh
+bind mounts each repo's source and reads secrets from each repo's gitignored
+`.env.local`. Great for local iteration, but it **can't run in CI**, a fresh
 runner has no `.env.local` and nothing to bind-mount.
 
 `docker-compose.shared.yml` (db + hub + auth-UI) + each journey's fragment
@@ -134,20 +134,20 @@ sibling. `ci_stack.py`:
 
 - **discovers** each journey's `manifest.json` (no hardcoded tenant list) and, for
   the requested `--journey`, generates a throwaway RS256 keypair + session secret +
-  DB password (shared) and a fixed-per-run OIDC `client_id`/`secret` **per journey**
+  DB password (shared) and a fixed per run OIDC `client_id`/`secret` **per journey**
   (persisted to `e2e/.e2e-ci.json`, gitignored), threading them through the compose
-  so the hub, each frontend, and the seed all agree — no capture-and-inject dance;
+  so the hub, each frontend, and the seed all agree. No capture and inject dance;
 - merges `-f docker-compose.shared.yml` with the active journeys' fragments, builds
   every service from source (the `dev` image targets, source COPY'd in, **no**
-  bind-mounts), brings them up on their own network with healthcheck gating,
+  bind mounts), brings them up on their own network with healthcheck gating,
   migrates the hub DB + each journey's backend, then seeds the active login user +
   one OIDC client per journey (hub) and each catalogue;
 - **stages** the active journeys' specs into `e2e/staged-tests/` (the Playwright
   `testDir`) and writes `e2e/.env`, so `npm test` runs exactly those journeys;
 - sources `GH_PACKAGES_PAT` from the environment (the CI secret), falling back to
-  `fitness-app-backend/.env.local` locally so you needn't export it by hand; likewise
+  `fitness-app-backend/.env.local` locally so you needn't export it by hand, likewise
   `GH_NPM_TOKEN` (env → `fitness-app-frontend`/`tiffanys-space` `.env.local`) for the
-  frontends' private-npm `npm ci` (classic-PAT-only — GH Packages npm rejects App tokens).
+  frontends' private npm `npm ci` (classic PAT only, GH Packages npm rejects App tokens).
 
 ```bash
 make e2e-ci          # build + up + seed → run Playwright → tear down (one shot)
@@ -161,7 +161,7 @@ make e2e-ci-down     # remove containers, volumes, network
 The generated keys are ephemeral and never touch your real dev keypair. The
 seeded login user is the same deterministic `e2e-user` / `E2eTest123!` the suite
 defaults to, so no `.env` wiring is needed. It uses the `dev` image targets on
-purpose — the production `runner`/standalone build breaks a plain-http E2E
+purpose. The production `runner`/standalone build breaks a plain http E2E
 (Secure cookies get dropped, CSP upgrades http→https, `NEXT_PUBLIC_*` bake at
 build). MinIO is omitted (not on the login→`/database` path).
 
@@ -170,44 +170,44 @@ build). MinIO is omitted (not on the login→`/database` path).
 The auth-UI and fitness frontend now ship `data-testid` hooks
 (auth-ui#38, fitness-app-frontend#305). The spec targets them via
 `getByTestId(...).or(<legacy id/role>)`, so it stays green **whether or not**
-those frontend PRs are deployed yet — no cross-repo merge-order dependency:
+those frontend PRs are deployed yet. No cross repo merge order dependency:
 
 | Step | `data-testid` | Fallback |
 |---|---|---|
 | hub login username / password | `login-username` / `login-password` | `#username` / `#password` |
 | hub login submit | `login-submit` | `getByRole('button', { name: 'Sign in' })` |
-| consent approve (one-time) | `consent-approve` | `getByRole('button', { name: 'Allow' })` |
-| logged-in marker (any private page) | `account-menu` | `button[aria-label="Open account menu"]` |
+| consent approve (one time) | `consent-approve` | `getByRole('button', { name: 'Allow' })` |
+| logged in marker (any private page) | `account-menu` | `button[aria-label="Open account menu"]` |
 | rendered backend data (`/database`) | `food-result` | `a[aria-label^="View food details:"]` |
 
-## CI (GitHub Actions) — a per-repo job, via a composite action (ADR D-007)
+## CI (GitHub Actions). A per repo job, via a composite action (ADR D-007)
 
 The E2E is **not** a callable workflow. cicd ships a reusable **composite action**,
 [`.github/actions/run-e2e`](../.github/actions/run-e2e/action.yml), and each tenant
 repo owns a thin CI job (`.github/workflows/e2e.yml`) that `uses:` it. The action is
-tenant-agnostic — it reads the **calling repo's `e2e/manifest.json`** for the sibling
+tenant-agnostic. It reads the **calling repo's `e2e/manifest.json`** for the sibling
 repos, so cicd never learns tenant names.
 
-What the action does: reads the caller's manifest → mints a short-lived App token
+**What the action does.** Reads the caller's manifest → mints a short lived App token
 (`contents:read`, scoped to `{hub, auth-ui, sdk}` + the manifest's `repos`) → checks
-out cicd + those repos as siblings under `$GITHUB_WORKSPACE` (a token clone loop; the
+out cicd + those repos as siblings under `$GITHUB_WORKSPACE` (a token clone loop, the
 caller repo is already checked out by the job) → `python e2e/ci_stack.py up --journey
-<j>` → `npm test` → uploads the report → always tears down. Secrets are auto-masked;
+<j>` → `npm test` → uploads the report → always tears down. Secrets are auto masked,
 CI gets headroom via `E2E_BUILD_TIMEOUT` / `E2E_WAIT_TIMEOUT`.
 
-## Enabling E2E in a repo — CI gate, CD/nightly, or on demand
+## Enabling E2E in a repo. CI gate, CD/nightly, or on demand
 
 Each E2E-journey repo ships a **dormant** CI job, `.github/workflows/e2e.yml`, that
 `uses:` the `run-e2e` action and passes the `journey` the repo owns:
 
 | Repo | `journey` | What it exercises |
 |---|---|---|
-| `fitness-app-frontend` | `fitness` | fitness tenant — full browser journey (login → `/database`) |
-| `fitness-app-backend` | `fitness-api` | fitness backend + identity, no frontend — headless OIDC → protected API serves seeded data |
-| `tiffanys-space` | `tiffanys` | tiffanys tenant — full browser journey (login → `/shop`) |
-| `tiffanys-space-backend` | `tiffanys-api` | tiffanys backend + identity, no frontend — headless OIDC → protected `/cart` served with the token, rejected without |
+| `fitness-app-frontend` | `fitness` | fitness tenant. Full browser journey (login → `/database`) |
+| `fitness-app-backend` | `fitness-api` | fitness backend + identity, no frontend. Headless OIDC → protected API serves seeded data |
+| `tiffanys-space` | `tiffanys` | tiffanys tenant. Full browser journey (login → `/shop`) |
+| `tiffanys-space-backend` | `tiffanys-api` | tiffanys backend + identity, no frontend. Headless OIDC → protected `/cart` served with the token, rejected without |
 | `kriegerdataforge-auth-ui` | `auth` | shared identity layer (hosted login/consent + hub + db), a synthetic client, no tenant app |
-| `kriegerdataforge` (hub) | `hub` | shared identity core — OIDC discovery/JWKS + full auth-code+PKCE flow + userinfo + refresh + negatives, vs. the built image + real DB |
+| `kriegerdataforge` (hub) | `hub` | shared identity core, OIDC discovery/JWKS + full auth code+PKCE flow + userinfo + refresh + negatives, vs. the built image + real DB |
 
 ### Three run modes (two variables)
 
@@ -216,12 +216,12 @@ The job stays dormant until you opt into a mode. It reacts to two repo **variabl
 
 | Mode | Set | When E2E runs | Use it when |
 |---|---|---|---|
-| **CI gate** | `RUN_E2E_GATE = true` | every PR to `main` | you want E2E to **block** merges (hard per-PR gate) |
-| **CD / nightly** | `RUN_E2E_CD = true` | on **push to `main`** (post-merge) + **weekly** | you **don't** want E2E on every PR, but want it before/after deploy + on a schedule |
+| **CI gate** | `RUN_E2E_GATE = true` | every PR to `main` | you want E2E to **block** merges (hard per PR gate) |
+| **CD / nightly** | `RUN_E2E_CD = true` | on **push to `main`** (post merge) + **weekly** | you **don't** want E2E on every PR, but want it before/after deploy + on a schedule |
 | **On demand** | *(neither)* | only a manual **`workflow_dispatch`** | you want to run it yourself, ad hoc |
 
 A manual `workflow_dispatch` **always** runs, regardless of the variables (repo
-write-access is the gate). The two variables are independent — set both for a per-PR
+write access is the gate). The two variables are independent. Set both for a per PR
 gate *and* a nightly safety net, or just `RUN_E2E_CD` to keep PRs fast.
 
 ```yaml
@@ -250,21 +250,21 @@ jobs:
           app-private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
 ```
 
-**Secrets (needed for any mode that actually runs):** `KDF_APP_ID`,
-`KDF_APP_PRIVATE_KEY` — the action mints its App token from these (they live only on
-the cicd repo today; an org move would make them org-level and skip this per-repo
+**Secrets (needed for any mode that actually runs).** `KDF_APP_ID`,
+`KDF_APP_PRIVATE_KEY`. The action mints its App token from these (they live only on
+the cicd repo today, an org move would make them org level and skip this per repo
 step). Browser journeys whose frontend consumes `@needless2say/*` npm packages also
-pass `gh-npm-token: <the repo's GH_NPM_TOKEN secret>` (classic PAT, `read:packages`) —
-the App token cannot authenticate to GH Packages npm. The `ops-setup-e2e` issue flow copies the secrets and sets `RUN_E2E_GATE=false`;
-set `RUN_E2E_GATE`/`RUN_E2E_CD=true` when ready. For the CI-gate mode, also add the
+pass `gh-npm-token: <the repo's GH_NPM_TOKEN secret>` (classic PAT, `read:packages`).
+The App token cannot authenticate to GH Packages npm. The `ops-setup-e2e` issue flow copies the secrets and sets `RUN_E2E_GATE=false`.
+Set `RUN_E2E_GATE`/`RUN_E2E_CD=true` when ready. For the CI gate mode, also add the
 resulting **E2E** check to branch protection → *Require status checks to pass*.
 
-> **Caveat — cross-repo lockstep.** A PR that must change two repos together (an
-> OIDC-contract change in the hub *and* the frontend, an SDK bump) can't go green in
-> either repo's per-PR gate — each tests against the other's old `main`. So for the
-> tightly-coupled repos the recommended posture is the **CD / nightly** mode
-> (`RUN_E2E_CD`) rather than a hard per-PR gate, keeping the fast in-repo contract
-> tests as the per-PR check.
+> **Caveat. Cross repo lockstep.** A PR that must change two repos together (an
+> OIDC contract change in the hub *and* the frontend, an SDK bump) can't go green in
+> either repo's per PR gate. Each tests against the other's old `main`. So for the
+> tightly coupled repos the recommended posture is the **CD / nightly** mode
+> (`RUN_E2E_CD`) rather than a hard per PR gate, keeping the fast in repo contract
+> tests as the per PR check.
 
-No org move or public repos are required to run it manually — same-account private
+No org move or public repos are required to run it manually, same account private
 repos are clonable with the App token.

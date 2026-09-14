@@ -1,6 +1,6 @@
 # Contributing to kriegerdataforge-cicd
 
-This is the **platform CI/CD library** for the KriegerDataForge ecosystem — a centralized
+This is the **platform CI/CD library** for the KriegerDataForge ecosystem, a centralized
 home for reusable GitHub Actions workflows that every tenant repo calls.
 
 ---
@@ -8,7 +8,7 @@ home for reusable GitHub Actions workflows that every tenant repo calls.
 ## Local Setup
 
 Install the pre-commit hooks once per clone so a secret is caught before it lands
-(the CI `secret-scan` job is the post-push backstop — see PL-027):
+(the CI `secret-scan` job is the post push backstop, see PL-027):
 
 ```
 pip install pre-commit
@@ -19,7 +19,7 @@ Then run `make check-all` (actionlint + pytest in `scripts/`) before opening a P
 
 ---
 
-## Two-Tier Model
+## Two Tier Model
 
 ```
 Tier 1 — this repo                   Tier 2 — each tenant repo
@@ -31,7 +31,7 @@ docs/                                App source, Dockerfile, Makefile
 ```
 
 Every tenant repo delegates deployment to a reusable workflow here. The tenant's `cd.yml`
-is a thin caller — all deploy logic lives in this repo.
+is a thin caller. All deploy logic lives in this repo.
 
 ---
 
@@ -48,21 +48,23 @@ is a thin caller — all deploy logic lives in this repo.
 | Release trigger | — | `.github/workflows/release.yml` |
 | Platform scripts (token rotation, DB backups) | `scripts/` | — |
 | App source code | — | `api/`, `src/`, etc. |
-| App-specific Docker / Makefile | — | `Dockerfile`, `Makefile` |
+| App specific Docker / Makefile | — | `Dockerfile`, `Makefile` |
 | Issue templates for repo provisioning | `.github/ISSUE_TEMPLATE/` | — |
 | Onboarding and setup docs | `docs/guides/MANUAL_SETUP.md` | — |
 | **Reusable E2E engine** (driver `ci_stack.py`, `docker-compose.shared.yml`, the `run-e2e` composite action, Playwright harness) | `e2e/` + `.github/actions/run-e2e/` | — |
 | **A tenant's E2E journey** (its Playwright spec, its compose service fragment, its seed data, its `e2e/manifest.json`) | — | `e2e/` in that tenant repo |
 | **E2E gate job** (a thin CI job that `uses:` the `run-e2e` action, gated by `RUN_E2E_GATE`) | — | `.github/workflows/e2e.yml` |
 
-**Rule of thumb:** if the same logic would need to exist in more than one tenant repo,
+### Rule of thumb
+
+If the same logic would need to exist in more than one tenant repo,
 it belongs here. If it's specific to one app's stack, it stays in that tenant repo.
 
-> **Scope smell test (important — see ADR D-006).** If onboarding a *new tenant* would require editing a
+> **Scope smell test (important, see ADR D-006).** If onboarding a *new tenant* would require editing a
 > file in **this** repo (adding a spec to `e2e/tests/`, a service block to a compose file, an entry to a
-> `TENANTS`/`CLIENTS` list, or a `case` to a workflow), **stop** — that's tenant-specific content leaking
-> into the reusable engine. Make the engine **data-driven** (discover a manifest the tenant owns) instead
-> of adding another hardcoded entry. cicd must stay tenant-agnostic so it scales to N tenants without
+> `TENANTS`/`CLIENTS` list, or a `case` to a workflow), **stop**. That's tenant specific content leaking
+> into the reusable engine. Make the engine **data driven** (discover a manifest the tenant owns) instead
+> of adding another hardcoded entry. cicd must stay tenant agnostic so it scales to N tenants without
 > bloating. This is exactly the decoupling in
 > [`docs/design/e2e-test-decoupling.md`](docs/design/e2e-test-decoupling.md).
 
@@ -71,12 +73,12 @@ it belongs here. If it's specific to one app's stack, it stays in that tenant re
 ## Adding a New Reusable Workflow
 
 1. Create `.github/workflows/<name>.yml` with `on: workflow_call`.
-2. Add `permissions:` at the workflow level — minimum necessary only.
-3. All secrets must flow via `secrets: inherit` from the caller; never hard-code values.
+2. Add `permissions:` at the workflow level, minimum necessary only.
+3. All secrets must flow via `secrets: inherit` from the caller, never hard code values.
 4. All inputs must have explicit `type:` and `description:` fields.
 5. Document it in `docs/reference/WORKFLOWS.md`:
    - Purpose and what it does (numbered steps).
-   - Caller pattern (copy-paste YAML).
+   - Caller pattern (copy paste YAML).
    - Required secrets table.
    - Inputs table.
    - Add to the Consumer Repo Summary table.
@@ -85,21 +87,21 @@ it belongs here. If it's specific to one app's stack, it stays in that tenant re
 
 ---
 
-## Modifying an Existing Workflow — Breaking Change Rules
+## Modifying an Existing Workflow, Breaking Change Rules
 
 Every change to a reusable workflow is a potential breaking change because all consumer
 repos call them live from `@main`.
 
 | Change type | Safe? | Rule |
 | --- | --- | --- |
-| Add an optional input with a `default:` | Yes | Always backwards-compatible |
-| Add a required input (`required: true`) | **No** | Breaks all callers that don't pass it — coordinate first |
+| Add an optional input with a `default:` | Yes | Always backwards compatible |
+| Add a required input (`required: true`) | **No** | Breaks all callers that don't pass it, coordinate first |
 | Remove or rename an input | **No** | Breaks callers passing the old name |
-| Change an input's `type:` | **No** | Breaks callers — types must not change |
+| Change an input's `type:` | **No** | Breaks callers, types must not change |
 | Rename a secret | **No** | Coordinate across all repo environments first |
 | Change step behavior / runtime | Caution | Test on a feature branch using a consumer caller |
 
-When in doubt: add, don't change. Deprecate old inputs by keeping them optional and
+When in doubt, add, don't change. Deprecate old inputs by keeping them optional and
 ignoring them rather than removing them. The cost of a broken deploy across three consumer
 repos is much higher than the cost of an extra unused input.
 
@@ -109,7 +111,7 @@ repos is much higher than the cost of an extra unused input.
 
 - One logical change per PR.
 - If the change touches a workflow YAML, also update `docs/reference/WORKFLOWS.md` in the same PR.
-- If the change is a breaking change: open a tracking issue on every affected consumer repo
+- If the change is a breaking change, open a tracking issue on every affected consumer repo
   and coordinate the update before merging here.
 - Run `make lint` before opening the PR.
 
@@ -117,7 +119,7 @@ repos is much higher than the cost of an extra unused input.
 
 ## Adding a New Consumer (Tenant) Repo
 
-1. Create the repo via the issue template: open a `new-repo` issue in this repo — the
+1. Create the repo via the issue template. Open a `new-repo` issue in this repo, the
    `issue-create-repo.yml` workflow handles provisioning automatically.
 2. In the new repo's `cd.yml`, call the appropriate reusable workflow:
    ```yaml
@@ -134,7 +136,7 @@ repos is much higher than the cost of an extra unused input.
 
 ---
 
-## Deferred: `scripts_dir` Input
+## Deferred, `scripts_dir` Input
 
 Reusable workflows currently assume the standard KDF project layout
 (compactor at `scripts/vercel_compactor.py`, Alembic at project root, `vercel_api/` output dir).
