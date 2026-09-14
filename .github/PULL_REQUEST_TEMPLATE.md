@@ -11,12 +11,12 @@
 
 ## Definition of Done
 See [`docs/agent/DEFINITION_OF_DONE.md`](../docs/agent/DEFINITION_OF_DONE.md) for the full,
-change-type-specific bar. Baseline:
+change type specific bar. Baseline:
 
-- [ ] Local `make ci` is green; version bumped (+ any required sync)
-- [ ] Change is scoped and self-reviewed; no secrets in code/commits/logs
+- [ ] Local `make ci` is green. Version bumped (+ any required sync)
+- [ ] Change is scoped and self-reviewed. No secrets in code/commits/logs
 - [ ] Tests added at the right tier for new behavior (unit / integration / e2e)
-- [ ] Docs updated; **ADR (`D-NNN`)** added if architectural
-- [ ] Data change → backward-compatible migration + rollback path
-- [ ] Security-relevant → followed the matching [`skills.md`](../skills.md) scenario
-- [ ] Cross-repo contract → contract-first order + epic tracker updated + behind a feature flag
+- [ ] Docs updated, **ADR (`D-NNN`)** added if architectural
+- [ ] Data change → backward compatible migration + rollback path
+- [ ] Security relevant → followed the matching [`skills.md`](../skills.md) scenario
+- [ ] Cross repo contract → contract first order + epic tracker updated + behind a feature flag

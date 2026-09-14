@@ -21,7 +21,7 @@ labels: enhancement
 
 - Affected repo(s):
 - Breaking change? (yes/no)
-- Security or auth implications? (if yes, note them — see `skills.md`)
+- Security or auth implications? (if yes, note them, see `skills.md`)
 
 ## Additional context
 

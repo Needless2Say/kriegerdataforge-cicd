@@ -1,793 +1,793 @@
-# Changelog & Decision Log — kriegerdataforge-cicd
+# Changelog & Decision Log, kriegerdataforge-cicd
 
-Append-only Architecture Decision Records (`D-NNN`) for this repo, the home of the ecosystem CI/CD
-automation and the canonical **agentic-workflow kit** (`kit/common/`). ADRs are immutable: to change
-a decision, add a new one that supersedes it — don't edit history.
+Append only Architecture Decision Records (`D-NNN`) for this repo, the home of the ecosystem CI/CD
+automation and the canonical **agentic workflow kit** (`kit/common/`). ADRs are immutable, to change
+a decision, add a new one that supersedes it. Don't edit history.
 
 ---
 
-## D-001 — Agentic-Workflow Standard v1.1: vision-propagation, ambition ethos, contract-ownership
+## D-001. Agentic Workflow Standard v1.1. Vision propagation, ambition ethos, contract ownership
 
-- **Date:** 2026-06-27
-- **Status:** Accepted
+- **Date.** 2026-06-27
+- **Status.** Accepted
 - **Tier / scope:** Epic · repos: all (kit synced from `cicd/kit/common/`)
 - **Design doc:** the multi-agent review of the kit (session `wm62gt0vf`) · **Epic tracker:**
   [`kriegerdataforge/docs/epics/agent-kit-distribution.md`](https://github.com/Needless2Say/kriegerdataforge/blob/main/docs/epics/agent-kit-distribution.md)
 
-**Context.** A 7-dimension adversarial review of the agentic-workflow kit (graded B+) found it steers
-a capable model well but leaves the owner's two stated priorities to luck: (1) a model on a cross-repo
-task read only its *starting* repo's vision and treated the others as code to map; (2) nothing in the
+**Context.** A 7-dimension adversarial review of the agentic workflow kit (graded B+) found it steers
+a capable model well but leaves the owner's two stated priorities to luck. (1) a model on a cross repo
+task read only its *starting* repo's vision and treated the others as code to map, (2) nothing in the
 kit licensed ambition, so the conservative default tone ("keep it scoped") nudged models toward timid
-minimal patches. Three sharper gaps: the contract-first sequence hard-coded `backend → SDK → frontend`,
-which is wrong for per-app APIs (the SDK is auth-only; per-app contracts flow backend-OpenAPI →
-frontend client); Claude-only mechanisms (`/code-review ultra`, sub-agents, a hub-only `prompts/` link)
-were stated without a provider-neutral fallback; and the template repos — the seed for every future
-repo — had no Vision section and pointer files that never routed to `AGENTS.md`.
+minimal patches. Three sharper gaps. The contract first sequence hard coded `backend → SDK → frontend`,
+which is wrong for per app APIs (the SDK is auth only, per app contracts flow backend OpenAPI →
+frontend client), Claude only mechanisms (`/code-review ultra`, sub-agents, a hub only `prompts/` link)
+were stated without a provider neutral fallback, and the template repos. The seed for every future
+repo. Had no Vision section and pointer files that never routed to `AGENTS.md`.
 
-**Decision.** Ship **Standard v1.1** as additive, byte-identical kit edits plus one new flagship doc:
+**Decision.** Ship **Standard v1.1** as additive, byte identical kit edits plus one new flagship doc:
 
-- **Vision-first across the blast radius** — Discovery now requires reading *every* touched repo's
-  `AGENTS.md` Vision & Critical rules before designing; conflicts are escalated to the owner, never
-  resolved silently. A per-repo vision table is now a fill-in field in the design-spec and
-  epic-tracker templates (the artifact forces the thought).
-- **"Aim high, then ship it safely"** — an explicit ethos: unrestricted in *what* you propose,
+- **Vision first across the blast radius.** Discovery now requires reading *every* touched repo's
+  `AGENTS.md` Vision & Critical rules before designing. Conflicts are escalated to the owner, never
+  resolved silently. A per repo vision table is now a fill in field in the design spec and
+  epic tracker templates (the artifact forces the thought).
+- **"Aim high, then ship it safely".** An explicit ethos. Unrestricted in *what* you propose,
   disciplined in *how* you land it. Ambition belongs in the plan (as a proposal), restraint in the diff.
-- **Contract ownership** — "define each contract in the repo that owns it"; auth/JWT in the SDK,
-  per-app APIs via the backend's OpenAPI-generated (read-only) client.
-- **Provider-neutral requirements** — adversarial review and parallelism are required *outcomes*; the
-  Claude-specific mechanisms are optional accelerants with a manual fallback.
-- **A new [`AGENT_OPERATING_STANDARD.md`](../kit/common/docs/agent/AGENT_OPERATING_STANDARD.md)** — the
-  human-readable standard with worked examples from a one-line fix to an ecosystem-spanning epic, a
-  contract-ownership map, a prompting guide, and a glossary. Added to the synced kit (`KIT_VERSION`
+- **Contract ownership.** "define each contract in the repo that owns it". Auth/JWT in the SDK,
+  per app APIs via the backend's OpenAPI generated (read only) client.
+- **Provider neutral requirements.** Adversarial review and parallelism are required *outcomes*. The
+  Claude specific mechanisms are optional accelerants with a manual fallback.
+- **A new [`AGENT_OPERATING_STANDARD.md`](../kit/common/docs/agent/AGENT_OPERATING_STANDARD.md)**. The
+  human readable standard with worked examples from a one line fix to an ecosystem spanning epic, a
+  contract ownership map, a prompting guide, and a glossary. Added to the synced kit (`KIT_VERSION`
   → v1.1.0).
-- **Template repairs** — all four `kriegerdataforge-template-*` repos' pointer files now route to
-  `AGENTS.md`, and their `AGENTS.md` carries a fill-in Vision stub, so generated repos are born inside
+- **Template repairs.** All four `kriegerdataforge-template-*` repos' pointer files now route to
+  `AGENTS.md`, and their `AGENTS.md` carries a fill in Vision stub, so generated repos are born inside
   the workflow loop with a vision to write.
 
 **Alternatives considered.**
 
-- *Per-repo paths-ignore / leave as-is* — rejected: the gaps are in the kit *content*, not the engine.
-- *Inject the kit into `issue-create-repo.yml` at generate time* — superseded (D-001 in the hub log):
+- *Per repo paths ignore / leave as is.* Rejected. The gaps are in the kit *content*, not the engine.
+- *Inject the kit into `issue-create-repo.yml` at generate time.* Superseded (D-001 in the hub log):
   templates are sync targets, so `/generate` is born current without editing the privileged workflow.
 
-**Trade-offs.** The kit grows (one new doc, longer Discovery/contract sections) — accepted, because the
-cost of a vision-misaligned cross-repo design dwarfs a few paragraphs of reading. The edits are additive
-and byte-identical-safe, so the distribution engine fans them out as ordinary review-gated PRs.
+**Trade-offs.** The kit grows (one new doc, longer Discovery/contract sections), accepted, because the
+cost of a vision misaligned cross repo design dwarfs a few paragraphs of reading. The edits are additive
+and byte identical safe, so the distribution engine fans them out as ordinary review gated PRs.
 
 **Consequences.** Bump `kit/KIT_VERSION` → v1.1.0 and run the **Distribute** workflow to propagate. cicd
-is sync-excluded, so its root-level kit copies are updated in this same change. Future kit edits must
+is sync excluded, so its root level kit copies are updated in this same change. Future kit edits must
 keep `AGENT_OPERATING_STANDARD.md` consistent with the operational files (the doc defers to them on
-conflict). The contract-ownership rule and the identity-decoupling FK split (hub FK vs tenant plain
-`user_id`) are now invariants every cross-repo design must respect.
+conflict). The contract ownership rule and the identity decoupling FK split (hub FK vs tenant plain
+`user_id`) are now invariants every cross repo design must respect.
 
 ---
 
-## D-002 — Ops Console: issue-form front-ends for privileged operations
+## D-002. Ops Console. Issue form front ends for privileged operations
 
-- **Date:** 2026-06-27
-- **Status:** Accepted
+- **Date.** 2026-06-27
+- **Status.** Accepted
 - **Tier / scope:** Epic · repos: `kriegerdataforge-cicd` (effects span the ecosystem)
-- **Design doc:** [`docs/design/ops-console.md`](design/ops-console.md)
+- **Design doc.** [`docs/design/ops-console.md`](design/ops-console.md)
 
-**Context.** `workflow_dispatch` cannot multi-select (its `choice` input is single-select), so targeting a
-subset of repos for kit distribution meant typing exact names. Privileged ops also left no first-class
-record. And this repo is **public** (not yet an org), so anyone can open an issue — authorization, not
+**Context.** `workflow_dispatch` cannot multi-select (its `choice` input is single select), so targeting a
+subset of repos for kit distribution meant typing exact names. Privileged ops also left no first class
+record. And this repo is **public** (not yet an org), so anyone can open an issue, authorization, not
 obscurity, must be the control. GitHub **issue forms** support multi-select `dropdown`s and `checkboxes`,
-and the repo already runs a proven issue-form → parser → owner-gated workflow (`issue-create-repo.yml`).
+and the repo already runs a proven issue form → parser → owner gated workflow (`issue-create-repo.yml`).
 
-**Decision.** Add an **Ops Console**: issue-form front-ends (`.github/ISSUE_TEMPLATE/ops-*.yml`) for
+**Decision.** Add an **Ops Console**. Issue form front ends (`.github/ISSUE_TEMPLATE/ops-*.yml`) for
 privileged operations (kit distribution, secret rotation), each driven by a parser workflow that **reuses a
-single fail-closed owner-only gate** (`_authorize-owner.yml`, comparing `github.triggering_actor` to
+single fail closed owner only gate** (`_authorize-owner.yml`, comparing `github.triggering_actor` to
 `github.repository_owner`) and calls the **existing engine scripts** (`distribute_kit.py`, `rotate_*.py`).
-One engine, multiple front-ends — `workflow_dispatch`/cron are retained for automation and the scheduled
-drift/expiry alarms. Trigger is a **manually-applied `ops:*` label** (deliberate go); destructive ops
-require a confirmation checkbox; parsed issue content is treated as untrusted (passed via `env:` only,
-never inlined into `run:`, and allow-listed before use). No secret value ever appears in an issue.
+One engine, multiple front ends, `workflow_dispatch`/cron are retained for automation and the scheduled
+drift/expiry alarms. Trigger is a **manually applied `ops:*` label** (deliberate go), destructive ops
+require a confirmation checkbox. Parsed issue content is treated as untrusted (passed via `env:` only,
+never inlined into `run:`, and allow listed before use). No secret value ever appears in an issue.
 
 **Alternatives considered.**
 
-- *`workflow_dispatch` free-text repo list* — shipped as the CLI/automation path, but no multi-select and
-  poor discoverability for humans; kept, not removed.
-- *A custom web UI / external tool* — rejected: heavyweight; issues already give UI + audit + access control.
-- *Auto-applying the trigger label from the form* — rejected: would run the workflow on every opened issue
-  (noise/abuse surface). Manual labeling by the owner is the deliberate, owner-only trigger.
+- *`workflow_dispatch` free text repo list.* Shipped as the CLI/automation path, but no multi-select and
+  poor discoverability for humans, kept, not removed.
+- *A custom web UI / external tool.* Rejected. Heavyweight. Issues already give UI + audit + access control.
+- *Auto applying the trigger label from the form.* Rejected. Would run the workflow on every opened issue
+  (noise/abuse surface). Manual labeling by the owner is the deliberate, owner only trigger.
 
 **Trade-offs.** More YAML (forms + parser workflows + the reusable gate) and option lists to keep roughly in
-sync with the registries — accepted, because the audit trail + multi-select UX + a single centralized
+sync with the registries. Accepted, because the audit trail + multi-select UX + a single centralized
 authorization gate are worth it for privileged ops, and it is one shared pattern.
 
-**Consequences.** Create the `ops`, `ops:distribute-kit`, `ops:rotate-secrets` labels. The GH-PAT rotation
-flow depends on the owner pre-setting `GH_PACKAGES_PAT_NEW` (GitHub can't generate PATs); the workflow
+**Consequences.** Create the `ops`, `ops:distribute-kit`, `ops:rotate-secrets` labels. The GH PAT rotation
+flow depends on the owner pre-setting `GH_PACKAGES_PAT_NEW` (GitHub can't generate PATs). The workflow
 guards on it. Every new privileged operation should be added as another `ops-*` form + a thin parser
-workflow that `needs:` the same `_authorize-owner.yml` gate — never a new ad-hoc gate.
+workflow that `needs:` the same `_authorize-owner.yml` gate. Never a new ad hoc gate.
 
 ---
 
-## D-003 — Agentic-Workflow Standard v1.2: pre-launch hardening
+## D-003. Agentic Workflow Standard v1.2, pre-launch hardening
 
-- **Date:** 2026-06-28
-- **Status:** Accepted
+- **Date.** 2026-06-28
+- **Status.** Accepted
 - **Tier / scope:** Epic · repos: all (kit synced from `cicd/kit/common/`)
-- **Design doc:** the 25-agent stress-test of the v1.1 kit (this session) · **Epic tracker:**
+- **Design doc:** the 25-agent stress test of the v1.1 kit (this session) · **Epic tracker:**
   [`kriegerdataforge/docs/epics/agent-kit-distribution.md`](https://github.com/Needless2Say/kriegerdataforge/blob/main/docs/epics/agent-kit-distribution.md)
 
-**Context.** Before the first ecosystem-wide sync, a 25-agent adversarial stress-test (5 repo-recon
-probes + a small-task simulation + a gamification-epic simulation, each finding verified against the
+**Context.** Before the first ecosystem wide sync, a 25-agent adversarial stress test (5 repo recon
+probes + a small task simulation + a gamification epic simulation, each finding verified against the
 real files) checked the v1.1 kit against the actual repos. It confirmed 11 gaps and discarded 6 false
-positives — evidence the standard is sound, but with rough edges an ambitious cross-repo task exposes:
-the headline "Vendored byte-identical across every repo" guarantee was literally false pre-sync; the
-engine shipped no version marker; the Epic lane mandated feature flags and cross-user leaderboards that
-the repos/kit gave no sanctioned way to build; and several smaller "the kit assumes/decides X" gaps.
+positives. Evidence the standard is sound, but with rough edges an ambitious cross repo task exposes:
+the headline "Vendored byte identical across every repo" guarantee was literally false pre-sync. The
+engine shipped no version marker. The Epic lane mandated feature flags and cross user leaderboards that
+the repos/kit gave no sanctioned way to build, and several smaller "the kit assumes/decides X" gaps.
 
-**Decision.** Ship **Standard v1.2** as additive, byte-identical kit edits (`KIT_VERSION` → v1.2.0):
+**Decision.** Ship **Standard v1.2** as additive, byte identical kit edits (`KIT_VERSION` → v1.2.0):
 
-- **Honest sync wording** — "the kit-sync engine keeps this file byte-identical … drift is flagged and
-  re-synced" replaces the absolute "vendored byte-identical" claim, in all four docs.
-- **Vendored version marker** — `docs/agent/KIT_VERSION` is added to the synced set so every repo records
-  which kit version it carries; `distribute_kit.py` refuses to run if it disagrees with `kit/KIT_VERSION`.
-- **Semver-by-impact** mapping in `WORKFLOW.md`/`DEFINITION_OF_DONE.md`, plus a note that the CI version
-  check enforces consistency + strictly-ahead, **not** the chosen level.
-- **Quick lane** now carries the repo-mandatory post-build-sync reminder (e.g. `make vercel-compact`)
+- **Honest sync wording.** "the kit sync engine keeps this file byte identical … drift is flagged and
+  re-synced" replaces the absolute "vendored byte identical" claim, in all four docs.
+- **Vendored version marker.** `docs/agent/KIT_VERSION` is added to the synced set so every repo records
+  which kit version it carries, `distribute_kit.py` refuses to run if it disagrees with `kit/KIT_VERSION`.
+- **Semver by impact** mapping in `WORKFLOW.md`/`DEFINITION_OF_DONE.md`, plus a note that the CI version
+  check enforces consistency + strictly ahead, **not** the chosen level.
+- **Quick lane** now carries the repo mandatory post build sync reminder (e.g. `make vercel-compact`)
   the Standard lane already had.
-- **PR-template-as-DoD is a constraint** — reduce the Testing section to a single `make ci` gate, and
+- **PR template as DoD is a constraint.** Reduce the Testing section to a single `make ci` gate, and
   every command a PR template names must be a real Makefile target (fixes granular/nonexistent-target drift).
 - **ADR ids continue a repo's existing scheme** (e.g. `ADR-NNN`) rather than forcing a clashing `D-NNN` series.
 - **Epic "integrate & verify"** splits agent (verify on local/preview with the flag forced on) from owner
   (merge the prod-flag/infra slice, authorize prod verification).
-- **Feature-flag convention** (see D-004) and **cross-user public-profile contract** (see D-005).
+- **Feature flag convention** (see D-004) and **cross user public profile contract** (see D-005).
 - **Gamification/anti-abuse scenario** added to `skills.md` + a matching `DEFINITION_OF_DONE.md` checkbox.
 
 **Alternatives considered.**
 
-- *Ship v1.1 first, v1.2 after* — rejected: nothing had been synced yet, so one clean v1.2.0 avoids two
+- *Ship v1.1 first, v1.2 after.* Rejected. Nothing had been synced yet, so one clean v1.2.0 avoids two
   sync waves across every repo.
-- *Keep the "byte-identical" wording* — rejected: literally false until synced; the engine-mechanism
+- *Keep the "byte identical" wording.* Rejected. Literally false until synced. The engine mechanism
   framing is both honest and accurate post-sync.
 
-**Trade-offs.** The kit grows (a flag subsection, an anti-abuse scenario, a contract row) — accepted; the
-edits are additive and byte-identical-safe, so the engine fans them out as ordinary review-gated PRs.
+**Trade-offs.** The kit grows (a flag subsection, an anti-abuse scenario, a contract row), accepted. The
+edits are additive and byte identical safe, so the engine fans them out as ordinary review gated PRs.
 
 **Consequences.** Bump **both** `kit/KIT_VERSION` and `kit/common/docs/agent/KIT_VERSION` → v1.2.0 and run
-**Distribute**; cicd is sync-excluded, so its root copies are updated in this same change. The first
-ecosystem-wide sync delivers v1.2.0. Repo-local defects the stress-test found — `fitness-app-frontend`'s
+**Distribute**. Cicd is sync excluded, so its root copies are updated in this same change. The first
+ecosystem wide sync delivers v1.2.0. Repo local defects the stress test found, `fitness-app-frontend`'s
 `make generate-client` pointing at the **wrong backend** (the hub instead of `fitness-app-backend`), and
-two PR templates — are fixed in their own repos' PRs, not here.
+two PR templates. Are fixed in their own repos' PRs, not here.
 
 ---
 
-## D-004 — Feature-flag convention: a simple owned default-off flag
+## D-004. Feature flag convention. A simple owned default off flag
 
-- **Date:** 2026-06-28
-- **Status:** Accepted
-- **Tier / scope:** Epic · repos: all (kit convention; first used by any flag-gated epic)
-- **Design doc:** this session's stress-test (the flag-mechanism gap)
+- **Date.** 2026-06-28
+- **Status.** Accepted
+- **Tier / scope:** Epic · repos: all (kit convention, first used by any flag gated epic)
+- **Design doc.** This session's stress test (the flag mechanism gap)
 
 **Context.** The Epic lane mandates "ship dark behind a feature flag, off by default," but no repo has a
-flag mechanism and the kit never said how to build one — so an agent would invent one mid-epic, itself an
+flag mechanism and the kit never said how to build one, so an agent would invent one mid epic, itself an
 undesigned new pattern. The owner asked for the best outcome with the most **control and scalability**.
 
 **Decision.** Codify a **tiered** convention in `DESIGN_AND_EPICS.md` §3.3:
 
-- **Default (almost every slice): a simple, owned, default-off flag.** A backend feature → a Pydantic
+- **Default (almost every slice). A simple, owned, default off flag.** A backend feature → a Pydantic
   `Settings` boolean `FEATURE_<NAME>_ENABLED=False` (the `fitness-app-backend` `reports` pattern). A
-  frontend-only feature → `NEXT_PUBLIC_<NAME>_ENABLED` read via `serverEnv` (never bare `process.env`). A
+  frontend only feature → `NEXT_PUBLIC_<NAME>_ENABLED` read via `serverEnv` (never bare `process.env`). A
   backend flag the frontend must observe → a small `GET /config/flags` endpoint consumed through the
-  regenerated read-only client. Enabled **last** by an owner-merged infra (terraform) slice.
-- **Out of scope:** per-user / percentage / cohort rollout, remote kill-switches, or A/B are **not** covered
-  by this convention — if a slice needs them, surface it to the owner as a **design decision** before
-  building; never hand-roll per-user flag logic.
+  regenerated read only client. Enabled **last** by an owner merged infra (terraform) slice.
+- **Out of scope.** Per user / percentage / cohort rollout, remote kill switches, or A/B are **not** covered
+  by this convention. If a slice needs them, surface it to the owner as a **design decision** before
+  building. Never hand roll per user flag logic.
 
 **Alternatives considered.**
 
-- *Build or adopt a flag service* — not pursued: it's a multi-week effort with its own infra, authz, and
-  audit surface; out of scope for the standard, to be raised with the owner only if a concrete need arises.
-- *Leave flags undefined / design-gate every time* — rejected: no consistency; every epic re-litigates the basics.
+- *Build or adopt a flag service.* Not pursued. It's a multi-week effort with its own infra, authz, and
+  audit surface. Out of scope for the standard, to be raised with the owner only if a concrete need arises.
+- *Leave flags undefined / design gate every time.* Rejected. No consistency. Every epic re-litigates the basics.
 
-**Trade-offs.** The simple flag has no per-user/percentage targeting — accepted for now; the convention
+**Trade-offs.** The simple flag has no per-user/percentage targeting. Accepted for now. The convention
 names the exact escalation trigger so a service is adopted **deliberately**, requirements known, not prematurely.
 
-**Consequences.** `GET /config/flags`-style endpoints are the sanctioned cross-layer mechanism, and "off by
+**Consequences.** `GET /config/flags`-style endpoints are the sanctioned cross layer mechanism, and "off by
 default in `main`" is enforced by the owning backend's setting. The standard does **not** commit to a flag
-service; a future need for cohort / percentage / kill-switch rollout is raised with the owner as its own
+service. A future need for cohort / percentage / kill switch rollout is raised with the owner as its own
 design decision.
 
 ---
 
-## D-005 — Cross-user public-profile resolution: a hub-owned read-only contract
+## D-005. Cross user public profile resolution. A hub owned read only contract
 
-- **Date:** 2026-06-28
-- **Status:** Accepted
-- **Tier / scope:** Epic · repos: hub (`kriegerdataforge`) owns; all tenant backends consume
-- **Design doc:** this session's stress-test (the leaderboard identity gap)
+- **Date.** 2026-06-28
+- **Status.** Accepted
+- **Tier / scope:** Epic · repos: hub (`kriegerdataforge`) owns. All tenant backends consume
+- **Design doc.** This session's stress test (the leaderboard identity gap)
 
-**Context.** Identity decoupling forbids a tenant DB a per-app user/identity table or a cross-DB FK to
-`kdf_users`, and the SDK maps `sub` → `KDFUser.username` for the **current** token-holder only. So a feature
+**Context.** Identity decoupling forbids a tenant DB a per app user/identity table or a cross DB FK to
+`kdf_users`, and the SDK maps `sub` → `KDFUser.username` for the **current** token holder only. So a feature
 that must display **other** users (a leaderboard's names/avatars, social, mentions) had no sanctioned way to
-resolve arbitrary `user_id`s — steering an agent toward either a rule-violating per-app user cache or an
+resolve arbitrary `user_id`s. Steering an agent toward either a rule violating per app user cache or an
 unflagged hub change.
 
-**Decision.** Add a **fourth contract-ownership row**: *"Other users' public profile"* is owned by the **hub**
-and consumed by tenant backends via a **hub-owned read-only batch endpoint** (e.g. `GET /users/public?ids=…`)
-returning display fields only — **never** a per-app user table or cross-DB FK. Because it extends the hub's
-identity surface, it **leads the contract-first sequence and carries a design note**. Documented in
+**Decision.** Add a **fourth contract ownership row**. *"Other users' public profile"* is owned by the **hub**
+and consumed by tenant backends via a **hub owned read only batch endpoint** (e.g. `GET /users/public?ids=…`)
+returning display fields only, **never** a per app user table or cross DB FK. Because it extends the hub's
+identity surface, it **leads the contract first sequence and carries a design note**. Documented in
 `AGENT_OPERATING_STANDARD.md` (contract map + worked example C), `DESIGN_AND_EPICS.md` (Discovery → Identity),
 and `skills.md` (the gamification scenario).
 
 **Alternatives considered.**
 
-- *Per-app user cache table synced from the hub* — rejected: violates identity decoupling; stale-data +
+- *Per app user cache table synced from the hub.* Rejected. Violates identity decoupling, stale data +
   ownership problems.
-- *Resolve via the SDK* — rejected: the SDK is auth-only and resolves the current token-holder, not arbitrary
-  ids; widening it couples every tenant to a profile contract.
+- *Resolve via the SDK.* Rejected. The SDK is auth only and resolves the current token holder, not arbitrary
+  ids. Widening it couples every tenant to a profile contract.
 
-**Trade-offs.** A leaderboard now depends on a hub round-trip (batchable / cacheable) — accepted; it keeps
-identity single-sourced in the hub.
+**Trade-offs.** A leaderboard now depends on a hub round trip (batchable / cacheable), accepted. It keeps
+identity single sourced in the hub.
 
 **Consequences.** The `GET /users/public` batch endpoint is **hub work to implement** when the first
-cross-user-display feature is built: display fields only (no PII beyond the public profile), rate-limited, and
-consumed **read-only** by tenant backends.
+cross user display feature is built. Display fields only (no PII beyond the public profile), rate limited, and
+consumed **read only** by tenant backends.
 
 ---
 
-## D-006 — Decouple the Tier-2 E2E tests out of cicd into each tenant repo
+## D-006. Decouple the Tier-2 E2E tests out of cicd into each tenant repo
 
-- **Date:** 2026-07-07
-- **Status:** Accepted
+- **Date.** 2026-07-07
+- **Status.** Accepted
 - **Tier / scope:** Epic · repos: `kriegerdataforge-cicd` (engine) + `fitness-app-frontend`,
   `tiffanys-space`, `kriegerdataforge-auth-ui` (journeys), referencing the two app backends
 - **Design doc:** [`docs/design/e2e-test-decoupling.md`](design/e2e-test-decoupling.md) · **Log:**
   [`docs/design/e2e-test-decoupling-LOG.md`](design/e2e-test-decoupling-LOG.md)
 
-**Context.** The Tier-2 full-stack E2E was first built entirely under `kriegerdataforge-cicd/e2e/` — including
-every *tenant-specific* part. Onboarding one tenant edits cicd in **five** places (a new Playwright spec in
-`tests/`, a `profiles:` service block in `docker-compose.e2e.yml`, a `TENANTS` entry + client-cred keys in
+**Context.** The Tier-2 full stack E2E was first built entirely under `kriegerdataforge-cicd/e2e/`, including
+every *tenant specific* part. Onboarding one tenant edits cicd in **five** places (a new Playwright spec in
+`tests/`, a `profiles:` service block in `docker-compose.e2e.yml`, a `TENANTS` entry + client cred keys in
 `ci_stack.py`, a `CLIENTS` entry in `seed_e2e.py`, and a `journey` enum/`case` in `e2e-compose.yml`). This
-directly violates the repo's Tier-1 scope (`CONTRIBUTING.md`): cicd is the **reusable** platform library, but
-the `e2e/tests/` folder was becoming a per-tenant graveyard and three engine files carried a hardcoded tenant
-registry — so cicd bloats **linearly** with non-reusable content as the platform scales to N tenants. Root
-cause: an E2E journey is inherently cross-repo, and the first cut co-located the reusable *engine* with the
-tenant-specific *content*.
+directly violates the repo's Tier-1 scope (`CONTRIBUTING.md`). Cicd is the **reusable** platform library, but
+the `e2e/tests/` folder was becoming a per tenant graveyard and three engine files carried a hardcoded tenant
+registry, so cicd bloats **linearly** with non-reusable content as the platform scales to N tenants. Root
+cause. An E2E journey is inherently cross repo, and the first cut co-located the reusable *engine* with the
+tenant specific *content*.
 
-**Decision.** **Separate the reusable engine from tenant content.** cicd keeps a **tenant-agnostic** engine —
-the driver (`ci_stack.py`, made **data-driven**: it discovers each sibling repo's `e2e/manifest.json` instead
+**Decision.** **Separate the reusable engine from tenant content.** cicd keeps a **tenant agnostic** engine.
+The driver (`ci_stack.py`, made **data driven**: it discovers each sibling repo's `e2e/manifest.json` instead
 of a hardcoded `TENANTS` dict), a `docker-compose.shared.yml` (db + hub + auth-UI only), a generic
 `seed_shared.py`, the reusable `e2e-compose.yml` workflow (generic `journey` + `repos` inputs, no enum/repo
-list), and the Playwright harness. **Each tenant repo owns its journey as data + a spec** — an `e2e/`
+list), and the Playwright harness. **Each tenant repo owns its journey as data + a spec**, an `e2e/`
 directory with `tests/<tenant>.spec.ts`, a compose **fragment** (only its services, absolute
-`${E2E_WORKSPACE}/<repo>` build contexts so multi-`-f` merge resolves correctly — Phase-0-validated), and an
+`${E2E_WORKSPACE}/<repo>` build contexts so multi-`-f` merge resolves correctly, Phase-0-validated), and an
 `e2e/manifest.json` the engine reads. **Onboarding a new tenant then touches only that tenant's repo.** Also
-added a **scope guardrail** (`AGENTS.md` critical rule #12 + `CONTRIBUTING.md` two-tier rows + a "scope smell
+added a **scope guardrail** (`AGENTS.md` critical rule #12 + `CONTRIBUTING.md` two tier rows + a "scope smell
 test") so a future model does not re-introduce tenant content here. Migration is phased and
-backward-compatible: cicd engine ships additively with the old path kept as a fallback (Phase 1), tenants move
-one at a time (Phase 2), then the fallback is deleted (Phase 3) — gates stay dormant throughout.
+backward compatible. Cicd engine ships additively with the old path kept as a fallback (Phase 1), tenants move
+one at a time (Phase 2), then the fallback is deleted (Phase 3). Gates stay dormant throughout.
 
 **Alternatives considered.**
 
-- *Leave the E2E in cicd as-is* — rejected: unbounded per-tenant bloat; violates Tier-1 scope.
-- *Fully self-contained per repo (cicd holds nothing E2E-related)* — rejected (owner, 2026-07-07): duplicates
-  the ~350-line driver + compose-merge logic + harness into every tenant, which then drift independently —
-  *more* total maintenance, and it discards the reusable-workflow benefit that is precisely cicd's purpose.
-- *Relative cross-repo compose contexts* — rejected: multi-`-f` merge resolves relative paths against the
-  first file's directory (the wrong repo); absolute `${E2E_WORKSPACE}` contexts avoid the trap.
+- *Leave the E2E in cicd as is.* Rejected. Unbounded per tenant bloat, violates Tier-1 scope.
+- *Fully self contained per repo (cicd holds nothing E2E-related).* Rejected (owner, 2026-07-07). Duplicates
+  the ~350-line driver + compose merge logic + harness into every tenant, which then drift independently,
+  *more* total maintenance, and it discards the reusable workflow benefit that is precisely cicd's purpose.
+- *Relative cross repo compose contexts.* Rejected. Multi-`-f` merge resolves relative paths against the
+  first file's directory (the wrong repo). Absolute `${E2E_WORKSPACE}` contexts avoid the trap.
 
 **Trade-offs.** Each tenant carries only its spec, compose fragment, and manifest (the Playwright
 config/`package.json` stay shared via the cicd checkout), plus a brief migration window where a
-moved-but-not-yet-wired journey must be verified by dispatch — accepted, because the gates are dormant and
+moved but not yet wired journey must be verified by dispatch. Accepted, because the gates are dormant and
 Phase 1's fallback keeps everything green until each tenant lands.
 
-**Consequences.** The tenant contract is a declarative `e2e/manifest.json`; cicd must **discover** tenants,
+**Consequences.** The tenant contract is a declarative `e2e/manifest.json`. Cicd must **discover** tenants,
 never enumerate them. Future tenant onboarding = **one PR in that tenant's repo** (add `e2e/` + the
 `e2e-gate.yml` caller), **zero cicd edits**. The `e2e/README.md` "Promoting the E2E to a merge gate" routing
-table and `MANUAL_SETUP.md` tenant-onboarding steps are updated as the phases land (tracked in the log).
+table and `MANUAL_SETUP.md` tenant onboarding steps are updated as the phases land (tracked in the log).
 
 ---
 
-## D-007 — E2E as a per-repo CI job (composite action), not a callable workflow
+## D-007. E2E as a per repo CI job (composite action), not a callable workflow
 
-- **Date:** 2026-07-07
-- **Status:** Accepted
+- **Date.** 2026-07-07
+- **Status.** Accepted
 - **Tier / scope:** Epic · repos: `kriegerdataforge-cicd` (composite action) + `fitness-app-frontend`,
-  `tiffanys-space`, `kriegerdataforge-auth-ui` (thin per-repo jobs)
+  `tiffanys-space`, `kriegerdataforge-auth-ui` (thin per repo jobs)
 - **Design doc:** [`docs/design/e2e-cijob-refactor.md`](design/e2e-cijob-refactor.md) · **Log:**
   [`docs/design/e2e-cijob-refactor-LOG.md`](design/e2e-cijob-refactor-LOG.md) · **Supersedes** the
   `e2e-compose.yml` `workflow_call` gate from D-006's completion.
 
 **Context.** D-006 relocated each journey's *test assets* into its tenant repo and made the driver
-data-driven, but left the **reusable workflow** `e2e-compose.yml` (`workflow_call`) still hardcoding
-per-tenant content that grows on every onboard: the journey dropdown enum, the App-token `repositories:`
-list, and 6 fixed `actions/checkout` steps. So the *gate* path still required a cicd edit per tenant — the
+data driven, but left the **reusable workflow** `e2e-compose.yml` (`workflow_call`) still hardcoding
+per tenant content that grows on every onboard. The journey dropdown enum, the App token `repositories:`
+list, and 6 fixed `actions/checkout` steps. So the *gate* path still required a cicd edit per tenant. The
 scope creep the epic set out to kill, relocated to the workflow. The owner also wanted the E2E to be a
-**real CI job** in each tenant repo, toggled by that repo's own GitHub **variable**, not a callable-workflow
+**real CI job** in each tenant repo, toggled by that repo's own GitHub **variable**, not a callable workflow
 indirection.
 
 **Decision.** Replace the reusable workflow with a **cicd composite action** `.github/actions/run-e2e`
-(a reusable *step*, not `workflow_call`) that carries the whole run-logic **generically**: it reads the
+(a reusable *step*, not `workflow_call`) that carries the whole run logic **generically**. It reads the
 **calling repo's `e2e/manifest.json`** for the sibling repos, mints an App token scoped to
-`{hub, auth-ui, sdk}` + those repos, checks them out via a token-authenticated clone loop (replacing the
+`{hub, auth-ui, sdk}` + those repos, checks them out via a token authenticated clone loop (replacing the
 fixed checkout steps), and runs `ci_stack.py up --journey X` → `npm test`. Each tenant repo owns a thin
 `.github/workflows/e2e.yml` job gated by `vars.RUN_E2E_GATE` that checks itself out into the sibling layout
 and `uses:` the action (passing `journey` + the App secrets as inputs, since composite actions can't read
-`secrets`). **No central registry** — control is fully per-repo (the variable + the repo's own manifest);
-cicd keeps **no tenant list anywhere**. `e2e-compose.yml` is deleted. Tenant manifests drop the
+`secrets`). **No central registry**. Control is fully per repo (the variable + the repo's own manifest).
+Cicd keeps **no tenant list anywhere**. `e2e-compose.yml` is deleted. Tenant manifests drop the
 non-functional `$comment`.
 
 **Alternatives considered.**
 
-- *Keep the reusable `workflow_call` workflow, make it generic via a `repos` input / a cicd registry* —
-  rejected by the owner: still a callable-workflow indirection; the owner wants a real repo-owned CI job.
-- *Fully self-contained per-repo job (inline checkout + run, no cicd action)* — rejected: duplicates ~40
-  lines of orchestration YAML into every tenant repo, which drifts; the composite action keeps the logic
-  reusable in cicd (its purpose) while still being a repo-owned job.
-- *Central `e2e/registry.json` in cicd as the control plane* — rejected: with a per-repo `RUN_E2E_GATE`
+- *Keep the reusable `workflow_call` workflow, make it generic via a `repos` input / a cicd registry*.
+  Rejected by the owner. Still a callable workflow indirection. The owner wants a real repo owned CI job.
+- *Fully self contained per repo job (inline checkout + run, no cicd action).* Rejected. Duplicates ~40
+  lines of orchestration YAML into every tenant repo, which drifts. The composite action keeps the logic
+  reusable in cicd (its purpose) while still being a repo owned job.
+- *Central `e2e/registry.json` in cicd as the control plane.* Rejected, with a per repo `RUN_E2E_GATE`
   variable + the manifest as SoT, a registry is a redundant second control surface that must agree with
   the variable.
 
 **Trade-offs.** A composite action is a slightly less common pattern than the ecosystem's reusable
 workflows, and the dynamic checkout leg (clone loop + runtime token scope) is only provable on a runner
-(validated by the first owner dispatch). Accepted: it's the only shape that is simultaneously a real
-repo-owned CI job, reusable (no per-tenant cicd growth), and registry-free.
+(validated by the first owner dispatch). Accepted. It's the only shape that is simultaneously a real
+repo owned CI job, reusable (no per tenant cicd growth), and registry-free.
 
 **Consequences.** Onboarding a tenant = its own `e2e/` assets + a ~15-line `e2e.yml` + flipping
-`RUN_E2E_GATE` — **zero cicd edits**, because the action reads the tenant's manifest and never learns tenant
+`RUN_E2E_GATE`. **zero cicd edits**, because the action reads the tenant's manifest and never learns tenant
 names. `KDF_APP_ID`/`KDF_APP_PRIVATE_KEY` must exist as repo secrets (the `ops-setup-e2e` flow provides
-them); its `USE_GITHUB_APP` variable becomes vestigial for E2E (the action always uses the App token) — a
+them). Its `USE_GITHUB_APP` variable becomes vestigial for E2E (the action always uses the App token), a
 minor future cleanup. Owner manual runs move to `workflow_dispatch` on each tenant `e2e.yml` (repo
-write-access gates them; the old `_authorize-owner` gate was only needed because cicd is public).
+write access gates them, the old `_authorize-owner` gate was only needed because cicd is public).
 
 ---
 
-## D-008 — Every repo owns a distinct E2E journey scoped to its dependency subgraph
+## D-008. Every repo owns a distinct E2E journey scoped to its dependency subgraph
 
-- **Date:** 2026-07-07
-- **Status:** Accepted
-- **Tier / scope:** Epic · repos: **all** ecosystem repos gain an `e2e/` journey — the two tenant
+- **Date.** 2026-07-07
+- **Status.** Accepted
+- **Tier / scope:** Epic · repos: **all** ecosystem repos gain an `e2e/` journey. The two tenant
   backends (`fitness-app-backend`, `tiffanys-space-backend`) and the hub (`kriegerdataforge`) join the
   three that already have one (`fitness-app-frontend`, `tiffanys-space`, `kriegerdataforge-auth-ui`).
 - **Design doc:** [`docs/design/e2e-every-repo-journeys.md`](design/e2e-every-repo-journeys.md) · **Log:**
   [`docs/design/e2e-every-repo-journeys-LOG.md`](design/e2e-every-repo-journeys-LOG.md) · **Builds on**
-  D-006 (decoupling) + D-007 (composite action; the action already reads the *caller's* manifest, which is
+  D-006 (decoupling) + D-007 (composite action, the action already reads the *caller's* manifest, which is
   what makes this possible with no engine change).
 
 **Context.** D-007 made each repo run the journey defined by its **own** `e2e/manifest.json`. Only the
-three journey-owning repos had one. The owner wants **every** repo — including the two tenant backends and
-the hub — to have a real full-stack E2E that proves *that repo's* robustness, not just the frontends. The
+three journey owning repos had one. The owner wants **every** repo, including the two tenant backends and
+the hub, to have a real full stack E2E that proves *that repo's* robustness, not just the frontends. The
 owner specified, per repo, the exact set of downstream services its journey must stand up.
 
-**Decision.** Every repo owns a **distinct** journey scoped to its **dependency subgraph**: the repo **plus
+**Decision.** Every repo owns a **distinct** journey scoped to its **dependency subgraph**. The repo **plus
 everything downstream it depends on** (toward the auth DB), and **never its upstream consumers**. Each repo
 owns its own `manifest.json` + Playwright spec + (where needed) compose fragment. This is **not** duplication
-of D-006's single-ownership rule — each journey is a genuinely *different* stack + assertion, so no two repos
+of D-006's single ownership rule. Each journey is a genuinely *different* stack + assertion, so no two repos
 define the same journey:
 
 | Repo | Stack the journey brings up | Assertion |
 | --- | --- | --- |
-| `kriegerdataforge` (hub) | hub + auth-db | OIDC/auth endpoints against the built image + real DB — extensive |
-| `kriegerdataforge-auth-ui` | auth-ui + hub + auth-db | `auth` browser journey (login → consent → code) — exists |
-| `fitness-app-backend` | fitness-be + fitness-db + auth-ui + hub + auth-db | headless OIDC login → assert backend API (no frontend) |
-| `fitness-app-frontend` | + fitness frontend | full browser journey (login → `/database`) — exists |
-| `tiffanys-space-backend` | tiffanys-be + tiffanys-db + identity | headless OIDC login → assert backend API |
-| `tiffanys-space` | + tiffanys frontend | full browser journey — exists |
+| `kriegerdataforge` (hub) | hub + auth db | OIDC/auth endpoints against the built image + real DB, extensive |
+| `kriegerdataforge-auth-ui` | auth-ui + hub + auth db | `auth` browser journey (login → consent → code), exists |
+| `fitness-app-backend` | fitness-be + fitness db + auth-ui + hub + auth db | headless OIDC login → assert backend API (no frontend) |
+| `fitness-app-frontend` | + fitness frontend | full browser journey (login → `/database`), exists |
+| `tiffanys-space-backend` | tiffanys-be + tiffanys db + identity | headless OIDC login → assert backend API |
+| `tiffanys-space` | + tiffanys frontend | full browser journey, exists |
 
-The backend/hub specs **reuse the existing Playwright harness**: they perform a headless OIDC login through
-auth-ui to mint a **real** hub token, then use Playwright's API-request context to hit the backend (or the
-hub directly). **Zero changes to `ci_stack.py` or the `run-e2e` action** — it already reads the caller's
-manifest and runs the staged spec. The new journeys are `app: false` (opt-in); `journey: all` is **not
-used** — each repo runs only its own journey.
+The backend/hub specs **reuse the existing Playwright harness**. They perform a headless OIDC login through
+auth-ui to mint a **real** hub token, then use Playwright's API request context to hit the backend (or the
+hub directly). **Zero changes to `ci_stack.py` or the `run-e2e` action**. It already reads the caller's
+manifest and runs the staged spec. The new journeys are `app: false` (opt in), `journey: all` is **not
+used**. Each repo runs only its own journey.
 
-**Downstream-only is the key property.** A backend PR's gate stands up only the *stable identity layer* it
-depends on, **not** its frontend — so the gate never depends on the frontend's `main` being in lockstep.
-This is the deliberate cross-repo-lockstep escape hatch: gates reach only downstream, never up.
+**Downstream only is the key property.** A backend PR's gate stands up only the *stable identity layer* it
+depends on, **not** its frontend, so the gate never depends on the frontend's `main` being in lockstep.
+This is the deliberate cross repo lockstep escape hatch. Gates reach only downstream, never up.
 
 **Alternatives considered.**
 
 - *Backends/hub re-run their tenant's **browser** journey via a shared reference (a `journey-repo` input on
-  the action)* — rejected: it brings up the **consumer** (the frontend) for a backend PR, re-coupling the
-  gate to the frontend's `main`; contradicts the owner's downstream-only dependency graph. Also needless —
-  each repo owning its own (distinct) manifest is simpler and needs no new action input.
-- *Cover backends/hub with pytest integration tests only (no stack E2E)* — rejected: the owner wants
-  full-stack proof per repo (built Docker image + real network + real DB), which in-process integration
+  the action)*. Rejected. It brings up the **consumer** (the frontend) for a backend PR, re-coupling the
+  gate to the frontend's `main`. Contradicts the owner's downstream only dependency graph. Also needless.
+  Each repo owning its own (distinct) manifest is simpler and needs no new action input.
+- *Cover backends/hub with pytest integration tests only (no stack E2E).* Rejected. The owner wants
+  full stack proof per repo (built Docker image + real network + real DB), which in process integration
   tests (`test_oidc_e2e_db.py`, etc.) cannot give.
 
-**Trade-offs.** The backend + hub specs are **net-new** tests (headless OIDC + API assertions) and overlap
-somewhat with existing in-process integration tests; accepted for the built-image / real-network coverage
-and the per-repo-ownership the owner wants. Each is proven locally then owner-merged, one repo at a time.
+**Trade-offs.** The backend + hub specs are **net new** tests (headless OIDC + API assertions) and overlap
+somewhat with existing in process integration tests. Accepted for the built image / real network coverage
+and the per repo ownership the owner wants. Each is proven locally then owner merged, one repo at a time.
 
 **Consequences.** The `e2e-compose.yml` deletion (D-007's last step) now waits until **all** repos are on
-the action — the two backend `e2e-gate.yml` callers are replaced by real `e2e.yml` jobs first, so nothing
-dangles. Onboarding any future repo = its own `e2e/` subgraph journey + a thin `e2e.yml` — still zero cicd
+the action. The two backend `e2e-gate.yml` callers are replaced by real `e2e.yml` jobs first, so nothing
+dangles. Onboarding any future repo = its own `e2e/` subgraph journey + a thin `e2e.yml`, still zero cicd
 edits.
 
 ---
 
-## D-009 — Agentic-Workflow Standard v1.3: documentation standard + contributor-onboarding template
+## D-009. Agentic Workflow Standard v1.3. Documentation standard + contributor onboarding template
 
-- **Date:** 2026-07-12
-- **Status:** Accepted
+- **Date.** 2026-07-12
+- **Status.** Accepted
 - **Tier / scope:** Epic · repos: **all** (kit content, synced from `cicd/kit/common/`)
-- **Design doc:** none (additive kit-content change; this entry is the record). Builds on D-001
+- **Design doc.** None (additive kit content change, this entry is the record). Builds on D-001
   (propagation model) and D-003 (v1.2 hardening + the vendored `KIT_VERSION` marker).
 
-**Context.** The 2026-07 ecosystem-wide documentation wave established per-repo conventions the kit
-neither mandates nor describes: `docs/guides/CONTRIBUTOR_ONBOARDING.md` in every repo (a shared
-8-section spine), README onboarding front doors, the repo-tailored `docs/prompts/` authoring toolkit,
+**Context.** The 2026-07 ecosystem wide documentation wave established per repo conventions the kit
+neither mandates nor describes. `docs/guides/CONTRIBUTOR_ONBOARDING.md` in every repo (a shared
+8-section spine), README onboarding front doors, the repo tailored `docs/prompts/` authoring toolkit,
 the `docs/` taxonomy, and the deprecate-with-a-banner pattern (proven on the hub's and tiffanys'
 stale `SETUP_AND_ONBOARDING.md`). A `/generate`'d repo is born without these conventions, and an
 agent has no canonical source for them. Separately, the 2026-06/07 remediation waves produced
-hard-won, ecosystem-wide security lessons not yet in `skills.md` (per-request CSP nonce for dynamic
-Next apps, fail-closed CSRF defaults, RP-initiated logout, BuildKit `--mount=type=secret` for
-install-time tokens, the compactor symbol-collision trap, the no-public-PyPI policy, test-key and
+hard won, ecosystem wide security lessons not yet in `skills.md` (per request CSP nonce for dynamic
+Next apps, fail closed CSRF defaults, RP-initiated logout, BuildKit `--mount=type=secret` for
+install time tokens, the compactor symbol collision trap, the no public PyPI policy, test key and
 `kdf_sdk.testing` rules).
 
-**Decision.** Ship an **additive kit minor — v1.3.0**:
+**Decision.** Ship an **additive kit minor. V1.3.0**:
 
-- **New synced file** `docs/agent/DOCUMENTATION_STANDARD.md` — ground-truth/accuracy discipline, the
-  docs taxonomy, the README front-door standard, the contributor-onboarding mandate, the
+- **New synced file** `docs/agent/DOCUMENTATION_STANDARD.md`, ground-truth/accuracy discipline, the
+  docs taxonomy, the README front door standard, the contributor onboarding mandate, the
   `docs/prompts/` toolkit description (tailoring + boundary rules), and deprecate-with-a-banner.
-- **New synced template** `docs/agent/templates/contributor-onboarding.template.md` — the proven
-  8-section onboarding spine, including the ecosystem-access rows (per-developer `register-dev`
-  OIDC clients; fine-grained `GH_PACKAGES_PAT`).
-- **Surgical edits** to `WORKFLOW.md` (docs-work pointer; Windows `PYTHONIOENCODING` bump note;
-  sequence-PRs-per-repo), `skills.md` (the security-lesson harvest above), `DEFINITION_OF_DONE.md`
-  (docs-standard + conditional E2E-journey bullets), and `AGENT_OPERATING_STANDARD.md` (artifacts
+- **New synced template** `docs/agent/templates/contributor-onboarding.template.md`. The proven
+  8-section onboarding spine, including the ecosystem access rows (per developer `register-dev`
+  OIDC clients, fine grained `GH_PACKAGES_PAT`).
+- **Surgical edits** to `WORKFLOW.md` (docs work pointer, Windows `PYTHONIOENCODING` bump note;
+  sequence PRs per repo), `skills.md` (the security lesson harvest above), `DEFINITION_OF_DONE.md`
+  (docs standard + conditional E2E-journey bullets), and `AGENT_OPERATING_STANDARD.md` (artifacts
   table + maintenance list).
-- Registry `files[]` grows **9 → 12**; both `KIT_VERSION` markers bump together to `v1.3.0`.
+- Registry `files[]` grows **9 → 12**. Both `KIT_VERSION` markers bump together to `v1.3.0`.
 
-The per-repo instances (README, `docs/prompts/*`, `CONTRIBUTOR_ONBOARDING.md`) remain per-repo and
-are still never synced — the D-002 boundary is unchanged; the kit standardizes and templates them.
+The per repo instances (README, `docs/prompts/*`, `CONTRIBUTOR_ONBOARDING.md`) remain per repo and
+are still never synced. The D-002 boundary is unchanged. The kit standardizes and templates them.
 
 **Alternatives considered.**
 
-- *A separate README front-door template file* — rejected: ~15 inherently repo-entangled lines; an
+- *A separate README front door template file.* Rejected. ~15 inherently repo entangled lines, an
   inline fenced exemplar in the standard suffices and keeps the sync set at +2.
-- *Shipping the 7 `docs/prompts/` bodies as kit templates* — rejected for v1.3.0: each prompt is
-  shared-body + repo-tailored header, which a byte-identical engine cannot carry; the standard
+- *Shipping the 7 `docs/prompts/` bodies as kit templates.* Rejected for v1.3.0. Each prompt is
+  shared body + repo tailored header, which a byte identical engine cannot carry. The standard
   documents the toolkit and its tailoring rule instead. Candidate for a future kit minor + ADR.
-- *Folding everything into `skills.md` / `WORKFLOW.md`* — rejected: wrong altitude; docs governance
-  is a distinct concern, and a new `docs/agent/` file is automatically version-gate-exempt in
+- *Folding everything into `skills.md` / `WORKFLOW.md`.* Rejected. Wrong altitude, docs governance
+  is a distinct concern, and a new `docs/agent/` file is automatically version gate exempt in
   consumers.
 
 **Consequences.** The weekly `check` drift cron reports **all 14 repos drifted until the owner runs
-Distribute** (the two new files count as missing) — expected, not an incident. Consumer sync PRs
-remain docs-only and version-gate-exempt. The 6 repos lacking README front doors are brought up to
-standard in per-repo follow-up PRs (cicd's own README in the same PR as this entry). cicd's root
-copies of the kit files are hand-synced in this PR, as always (cicd is sync-excluded).
+Distribute** (the two new files count as missing). Expected, not an incident. Consumer sync PRs
+remain docs only and version-gate-exempt. The 6 repos lacking README front doors are brought up to
+standard in per repo follow up PRs (cicd's own README in the same PR as this entry). cicd's root
+copies of the kit files are hand synced in this PR, as always (cicd is sync excluded).
 
-## D-010 — Reports-ecosystem standard: Projects boards provisioning (engine + ops form)
+## D-010. Reports ecosystem standard. Projects boards provisioning (engine + ops form)
 
-- **Date:** 2026-07-12
-- **Status:** Accepted
-- **Tier / scope:** Epic (Wave 1 of 6) · repos: cicd now; reports-sdk / report-form / both app
+- **Date.** 2026-07-12
+- **Status.** Accepted
+- **Tier / scope:** Epic (Wave 1 of 6) · repos: cicd now. Reports-sdk / report-form / both app
   stacks / terraform / templates in later waves
 - **Design doc:** [`docs/design/reports-ecosystem.md`](design/reports-ecosystem.md) · epic
-  tracker: `kriegerdataforge/docs/epics/reports-ecosystem-standard-PLAN.md` (+ `-LOG.md`)
+  tracker. `kriegerdataforge/docs/epics/reports-ecosystem-standard-PLAN.md` (+ `-LOG.md`)
 
-**Context.** The AI bug reporter (submit → PII-redact → AI-cluster → GitHub issue + Projects v2
+**Context.** The AI bug reporter (submit → PII redact → AI cluster → GitHub issue + Projects v2
 item) is fully built and deployed, but only inside `fitness-app-backend/api/reports/`, only for
 the fitness board, admin-click-only. Tiffany's report UI is broken (its backend never received
-the module), no repo can adopt the feature without copy-paste, and the ecosystem has no standard
-ticket boards for developers — or the first external collaborator — to work from.
+the module), no repo can adopt the feature without copy paste, and the ecosystem has no standard
+ticket boards for developers, or the first external collaborator, to work from.
 
-**Decision.** Promote it to an ecosystem standard (owner-approved 7-wave plan; see the hub
-tracker). This wave ships the cicd control-plane piece:
+**Decision.** Promote it to an ecosystem standard (owner approved 7-wave plan, see the hub
+tracker). This wave ships the cicd control plane piece:
 
-- `scripts/projects_registry.json` — 6 user-owned boards (Fitness / Tiffany's Space / Platform /
-  Infra / Portfolios / Templates; membership partitions the ecosystem) + the standard field
-  schema (Status target-options, Priority, Type, Severity; Repo derived per board).
-- `scripts/provision_projects.py` — registry-driven check/execute engine (distribute_kit skeleton
-  + rotate_secret error aggregation). Idempotent: adopt-by-title / pinned `existing_node_id`;
-  every mutation guarded by an existence read; GraphQL POSTs deliberately never status-retried.
-  Auth is **App-first** (no GraphQL `viewer` dependency — App installation tokens have none) with
-  an owner-staged classic-PAT fallback (`SECRET_VALUE_NEW`, `project`+`repo`, revoked after) iff
-  the API refuses App tokens for user-owned ProjectsV2.
-- `ops:provision-projects` issue form + workflow (D-002 pattern: owner-only gate, awk field
-  parser, metadata-only issue summary — board node ids are metadata, not secrets).
-- What stays deliberately manual (the API can't): built-in **Status** option reshaping, custom
-  views, failed collaborator invites — the engine prints exactly what remains; recipes in
+- `scripts/projects_registry.json`. 6 user owned boards (Fitness / Tiffany's Space / Platform /
+  Infra / Portfolios / Templates, membership partitions the ecosystem) + the standard field
+  schema (Status target options, Priority, Type, Severity, Repo derived per board).
+- `scripts/provision_projects.py`. Registry driven check/execute engine (distribute_kit skeleton
+  + rotate_secret error aggregation). Idempotent. Adopt by title / pinned `existing_node_id`.
+  Every mutation guarded by an existence read, GraphQL POSTs deliberately never status-retried.
+  Auth is **App first** (no GraphQL `viewer` dependency, App installation tokens have none) with
+  an owner staged classic PAT fallback (`SECRET_VALUE_NEW`, `project`+`repo`, revoked after) iff
+  the API refuses App tokens for user owned ProjectsV2.
+- `ops:provision-projects` issue form + workflow (D-002 pattern: owner only gate, awk field
+  parser, metadata only issue summary, board node ids are metadata, not secrets).
+- What stays deliberately manual (the API can't). Built in **Status** option reshaping, custom
+  views, failed collaborator invites. The engine prints exactly what remains, recipes in
   [`docs/guides/PROJECTS_BOARDS.md`](guides/PROJECTS_BOARDS.md).
 
 **Alternatives considered.** One board per repo (rejected: the shipped reporter routes per app;
-fe/be work would split across boards) · a long-lived Projects-scoped PAT (rejected: App-first
-keeps zero new long-lived credentials) · centralizing all apps' reports in fitness-be (rejected:
-per-client audience isolation refuses other apps' JWTs; per-app modules enable template bundling)
+fe/be work would split across boards) · a long lived Projects scoped PAT (rejected: App first
+keeps zero new long lived credentials) · centralizing all apps' reports in fitness-be (rejected:
+per client audience isolation refuses other apps' JWTs, per app modules enable template bundling)
 · Vercel cron for the later triage schedule (rejected by owner: orchestration must live in GitHub,
-cloud-agnostic).
+cloud agnostic).
 
-**Consequences.** `agents/README.md`'s brainstormed issue-triage-agent row is superseded for the
-bug-report domain (triage runs in-process in each app; cicd only schedules it — the skeleton
+**Consequences.** `agents/README.md`'s brainstormed issue triage agent row is superseded for the
+bug report domain (triage runs in process in each app, cicd only schedules it, the skeleton
 remains for the other agent concepts). Wave 2 consumes the printed board node ids
-(`GH_REPORTS_*PROJECT_ID`). Later waves add: `ops:distribute-app-secrets` + App-token package
+(`GH_REPORTS_*PROJECT_ID`). Later waves add. `ops:distribute-app-secrets` + App token package
 installs (W2.5), npm plumb (W3.5), the disabled weekly triage trigger + `reports_registry.json`
 (W4.1), and kit v1.4.0's `REPORTS_STANDARD.md` (W6, D-011).
 
-**Update — 2026-07-12 (W1-ops finding, cicd v0.2.65).** The first live `execute` resolved the open
-auth question: **neither a GitHub App installation token nor a fine-grained PAT can create/modify
-user-owned Projects v2** — GitHub exposes a Projects permission only for organizations, so on a
+**Update, 2026-07-12 (W1-ops finding, cicd v0.2.65).** The first live `execute` resolved the open
+auth question. **neither a GitHub App installation token nor a fine grained PAT can create/modify
+user owned Projects v2**, GitHub exposes a Projects permission only for organizations, so on a
 personal account `createProjectV2` on a user `ownerId` is refused (*"does not have permission to
-create projects"*). The App path is out (proven live) and so is `CICD_PAT` — it is a *fine-grained*
+create projects"*). The App path is out (proven live) and so is `CICD_PAT`. It is a *fine grained*
 token, so the owner standard "cicd ops use `CICD_PAT`" can't apply to Projects provisioning.
-**Resolution:** provisioning runs on a short-lived **classic** PAT with the `project` scope that the
-owner stages in `SECRET_VALUE_NEW` for the run and revokes after (`repo` scope optional — only for
-automatic repo-linking, which the engine now treats as best-effort so a `project`-only token still
+**Resolution.** Provisioning runs on a short lived **classic** PAT with the `project` scope that the
+owner stages in `SECRET_VALUE_NEW` for the run and revokes after (`repo` scope optional, only for
+automatic repo linking, which the engine now treats as best effort so a `project`-only token still
 creates every board + field). `ops-provision-projects.yml` passes `GH_TOKEN: secrets.SECRET_VALUE_NEW`
-(App-token mint step dropped); `_resolve_token` validates the token with a read-probe and prints
-classic-PAT guidance on refusal. Runtime board *item* writes by the reports app go through the App
+(App token mint step dropped), `_resolve_token` validates the token with a read probe and prints
+classic PAT guidance on refusal. Runtime board *item* writes by the reports app go through the App
 installation token (a separate path).
 
-**Update — 2026-07-12 (reserved-field fix, cicd v0.2.66).** The first classic-PAT `execute` created
+**Update, 2026-07-12 (reserved field fix, cicd v0.2.66).** The first classic PAT `execute` created
 all 6 boards + the Priority/Type/Severity fields, then each board failed on the derived **`Repo`**
 field with `createProjectV2Field` → *"Name cannot have a reserved value"*. `Repo`/`Repository` is a
-**reserved** name — Projects v2 has a built-in Repository field (auto-populated per item), so a custom
+**reserved** name. Projects v2 has a built in Repository field (auto populated per item), so a custom
 one is both rejected and redundant. Dropped the custom `Repo` field (`_target_fields` now returns just
-the standard schema; `_repo_field_options` removed); repo grouping/filtering uses the built-in field.
+the standard schema, `_repo_field_options` removed). Repo grouping/filtering uses the built in field.
 The 6 created boards' node ids are now **pinned** in `projects_registry.json` (`existing_node_id`) so
-re-runs adopt these exact boards by id. Idempotent re-run completes the half-provisioned boards
+re-runs adopt these exact boards by id. Idempotent re-run completes the half provisioned boards
 (adopt → skip existing fields → link repos).
 
-**Update — 2026-07-13 (W2.5: App-secret distribution + App-token package installs, cicd v0.2.67).**
-The Wave-2 close-out ships the two cicd-side pieces the Consequences block promised:
+**Update, 2026-07-13 (W2.5: App secret distribution + App token package installs, cicd v0.2.67).**
+The Wave-2 close out ships the two cicd side pieces the Consequences block promised:
 
-- **`ops:distribute-app-secrets`** (owner-requested) — `scripts/distribute_app_secrets.py` +
+- **`ops:distribute-app-secrets`** (owner requested). `scripts/distribute_app_secrets.py` +
   issue form + workflow (D-002 pattern) copying this repo's `KDF_APP_ID` / `KDF_APP_PRIVATE_KEY`
   to every consumer repo carrying `distribute_source_env` in `secret_registry.json`. It
-  generalizes `ops-setup-e2e.yml`'s fixed 6-repo copy step: the registry's 12-repo list (the six
-  E2E-journey repos **plus** the two reports package repos and the four templates — the full
-  App-credential consumer set, and deliberately a superset of the epic plan's ten so the registry
-  is the ONE authoritative inventory of copies for the org-move cleanup) is now the allow-list,
+  generalizes `ops-setup-e2e.yml`'s fixed 6-repo copy step. The registry's 12-repo list (the six
+  E2E-journey repos **plus** the two reports package repos and the four templates, the full
+  App credential consumer set, and deliberately a superset of the epic plan's ten so the registry
+  is the ONE authoritative inventory of copies for the org move cleanup) is now the allow list,
   and the workflow's App token is scoped `secrets:write` to exactly those repos (computed by the
-  engine's `targets` mode — never hardcoded). `check` is a read-only audit (names + timestamps;
-  the API cannot return values); `execute` seals each value to each target's public key
-  (idempotent PUT, per-target error aggregation); swapped/missing source envs abort **before**
-  any write via shape checks that name the expected format, never the value (unit-tested
+  engine's `targets` mode, never hardcoded). `check` is a read only audit (names + timestamps.
+  The API cannot return values), `execute` seals each value to each target's public key
+  (idempotent PUT, per target error aggregation). Swapped/missing source envs abort **before**
+  any write via shape checks that name the expected format, never the value (unit tested
   invariant, incl. "output never contains a value"). This also closes the §8.3a rotation gap:
   consumer copies of a rotated App key were previously stale until each repo was re-provisioned
-  by hand — the runbook now fans out as step 4, before the old key is deleted.
-- **`ci-python-*` package installs are App-token-first** — the five `needs_sdk_auth` lanes
-  (tests / lint / typecheck / security / integration) mint a short-lived installation token
-  (`contents: read` only, auto-revoked at job end) when the caller sets `USE_GITHUB_APP` and
+  by hand. The runbook now fans out as step 4, before the old key is deleted.
+- **`ci-python-*` package installs are App token first**. The five `needs_sdk_auth` lanes
+  (tests / lint / typecheck / security / integration) mint a short lived installation token
+  (`contents: read` only, auto revoked at job end) when the caller sets `USE_GITHUB_APP` and
   holds the distributed App secrets, falling back to `GH_PACKAGES_PAT` unchanged otherwise
-  (non-breaking: no new inputs; `secrets: inherit` already carries the App pair). No
-  `repositories:` filter on the mint: the private package set grows (kdf_sdk, kdf_reports, …)
-  and the token is read-only, so installation-wide read beats editing five lanes per new package.
+  (non-breaking: no new inputs, `secrets: inherit` already carries the App pair). No
+  `repositories:` filter on the mint. The private package set grows (kdf_sdk, kdf_reports, …)
+  and the token is read only, so installation wide read beats editing five lanes per new package.
   `cd-python-vercel.yml` deliberately keeps the PAT (Vercel builds are a PAT lane per the epic's
-  token model); the npm lanes follow in W3.5.
-- **Registries:** `GH_PACKAGES_PAT` gains `kriegerdataforge-reports-sdk` as a repo-secret target
-  (its CI installs kdf_sdk as a peer dep — the exact class of gap PR #84 fixed);
+  token model). The npm lanes follow in W3.5.
+- **Registries.** `GH_PACKAGES_PAT` gains `kriegerdataforge-reports-sdk` as a repo secret target
+  (its CI installs kdf_sdk as a peer dep, the exact class of gap PR #84 fixed),
   `kit_registry.json` repos += `kriegerdataforge-reports-sdk` + `kriegerdataforge-report-form`
-  (born with kit v1.3.0, so they enter in-sync). Docs: WORKFLOWS.md backfills the W1
-  `ops-provision-projects.yml` row (missed in v0.2.64) and adds the new flow;
+  (born with kit v1.3.0, so they enter in sync). Docs. WORKFLOWS.md backfills the W1
+  `ops-provision-projects.yml` row (missed in v0.2.64) and adds the new flow,
   SECRET_ROTATION §8.2's PAT recipe now names BOTH package repos (a token scoped to one breaks
   the other's installs).
 
-**Update — 2026-07-13 (W3.5: npm GH-Packages token model — the App-token plan is NOT viable,
+**Update, 2026-07-13 (W3.5: npm GH Packages token model, the App token plan is NOT viable,
 cicd v0.2.68).** The W3 auth spike resolved against the plan's happy path, by GitHub docs
 (*"GitHub Packages only supports authentication using a personal access token (classic)"*, plus
 the Actions `GITHUB_TOKEN`) and confirmed live by the `@needless2say/report-form` publish
-pipeline: **GH Packages rejects fine-grained PATs** (so `GH_PACKAGES_PAT` can never serve npm —
-there is no scope to add) **and GitHub Apps have no Packages permission at all** (nothing to
-grant; the planned "ci-nextjs App-token npm plumb" is impossible). The plan's documented fallback
+pipeline. **GH Packages rejects fine grained PATs** (so `GH_PACKAGES_PAT` can never serve npm.
+There is no scope to add) **and GitHub Apps have no Packages permission at all** (nothing to
+grant, the planned "ci nextjs App token npm plumb" is impossible). The plan's documented fallback
 activates:
 
-- **`GH_NPM_TOKEN`** — a new classic PAT, `read:packages` ONLY — is the ecosystem npm-install
-  credential for consumer CI, Vercel builds, Docker builds, and local dev. New paste-mode
-  registry entry (repo-level secrets on `fitness-app-frontend` + `tiffanys-space`; Vercel
-  frontend-project env vars with TODO ids the engine skips until filled — Terraform backfill is
-  a post-epic review item) + rotation recipe §8.2a (first-mint adds the `check` block).
+- **`GH_NPM_TOKEN`.** A new classic PAT, `read:packages` ONLY. Is the ecosystem npm install
+  credential for consumer CI, Vercel builds, Docker builds, and local dev. New paste mode
+  registry entry (repo level secrets on `fitness-app-frontend` + `tiffanys-space`, Vercel
+  frontend project env vars with TODO ids the engine skips until filled, Terraform backfill is
+  a post epic review item) + rotation recipe §8.2a (first mint adds the `check` block).
 - The four `ci-nextjs-*` lanes and `cd-nextjs-vercel.yml` **export `GH_NPM_TOKEN` to `npm ci`**
-  (always defined, empty for token-less consumers — avoiding npm's "Failed to replace env in
-  config" hard-error while keeping the 401 fail-closed tell). Non-breaking: no inputs changed.
+  (always defined, empty for token less consumers, avoiding npm's "Failed to replace env in
+  config" hard error while keeping the 401 fail closed tell). Non-breaking. No inputs changed.
 - Publishing needs **no secret at all** (the package repo's own `GITHUB_TOKEN`,
-  `packages:write`), and consumer CI can use zero-secret per-repo **Actions-access grants** on
-  the package instead of the token — both documented in the npm template's
+  `packages:write`), and consumer CI can use zero secret per repo **Actions access grants** on
+  the package instead of the token. Both documented in the npm template's
   `PRIVATE_GH_PACKAGES.md` (W3.1). Related scope constraint recorded there and in report-form
-  D-001: GH-Packages package scope must equal the repo owner, so the widget is
+  D-001. GH Packages package scope must equal the repo owner, so the widget is
   `@needless2say/report-form` until the org move.
 
-**Update — 2026-07-14 (W4: the scheduled triage trigger — disarmed at birth, cicd v0.2.69).**
-The doorbell for the per-app AI triage: `scripts/trigger_triage.py` +
+**Update, 2026-07-14 (W4: the scheduled triage trigger, disarmed at birth, cicd v0.2.69).**
+The doorbell for the per app AI triage. `scripts/trigger_triage.py` +
 `scripts/reports_registry.json` (one entry per app × environment) POST each selected app's
-`X-Cron-Secret`-gated `POST /reports/triage/cron`; the AI, PII redaction, and GitHub writes all
-stay in-process in the app (`kdf_reports`).
+`X-Cron-Secret`-gated `POST /reports/triage/cron`. The AI, PII redaction, and GitHub writes all
+stay in process in the app (`kdf_reports`).
 
-- **Two workflows, one engine:** `trigger-reports-triage.yml` (weekly `cron '23 9 * * 1'` →
-  `--apps enabled --environment prod`, plus `workflow_dispatch`) and the owner-gated
-  `ops:triage-reports` issue form (dry-run/execute, dev/prod, result commented on the issue —
-  D-002 pattern). **Disarmed twice over** (plan directive 8): the schedule job is gated on the
-  unset `RUN_REPORTS_TRIAGE` repo variable AND every registry entry ships `enabled: false`;
-  manual runs need neither, so the pipeline is verifiable before it is armed.
-- **Failure semantics:** POSTs are never status-retried (a `502`-that-triaged must not
-  double-fire; PL-134 makes true double-fires safe anyway); all selected secrets resolve before
-  the first POST; per-app failures aggregate; a quiet week is green (`202`, `total_reports=0`).
-- **Metadata-only output (unit-tested):** success echoes whitelisted scalar batch counters;
-  non-2xx maps to fixed interpretations; response bodies (which can carry user report content)
+- **Two workflows, one engine.** `trigger-reports-triage.yml` (weekly `cron '23 9 * * 1'` →
+  `--apps enabled --environment prod`, plus `workflow_dispatch`) and the owner gated
+  `ops:triage-reports` issue form (dry-run/execute, dev/prod, result commented on the issue,
+  D-002 pattern). **Disarmed twice over** (plan directive 8). The schedule job is gated on the
+  unset `RUN_REPORTS_TRIAGE` repo variable AND every registry entry ships `enabled: false`.
+  Manual runs need neither, so the pipeline is verifiable before it is armed.
+- **Failure semantics.** POSTs are never status retried (a `502`-that-triaged must not
+  double fire, PL-134 makes true double fires safe anyway). All selected secrets resolve before
+  the first POST. Per app failures aggregate. A quiet week is green (`202`, `total_reports=0`).
+- **Metadata only output (unit tested).** Success echoes whitelisted scalar batch counters.
+  Non-2xx maps to fixed interpretations. Response bodies (which can carry user report content)
   and secret values never reach logs or issue comments.
-- **Secrets:** new dual-store registry entries `REPORTS_CRON_SECRET_FITNESS_APP` /
-  `_TIFFANYS_SPACE` (cicd-side copies; authoritative value = Terraform app-side; recipe
-  §8.13a). **Base-url identity is part of the threat model:** the tiffanys URLs were verified
-  to serve the Tiffany's Space openapi before being committed; the fitness URLs ship as `TODO_`
-  placeholders (their real Vercel domains carry random suffixes — the engine refuses explicit
-  requests against placeholders) — a cron secret POSTed to a look-alike host would leak it.
-- Ops guide: `docs/guides/REPORTS_TRIAGE_OPS.md` (arming checklist, per-app first-time wiring,
+- **Secrets.** New dual store registry entries `REPORTS_CRON_SECRET_FITNESS_APP` /
+  `_TIFFANYS_SPACE` (cicd side copies, authoritative value = Terraform app side, recipe
+  §8.13a). **Base url identity is part of the threat model.** The tiffanys URLs were verified
+  to serve the Tiffany's Space openapi before being committed. The fitness URLs ship as `TODO_`
+  placeholders (their real Vercel domains carry random suffixes, the engine refuses explicit
+  requests against placeholders). A cron secret POSTed to a look alike host would leak it.
+- Ops guide. `docs/guides/REPORTS_TRIAGE_OPS.md` (arming checklist, per app first time wiring,
   rotation order).
 
-## D-011 — Agentic-Workflow Standard v1.4: the reports standard joins the kit
+## D-011. Agentic Workflow Standard v1.4. The reports standard joins the kit
 
-- **Date:** 2026-07-14
-- **Status:** Accepted
-- **Tier / scope:** Epic close-out (reports-ecosystem D-010, Wave 6) · kit v1.3.0 → **v1.4.0** ·
-  all 16 kit-synced repos
+- **Date.** 2026-07-14
+- **Status.** Accepted
+- **Tier / scope:** Epic close out (reports ecosystem D-010, Wave 6) · kit v1.3.0 → **v1.4.0** ·
+  all 16 kit synced repos
 
-**Context.** Waves 0–5 built and proved the reports standard end-to-end — six provisioned boards,
+**Context.** Waves 0–5 built and proved the reports standard end to end, six provisioned boards,
 two certified packages (`kdf_reports` v0.2.0, `@needless2say/report-form` v0.2.1), both app
 stacks migrated (tiffanys' broken pipeline reconnected), the disarmed weekly trigger, and
-dark-by-default template bundling. Per the epic's directive 9, the standard is documented only
-where it was built; agents landing in any OTHER repo (or a future generated app) had no kit-level
+dark by default template bundling. Per the epic's directive 9, the standard is documented only
+where it was built. Agents landing in any OTHER repo (or a future generated app) had no kit level
 statement of what the standard is, what must not be weakened, or where the worked examples live.
 
-**Decision.** Ship an **additive kit minor — v1.4.0**: one new kit file,
+**Decision.** Ship an **additive kit minor. V1.4.0**. One new kit file,
 `docs/agent/REPORTS_STANDARD.md` (skills.md-style *(app repos)* annotations, since the kit syncs
-to every repo type): the pipeline in one paragraph, the two certified packages + tag-pinning
-rules, backend/frontend adoption recipes (alembic template revision, env block, BFF allow-list
-gotcha, `GH_NPM_TOKEN` classic-only), the trigger-enrollment runbook pointer, the DO-NOT-WEAKEN
-security posture (PII redaction boundaries, server-stamped `app_slug`, PL-117 label allow-list,
-fail-closed cron, human-only Priority, reserved `Repo` field), the six-board catalog pointer,
-and a per-repo-type applicability table. Registry `files[]` grows **12 → 13**; both
-`KIT_VERSION` markers bump together to `v1.4.0`; cicd's root copies hand-synced (README index
-row included). Rider: `GH_NPM_TOKEN`'s registry targets += `template-nextjs` (W5.2 bundled the
-widget there; the secret itself is an owner paste/copy).
+to every repo type). The pipeline in one paragraph, the two certified packages + tag pinning
+rules, backend/frontend adoption recipes (alembic template revision, env block, BFF allow list
+gotcha, `GH_NPM_TOKEN` classic only), the trigger enrollment runbook pointer, the DO NOT WEAKEN
+security posture (PII redaction boundaries, server stamped `app_slug`, PL-117 label allow list,
+fail closed cron, human only Priority, reserved `Repo` field), the six board catalog pointer,
+and a per repo type applicability table. Registry `files[]` grows **12 → 13**. Both
+`KIT_VERSION` markers bump together to `v1.4.0`. Cicd's root copies hand synced (README index
+row included). Rider. `GH_NPM_TOKEN`'s registry targets += `template-nextjs` (W5.2 bundled the
+widget there, the secret itself is an owner paste/copy).
 
 **Alternatives considered.** Folding the content into `AGENT_OPERATING_STANDARD.md` (rejected:
-it's a domain standard, not an operating principle; skills.md set the precedent for
-repo-type-annotated domain docs) · a per-repo doc only in adopting repos (rejected: the kit's
-whole point is that every agent sees the same standard — non-adopting repos get the
+it's a domain standard, not an operating principle, skills.md set the precedent for
+repo type annotated domain docs) · a per repo doc only in adopting repos (rejected: the kit's
+whole point is that every agent sees the same standard, non-adopting repos get the
 applicability table).
 
 **Consequences.** Owner runs **Distribute** (`ops:distribute-kit`) to fan v1.4.0 out to the 16
-consumer repos (kit-only PRs are version-gate-exempt; the weekly drift alarm stays red until
-distributed). Future reports-standard changes update the packages first, then this kit doc in
+consumer repos (kit only PRs are version gate exempt, the weekly drift alarm stays red until
+distributed). Future reports standard changes update the packages first, then this kit doc in
 the same wave.
 
-**Epic close-out (D-010).** All seven waves delivered: W0 hub tracker · W1 boards engine + 6
-live boards (classic-PAT finding) · W2 `kdf_reports` v0.1.0 + both backends + terraform +
+**Epic close out (D-010).** All seven waves delivered: W0 hub tracker · W1 boards engine + 6
+live boards (classic PAT finding) · W2 `kdf_reports` v0.1.0 + both backends + terraform +
 `ops:distribute-app-secrets` · W3 `@needless2say/report-form` v0.2.1 published privately
-(workflow_run publish fix; `GH_NPM_TOKEN` model — GH Packages is classic-PAT/GITHUB_TOKEN only)
+(workflow_run publish fix, `GH_NPM_TOKEN` model, GH Packages is classic-PAT/GITHUB_TOKEN only)
 + both frontend swaps (tiffanys pipeline reconnected) · W4 the disarmed weekly trigger +
-v0.2.0 board field-setting (+ the reports-sdk unit-CI silent-skip repair) · W5 template
-bundling (fastapi dark flag; nextjs widget + example) + collaborator onboarding docs · W6 this
-kit release. Post-epic review backlog lives at the end of the hub PLAN doc (nextjs-parity epic,
+v0.2.0 board field setting (+ the reports-sdk unit CI silent skip repair) · W5 template
+bundling (fastapi dark flag, nextjs widget + example) + collaborator onboarding docs · W6 this
+kit release. Post epic review backlog lives at the end of the hub PLAN doc (nextjs parity epic,
 hub adoption, fitness TriageDashboard port, terraform backfill of fitness `GH_REPORTS_*`, E2E
 journey extension). Runtime arming (cron secrets, base_urls, board Status reshape, schedule
-variables) remains owner-paced — the standard ships complete and OFF.
+variables) remains owner-paced. The standard ships complete and OFF.
 
-## D-012 — Agentic-Workflow Standard v1.4.1: docs-freshness corrections to the kit
+## D-012. Agentic Workflow Standard v1.4.1, docs freshness corrections to the kit
 
-- **Date:** 2026-07-19
-- **Status:** Accepted
-- **Tier / scope:** Kit patch (docs-freshness wave 2026-07-19) · kit v1.4.0 → **v1.4.1** ·
-  all 16 kit-synced repos
+- **Date.** 2026-07-19
+- **Status.** Accepted
+- **Tier / scope:** Kit patch (docs freshness wave 2026-07-19) · kit v1.4.0 → **v1.4.1** ·
+  all 16 kit synced repos
 
-**Context.** The 2026-07-19 docs-freshness effort across the ecosystem flagged three defects in
-the distributed kit: (1) every identity-decoupling passage named the hub's auth table
-`kdf_users` — the real table is `kdfusers` (no underscore; verified against the hub's models and
-both app backends); (2) the Windows bump caveat (added in D-009) claimed "the bump script's
-emoji output can crash on cp1252 — run `PYTHONIOENCODING=utf-8`", which misdescribes repos whose
-bump scripts are ASCII-only (the npm template family); (3) app-centric mechanics shipped
-unqualified to every repo type — `WORKFLOW.md` taught vercel-compact-after-`api/`-changes and
-OpenAPI-client regeneration as if universal, and `DEFINITION_OF_DONE.md`'s conditional sections
-(test tiers, migration + rollback, cross-repo contract rows) read as demands even for
-static-export portfolios and package repos.
+**Context.** The 2026-07-19 docs freshness effort across the ecosystem flagged three defects in
+the distributed kit. (1) every identity decoupling passage named the hub's auth table
+`kdf_users`. The real table is `kdfusers` (no underscore, verified against the hub's models and
+both app backends), (2) the Windows bump caveat (added in D-009) claimed "the bump script's
+emoji output can crash on cp1252. Run `PYTHONIOENCODING=utf-8`", which misdescribes repos whose
+bump scripts are ASCII only (the npm template family), (3) app centric mechanics shipped
+unqualified to every repo type, `WORKFLOW.md` taught vercel-compact-after-`api/`-changes and
+OpenAPI client regeneration as if universal, and `DEFINITION_OF_DONE.md`'s conditional sections
+(test tiers, migration + rollback, cross repo contract rows) read as demands even for
+static export portfolios and package repos.
 
-**Decision.** Ship a **correction-only kit patch — v1.4.1** (no files added or removed; registry
-`files[]` unchanged at 13): (1) `kdf_users` → `kdfusers` in `skills.md`,
+**Decision.** Ship a **correction only kit patch. V1.4.1** (no files added or removed, registry
+`files[]` unchanged at 13). (1) `kdf_users` → `kdfusers` in `skills.md`,
 `AGENT_OPERATING_STANDARD.md`, `DEFINITION_OF_DONE.md`, `REPORTS_STANDARD.md`, and the
-design-spec + contributor-onboarding templates; (2) the Windows caveat reworded generically in
-`WORKFLOW.md` and the onboarding template — some repos' bump scripts emit emoji and can crash on
-cp1252 Windows consoles; on `UnicodeEncodeError` rerun with `PYTHONUTF8=1`; (3) applicability
-qualifiers, not deletions: `WORKFLOW.md`'s Quick lane and Step 4 scope `make vercel-compact` to
-repos with an `api/` + Vercel compactor, Epic step 4 gains a one-line "OpenAPI/SDK mechanics
+design spec + contributor onboarding templates, (2) the Windows caveat reworded generically in
+`WORKFLOW.md` and the onboarding template. Some repos' bump scripts emit emoji and can crash on
+cp1252 Windows consoles, on `UnicodeEncodeError` rerun with `PYTHONUTF8=1`, (3) applicability
+qualifiers, not deletions. `WORKFLOW.md`'s Quick lane and Step 4 scope `make vercel-compact` to
+repos with an `api/` + Vercel compactor, Epic step 4 gains a one line "OpenAPI/SDK mechanics
 apply to repos with an API surface" scoping, and `DEFINITION_OF_DONE.md` gains a scope note
 ("conditional sections apply only to repos that have that surface") plus a "tiers this repo
-actually has" qualifier on the test row. All three `KIT_VERSION` markers bump together; cicd's
-root copies hand-synced byte-identical.
+actually has" qualifier on the test row. All three `KIT_VERSION` markers bump together, cicd's
+root copies hand synced byte-identical.
 
-**Alternatives considered.** Per-repo kit forks (rejected: the kit's value is byte-identical
-sameness; qualifiers keep one text true everywhere) · deleting the app-centric sections
-(rejected: most kit consumers ARE app repos; scoping is a two-line fix) · rewriting the
-`kdf_users` mentions inside historical ADRs (rejected: this log is append-only — D-005/D-009
-record what was written then; this entry supersedes the detail).
+**Alternatives considered.** Per repo kit forks (rejected: the kit's value is byte identical
+sameness, qualifiers keep one text true everywhere) · deleting the app centric sections
+(rejected: most kit consumers ARE app repos, scoping is a two line fix) · rewriting the
+`kdf_users` mentions inside historical ADRs (rejected: this log is append only, D-005/D-009
+record what was written then, this entry supersedes the detail).
 
 **Consequences.** Owner runs **Distribute** (`ops:distribute-kit`) to fan v1.4.1 out to the 16
-consumer repos; until then the weekly drift check stays red for the consumer repos (kit-only
-sync PRs remain version-gate-exempt). Docs-only — no behavior, contract, or registry-shape
+consumer repos, until then the weekly drift check stays red for the consumer repos (kit only
+sync PRs remain version gate exempt). Docs-only. No behavior, contract, or registry shape
 change.
 
-## D-013 — Version-scripts sync: strict single-increment gate + distributed dev-script tooling
+## D-013. Version scripts sync. Strict single increment gate + distributed dev script tooling
 
-- **Date:** 2026-08-11
-- **Status:** Accepted
+- **Date.** 2026-08-11
+- **Status.** Accepted
 - **Tier / scope:** Standard · repos: all 17 consumers (scripts synced from `cicd/scripts/common/`)
   · feature doc: [`docs/features/version-scripts-sync.md`](./features/version-scripts-sync.md)
 
 **Context.** An invalid version jump (`0.10.6 → 0.10.8` in the hub) passed every gate. The
-per-repo `scripts/bump_version.py` copies — forked into four drifted variants (plain-Python,
-npm+lockfile, auth-ui one-off, script-call) — blindly increment the LOCAL VERSION file, so two
+per repo `scripts/bump_version.py` copies. Forked into four drifted variants (plain Python,
+npm+lockfile, auth-ui one off, script call). Blindly increment the LOCAL VERSION file, so two
 `make bump-patch` runs silently produce +2. Each repo's `ci-version-check` Makefile recipe only
 failed on "unchanged" or "behind" (`sort -V`), and the central
 `scripts/common/check_version.py` that every consumer CI runs only required "strictly greater".
-The one strict +1 implementation (`bump-version-check.yml`, with a dead double-read hack) was
+The one strict +1 implementation (`bump-version-check.yml`, with a dead double read hack) was
 consumed solely by this repo's own ci.yml.
 
-**Decision.** (1) **One canonical script family** in `scripts/common/` — `bump_version.py`
-(computes the bump FROM `origin/main`'s VERSION: double-bump idempotent, bump-minor-after-patch
-corrects instead of stacking; local-file fallback with a warning), `check_version.py` (strict
-single-increment vs the base branch + consistency of every version target; legacy flags accepted
-as no-ops), and `version_targets.py` (shared target resolution: auto-detect by presence across
-all repo shapes — FastAPI incl. `vercel_api/pyproject.toml`, Python package, Next.js/npm,
-VERSION-only — with an optional per-repo `scripts/version_targets.json` manifest that is
-authoritative and hard-fails on declared-but-missing files). One configurable family, never
-per-type forks. (2) **A script-sync engine mirroring the kit's** (ADR D-001): registry
+**Decision.** (1) **One canonical script family** in `scripts/common/`. `bump_version.py`
+(computes the bump FROM `origin/main`'s VERSION: double bump idempotent, bump minor after patch
+corrects instead of stacking, local file fallback with a warning), `check_version.py` (strict
+single increment vs the base branch + consistency of every version target, legacy flags accepted
+as no ops), and `version_targets.py` (shared target resolution, auto detect by presence across
+all repo shapes, FastAPI incl. `vercel_api/pyproject.toml`, Python package, Next.js/npm,
+VERSION only, with an optional per repo `scripts/version_targets.json` manifest that is
+authoritative and hard fails on declared but missing files). One configurable family, never
+per type forks. (2) **A script sync engine mirroring the kit's** (ADR D-001). Registry
 `scripts/scripts_registry.json` (src→dest, 17 repos = kit's 16 + kriegerdataforge-fmt), marker
 `scripts/SCRIPTS_VERSION`, engine `distribute_scripts.py` on a new shared
-`common/repo_sync.py` (transport + generic SyncItem fan-out extracted from `distribute_kit.py`,
-whose CLI and white-box tests are unchanged), ops issue-form + `ops:distribute-scripts`
-label-triggered owner-gated workflow. Each sync PR also REWRITES the repo's `ci-version-check:`
-Makefile recipe (target line + tab-indented block, idempotent regex patch) to a thin
-`$(PYTHON) scripts/check_version.py --base-branch …` call. (3) **Version-gate exemption
-extended** registry-derived to script-sync paths; `Makefile` exempt ONLY on
+`common/repo_sync.py` (transport + generic SyncItem fan out extracted from `distribute_kit.py`,
+whose CLI and white box tests are unchanged), ops issue form + `ops:distribute-scripts`
+label triggered owner gated workflow. Each sync PR also REWRITES the repo's `ci-version-check:`
+Makefile recipe (target line + tab indented block, idempotent regex patch) to a thin
+`$(PYTHON) scripts/check_version.py --base-branch …` call. (3) **Version gate exemption
+extended** registry derived to script sync paths, `Makefile` exempt ONLY on
 `chore/scripts-sync-*` head branches. (4) `bump-version-check.yml` rewritten as a thin runner of
 the canonical checker.
 
-**Alternatives considered.** Per-repo-type scripts (rejected: recreates the copy-drift disease
-this cures) · refuse-on-invalid bump keeping local-file basis (rejected: origin/main basis makes
+**Alternatives considered.** Per repo type scripts (rejected: recreates the copy drift disease
+this cures) · refuse on invalid bump keeping local file basis (rejected: origin/main basis makes
 the failure mode unrepresentable rather than merely detected) · `--registry` parameterization of
-distribute_kit.py (rejected: can't express the Makefile patch item; pollutes a working engine) ·
-distributing scripts without the Makefile patch (rejected: `make ci` would stay weak locally —
-the exact gap that let the jump through).
+distribute_kit.py (rejected: can't express the Makefile patch item, pollutes a working engine) ·
+distributing scripts without the Makefile patch (rejected: `make ci` would stay weak locally.
+The exact gap that let the jump through).
 
 **Consequences.** Consumer CI gets strict the moment this merges (consumers run the central
 script from `.cicd@main`). Local `make ci` gets strict per repo as its sync PR merges. Four
-repos (fmt/sdk/reports-sdk/template-python-package) move from consistency-only to strict local
-checks; auth-ui gains a local increment check it never had; the `SKIP_INIT` knob and per-repo
-`CI [x/y]` recipe numbering are retired; backends' `vercel_api/pyproject.toml` stays covered by
-auto-detection, and the hub's becomes bump-managed. Sync PRs are review-gated, never
-auto-merged; owner runs check → distribute via the ops issue.
+repos (fmt/sdk/reports-sdk/template-python-package) move from consistency only to strict local
+checks. Auth-ui gains a local increment check it never had. The `SKIP_INIT` knob and per repo
+`CI [x/y]` recipe numbering are retired. Backends' `vercel_api/pyproject.toml` stays covered by
+auto detection, and the hub's becomes bump-managed. Sync PRs are review gated, never
+auto-merged. Owner runs check → distribute via the ops issue.
 
-## D-014 — Vendored script layout: scripts/kdf_scripts/ excluded from tenant style/lint
+## D-014. Vendored script layout. Scripts/kdf_scripts/ excluded from tenant style/lint
 
-- **Date:** 2026-08-11
-- **Status:** Accepted
+- **Date.** 2026-08-11
+- **Status.** Accepted
 - **Tier / scope:** Standard patch to D-013 · repos: all 17 consumers · SCRIPTS_VERSION 1.0.1 → **1.1.0**
 
 **Context.** The distributed version scripts landed at flat `scripts/` paths inside each
-tenant's kdf-fmt (and ruff) scope. They are only guaranteed clean under CICD's configs;
-tenant configs vary (different `[rules.overrides]`, several repos check baseline-less), so
-sync PRs sometimes failed tenant style CI — a distribution being vetoed by the very
+tenant's kdf-fmt (and ruff) scope. They are only guaranteed clean under CICD's configs.
+Tenant configs vary (different `[rules.overrides]`, several repos check baseline less), so
+sync PRs sometimes failed tenant style CI. A distribution being vetoed by the very
 configs it cannot control.
 
-**Decision.** Treat distributed scripts as **vendored code**: they move to
+**Decision.** Treat distributed scripts as **vendored code**. They move to
 `scripts/kdf_scripts/`, and every tenant's `kdf-fmt.toml` (plus ruff config where one
-exists — 4× `ruff.toml` exclude, 4× `pyproject.toml [tool.ruff] extend-exclude`) excludes
-that directory. CICD alone governs the style of what it ships. Mechanics: the sync engine
-gains **delete items** (`SyncItem.desired = None`, Contents-API DELETE, drift iff the file
-exists) and per-repo item builders; the registry gains `deletes[]`, `kdf_fmt_patch`, and
-per-repo `ruff_config`; the Makefile patcher path-rewrites every script reference with a
-negative-lookbehind guard (`kdf_scripts/bump_version.py` itself ends with the substring
-`scripts/bump_version.py` — a naive replace would double-nest on re-runs) before
-re-asserting the canonical recipe; the version-gate exemption derives from
-`files[].dest ∪ deletes[]` and the branch-gated config set widens to
-{Makefile, kdf-fmt.toml, ruff.toml, pyproject.toml}. Per-repo
+exists, 4× `ruff.toml` exclude, 4× `pyproject.toml [tool.ruff] extend-exclude`) excludes
+that directory. CICD alone governs the style of what it ships. Mechanics. The sync engine
+gains **delete items** (`SyncItem.desired = None`, Contents API DELETE, drift iff the file
+exists) and per repo item builders. The registry gains `deletes[]`, `kdf_fmt_patch`, and
+per repo `ruff_config`. The Makefile patcher path rewrites every script reference with a
+negative lookbehind guard (`kdf_scripts/bump_version.py` itself ends with the substring
+`scripts/bump_version.py`, a naive replace would double nest on re-runs) before
+re-asserting the canonical recipe. The version gate exemption derives from
+`files[].dest ∪ deletes[]` and the branch gated config set widens to
+{Makefile, kdf-fmt.toml, ruff.toml, pyproject.toml}. Per repo
 `scripts/version_targets.json` manifests deliberately stay OUTSIDE the vendor dir
-(tenant-owned config).
+(tenant owned config).
 
-**Alternatives considered.** Teaching kdf-fmt a vendored-dir marker convention (rejected:
+**Alternatives considered.** Teaching kdf-fmt a vendored dir marker convention (rejected:
 the owner wants the formatter generic for any codebase, not coupled to this ecosystem's
-distribution feature; also needs a tool release + re-pin across 9 repos) · keeping flat
-paths with per-file excludes in every tenant config (rejected: grows per file, invisible
+distribution feature, also needs a tool release + re-pin across 9 repos) · keeping flat
+paths with per file excludes in every tenant config (rejected: grows per file, invisible
 ownership boundary) · maintaining the canonical scripts clean against all 17 tenant
 configs forever (rejected: unbounded maintenance, already failed once).
 
-**Consequences.** One distribute wave (17 PRs): adds the three files under
+**Consequences.** One distribute wave (17 PRs). Adds the three files under
 `kdf_scripts/`, deletes the flat copies, patches Makefile (`_BUMP` + recipe paths),
 kdf-fmt.toml, and the declared ruff config. Future distributed scripts are born excluded
-in every repo and template. Minor version (1.1.0), not major: consumer-facing entry
-points (`make bump-*`, `make ci-version-check`) are unchanged; only the vendored file
+in every repo and template. Minor version (1.1.0), not major. Consumer facing entry
+points (`make bump-*`, `make ci-version-check`) are unchanged, only the vendored file
 locations moved, and the wave itself performs the migration.

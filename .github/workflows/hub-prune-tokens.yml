@@ -1,0 +1,93 @@
+name: Hub Prune Tokens
+
+# Scheduled trigger for the auth hub's retention job (kriegerdataforge DEFERRED row 21). POSTs the hub's
+# CRON_SECRET-gated /internal/cron/prune-tokens once a day per environment, which deletes expired denylist
+# rows, spent verification tokens, audit rows past retention, never verified registrations and the OIDC rows
+# past their lifetimes. The deletes run IN-PROCESS in the hub, this workflow only rings the doorbell.
+# Orchestration lives in GitHub Actions and not in a Vercel Cron by owner decision, it must survive a cloud
+# move, and a Vercel Cron could only send GET to a route that deletes rows.
+#
+# DISABLED AT BIRTH. The schedule job is gated on the repo variable RUN_HUB_PRUNE == 'true', unset by default,
+# so scheduled runs show as skipped until the owner sets it. Arm it in the same release that deploys the hub
+# whose prune route answers POST, the route answered GET before that release and a POST to it is a 405.
+#
+# Per environment secrets, each a cicd side COPY. The authoritative CRON_SECRET is the terraform value on the
+# hub's Vercel project, see the hub's docs/reference/CONFIGURATION.md.
+#   KDF_HUB_URL_DEV,     KDF_HUB_CRON_SECRET_DEV
+#   KDF_HUB_URL_PROD,    KDF_HUB_CRON_SECRET_PROD
+#   KDF_HUB_URL_SANDBOX, KDF_HUB_CRON_SECRET_SANDBOX
+# An environment whose two secrets are not both set is skipped with a notice rather than failed, so one
+# environment can be armed before another.
+#
+# FAILURE SEMANTICS. The prune is idempotent garbage collection, a failed run leaves rows for the next night and
+# corrupts nothing. A red run means look, not retry in a loop.
+#
+# SECURITY. The response body is the per table counts and nothing else, so it is safe to print. The secret is
+# passed to curl in a header from the environment and GitHub masks it. The hub URL is a secret too, it is not a
+# value this public repository should publish.
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - prod
+          - sandbox
+
+permissions:
+  contents: read
+
+# one prune per environment at a time. never cancel a live one, it may already be deleting
+concurrency:
+  group: hub-prune-tokens-${{ github.event_name == 'schedule' && 'schedule' || inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: Prune ${{ matrix.environment }}
+    # schedule obeys the RUN_HUB_PRUNE arm switch, a manual dispatch always may run
+    if: github.event_name == 'workflow_dispatch' || vars.RUN_HUB_PRUNE == 'true'
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: ${{ github.event_name == 'schedule' && fromJSON('["dev", "prod", "sandbox"]') || fromJSON(format('["{0}"]', inputs.environment)) }}
+    steps:
+      - name: POST the prune route
+        env:
+          ENVIRONMENT: ${{ matrix.environment }}
+          HUB_URL: ${{ matrix.environment == 'prod' && secrets.KDF_HUB_URL_PROD || matrix.environment == 'sandbox' && secrets.KDF_HUB_URL_SANDBOX || secrets.KDF_HUB_URL_DEV }}
+          CRON_SECRET: ${{ matrix.environment == 'prod' && secrets.KDF_HUB_CRON_SECRET_PROD || matrix.environment == 'sandbox' && secrets.KDF_HUB_CRON_SECRET_SANDBOX || secrets.KDF_HUB_CRON_SECRET_DEV }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HUB_URL}" ] || [ -z "${CRON_SECRET}" ]; then
+            echo "::notice::${ENVIRONMENT} has no hub URL or cron secret configured, skipped"
+            echo "### Hub prune, ${ENVIRONMENT}: skipped, secrets not configured" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          status=$(curl --silent --show-error --output body.json --write-out '%{http_code}' \
+            --max-time 120 \
+            --request POST \
+            --header "Authorization: Bearer ${CRON_SECRET}" \
+            "${HUB_URL%/}/internal/cron/prune-tokens")
+          {
+            echo "### Hub prune, ${ENVIRONMENT}: HTTP ${status}"
+            echo
+            echo '```json'
+            # the body is the per table counts, no secret and no user data
+            head -c 2000 body.json
+            echo
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "${status}" != "200" ]; then
+            echo "::error::the prune answered HTTP ${status}"
+            exit 1
+          fi

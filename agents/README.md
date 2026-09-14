@@ -1,7 +1,7 @@
-# agents/ — AI-Driven CI/CD Agents
+# agents/. AI Driven CI/CD Agents
 
-**Status: Brainstorm / Skeleton** — This directory is a placeholder for future AI-driven
-automation work. The structure is intentional; the implementation is not. Revisit this after
+**Status. Brainstorm / Skeleton.** This directory is a placeholder for future AI driven
+automation work. The structure is intentional. The implementation is not. Revisit this after
 the core KriegerDataForge infrastructure refactor is complete.
 
 ---
@@ -9,7 +9,7 @@ the core KriegerDataForge infrastructure refactor is complete.
 ## Vision
 
 The goal is to extend `kriegerdataforge-cicd` beyond static GitHub Actions workflows into
-**AI-driven agents** that can reason, take action, and automate developer tasks across the
+**AI driven agents** that can reason, take action, and automate developer tasks across the
 entire KriegerDataForge ecosystem.
 
 Examples of what these agents could eventually do:
@@ -70,11 +70,11 @@ following the same credential isolation model as the deploy workflows.
 
 - [ ] **Which AI API?** Claude (Anthropic) is the preference given existing tooling, but
       this should be formalized as a documented decision.
-- [ ] **Agent invocation pattern:** Inline curl in YAML vs. dedicated script in `scripts/`
+- [ ] **Agent invocation pattern.** Inline curl in YAML vs. dedicated script in `scripts/`
       vs. a Python agent runner.
-- [ ] **Output format:** GitHub PR comments, issues, commit messages, or all of the above?
-- [ ] **Rate limits and cost controls:** How do we prevent runaway API spend on busy PRs?
-- [ ] **Authentication scope:** Should agents have write access to repos, or just comment?
+- [ ] **Output format.** GitHub PR comments, issues, commit messages, or all of the above?
+- [ ] **Rate limits and cost controls.** How do we prevent runaway API spend on busy PRs?
+- [ ] **Authentication scope.** Should agents have write access to repos, or just comment?
 
 ---
 
@@ -90,5 +90,5 @@ following the same credential isolation model as the deploy workflows.
 
 ## Related Resources
 
-- `docs/WORKFLOWS.md` — Full catalog of existing reusable workflows
-- `CLAUDE.md` — Repo overview and critical rules for AI agents working in this repo
+- `docs/WORKFLOWS.md`. Full catalog of existing reusable workflows
+- `CLAUDE.md`. Repo overview and critical rules for AI agents working in this repo

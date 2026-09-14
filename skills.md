@@ -109,8 +109,8 @@ security audit (`PL-###` findings); the canonical audit lives in the `kriegerdat
   data isn't rejected and lost.
 - **Rate limiting:** `slowapi` reads `RATELIMIT_STORAGE_URI`; `memory://` is per-instance (useless on
   serverless) → needs a **shared store** (Redis/Upstash). Key off the edge-set, non-forgeable IP header
-  (`x-vercel-forwarded-for` → `x-real-ip`), **never** raw left-most `X-Forwarded-For` (Vercel *appends*, so
-  the left entry is client-spoofable). Per-account lockout is **DB-backed** (`failed_login_attempts` /
+  (`x-vercel-forwarded-for` → `x-real-ip`), **never** raw left-most `X-Forwarded-For` (Vercel *overwrites*
+  it, off Vercel it is whatever the caller wrote). Per-account lockout is **DB-backed** (`failed_login_attempts` /
   `locked_until`) and works without Redis.
 - **Timing:** run a uniform argon2 verify for every login outcome (**verify-first**) so locked/inactive/
   missing accounts don't answer faster (enumeration/timing oracle).
