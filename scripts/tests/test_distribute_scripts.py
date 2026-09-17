@@ -7,6 +7,7 @@ Network-touching flows are covered in test_repo_sync.py.
 
 from __future__ import annotations
 
+import json
 from unittest.mock import patch
 
 import distribute_scripts as ds
@@ -231,6 +232,21 @@ def test_build_items_delete_items_have_no_desired():
     items   = ds._build_items(_fake_registry(), None, {"repo": "o/r"})
     deletes = [item for item in items if item.desired is None]
     assert [item.dest for item in deletes] == ["scripts/check_version.py", "scripts/bump_version.py"]
+
+
+def test_build_items_skip_kdf_fmt_builds_no_kdf_fmt_item():
+    # a repo with no style lane carries no kdf-fmt.toml, and the patch raises on a missing file
+    items = ds._build_items(_fake_registry(), None, {"repo": "o/r", "skip_kdf_fmt": True})
+    assert "kdf-fmt.toml" not in [item.dest for item in items]
+    assert "Makefile" in [item.dest for item in items]
+
+
+def test_registry_entry_without_a_style_lane_skips_the_formatter_pin_too():
+    # requirements-dev.in pins kdf-fmt, pointless in a repo that opted out of the lane
+    registry = json.loads((ds.REPO_ROOT / "scripts" / "scripts_registry.json").read_text(encoding = "utf-8"))
+    opted_out = [entry for entry in registry["repos"] if entry.get("skip_kdf_fmt")]
+    assert [entry["repo"] for entry in opted_out] == ["Needless2Say/kriegerdataforge-auth-ui"]
+    assert all(entry.get("skip_requirements") and entry.get("_skip_reason") for entry in opted_out)
 
 
 def test_build_items_without_ruff_config():

@@ -163,9 +163,15 @@ jobs:
       # Vercel project env var and kept in sync in two places.
       #
       # Safe because every route in these apps is `ƒ (Dynamic) — server-rendered on
-      # demand`: `next build` never evaluates the server env module, so the build
-      # needs no runtime secret. Verified by building all three apps with every
-      # sensitive var unset — all exit 0. This matters because `vercel pull` below
+      # demand`, so no page is prerendered from a secret. That is NOT the same as
+      # the build never loading the server env module: `next build` imports every
+      # route module while it collects page data, and kriegerdataforge-auth-ui's env
+      # module throws at load on a missing value (measured 2026-09-17, a build with
+      # an empty KDF_SERVICE_KEY died at `Failed to collect page data for /login`).
+      # An app whose env module fails fast must therefore skip its Sensitive rules
+      # in the build phase (`NEXT_PHASE === "phase-production-build"`) and apply
+      # them at server start, as the auth UI does (its D-004). The build needs no
+      # runtime secret only under that condition. This matters because `vercel pull` below
       # CANNOT retrieve Sensitive env var values (Vercel makes them write-only), so
       # a build that did need one at build time would fail here while passing on
       # Vercel's remote builder. If a future app statically prerenders a page that
