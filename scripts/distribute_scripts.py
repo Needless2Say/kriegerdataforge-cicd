@@ -19,7 +19,9 @@ Synced items (per repo, from the registry):
     `ci-version-check:` recipe block is re-asserted to the canonical thin call.
     Idempotent; a Makefile without the target raises PatchError -> NEEDS MANUAL ATTENTION.
   - kdf-fmt.toml ("kdf_fmt_patch"): appends "scripts/kdf_scripts/" to the top-level
-    `exclude` list (creating the key before the first TOML table when absent).
+    `exclude` list (creating the key before the first TOML table when absent). A repo
+    entry with "skip_kdf_fmt": true has no style lane and carries no kdf-fmt.toml, so the
+    patch is not built for it (a missing file would otherwise fail the whole repo).
   - ruff config (per-repo "ruff_config": ruff.toml | pyproject.toml): same exclusion,
     into ruff.toml's `exclude` list or [tool.ruff]'s `extend-exclude`.
 
@@ -430,7 +432,10 @@ def _build_items(registry: dict, only: str | None, entry: dict) -> list[SyncItem
         items.append(SyncItem(dest = stale, desired = None))
     if registry.get("makefile_patch"):
         items.append(SyncItem(dest = MAKEFILE_DEST, desired = patch_makefile))
-    if registry.get("kdf_fmt_patch"):
+    # A repo that runs no kdf-fmt lane carries no kdf-fmt.toml. patch_kdf_fmt_toml raises on a
+    # missing file, which would report the whole repo as NEEDS MANUAL ATTENTION, so such an
+    # entry opts out. Its vendored scripts are still styled here, in the repo that ships them.
+    if registry.get("kdf_fmt_patch") and not entry.get("skip_kdf_fmt"):
         items.append(SyncItem(dest = KDF_FMT_DEST, desired = patch_kdf_fmt_toml))
     # A repo that PROVIDES one of the canonical packages must not pin it: kdf-fmt's own
     # repo would end up depending on itself, and it carries no kdf_fmt_ref in ci.yml
