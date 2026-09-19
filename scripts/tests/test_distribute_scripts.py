@@ -243,9 +243,12 @@ def test_build_items_skip_kdf_fmt_builds_no_kdf_fmt_item():
 
 def test_registry_entry_without_a_style_lane_skips_the_formatter_pin_too():
     # requirements-dev.in pins kdf-fmt, pointless in a repo that opted out of the lane
-    registry = json.loads((ds.REPO_ROOT / "scripts" / "scripts_registry.json").read_text(encoding = "utf-8"))
+    registry  = json.loads((ds.REPO_ROOT / "scripts" / "scripts_registry.json").read_text(encoding = "utf-8"))
     opted_out = [entry for entry in registry["repos"] if entry.get("skip_kdf_fmt")]
-    assert [entry["repo"] for entry in opted_out] == ["Needless2Say/kriegerdataforge-auth-ui"]
+    assert [entry["repo"] for entry in opted_out] == [
+        "Needless2Say/kriegerdataforge-terraform",
+        "Needless2Say/kriegerdataforge-auth-ui",
+    ]
     assert all(entry.get("skip_requirements") and entry.get("_skip_reason") for entry in opted_out)
 
 
