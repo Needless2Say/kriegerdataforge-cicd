@@ -55,7 +55,10 @@
     },
     {
       "repo": "Needless2Say/kriegerdataforge-terraform",
-      "branch": "main"
+      "branch": "main",
+      "skip_kdf_fmt": true,
+      "skip_requirements": true,
+      "_skip_reason": "The terraform repo runs no kdf-fmt lane (its ADR D-010). Its only Python is the three vendored scripts, which its kdf-fmt.toml excluded, so the lane checked zero files, and keeping it meant adding a package token to the repo that holds the Vercel token. It carries no kdf-fmt.toml to patch and needs no requirements-dev.in pinning a formatter it never runs."
     },
     {
       "repo": "Needless2Say/kriegerdataforge-auth-ui",
