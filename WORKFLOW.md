@@ -152,9 +152,9 @@ Standard-lane PRs. Full detail: [`docs/agent/DESIGN_AND_EPICS.md`](docs/agent/DE
    [`docs/agent/templates/epic-tracker.template.md`](docs/agent/templates/epic-tracker.template.md)).
 5. **Execute slices** — run **each slice through the Standard lane** as its own PR in its own
    repo, linked back to the epic tracker. Update the tracker's status grid as each slice lands.
-6. **Integrate & verify** — the **agent** verifies each slice on the local/preview stack with the
+6. **Integrate & verify** — the **agent** verifies each slice on the local stack with the
    flag forced on (some repos, e.g. `kriegerdataforge-auth-ui`, aren't in the local compose — verify
-   those against a preview deploy or standalone) and does a final review (consider
+   those standalone) and does a final review (consider
    **`/code-review ultra`**). The **owner** merges the infra/flag-wiring slice that enables the
    production flag and authorizes the production cross-repo check; then update the decision log and
    close the epic.

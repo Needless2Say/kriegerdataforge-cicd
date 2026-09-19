@@ -13,9 +13,8 @@ name: Hub Prune Tokens
 #
 # Per environment secrets, each a cicd side COPY. The authoritative CRON_SECRET is the terraform value on the
 # hub's Vercel project, see the hub's docs/reference/CONFIGURATION.md.
-#   KDF_HUB_URL_DEV,     KDF_HUB_CRON_SECRET_DEV
-#   KDF_HUB_URL_PROD,    KDF_HUB_CRON_SECRET_PROD
-#   KDF_HUB_URL_SANDBOX, KDF_HUB_CRON_SECRET_SANDBOX
+#   KDF_HUB_URL_DEV,  KDF_HUB_CRON_SECRET_DEV
+#   KDF_HUB_URL_PROD, KDF_HUB_CRON_SECRET_PROD
 # An environment whose two secrets are not both set is skipped with a notice rather than failed, so one
 # environment can be armed before another.
 #
@@ -39,7 +38,6 @@ on:
         options:
           - dev
           - prod
-          - sandbox
 
 permissions:
   contents: read
@@ -59,13 +57,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: ${{ github.event_name == 'schedule' && fromJSON('["dev", "prod", "sandbox"]') || fromJSON(format('["{0}"]', inputs.environment)) }}
+        environment: ${{ github.event_name == 'schedule' && fromJSON('["dev", "prod"]') || fromJSON(format('["{0}"]', inputs.environment)) }}
     steps:
       - name: POST the prune route
         env:
           ENVIRONMENT: ${{ matrix.environment }}
-          HUB_URL: ${{ matrix.environment == 'prod' && secrets.KDF_HUB_URL_PROD || matrix.environment == 'sandbox' && secrets.KDF_HUB_URL_SANDBOX || secrets.KDF_HUB_URL_DEV }}
-          CRON_SECRET: ${{ matrix.environment == 'prod' && secrets.KDF_HUB_CRON_SECRET_PROD || matrix.environment == 'sandbox' && secrets.KDF_HUB_CRON_SECRET_SANDBOX || secrets.KDF_HUB_CRON_SECRET_DEV }}
+          HUB_URL: ${{ matrix.environment == 'prod' && secrets.KDF_HUB_URL_PROD || secrets.KDF_HUB_URL_DEV }}
+          CRON_SECRET: ${{ matrix.environment == 'prod' && secrets.KDF_HUB_CRON_SECRET_PROD || secrets.KDF_HUB_CRON_SECRET_DEV }}
         run: |
           set -euo pipefail
           if [ -z "${HUB_URL}" ] || [ -z "${CRON_SECRET}" ]; then
