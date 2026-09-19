@@ -791,3 +791,32 @@ kdf-fmt.toml, and the declared ruff config. Future distributed scripts are born 
 in every repo and template. Minor version (1.1.0), not major. Consumer facing entry
 points (`make bump-*`, `make ci-version-check`) are unchanged, only the vendored file
 locations moved, and the wave itself performs the migration.
+
+## D-015. Agentic Workflow Standard v1.4.2, the kit names no preview stack
+
+- **Date.** 2026-09-19
+- **Status.** Accepted
+- **Tier / scope:** Kit patch · kit v1.4.1 → **v1.4.2** · all 16 kit synced repos
+
+**Context.** The ecosystem has three states, LOCAL, DEV and PROD, and only DEV and PROD are
+deployments. There is no preview or staging deployment anywhere, every deploy is a production
+deploy to its own account. The kit still told an agent to verify an epic "on the local/preview
+stack" and to check a repo outside the local compose "against a preview deploy", in the epic
+lane of `WORKFLOW.md` and in `DESIGN_AND_EPICS.md` section 3.5. An agent following that text
+would look for a deployment that does not exist.
+
+**Decision.** Ship a **correction only kit patch, v1.4.2** (no files added or removed, registry
+`files[]` unchanged at 13). Both passages now say the local stack, and a repo outside the local
+compose is verified standalone. All three `KIT_VERSION` markers bump together, and the same four
+lines change in cicd's root copies.
+
+**Alternatives considered.** Name DEV as the fallback for a repo outside the local compose
+(rejected: DEV is a shared deployment, a slice is verified before it merges, and nothing unmerged
+reaches DEV) · leave it for the next kit release (rejected: it is four lines, and one consumer
+repo had already corrected the sentence locally, which is the drift the kit exists to prevent).
+
+**Consequences.** Owner runs **Distribute** (`ops:distribute-kit`) to fan v1.4.2 out to the 16
+consumer repos. They vendor an older kit today, so one sync carries D-011, D-012 and this patch,
+and the repo that corrected the sentence locally converges on this text at that sync. Docs-only.
+No behavior, contract, or registry shape change. Other mentions of a Vercel preview target in this
+repo (secret rotation, deployer tests) name Vercel's own target and are unchanged.

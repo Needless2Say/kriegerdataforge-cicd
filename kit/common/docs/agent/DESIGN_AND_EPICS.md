@@ -147,9 +147,9 @@ truth for "where is this epic."
 ### 3.5 Execute & integrate
 
 Run each slice through the Standard lane (plan → `make ci` → PR → green CI). Keep the tracker
-current. When all slices are merged, the **agent** verifies on the local/preview stack with the flag
+current. When all slices are merged, the **agent** verifies on the local stack with the flag
 forced on (some repos, e.g. `kriegerdataforge-auth-ui`, aren't in the local compose. Verify those
-against a preview deploy) and does a final review (consider **`/code-review ultra`** on the integrated
+standalone) and does a final review (consider **`/code-review ultra`** on the integrated
 result). The **owner** merges the infra slice that enables the production flag and authorizes the
 production cross repo check. Record the outcome in the decision log and mark the epic complete.
 
