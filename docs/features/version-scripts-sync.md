@@ -1,6 +1,6 @@
 # Feature. Version scripts sync engine
 
-_Last updated: 2026-08-11 (vendored layout, ADR D-014) · Status: draft_
+_Last updated: 2026-09-25 (the bump moves a FastAPI app's openapi.json, ADR D-017) · Status: draft_
 
 > **Vendored layout (since 1.1.0, ADR D-014).** The scripts are vendored to each repo's
 > **`scripts/kdf_scripts/`** directory, which every tenant's `kdf-fmt.toml`, and ruff
@@ -37,7 +37,11 @@ canonical scripts close that hole twice over:
   vendored local copy (`scripts/check_version.py`, run by `make ci-version-check`), and the
   reusable [`bump-version-check.yml`](../../.github/workflows/bump-version-check.yml).
 - **`bump_version.py`** computes bumps **from `origin/main`'s VERSION**, not the local file, so a
-  double `make bump-patch` is idempotent instead of stacking to an invalid +2.
+  double `make bump-patch` is idempotent instead of stacking to an invalid +2. Since 1.3.0 (ADR
+  D-017) it also moves the `info.version` of a FastAPI app's committed `openapi.json`, and only
+  when the spec carries a version being bumped from, which holds where the app reads VERSION. A
+  spec whose app publishes a literal version is left alone. Only this script, run by a developer,
+  writes files. CI runs `check_version.py`, which only reads.
 - **`version_targets.py`** is the one place that decides WHICH files carry the version
   (auto detect by presence: `VERSION`, `pyproject.toml`, `vercel_api/pyproject.toml`,
   `src/*/__init__.py`, `package.json`, `package-lock.json`, or the repo's optional

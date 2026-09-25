@@ -102,6 +102,102 @@ def test_local_fallback_still_bumps(tmp_path):
     assert (tmp_path / "VERSION").read_text(encoding = "utf-8").strip() == "0.10.7"
 
 
+# ── A FastAPI app's committed openapi.json ───────────────────────────────────
+def _spec(version: str) -> dict:
+    """
+    A document shaped like FastAPI's ``app.openapi()``, "openapi" then "info". The description quotes a version and
+    a schema example carries a "version" key, and neither may move.
+    """
+    return {
+        "openapi": "3.1.0",
+        "info": {
+            "title": "x",
+            "description": 'Reports its "version": "0.0.1" on GET /version',
+            "version": version,
+        },
+        "paths": {},
+        "components": {
+            "schemas": {
+                "VersionResponse": {
+                    "properties": {"version": {"type": "string"}},
+                    "example": {"version": "9.9.9"},
+                },
+            },
+        },
+    }
+
+
+def _generated(spec: dict) -> str:
+    """
+    The text a repo's ``generate_openapi.py`` writes, ``json.dump(spec, f, indent=2)`` with no trailing newline.
+    """
+    return json.dumps(spec, indent = 2)
+
+
+def _fastapi_repo(tmp_path, version: str, spec_version: str) -> None:
+    (tmp_path / "VERSION").write_text(f"{version}\n", encoding = "utf-8")
+    (tmp_path / "openapi.json").write_text(_generated(_spec(spec_version)), encoding = "utf-8")
+
+
+def _spec_text(tmp_path) -> str:
+    return (tmp_path / "openapi.json").read_text(encoding = "utf-8")
+
+
+def test_bump_moves_a_spec_that_carries_version(tmp_path):
+    """
+    The hub's shape, its app reads VERSION. Only info.version moves, so a byte for byte spec test still holds.
+    """
+    _fastapi_repo(tmp_path, "0.10.6", "0.10.6")
+    _run_bump(tmp_path, "patch")
+    assert _spec_text(tmp_path) == _generated(_spec("0.10.7"))
+
+
+def test_bump_leaves_a_spec_with_its_own_version_alone(tmp_path, capsys):
+    """
+    fitness-app-backend's shape, its app publishes a literal 1.0.0, and moving the spec would fail its spec test.
+    """
+    _fastapi_repo(tmp_path, "0.10.6", "1.0.0")
+    _run_bump(tmp_path, "patch")
+    assert (tmp_path / "VERSION").read_text(encoding = "utf-8").strip() == "0.10.7"
+    assert _spec_text(tmp_path) == _generated(_spec("1.0.0"))
+    assert "Left alone: openapi.json carries 1.0.0" in capsys.readouterr().out
+
+
+def test_bump_twice_leaves_the_spec_one_increment_ahead(tmp_path):
+    _fastapi_repo(tmp_path, "0.10.6", "0.10.6")
+    _run_bump(tmp_path, "patch")
+    _run_bump(tmp_path, "patch")
+    assert _spec_text(tmp_path) == _generated(_spec("0.10.7"))
+
+
+def test_bump_minor_after_patch_moves_the_spec_from_the_local_version(tmp_path):
+    # already patch bumped on the branch, so the spec carries the local VERSION rather than main's
+    _fastapi_repo(tmp_path, "0.10.7", "0.10.7")
+    _run_bump(tmp_path, "minor")
+    assert _spec_text(tmp_path) == _generated(_spec("0.11.0"))
+
+
+def test_a_spec_the_bump_cannot_move_stops_it_before_any_write(tmp_path):
+    # hand ordered, so the schema example's "version" comes first
+    spec      = _spec("0.10.6")
+    reordered = json.dumps({"components": spec["components"], "openapi": spec["openapi"], "info": spec["info"]})
+    (tmp_path / "VERSION").write_text("0.10.6\n", encoding = "utf-8")
+    (tmp_path / "openapi.json").write_text(reordered, encoding = "utf-8")
+
+    with pytest.raises(SystemExit, match = "not info.version"):
+        _run_bump(tmp_path, "patch")
+    assert (tmp_path / "VERSION").read_text(encoding = "utf-8").strip() == "0.10.6"
+    assert _spec_text(tmp_path) == reordered
+
+
+def test_a_spec_without_info_version_stops_the_bump(tmp_path):
+    (tmp_path / "VERSION").write_text("0.10.6\n", encoding = "utf-8")
+    (tmp_path / "openapi.json").write_text("{}", encoding = "utf-8")
+    with pytest.raises(SystemExit, match = "no info.version"):
+        _run_bump(tmp_path, "patch")
+    assert (tmp_path / "VERSION").read_text(encoding = "utf-8").strip() == "0.10.6"
+
+
 # ── Guard rails ──────────────────────────────────────────────────────────────
 def test_missing_version_file_fails(tmp_path):
     argv = ["bump_version.py", "patch", "--root", str(tmp_path)]
