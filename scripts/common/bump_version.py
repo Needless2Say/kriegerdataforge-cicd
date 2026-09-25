@@ -17,6 +17,13 @@ to 0.11.0 instead of stacking on top. When origin/<base-branch> cannot be read
 (fresh clone, offline, brand-new repo) it falls back to the local VERSION with a
 warning — CI still enforces the strict single-increment rule either way.
 
+A FastAPI app's committed ``openapi.json`` is generated from the app, so where the
+app reads its version from VERSION the spec's ``info.version`` goes stale on every
+bump. The bump moves that one value too, and only when the spec carries a version
+being bumped from, so a spec whose app publishes a literal version is left alone.
+Writing files is this script's job. The CI side (``check_version.py``) only reads
+(ADR D-017).
+
 Usage:
     python scripts/bump_version.py <patch|minor|major> [--base-branch main] [--root PATH]
 
@@ -27,6 +34,8 @@ from __future__ import annotations
 
 # standard imports
 import argparse
+import json
+import re
 import shutil
 import subprocess
 import sys
@@ -34,6 +43,10 @@ from pathlib import Path
 
 # full path to git (S607: no partial executable paths); falls back for exotic setups
 _GIT = shutil.which("git") or "git"
+
+# a FastAPI app's committed spec, and its first "version" key, which is info.version in a generated document
+OPENAPI_SPEC        = "openapi.json"
+_OPENAPI_VERSION_RE = re.compile(r'("version"\s*:\s*)"([^"]+)"')
 
 # local imports — same-directory vendored layout fails over to the canonical package
 # layout (scripts/common/ under the cicd checkout / test runs). Sits below the constant
@@ -168,6 +181,59 @@ def get_base_version(root: Path, base_branch: str) -> tuple[str, str]:
     return local, "local"
 
 
+def read_openapi_version(text: str) -> str | None:
+    """
+    Read ``info.version`` out of an OpenAPI document.
+
+    Args:
+        text: the document's text
+
+    Returns:
+        str | None: the value, or None when the text is not JSON or carries no string ``info.version``
+    """
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return None
+    info  = data.get("info") if isinstance(data, dict) else None
+    value = info.get("version") if isinstance(info, dict) else None
+    return value if isinstance(value, str) else None
+
+
+def plan_openapi_bump(root: Path, previous: set[str], new_version: str) -> tuple[str | None, str | None]:
+    """
+    Decide what the bump does to a FastAPI app's committed ``openapi.json``.
+
+    The spec is generated from the app, and a repo that commits one usually pins it byte for byte against a fresh
+    generation, so only ``info.version`` may move. It moves only when it carries a version being bumped from, which
+    holds when the app reads its version from VERSION. A spec whose app publishes a literal version is left alone,
+    since moving it would fail that repo's own spec test. Planned before anything is written, so a spec the bump
+    cannot move stops the bump with nothing changed.
+
+    Args:
+        root: repo root directory
+        previous: the versions being bumped from, the base branch's and the local VERSION
+        new_version: the version the bump writes
+
+    Returns:
+        tuple[str | None, str | None]: the spec's new text, or None to leave it alone, and the version the spec
+        carries now, or None when the repo commits no spec
+    """
+    path = root / OPENAPI_SPEC
+    if not path.is_file():
+        return None, None
+    old     = path.read_text(encoding = "utf-8-sig")
+    current = read_openapi_version(old)
+    if current is None:
+        sys.exit(f"FAIL: {OPENAPI_SPEC} -- not JSON, or no info.version. Regenerate it (make openapi).")
+    if current == new_version or current not in previous:
+        return None, current
+    new = _OPENAPI_VERSION_RE.sub(f'\\g<1>"{new_version}"', old, count = 1)
+    if read_openapi_version(new) != new_version:
+        sys.exit(f"FAIL: {OPENAPI_SPEC} -- its first 'version' key is not info.version. Regenerate it (make openapi).")
+    return new, current
+
+
 def parse_cli_args() -> argparse.Namespace:
     """
     Parse the CLI arguments.
@@ -220,6 +286,9 @@ def main() -> None:
     except version_targets.TargetError as exc:
         sys.exit(f"FAIL: {exc}")
 
+    # before any write, so a spec the bump cannot move stops it with nothing changed
+    spec_text, spec_version = plan_openapi_bump(root, {base_str, local_str}, new_str)
+
     updated:   list[str] = []
     unchanged: list[str] = []
     for target in targets:
@@ -228,12 +297,22 @@ def main() -> None:
         except version_targets.TargetError as exc:
             sys.exit(f"FAIL: {exc}")
         (updated if changed else unchanged).append(target.path)
+    if spec_text is not None:
+        (root / OPENAPI_SPEC).write_text(spec_text, encoding = "utf-8")
+        updated.append(OPENAPI_SPEC)
+    elif spec_version == new_str:
+        unchanged.append(OPENAPI_SPEC)
 
     print("Updated:")
     for path in updated:
         print(f"    {path}")
     for path in unchanged:
         print(f"    {path} (already {new_str})")
+    if spec_text is None and spec_version not in (None, new_str):
+        print(
+            f"Left alone: {OPENAPI_SPEC} carries {spec_version}, not a version being bumped from. Its app publishes "
+            "its own version, or the spec is stale (make openapi)."
+        )
     print(f"\n->  Next: open a PR -- the version check validates {base_str} -> {new_str} as a strict single increment.")
 
 

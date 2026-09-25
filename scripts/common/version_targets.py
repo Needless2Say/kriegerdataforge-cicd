@@ -27,13 +27,6 @@ Two resolution layers:
    explicitly. A future repo type is a manifest entry (or a new kind here) —
    never a new script.
 
-   The ``openapi`` kind (inferred from ``openapi.json``) is manifest-only and never
-   auto-detected. It is the ``info.version`` of a committed OpenAPI document, which
-   is generated from the app, so it carries VERSION only in a repo whose app reads
-   its version from a declared target. A backend that still publishes a literal
-   version would fail the consistency check the day it synced. Declaring it lets a
-   bump leave a byte-for-byte spec test green with no regeneration.
-
 Stdlib-only; ASCII-only output (runs in cp1252 Windows consoles).
 """
 
@@ -53,9 +46,8 @@ KIND_PYPROJECT    = "pyproject"
 KIND_INIT_PY      = "init-py"
 KIND_PACKAGE_JSON = "package-json"
 KIND_PACKAGE_LOCK = "package-lock"
-KIND_OPENAPI      = "openapi"
 
-_KNOWN_KINDS = {KIND_VERSION_FILE, KIND_PYPROJECT, KIND_INIT_PY, KIND_PACKAGE_JSON, KIND_PACKAGE_LOCK, KIND_OPENAPI}
+_KNOWN_KINDS = {KIND_VERSION_FILE, KIND_PYPROJECT, KIND_INIT_PY, KIND_PACKAGE_JSON, KIND_PACKAGE_LOCK}
 
 _PYPROJECT_RE    = re.compile(r'^(version\s*=\s*)"([^"]+)"', re.MULTILINE)
 _INIT_RE         = re.compile(r'^(__version__\s*=\s*)"([^"]+)"', re.MULTILINE)
@@ -102,8 +94,6 @@ def _infer_kind(path: str) -> str:
         return KIND_PACKAGE_JSON
     if name == "package-lock.json":
         return KIND_PACKAGE_LOCK
-    if name == "openapi.json":
-        return KIND_OPENAPI
     raise TargetError(f"cannot infer a target kind from {path!r} -- declare it as {{'path', 'kind'}}")
 
 
@@ -112,7 +102,6 @@ def _auto_detect(root: Path) -> list[Target]:
     Detect the version targets present in this repo by file presence.
 
     VERSION is always included (required); everything else only when it exists.
-    An ``openapi.json`` is never detected, the manifest has to declare it.
 
     Args:
         root: repo root directory
@@ -179,31 +168,6 @@ def _from_manifest(root: Path, manifest_file: Path) -> list[Target]:
     return targets
 
 
-def _openapi_version(path: str, text: str) -> str:
-    """
-    Read ``info.version`` out of an OpenAPI document.
-
-    Args:
-        path: repo-relative file path, named in the error
-        text: the document's text
-
-    Returns:
-        str: the value of ``info.version``
-
-    Raises:
-        TargetError: when the text is not JSON or carries no string ``info.version``
-    """
-    try:
-        data = json.loads(text)
-    except ValueError as exc:
-        raise TargetError(f"{path}: invalid JSON -- {exc}") from exc
-    info  = data.get("info") if isinstance(data, dict) else None
-    value = info.get("version") if isinstance(info, dict) else None
-    if not isinstance(value, str):
-        raise TargetError(f"{path}: no 'info.version' field")
-    return value
-
-
 def resolve_targets(root: Path) -> list[Target]:
     """
     Resolve the repo's version targets.
@@ -258,9 +222,6 @@ def read_version(root: Path, target: Target) -> str:
             raise TargetError(f"{target.path}: no version field found")
         return match.group(2)
 
-    if target.kind == KIND_OPENAPI:
-        return _openapi_version(target.path, text)
-
     # KIND_PACKAGE_JSON / KIND_PACKAGE_LOCK
     try:
         data = json.loads(text)
@@ -276,11 +237,9 @@ def write_version(root: Path, target: Target, new_version: str) -> bool:
     """
     Write ``new_version`` into the target.
 
-    JSON targets are validated by parsing. package.json and an OpenAPI document get
-    a surgical rewrite of one value (the top-level "version", and ``info.version``),
-    so the rest of their bytes stay as written. package-lock.json is re-dumped with
-    its top-level "version" and ``packages[""].version`` (the root-package entry)
-    changed, and nested dependency versions are never touched.
+    JSON targets are parsed (never regex'd): package.json gets its top-level
+    "version"; package-lock.json additionally gets ``packages[""].version`` (the
+    root-package entry) — nested dependency versions are never touched.
 
     Args:
         root: repo root directory
@@ -332,20 +291,6 @@ def write_version(root: Path, target: Target, new_version: str) -> bool:
         new = _PACKAGE_JSON_RE.sub(f'\\g<1>"{new_version}"', old, count = 1)
         if new == old:
             return False
-        path.write_text(new, encoding = "utf-8")
-        return True
-
-    if target.kind == KIND_OPENAPI:
-        # the spec is generated, and a repo that commits one usually pins it byte for byte
-        # against a fresh generation, so only the one value may move. A generated document
-        # opens with "openapi" then "info", so its first "version" key is info.version. The
-        # re-read proves that and refuses the write when a different key moved.
-        old = path.read_text(encoding = "utf-8-sig")
-        if _openapi_version(target.path, old) == new_version:
-            return False
-        new = _PACKAGE_JSON_RE.sub(f'\\g<1>"{new_version}"', old, count = 1)
-        if _openapi_version(target.path, new) != new_version:
-            raise TargetError(f"{target.path}: its first 'version' key is not info.version -- regenerate it instead")
         path.write_text(new, encoding = "utf-8")
         return True
 

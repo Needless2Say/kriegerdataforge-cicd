@@ -882,39 +882,44 @@ and `scripts/tests/test_workflow_contracts.py`. The engine was touched a third t
 the deployed shape alone, still with no tenant name. Recorded in the auth UI's `AUTH_UI_REVIEW_B_ADJUDICATION.md`
 section 13 and its plan's section 9.
 
-## D-017. Version targets learn openapi.json, so a bump leaves a committed spec current
+## D-017. The bump moves a FastAPI app's committed openapi.json, and CI only reads
 
 - **Date.** 2026-09-25
 - **Status.** Accepted
-- **Tier / scope:** Standard patch to D-013 · repos: the hub opts in, the other 16 get the file with no change
-  in behavior · SCRIPTS_VERSION 1.2.0 → **1.3.0**
+- **Tier / scope:** Standard patch to D-013 · repos: all 17 get the script, it acts where a FastAPI app's
+  committed spec carries VERSION (today the hub) · SCRIPTS_VERSION 1.2.0 → **1.3.0**
 
 **Context.** The hub's app reads its version from `api/main.py`, a declared target since D-013, so the
 `info.version` of its committed `openapi.json` moves with every bump. Two hub unit tests compare that file with a
 fresh generation, one of them byte for byte, and the bump did not write it. Every hub pull request bumps, so
 every one needed `make openapi` after the bump, and hub #366, #367, #368 and #369 each went red on that one line,
 `2 failed` over a spec dump that reads like many failures. On 2026-09-19 the owner declined chaining the
-generators into the bump targets, the bump only bumps versions. `openapi.json` is a version bearing file, the
-engine just had no kind that could read one.
+generators into the bump targets, the bump only bumps versions.
 
-**Decision.** `version_targets.py` gains a sixth kind, `openapi`, inferred from the filename `openapi.json`. It
-reads `info.version`. It writes surgically, the first `"version"` key, since a generated document opens with
-`openapi` and then `info`, and then it re-reads the result and refuses the write when the value that moved was
-not `info.version`. Every other byte stays as the generator wrote it, so a byte for byte spec test holds after a
-bump. The kind is manifest only and never auto detected. Bump and check are unchanged, they reach the kind
-through the shared resolution.
+**Decision.** `bump_version.py`, the script every repo vendors and a developer runs through `make bump-*`, moves
+the `info.version` of a committed root `openapi.json` along with the version targets. It moves the value only when
+the spec carries a version being bumped from, the base branch's or the local VERSION, which holds where the app
+reads VERSION, and it leaves any other spec alone and says so. The write is surgical, the first `"version"` key,
+since a generated document opens with `openapi` and then `info`, and a re-read refuses it unless `info.version` is
+what moved. So every other byte stays as the generator wrote it, and a byte for byte spec test holds. The spec is
+planned before anything is written, so one the bump cannot move stops it with nothing changed. The owner's rule,
+stated 2026-09-25, is that cicd's workflows never change a file in a repo. They check state, run tests, or run
+other code that writes no repo file, and writing belongs to the bump script a developer runs. `check_version.py`,
+`version_targets.py` and every workflow are unchanged.
 
-**Alternatives considered.** Chain `make openapi` into `make bump-*` (declined by the owner, the bump only bumps
-versions) · let the two hub tests ignore `info.version` (rejected, the committed spec would name a build it does
-not describe, the drift D-013 declared `api/main.py` to stop) · stop committing `openapi.json` (rejected, it is
-the input to the generated clients and the reviewable contract diff) · auto detect `openapi.json` (rejected,
-`fitness-app-backend` and `tiffanys-space-backend` commit a spec whose app publishes a literal `1.0.0`, so their
-check would fail the day they synced) · parse and re-dump the document (rejected, it matches the generator only
-while both use the same dump settings, the surgical write depends on none).
+**Alternatives considered.** A sixth `openapi` kind in `version_targets.py` (rejected by the owner, that module is
+also what the CI version check runs, and the write belongs in the bump script) · chain `make openapi` into
+`make bump-*` (declined by the owner on 2026-09-19, the bump only bumps versions) · let the two hub tests ignore
+`info.version` (rejected, the committed spec would name a build it does not describe, the drift D-013 declared
+`api/main.py` to stop) · stop committing `openapi.json` (rejected, it is the input to the generated clients and the
+reviewable contract diff) · move every root `openapi.json` (rejected, `fitness-app-backend` and
+`tiffanys-space-backend` commit a spec whose app publishes a literal `1.0.0`, and their spec tests would fail on
+the next bump) · parse and re-dump the document (rejected, it matches the generator only while both use the same
+dump settings, the surgical write depends on none).
 
-**Consequences.** Hub CI's version check runs `.cicd@main`, so the hub's manifest may declare the kind only after
-this merges, in the same change as its vendored `version_targets.py` at 1.3.0, which its local `make bump-*`
-needs. From then the hub bump writes the spec's version, and CI names a drifted one in a single consistency line.
-`make openapi` stays the step after an API change, and the two tests still catch a forgotten one. The other
-repos pick up the file at their next scripts sync with no change in behavior. `fitness-app-backend` and
-`tiffanys-space-backend` can opt in once their apps read VERSION. Pinned by `scripts/tests/test_version_targets.py`.
+**Consequences.** A repo gets the behavior when its vendored `bump_version.py` reaches 1.3.0 at the next scripts
+sync, and the hub then stops needing `make openapi` after a version only bump. `make openapi` stays the step after
+an API change, and the two tests still catch a forgotten one. `fitness-app-backend` and `tiffanys-space-backend`
+keep their spec untouched, and the bump starts moving it by itself once their apps read VERSION and the spec is
+regenerated. No workflow, check, manifest or target kind changes, so nothing has to merge in a set order. Pinned by
+`scripts/tests/test_bump_version.py`.
