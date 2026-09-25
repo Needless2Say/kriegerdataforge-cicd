@@ -46,6 +46,8 @@ e2e/staged-tests/
 # Self-contained-stack secrets generated per-run by ci_stack.py (RSA keypair,
 # OIDC client creds, DB password) — never commit.
 e2e/.e2e-ci.json
+# the run's certificate authority and leaf certificates, ci_stack.py writes them per run
+e2e/.e2e-certs/
 
 # -- Python (managed: keep these together) ----------------------------------
 # Virtual environments. `python -m venv` self-ignores from 3.11 (it writes

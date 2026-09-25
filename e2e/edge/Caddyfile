@@ -1,0 +1,24 @@
+# e2e/edge/Caddyfile -- the TLS edge of the self-contained e2e stack, the browser facing origin
+#
+# The same shape as the auth UI's local edge (its docker/Caddyfile) and as Vercel's edge in front of
+# the deployed app. Caddy terminates TLS on :3002 inside the network, published on the loopback
+# interface as https://localhost:${E2E_EDGE_PORT}, and forwards to the auth UI over the compose
+# network. The certificate is the run's, signed by the per run authority ci_stack.py generates.
+
+{
+	# a throwaway edge, no ACME and no admin API
+	auto_https off
+	admin off
+}
+
+:3002 {
+	tls /certs/edge.pem /certs/edge-key.pem
+	reverse_proxy kdf-auth-ui:3000 {
+		# The edge is authoritative for the client's address. The app reads X-Real-IP first and
+		# forwards it to the hub as KDF-Client-IP, the address every hub rate limit keys on. Caddy
+		# passes an X-Real-IP a caller sends straight through, so without this line a caller
+		# chooses its own hub bucket. Vercel overwrites the header with the connecting client's
+		# address, this makes the edge do the same (auth UI D-002).
+		header_up X-Real-IP {remote_host}
+	}
+}

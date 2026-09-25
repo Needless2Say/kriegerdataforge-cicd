@@ -123,6 +123,9 @@ no tenant app, no extra repo, a synthetic client whose `:9999` callback the spec
 
 ## cicd engine changes (touched **twice** total, then frozen)
 
+> Touched a third time by D-016 (2026-09-25), for the deployed shape, the `local` state, the TLS edge,
+> the mail sink, the per run certificates and the runner target. Still no tenant name anywhere.
+
 - **`ci_stack.py` → data-driven.** Delete the `TENANTS` dict. Scan `WORKSPACE/*/e2e/manifest.json` into a
   registry keyed by `journey`. `up --journey fitness` selects one. Generate a client id/secret keyed by
   journey name, the state file becomes `{ "shared": {…}, "clients": { "fitness": {…} } }`, no more

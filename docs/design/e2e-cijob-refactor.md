@@ -124,3 +124,24 @@ cicd edits**, the composite action reads the tenant's manifest, so it never lear
 | Interim window | old `e2e-gate.yml` callers stay dormant until swapped, gates remain off |
 
 See ADR **D-007** in [`CHANGELOG_AND_DECISION_LOG.md`](../CHANGELOG_AND_DECISION_LOG.md).
+
+## Amendment, 2026-09-25 (D-016)
+
+Three things the action does differently since the auth UI review's Phase C, the owner's answers
+of 2026-09-25 to that phase's design step.
+
+- **Two manifests.** The manifest on the caller's *default branch*, read through the API with the
+  job's own token before the App token is minted, names the repositories the token may read. The
+  branch's own manifest names the journey and the specs, and may name only repositories the default
+  branch's already does. A branch therefore cannot widen the token's reach before the owner merges
+  it, and the `journey` input became optional, the manifest names it and it must match when given.
+- **Siblings at the caller's branch name.** Each sibling is cloned at the branch of the caller's own
+  name when the sibling has one (`git ls-remote --exit-code --heads`), and at its default branch
+  otherwise. A change spanning two repos gets one branch name in both and is tested together before
+  either merges, which is what lets the pull request gate stay on. `sibling-ref` overrides the name
+  on a manual run.
+- **No credential in cicd's checkout** (`persist-credentials: false`), and the two copies of the hub
+  contract, the hub's `system_tests/contracts/auth_ui.json` and the auth UI's `src/__contract__/hub.json`,
+  are held to each other on every run.
+
+The engine itself gained the deployed shape at the same time, see D-016 and `e2e/README.md`.

@@ -80,7 +80,7 @@ Keeping CI/CD logic in one place means deploy behavior is consistent across all 
 
 All deployments are **manual** (`workflow_dispatch` only). There is no auto deploy on push to any branch. Vercel's built in git integration is disabled across all consumer projects (managed via Terraform).
 
-Every deploy job pauses at a GitHub Environment approval gate before secrets are loaded and the deploy runs. No credentials are accessible until a required reviewer approves the deployment.
+Every deploy job runs under a GitHub Environment, which loads that environment's secrets and pauses for approval only where the environment configures a required reviewer. None does today (measured 2026-09-17), so the deployer authorization gate, a fail closed allow list checked before any secret loads, is the control in front of the deploy token.
 
 ### Environment Gate Model
 

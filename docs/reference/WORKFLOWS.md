@@ -53,14 +53,19 @@ workflow). There are no push triggered deploys, Vercel git auto deploy is off. F
 2. The reusable CD workflow's **`authorize`** job runs *first* (before any approval or secret load)
    and fails closed if the actor is not an approved deployer. See
    [Deployer authorization gate](#deployer-authorization-gate).
-3. The `deploy`/`apply` job declares `environment: ${{ inputs.environment }}`, which activates the
-   GitHub **Environment approval gate**. The run pauses for a required reviewer.
-4. On approval, environment scoped secrets load and the deploy runs. On rejection/timeout, nothing
-   deploys.
+3. The `deploy`/`apply` job declares `environment: ${{ inputs.environment }}`, which loads that
+   environment's secrets and pauses for approval only where the environment configures a
+   required reviewer. Measured on 2026-09-17, no environment in any repo carries a reviewer or a
+   branch policy, so the deployer authorization gate is the control in front of the token.
+4. The deploy runs. A Next.js deploy pulls the project, builds once and ships the prebuilt
+   output. A Python deploy deploys without the domains, migrates, smokes the new deployment and
+   only then promotes it (D-016).
 
 ### Environment approval model
 
-The GitHub Environments and their required reviewers are provisioned by
+The model below is the intended one. The reviewers it names are not configured anywhere today
+(measured 2026-09-17), which is why the deployer authorization gate exists. The GitHub
+Environments and their intended required reviewers are provisioned by
 [`issue-create-repo.yml:168-223`](../../.github/workflows/issue-create-repo.yml) and documented in
 [`MANUAL_SETUP.md` Phase 4](../guides/MANUAL_SETUP.md). The **only** environment names in use, and the
 keys the deployer registry is keyed on, are:
@@ -76,16 +81,16 @@ keys the deployer registry is keyed on, are:
 > `kriegerdataforge-terraform` → `{dev, prod}`, `MANUAL_SETUP.md` Phase 4 "For repo 6"). Use the short
 > names `dev` / `prod` / `github-pages` exactly (AGENTS.md rule 9).
 >
-> **Source caveat (follow up, not fixed here).** The `environment` input *description* strings in
-> `cd-nextjs-vercel.yml:33` and `cd-python-vercel.yml:40` still read `"development" or "production"`.
-> Those are stale doc-strings. The value a caller passes must be `dev`/`prod` to match the registry
-> keys and the real GitHub Environments. `cd-terraform.yml:99` already says `(dev or prod)`.
+> The `environment` input descriptions of all three deploys read `("dev" or "prod")`, the value a
+> caller passes to match the registry keys and the real GitHub Environments.
 
 #### Key security property
 
 `VERCEL_DEPLOYMENT_TOKEN`, `DB_DATABASE_URL`, the RSA PEMs, and every other
 deploy credential live only in GitHub repo/Environment secrets. Never in `.env`, never echoed
-(deploy steps log only the token's trimmed length, e.g. `cd-nextjs-vercel.yml:133`).
+(deploy steps log only the token's trimmed length, the `Prepare Vercel token` step). Since D-016 the
+trimmed token is a masked step output read by the steps that call Vercel's API alone, never a
+`$GITHUB_ENV` value every later step would inherit.
 
 ---
 
@@ -151,7 +156,8 @@ workflow prepends `v`), enabling rollback to an older tag.
 
 #### `cd-nextjs-vercel.yml`
 
-Deploy a Next.js app to a Vercel project (`npm ci` → `vercel --prod --yes --token …`).
+Deploy a Next.js app to a Vercel project (`vercel pull` → `vercel build`, the one install → `vercel deploy
+--prebuilt --prod`). The deploy token reaches the pull and the deploy steps alone (D-016).
 
 | Input | Type | Default | Required |
 |---|---|---|---|
@@ -163,7 +169,8 @@ Deploy a Next.js app to a Vercel project (`npm ci` → `vercel --prod --yes --to
   `GH_NPM_TOKEN` (classic `read:packages`, exported to `npm ci` for private GH Packages deps;
   Vercel's remote build reads its own project env var instead).
 - **Outputs.** None.
-- **Permissions.** `deploy` job. `contents: read`, `id-token: write` (Vercel OIDC) (`:82-84`).
+- **Permissions.** `deploy` job. `contents: read` (D-016 dropped `id-token: write`, the pinned CLI never
+  requests a GitHub OIDC token).
 - **Consumers.** `fitness-app-frontend`, `tiffanys-space` (and `kriegerdataforge-auth-ui`,
   `kriegerdataforge-template-nextjs` per the registry). `arthurs-portfolio` deploys self contained to
   GitHub Pages, not via this workflow.
@@ -187,7 +194,11 @@ jobs:
 #### `cd-python-vercel.yml`
 
 Deploy a FastAPI backend to Vercel. Install deps (with private SDK git auth) → compact `api/` into
-`vercel_api/` via `scripts/vercel_compactor.py` → `vercel --prod` → optional Alembic migration.
+`vercel_api/` via `scripts/vercel_compactor.py` → `vercel deploy --prod --skip-domain` (the release that
+is serving keeps serving) → optional Alembic migration, the revision in place recorded first → smoke the
+new deployment's `/healthz`, undoing the migration when it fails → `vercel promote` (hub register row 83,
+D-016). An optional `VERCEL_AUTOMATION_BYPASS_SECRET` environment secret rides on the smoke when Vercel's
+deployment protection covers the production deployment URL.
 
 | Input | Type | Default | Required |
 |---|---|---|---|
@@ -199,7 +210,7 @@ Deploy a FastAPI backend to Vercel. Install deps (with private SDK git auth) →
   `:112-115`), `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, `DB_DATABASE_URL` (only when `run_migrations`,
   `:178`).
 - **Outputs.** None.
-- **Permissions.** `deploy` job. `contents: read`, `id-token: write` (`:94-96`).
+- **Permissions.** `deploy` job. `contents: read` (D-016 dropped `id-token: write`).
 - **Consumers.** `kriegerdataforge` (hub). Registry also lists `fitness-app-backend`,
   `tiffanys-space-backend`, `kriegerdataforge-template-fastapi`.
 
@@ -461,12 +472,15 @@ jobs:
 
 `.github/actions/run-e2e/action.yml`. The reusable Tier-2 E2E engine, invoked as a **step** inside a
 tenant repo's `.github/workflows/e2e.yml` job (composite action, not `workflow_call`). It is
-**tenant agnostic**. It reads the *caller's* `e2e/manifest.json` to learn which sibling repos the
-journey needs, so it hardcodes no tenant list (ADR D-006/D-007).
+**tenant agnostic**. It reads the *caller's* `e2e/manifest.json` for the journey and the specs, and the
+manifest on the caller's *default branch* for the repositories the App token may read, so it hardcodes
+no tenant list and a branch cannot widen the token before it merges (ADR D-006/D-007, D-016).
 
 **What it does** (`action.yml:34-208`). Free disk → read the caller's manifest (`:44-72`) → mint a
-GitHub App token scoped `contents:read` to just this journey's repos + the SDK (`:74-82`) → check out
-cicd + the sibling repos into the sibling layout (`:84-112`) → set up Python/Node/Playwright →
+GitHub App token scoped `contents:read` to just this journey's repos + the SDK → check out cicd (no
+credential kept) + the sibling repos into the sibling layout, each at the caller's own branch name when
+it has one and at its default branch otherwise → hold the auth UI's copy of the hub contract to the
+hub's recording → set up Python/Node/Playwright →
 `python e2e/ci_stack.py up --journey <journey>` → `npm test` (with a fail closed "≥1 test ran" gate,
 N2e, `:160-178`) → dump compose logs on failure → upload the Playwright report (1-day retention, GOOD-6)
 → tear the stack down.
@@ -475,7 +489,8 @@ N2e, `:160-178`) → dump compose logs on failure → upload the Playwright repo
 
 | Input | Required | Default | Description |
 |---|---|---|---|
-| `journey` | **yes** | — | Journey to run. Must match the caller's `e2e/manifest.json` `journey` (`:11-13`) |
+| `journey` | no | `""` | Journey to run. Read from the caller's `e2e/manifest.json` when empty, and it must equal that manifest's `journey` when given |
+| `sibling-ref` | no | `""` | Branch of every sibling repo to check out. Empty means the caller's own branch name where the sibling has one, the sibling's default branch otherwise |
 | `app-id` | **yes** | — | GitHub App ID. Pass `${{ secrets.KDF_APP_ID }}` (composite actions can't read secrets directly) (`:14-16`) |
 | `app-private-key` | **yes** | — | GitHub App private key. Pass `${{ secrets.KDF_APP_PRIVATE_KEY }}` (`:17-19`) |
 | `cicd-ref` | no | `main` | Ref of `kriegerdataforge-cicd` to run the engine from (`:20-23`) |
@@ -507,7 +522,7 @@ jobs:
         with: { path: <this-repo-name> }   # MUST equal the repo name (sibling layout)
       - uses: Needless2Say/kriegerdataforge-cicd/.github/actions/run-e2e@main
         with:
-          journey: fitness                 # must match e2e/manifest.json
+          # journey: fitness              # optional, the manifest names it
           app-id: ${{ secrets.KDF_APP_ID }}
           app-private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
           gh-npm-token: ${{ secrets.GH_NPM_TOKEN }}   # browser journeys only (private npm scope)
@@ -528,8 +543,8 @@ shown where it differs from top level):
 
 | Workflow | Scope |
 |---|---|
-| `cd-nextjs-vercel.yml` | `authorize`: `contents:read`, `deploy`: `contents:read` + `id-token:write` |
-| `cd-python-vercel.yml` | `authorize`: `contents:read`, `deploy`: `contents:read` + `id-token:write` |
+| `cd-nextjs-vercel.yml` | `authorize`: `contents:read`, `deploy`: `contents:read` |
+| `cd-python-vercel.yml` | `authorize`: `contents:read`, `deploy`: `contents:read` |
 | `cd-terraform.yml` | `authorize`: `contents:read`, `apply`: `contents:read` |
 | `bump-version-check.yml` | job: `contents:read` |
 | `create-github-release.yml` | job: `contents:write` (caller must grant) |

@@ -820,3 +820,64 @@ consumer repos. They vendor an older kit today, so one sync carries D-011, D-012
 and the repo that corrected the sentence locally converges on this text at that sync. Docs-only.
 No behavior, contract, or registry shape change. Other mentions of a Vercel preview target in this
 repo (secret rotation, deployer tests) name Vercel's own target and are unchanged.
+
+## D-016. The e2e engine declares the deployed shape, and the deploys are put right
+
+- **Date.** 2026-09-25
+- **Status.** Accepted
+- **Tier / scope:** Engine, action and the two Vercel deploys · one pull request, the auth UI review's Phase C start
+
+**Context.** The auth UI review campaign measured (its Phase B, register rows 5, 6, 31, 40, 41, 42 there and
+row 83 in the hub) that the e2e engine could not start the current hub, its compose declared the hub a DEV
+deployment over a plain http issuer with no service key, which the hardened hub refuses three times over, and
+carried four settings and six `MINIO_*` the hub no longer reads. The action minted its App token from the
+branch's manifest, so a branch could widen the token's reach before review, cloned every sibling at its default
+branch, so a change spanning two repos could not be tested on a branch, ran whatever journey its input named,
+and kept the token in cicd's checkout. The Next.js deploy wrote the deploy token to `$GITHUB_ENV`, where every
+install script inherited it, and installed twice. Both deploys granted `id-token: write` to a job holding the
+token while the pinned CLI never requests one, and both headers described a reviewer no environment has. The
+Python deploy migrated the schema behind whatever release `vercel --prod` had left serving.
+
+**Decision.** One change, the owner's answers of 2026-09-25 to Phase C's design step.
+
+- **The engine has the deployed shape.** The hub and the auth UI declare `local`, the third state, what the
+  hub's own suites declare. The issuer is `https://localhost:<port>` behind a Caddy edge inside the stack, the
+  shape of the local stack's edge and of Vercel's, under a per run certificate authority `ci_stack.py`
+  generates beside the keypair (the authority's key is never written). A Mailpit sink, pinned, receives every
+  message the hub sends over the real path, STARTTLS under the run's certificate and a login, the hub trusting
+  the authority through `SSL_CERT_FILE`, and a spec reads the links from the sink's API. The service key gate
+  is on with a per run key, the browser's address rides `FORWARDED_CLIENT_IP_HEADER`, registration and the
+  link bases are set for the lifecycle journeys, the dead settings are gone, and every published port binds
+  the loopback interface. `E2E_EDGE_PORT` and `E2E_MAIL_PORT` move the ports beside a local stack. `--target
+  runner` builds the auth UI's production image and puts the hub behind a second edge, since that image
+  refuses an http hub.
+- **The action reads two manifests.** The default branch's, through the API, for the token's reach, and the
+  branch's for the journey and the specs, which may name only repositories the default branch's already does.
+  The `journey` input is optional and must match the manifest when given. Every sibling is cloned at the
+  caller's own branch name when it has one and at its default branch otherwise, `sibling-ref` overriding on a
+  manual run. cicd's checkout keeps no credential, and the auth UI's copy of the hub contract is held to the
+  hub's recording on every run.
+- **The Next.js deploy** trims the token into a masked step output that the pull and the deploy steps read,
+  never `$GITHUB_ENV`, and builds once, `vercel build` doing the install from the pulled project settings
+  with no token, since it calls no Vercel API.
+- **The Python deploy** deploys without the domains, records the schema revision, migrates, smokes the new
+  deployment's `/healthz`, undoes the migration when the smoke fails, and only then promotes. An optional
+  `VERCEL_AUTOMATION_BYPASS_SECRET` rides on the smoke when deployment protection covers the URL.
+- **Both deploys** drop `id-token: write`, say approval happens only where an environment configures a
+  reviewer, and name the repository secret in their diagnostics.
+
+**Alternatives considered.** Keying the hub's https rule on the state so the engine could stay on http
+(rejected, the rule is the hub's and every state is https, S1's question 1) · packaging the hub's own Python
+mail sink as a service (rejected for now, it would need an HTTP face of its own, Mailpit has one) · an allow
+list of repositories in cicd for the token (rejected, one more place a tenant is registered, the default
+branch manifest is tenant agnostic) · a per repo `ref` input per sibling (rejected, the same branch name in
+both repos is the shape a two repo change already takes).
+
+**Consequences.** The first green run of the engine since the hub's hardening, measured 2026-09-25 on the
+owner's machine on alternate ports, the auth journey's two tests passing through the edge. Callers of the
+action need no change, `journey` still accepted. Callers of the deploys need no change, and the first DEV
+deploy proves the token free `vercel build` and the deploy, migrate, smoke, promote order. Every journey repo
+needs the two App secrets before its job runs (`ops-setup-e2e`). Pinned by `scripts/tests/test_e2e_engine.py`
+and `scripts/tests/test_workflow_contracts.py`. The engine was touched a third time after D-006 froze it, for
+the deployed shape alone, still with no tenant name. Recorded in the auth UI's `AUTH_UI_REVIEW_B_ADJUDICATION.md`
+section 13 and its plan's section 9.
