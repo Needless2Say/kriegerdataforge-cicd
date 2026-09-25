@@ -144,14 +144,23 @@ def test_the_browser_facing_url_is_https_on_the_edge_port(monkeypatch):
 # ── the staging ───────────────────────────────────────────────────────────────
 def test_a_journey_is_staged_whole_in_its_own_folder(tmp_path, monkeypatch):
     tests = tmp_path / "repo" / "e2e" / "tests"
-    tests.mkdir(parents=True)
-    (tests / "auth.spec.ts").write_text("import { x } from './support';\n", encoding="utf-8")
-    (tests / "flow.spec.ts").write_text("", encoding="utf-8")
-    (tests / "support.ts").write_text("export const x = 1;\n", encoding="utf-8")
+    tests.mkdir(parents = True)
+    (tests / "auth.spec.ts").write_text("import { x } from './support';\n", encoding = "utf-8")
+    (tests / "flow.spec.ts").write_text("", encoding = "utf-8")
+    (tests / "support.ts").write_text("export const x = 1;\n", encoding = "utf-8")
     staged = tmp_path / "staged"
     monkeypatch.setattr(ci_stack, "STAGED", staged)
-    journey = ci_stack.Journey(name="auth", app=False, repos=[], compose=None, tests_dir=tests,
-                               backend=None, oidc_client={}, env={}, source="test")
+    journey = ci_stack.Journey(
+        name = "auth",
+        app = False,
+        repos = [],
+        compose = None,
+        tests_dir = tests,
+        backend = None,
+        oidc_client = {},
+        env = {},
+        source = "test",
+    )
 
     assert ci_stack._stage_specs(["auth"], {"auth": journey}) == 2
     assert sorted(p.name for p in (staged / "auth").iterdir()) == ["auth.spec.ts", "flow.spec.ts", "support.ts"]

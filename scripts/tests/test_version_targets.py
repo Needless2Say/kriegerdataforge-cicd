@@ -244,3 +244,97 @@ def test_write_pyproject_first_version_line_only(tmp_path):
     text = (root / "pyproject.toml").read_text(encoding = "utf-8")
     assert 'version = "1.2.4"' in text
     assert 'version = "9.9.9"' in text
+
+
+# ── openapi (manifest only) ──────────────────────────────────────────────────
+def _spec(version: str) -> dict:
+    """
+    A document shaped like FastAPI's ``app.openapi()``, "openapi" then "info". The description
+    quotes a version and a schema example carries a "version" key, and neither may move.
+    """
+    return {
+        "openapi": "3.1.0",
+        "info": {
+            "title": "x",
+            "description": 'Reports its "version": "0.0.1" on GET /version',
+            "version": version,
+        },
+        "paths": {},
+        "components": {
+            "schemas": {
+                "VersionResponse": {
+                    "properties": {"version": {"type": "string"}},
+                    "example": {"version": "9.9.9"},
+                },
+            },
+        },
+    }
+
+
+def _generated(spec: dict) -> str:
+    """
+    The text a repo's ``generate_openapi.py`` writes, ``json.dump(spec, f, indent=2)`` with no
+    trailing newline.
+    """
+    return json.dumps(spec, indent = 2)
+
+
+def test_manifest_infers_openapi_kind(tmp_path):
+    root    = _make_repo(
+        tmp_path,
+        {
+            "VERSION": "1.2.3\n",
+            "openapi.json": _generated(_spec("1.2.3")),
+            "scripts/version_targets.json": json.dumps({"targets": ["VERSION", "openapi.json"]}),
+        },
+    )
+    targets = vt.resolve_targets(root)
+    assert [target.kind for target in targets] == [vt.KIND_VERSION_FILE, vt.KIND_OPENAPI]
+    assert vt.read_version(root, targets[1]) == "1.2.3"
+
+
+def test_autodetect_never_picks_up_openapi_json(tmp_path):
+    # an app that publishes a literal version commits a spec that disagrees with VERSION, so
+    # detecting it would fail that repo's check the day the engine synced
+    root = _make_repo(
+        tmp_path,
+        {
+            "VERSION": "0.4.5\n",
+            "vercel_api/pyproject.toml": 'version = "0.4.5"\n',
+            "openapi.json": _generated(_spec("1.0.0")),
+        },
+    )
+    assert _paths(vt.resolve_targets(root)) == ["VERSION", "vercel_api/pyproject.toml"]
+
+
+def test_read_openapi_without_info_version_fails(tmp_path):
+    spec = _spec("1.2.3")
+    del spec["info"]["version"]
+    root = _make_repo(tmp_path, {"openapi.json": _generated(spec)})
+    with pytest.raises(vt.TargetError, match = "info.version"):
+        vt.read_version(root, vt.Target("openapi.json", vt.KIND_OPENAPI))
+
+
+def test_write_openapi_moves_info_version_and_nothing_else(tmp_path):
+    """
+    A repo pins its committed spec byte for byte against a fresh generation, so the bump must
+    leave exactly what the generator would have written for the new version.
+    """
+    root   = _make_repo(tmp_path, {"openapi.json": _generated(_spec("1.2.3"))})
+    target = vt.Target("openapi.json", vt.KIND_OPENAPI)
+
+    assert vt.write_version(root, target, "1.2.4") is True
+    assert (root / "openapi.json").read_text(encoding = "utf-8") == _generated(_spec("1.2.4"))
+    assert vt.write_version(root, target, "1.2.4") is False
+
+
+def test_write_openapi_refuses_when_its_first_version_key_is_not_info(tmp_path):
+    # hand ordered, so the schema example's "version" comes first and the bump must not move it
+    spec      = _spec("1.2.3")
+    reordered = {"components": spec["components"], "openapi": spec["openapi"], "info": spec["info"]}
+    content   = json.dumps(reordered, indent = 2)
+    root      = _make_repo(tmp_path, {"openapi.json": content})
+
+    with pytest.raises(vt.TargetError, match = "not info.version"):
+        vt.write_version(root, vt.Target("openapi.json", vt.KIND_OPENAPI), "1.2.4")
+    assert (root / "openapi.json").read_text(encoding = "utf-8") == content
