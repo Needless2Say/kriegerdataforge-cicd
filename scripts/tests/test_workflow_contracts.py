@@ -121,6 +121,11 @@ def test_the_python_smoke_gates_the_promotion_and_undoes_the_migration_on_failur
     assert 'if [ "$code" = "401" ]; then protected="yes"; fi' in smoke
     assert "no VERCEL_AUTOMATION_BYPASS_SECRET is set" in smoke
     assert "it refused VERCEL_AUTOMATION_BYPASS_SECRET" in smoke, "a set secret the project does not know"
+    # a 5xx names Vercel's error code and says the exception is in the deployment's runtime logs, the second
+    #  DEV dispatch read `500` six times and nothing more
+    assert '-D "$HEADERS"' in smoke and 'tolower($1) == "x-vercel-error:"' in smoke
+    assert 'elif [ "${code#5}" != "$code" ]; then' in smoke
+    assert "runtime logs in Vercel" in smoke
     undo = _step(PYTHON, "Undo the migration, the new release will not serve")
     assert "steps.smoke.outcome == 'failure'" in undo
     assert 'alembic downgrade "$BEFORE"' in undo

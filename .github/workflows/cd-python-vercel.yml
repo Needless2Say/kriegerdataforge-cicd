@@ -235,19 +235,26 @@ jobs:
         # deployment protection answers a plain request to a protected deployment URL with a 302
         # to vercel.com's sign in (measured 2026-09-25 on the hub's DEV project) or a 401, until
         # the project's bypass secret rides along, so the redirect target is read beside the code.
+        # A 5xx carries Vercel's error code in x-vercel-error, FUNCTION_INVOCATION_FAILED when the
+        # process threw before answering, and the exception itself is in the deployment's runtime
+        # logs, where a KDF service's boot audits name the setting they refuse without. The second
+        # DEV dispatch (2026-09-25) read `500` six times here and nothing more.
         run: |
           set +e
           URL="${DEPLOY_URL}/healthz"
+          HEADERS="${RUNNER_TEMP}/healthz.headers"
           code=""
           protected=""
+          platform=""
           for attempt in 1 2 3 4 5 6; do
             if [ -n "$BYPASS" ]; then
-              answer="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -H "x-vercel-protection-bypass: $BYPASS" "$URL")"
+              answer="$(curl -s -o /dev/null -D "$HEADERS" -w '%{http_code} %{redirect_url}' -H "x-vercel-protection-bypass: $BYPASS" "$URL")"
             else
-              answer="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "$URL")"
+              answer="$(curl -s -o /dev/null -D "$HEADERS" -w '%{http_code} %{redirect_url}' "$URL")"
             fi
             code="${answer%% *}"
             location="${answer#* }"
+            platform="$(awk 'tolower($1) == "x-vercel-error:" { print $2 }' "$HEADERS" 2>/dev/null | tr -d '\r')"
             if [ "$code" = "200" ]; then
               echo "healthz answered 200 on attempt ${attempt}"
               exit 0
@@ -256,13 +263,15 @@ jobs:
               https://vercel.com/sso-api*) protected="yes" ;;
             esac
             if [ "$code" = "401" ]; then protected="yes"; fi
-            echo "attempt ${attempt}: healthz answered ${code:-nothing}${protected:+ from Vercel deployment protection}"
+            echo "attempt ${attempt}: healthz answered ${code:-nothing}${platform:+ ($platform)}${protected:+ from Vercel deployment protection}"
             sleep 10
           done
           if [ -n "$protected" ] && [ -z "$BYPASS" ]; then
             echo "::error::the deployment URL sits behind Vercel's deployment protection and no VERCEL_AUTOMATION_BYPASS_SECRET is set, add the project's Protection Bypass for Automation value to this environment"
           elif [ -n "$protected" ]; then
             echo "::error::the deployment URL sits behind Vercel's deployment protection and it refused VERCEL_AUTOMATION_BYPASS_SECRET, the value is not this project's Protection Bypass for Automation"
+          elif [ "${code#5}" != "$code" ]; then
+            echo "::error::the new deployment answers ${code}${platform:+ ($platform)} on /healthz, the process failed before it could answer, at boot or on the request, and it is not promoted. The exception is in this deployment's runtime logs in Vercel, a KDF service refusing at boot names the setting it wants there"
           else
             echo "::error::the new deployment does not answer /healthz with 200, it is not promoted"
           fi
