@@ -24,11 +24,14 @@ inputs:
       name where the sibling has one, and the sibling's default branch otherwise.
     required: false
     default: ""
+  # Everything above `runs:` is literal text. GitHub evaluates an expression written into a
+  # description at load, and a composite action has no `secrets` context, so the two descriptions
+  # below name the secret in words (the hub's E2E dispatch of 2026-09-25 failed to load on this).
   app-id:
-    description: "GitHub App ID (pass ${{ secrets.KDF_APP_ID }} — composite actions can't read secrets)."
+    description: "GitHub App ID. The caller passes its KDF_APP_ID secret, a composite action reads no secret itself."
     required: true
   app-private-key:
-    description: "GitHub App private key (pass ${{ secrets.KDF_APP_PRIVATE_KEY }})."
+    description: "GitHub App private key. The caller passes its KDF_APP_PRIVATE_KEY secret."
     required: true
   cicd-ref:
     description: "Ref of kriegerdataforge-cicd to run the engine from."

@@ -6,12 +6,17 @@ read by the steps that call Vercel's API alone, never written to $GITHUB_ENV, th
 installs once, neither job holds a permission nothing uses, neither header claims a reviewer no
 environment has, and the Python deploy deploys without the domains, migrates, smokes the new
 deployment and only then promotes it, undoing the migration when the smoke fails. Text level, the
-repository keeps no YAML parser among its test dependencies.
+repository keeps no YAML parser among its test dependencies, except that the migrate step's own shell
+runs here under bash against an alembic that prints what the hub's env.py prints, the case the first DEV
+dispatch of 2026-09-25 met (D-018).
 """
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -19,6 +24,32 @@ import pytest
 WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 NEXTJS    = (WORKFLOWS / "cd-nextjs-vercel.yml").read_text(encoding = "utf-8")
 PYTHON    = (WORKFLOWS / "cd-python-vercel.yml").read_text(encoding = "utf-8")
+
+# a stand in for alembic whose env.py prints two lines of its own to stdout, the hub's shape
+FAKE_ALEMBIC = """#!/usr/bin/env bash
+echo "[Alembic] Using PROD environment"
+echo "[Alembic] Database URL: postgresql://u:****@h/d"
+if [ "$1" = "upgrade" ]; then
+  echo "upgraded" >> "$FAKE_ALEMBIC_MARK"
+  exit 0
+fi
+case "$FAKE_ALEMBIC_MODE" in
+  revision)
+    echo "Current revision(s) for postgresql://u:XXXXX@h/d:"
+    echo "Rev: f4b8d2e6a1c9 (head)"
+    echo "Parent: e1a4c7b9f205"
+    ;;
+  empty)
+    echo "Current revision(s) for postgresql://u:XXXXX@h/d:"
+    ;;
+  noise)
+    ;;
+  broken)
+    echo "FAILED: could not connect" >&2
+    exit 1
+    ;;
+esac
+"""
 
 
 def _steps(text: str) -> list[str]:
@@ -83,10 +114,82 @@ def test_the_python_smoke_gates_the_promotion_and_undoes_the_migration_on_failur
     smoke = _step(PYTHON, "Smoke the new deployment before it serves")
     assert "/healthz" in smoke and 'if [ "$code" = "200" ]' in smoke
     assert "x-vercel-protection-bypass" in smoke, "a protected deployment URL needs the project's bypass secret"
+    # the protection answers a plain request with a 302 to vercel.com's sign in, measured 2026-09-25 on the
+    #  hub's DEV project, so the redirect target is read beside the code and both forms name the secret
+    assert "%{http_code} %{redirect_url}" in smoke
+    assert 'https://vercel.com/sso-api*) protected="yes"' in smoke
+    assert 'if [ "$code" = "401" ]; then protected="yes"; fi' in smoke
+    assert "no VERCEL_AUTOMATION_BYPASS_SECRET is set" in smoke
+    assert "it refused VERCEL_AUTOMATION_BYPASS_SECRET" in smoke, "a set secret the project does not know"
     undo = _step(PYTHON, "Undo the migration, the new release will not serve")
     assert "steps.smoke.outcome == 'failure'" in undo
     assert 'alembic downgrade "$BEFORE"' in undo
-    migrate = _step(PYTHON, "Run Alembic migrations")
-    assert 'echo "before=${BEFORE:-base}" >> "$GITHUB_OUTPUT"' in migrate
     promote = _step(PYTHON, "Promote the deployment to the production domains")
     assert "vercel promote" in promote and "steps.deploy.outputs.url" in promote
+
+
+def test_the_python_migrate_step_reads_the_revision_from_alembics_own_line():
+    migrate = _step(PYTHON, "Run Alembic migrations")
+    undo    = _step(PYTHON, "Undo the migration, the new release will not serve")
+    # alembic writes `Rev: <id>` in its verbose report, a repo's env.py may print anything else to stdout
+    assert 'REPORT="$(alembic current --verbose)"' in migrate
+    assert "awk '$1 == \"Rev:\" { print $2; exit }' <<< \"$REPORT\"" in migrate
+    assert "grep -q '^Current revision(s) for ' <<< \"$REPORT\"" in migrate, "base only on alembic's own word"
+    assert "2>/dev/null" not in migrate, "a failing alembic is seen, never silenced into an empty capture"
+    assert 'echo "before=${BEFORE:-base}" >> "$GITHUB_OUTPUT"' in migrate
+    for step in (migrate, undo):
+        assert "ENVIRONMENT: ${{ inputs.environment }}" in step, "the state the run deploys to, the label env.py prints"
+
+
+def _migrate_shell() -> str:
+    """
+    The migrate step's shell, dedented, as the runner executes it.
+    """
+    step  = _step(PYTHON, "Run Alembic migrations")
+    block = step.split("run: |\n", 1)[1].split("\n        env:", 1)[0]
+    return "\n".join(line[10:] for line in block.split("\n")) + "\n"
+
+
+def _bash() -> str | None:
+    """
+    A bash that runs the step's shell here. Git's on Windows, System32's is WSL and may hold no distribution.
+    """
+    git_bash = Path("C:/Program Files/Git/bin/bash.exe")
+    if git_bash.exists():
+        return str(git_bash)
+    return None if os.name == "nt" else shutil.which("bash")
+
+
+@pytest.mark.parametrize("mode, before, upgraded", [
+    ("revision", "before=f4b8d2e6a1c9", True),   # the DEV dispatch of 2026-09-25 recorded `[Alembic]` here
+    ("empty",    "before=base",         True),   # a fresh database, alembic's header and no revision
+    ("noise",    None,                  False),  # env.py's lines alone prove nothing, the step stops first
+    ("broken",   None,                  False),  # a failing alembic fails the step, never an empty capture
+], ids = ["revision", "empty", "noise", "broken"])
+def test_the_revision_capture_reads_alembics_line_past_an_env_that_prints(tmp_path, mode, before, upgraded):
+    bash = _bash()
+    if bash is None:
+        pytest.skip("no bash to run the step's shell")
+    fakebin = tmp_path / "bin"
+    fakebin.mkdir()
+    fake = fakebin / "alembic"
+    fake.write_text(FAKE_ALEMBIC, encoding = "utf-8", newline = "\n")
+    fake.chmod(0o755)
+    shell = tmp_path / "migrate.sh"
+    shell.write_text(_migrate_shell(), encoding = "utf-8", newline = "\n")
+    output = tmp_path / "github_output"
+    mark   = tmp_path / "mark"
+    output.write_text("")
+    env = dict(os.environ)
+    env["PATH"] = os.pathsep.join([str(fakebin), env.get("PATH", "")])
+    env["FAKE_ALEMBIC_MODE"] = mode
+    env["FAKE_ALEMBIC_MARK"] = mark.as_posix()
+    env["GITHUB_OUTPUT"] = output.as_posix()
+    run = subprocess.run([bash, "-e", shell.as_posix()], env = env, capture_output = True, text = True)
+    if before is None:
+        assert run.returncode != 0, run.stdout
+        assert output.read_text() == "", "nothing recorded"
+    else:
+        assert run.returncode == 0, run.stdout + run.stderr
+        assert output.read_text().strip() == before
+    assert mark.exists() == upgraded, "the upgrade runs after a revision or alembic's own word that there is none"

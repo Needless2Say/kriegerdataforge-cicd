@@ -206,3 +206,11 @@ def test_the_action_reads_the_journey_and_the_token_reach_from_the_right_manifes
     assert "jq -S '{about, answers}'" in ACTION, "the two copies of the hub contract are held to each other"
     journey_input = ACTION.split("inputs:\n  journey:\n", 1)[1].split("\n  sibling-ref:\n", 1)[0]
     assert "required: false" in journey_input, journey_input
+
+
+def test_the_action_head_is_literal_text():
+    # an expression written into an input's description is evaluated at load too, and a composite action has
+    #  no `secrets` context, so the hub's E2E dispatch of 2026-09-25 failed to load the action on two descriptions
+    head = ACTION.split("\nruns:", 1)[0]
+    assert "${{" not in head, "nothing above runs: is an expression"
+    assert "secrets." not in ACTION, "a composite action reads no secret, the caller passes them as inputs"

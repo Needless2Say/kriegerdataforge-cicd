@@ -22,7 +22,10 @@
 # Optional environment secret:
 #   VERCEL_AUTOMATION_BYPASS_SECRET — the project's "Protection Bypass for Automation"
 #                                     value, sent on the smoke when Vercel's deployment
-#                                     protection covers the production deployment URL
+#                                     protection covers the deployment URL. Without it the
+#                                     protection answers the smoke with a 302 to vercel.com's
+#                                     sign in (measured 2026-09-25 on the hub's DEV project),
+#                                     or a 401, and the smoke says so
 #
 # Repository secrets (one global value — set at repo level, NOT per environment):
 #   VERCEL_DEPLOYMENT_TOKEN — shared Vercel deploy/management token
@@ -202,40 +205,64 @@ jobs:
         id: migrate
         # The revision in place is recorded first, so a smoke failure below can undo the
         # upgrade to exactly it (the hub's rule, a release and its migrations in one window
-        # with full downgrades). An empty database reports no revision, which is `base`.
+        # with full downgrades). It is read from alembic's verbose report, whose revision lines
+        # alembic itself writes as `Rev: <id>`, because a repo's alembic/env.py may print lines
+        # of its own to stdout and the hub's does. The first DEV dispatch (2026-09-25) recorded
+        # its first word, `[Alembic]`, and the undo could not run. An empty database reports no
+        # revision, which is `base`, and alembic's own header is what proves it reported at all,
+        # so a report with neither stops the step before anything is upgraded. The report is
+        # never printed, its header carries the database URL. ENVIRONMENT is the state the run
+        # deploys to, the label a repo's env.py prints (the SDK reads an unset one as PROD). It
+        # picks no database, DB_DATABASE_URL does.
         run: |
-          BEFORE="$(alembic current 2>/dev/null | awk 'NF {print $1; exit}')"
+          REPORT="$(alembic current --verbose)"
+          BEFORE="$(awk '$1 == "Rev:" { print $2; exit }' <<< "$REPORT")"
+          if [ -z "$BEFORE" ] && ! grep -q '^Current revision(s) for ' <<< "$REPORT"; then
+            echo "::error::alembic reported no current revision and no header, the schema is left as it is"
+            exit 1
+          fi
           echo "before=${BEFORE:-base}" >> "$GITHUB_OUTPUT"
           echo "schema before the upgrade: ${BEFORE:-base}"
           alembic upgrade head
         env:
           DB_DATABASE_URL: ${{ secrets.DB_DATABASE_URL }}
+          ENVIRONMENT: ${{ inputs.environment }}
 
       - name: Smoke the new deployment before it serves
         id: smoke
         # /healthz answers as soon as the process is up and sits outside the hub's service key
-        # gate. A deployment that refuses at boot answers 500 here and is never promoted. With
-        # Vercel's deployment protection on the production deployment URL the answer is 401 until
-        # the project's bypass secret rides along.
+        # gate. A deployment that refuses at boot answers 500 here and is never promoted. Vercel's
+        # deployment protection answers a plain request to a protected deployment URL with a 302
+        # to vercel.com's sign in (measured 2026-09-25 on the hub's DEV project) or a 401, until
+        # the project's bypass secret rides along, so the redirect target is read beside the code.
         run: |
           set +e
           URL="${DEPLOY_URL}/healthz"
           code=""
+          protected=""
           for attempt in 1 2 3 4 5 6; do
             if [ -n "$BYPASS" ]; then
-              code="$(curl -s -o /dev/null -w '%{http_code}' -H "x-vercel-protection-bypass: $BYPASS" "$URL")"
+              answer="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -H "x-vercel-protection-bypass: $BYPASS" "$URL")"
             else
-              code="$(curl -s -o /dev/null -w '%{http_code}' "$URL")"
+              answer="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "$URL")"
             fi
+            code="${answer%% *}"
+            location="${answer#* }"
             if [ "$code" = "200" ]; then
               echo "healthz answered 200 on attempt ${attempt}"
               exit 0
             fi
-            echo "attempt ${attempt}: healthz answered ${code:-nothing}"
+            case "$location" in
+              https://vercel.com/sso-api*) protected="yes" ;;
+            esac
+            if [ "$code" = "401" ]; then protected="yes"; fi
+            echo "attempt ${attempt}: healthz answered ${code:-nothing}${protected:+ from Vercel deployment protection}"
             sleep 10
           done
-          if [ "$code" = "401" ] && [ -z "$BYPASS" ]; then
-            echo "::error::the deployment URL sits behind Vercel's deployment protection and no VERCEL_AUTOMATION_BYPASS_SECRET is set — add the project's Protection Bypass for Automation secret to this environment, or exempt production deployment URLs from the protection"
+          if [ -n "$protected" ] && [ -z "$BYPASS" ]; then
+            echo "::error::the deployment URL sits behind Vercel's deployment protection and no VERCEL_AUTOMATION_BYPASS_SECRET is set, add the project's Protection Bypass for Automation value to this environment"
+          elif [ -n "$protected" ]; then
+            echo "::error::the deployment URL sits behind Vercel's deployment protection and it refused VERCEL_AUTOMATION_BYPASS_SECRET, the value is not this project's Protection Bypass for Automation"
           else
             echo "::error::the new deployment does not answer /healthz with 200, it is not promoted"
           fi
@@ -250,6 +277,7 @@ jobs:
         env:
           BEFORE: ${{ steps.migrate.outputs.before }}
           DB_DATABASE_URL: ${{ secrets.DB_DATABASE_URL }}
+          ENVIRONMENT: ${{ inputs.environment }}
 
       - name: Promote the deployment to the production domains
         working-directory: vercel_api
