@@ -923,3 +923,49 @@ an API change, and the two tests still catch a forgotten one. `fitness-app-backe
 keep their spec untouched, and the bump starts moving it by itself once their apps read VERSION and the spec is
 regenerated. No workflow, check, manifest or target kind changes, so nothing has to merge in a set order. Pinned by
 `scripts/tests/test_bump_version.py`.
+
+---
+
+## D-018. The first DEV dispatch of the Python deploy, what alembic and Vercel actually answer
+
+- **Date.** 2026-09-25
+- **Status.** Accepted
+- **Tier / scope:** `cd-python-vercel.yml` and `run-e2e/action.yml` · one pull request, D-016's implementation put
+  right, its decision stands
+
+**Context.** The owner dispatched the hub's CD to DEV at 0.12.5 the evening D-016 merged, the first run of the new
+order, an hour after a DEV apply. Three things were measured in its log. The migrate step recorded `[Alembic]` as
+the revision in place, the first word of the first line the hub's own `alembic/env.py` prints to stdout, so the
+seven migrations ran and the undo, when the smoke failed, could not (`Can't locate revision identified by '[Alembic]'`).
+The smoke saw a 302 six times, Vercel's deployment protection sending a plain request to `vercel.com/sso-api`,
+where the step expected a 401, so its message named a generic failure. And the hub's E2E dispatch of the same
+evening never started, GitHub refusing the action at load because two input descriptions carried a
+`${{ secrets.* }}` expression as prose, and a composite action has no `secrets` context, which actionlint does
+not flag. The database migrated was DEV's, by the host in the hub's `.env.dev`, nothing was promoted, and the
+`PROD environment` line in that log is the same print's label for an unset `ENVIRONMENT`.
+
+**Decision.**
+
+- The revision in place is read from `alembic current --verbose`, whose revision lines alembic itself writes as
+  `Rev: <id>`, never from the first line of stdout. A report with no `Rev:` line and no `Current revision(s) for`
+  header stops the step before the upgrade, so `base` is recorded only when alembic itself reported no revision,
+  and a failing alembic fails the step instead of being silenced into an empty capture. The migrate and undo
+  steps declare `ENVIRONMENT` from the `environment` input, so a repo's env.py labels its line with the state the
+  run deploys to rather than the SDK's fail closed reading of an unset one. It picks no database,
+  `DB_DATABASE_URL` does. The report is never printed, its header carries the database URL.
+- The smoke reads curl's `%{redirect_url}` beside the status and names Vercel's protection on a redirect to
+  `vercel.com/sso-api` as well as on a 401, telling no bypass secret apart from one Vercel refused.
+- The action's descriptions name the secret to pass in words. Everything above `runs:` in a composite action is
+  literal text, pinned.
+
+**Alternatives considered.** Filtering stdout for a twelve character hex id (rejected, alembic's default id shape
+and not a rule of its own, and a custom id would read as an empty database and be undone to `base`) · querying
+`alembic_version` directly (rejected, the repo's env.py owns the URL and its driver) · exempting deployment URLs
+from the protection (rejected, the bypass secret keeps them closed).
+
+**Consequences.** Pinned by `scripts/tests/test_workflow_contracts.py`, which also runs the migrate step's shell
+under bash against an alembic that prints the hub's lines, and `scripts/tests/test_e2e_engine.py`. No input
+changes, the tenant backends calling the deploy see the truthful label and nothing else. The hub's DEV release
+needs the project's `VERCEL_AUTOMATION_BYPASS_SECRET` in its `dev` environment and a shared rate limit store
+applied before its next dispatch, both in the auth UI's `docs/security/DEV_ROLLOUT_RUNBOOK.md`, section 8. DEV's
+database is at head with the previous release serving until that dispatch promotes.

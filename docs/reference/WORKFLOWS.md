@@ -198,7 +198,9 @@ Deploy a FastAPI backend to Vercel. Install deps (with private SDK git auth) →
 is serving keeps serving) → optional Alembic migration, the revision in place recorded first → smoke the
 new deployment's `/healthz`, undoing the migration when it fails → `vercel promote` (hub register row 83,
 D-016). An optional `VERCEL_AUTOMATION_BYPASS_SECRET` environment secret rides on the smoke when Vercel's
-deployment protection covers the production deployment URL.
+deployment protection covers the deployment URL, which answers a plain request with a 302 to vercel.com's sign
+in or a 401, and the smoke names that case. The revision is read from alembic's verbose `Rev:` line, since a
+repo's `alembic/env.py` may print to stdout, and the migrate and undo steps declare `ENVIRONMENT` (D-018).
 
 | Input | Type | Default | Required |
 |---|---|---|---|
