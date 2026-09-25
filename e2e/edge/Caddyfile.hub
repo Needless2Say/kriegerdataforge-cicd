@@ -1,0 +1,16 @@
+# e2e/edge/Caddyfile.hub -- the hub's edge, for the auth UI's production image alone
+#
+# The auth UI's runner image refuses an http hub (auth UI D-001), the service key travels on that
+# hop. Under the driver's `--target runner` this edge terminates TLS on :8443 with the run's hub
+# certificate and forwards to the hub, and the runner trusts the run's authority through
+# NODE_EXTRA_CA_CERTS. The dev target talks to the hub over http and never starts this service.
+
+{
+	auto_https off
+	admin off
+}
+
+:8443 {
+	tls /certs/hub.pem /certs/hub-key.pem
+	reverse_proxy kdf-api:8000
+}

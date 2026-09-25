@@ -9,10 +9,15 @@ the driver finds in a sibling repo (the Phase-2 home) or in `e2e/tenants/<j>/`
 Onboarding a journey adds a manifest in ITS repo; this file never changes.
 
 What it does:
-  * generates a throwaway RS256 keypair + session secret + DB password (shared),
-    plus a fixed-per-run OIDC client_id/secret PER ACTIVE JOURNEY, threaded into
-    the compose via the process env so the hub, each frontend, and the seed all
-    agree. Persisted to e2e/.e2e-ci.json (gitignored); `--regen` forces fresh.
+  * generates a throwaway RS256 keypair + session secret + DB password + the auth
+    UI's service key + an SMTP password (shared), plus a fixed-per-run OIDC
+    client_id/secret PER ACTIVE JOURNEY, threaded into the compose via the process
+    env so the hub, each frontend, and the seed all agree. Persisted to
+    e2e/.e2e-ci.json (gitignored); `--regen` forces fresh.
+  * generates a per run certificate authority and one leaf certificate each for the
+    browser facing edge (https://localhost:<E2E_EDGE_PORT>), the mail sink's STARTTLS
+    and the hub's edge of the runner round, written to e2e/.e2e-certs/ (gitignored).
+    The authority's key is never written, the leaves are signed in memory.
   * sources GH_PACKAGES_PAT (env → fitness-app-backend/.env.local fallback) for
     the private-SDK image build, and GH_NPM_TOKEN (env → frontend .env.local
     fallback) for the frontends' `npm ci` of the private @needless2say scope.
@@ -24,6 +29,10 @@ What it does:
   * STAGES the active journeys' Playwright specs into e2e/staged-tests/ (the
     testDir) and writes e2e/.env so `npm test` runs exactly those specs — no
     `--grep` plumbing needed.
+  * `up --target runner` builds the auth UI's production image instead of `dev` and
+    puts the hub behind its own edge, the image round of the review's Phase C.
+    E2E_EDGE_PORT and E2E_MAIL_PORT move the two published ports (loopback only)
+    when the owner's local stack already holds 3002.
 
 Commands:
   up      build + up --wait + migrate + seed + stage specs   (idempotent)
@@ -36,6 +45,8 @@ Generated keys are ephemeral and never touch a developer's real dev keypair.
 from __future__ import annotations
 
 import argparse
+import datetime
+import ipaddress
 import json
 import os
 import secrets
@@ -53,6 +64,18 @@ SEED = HERE / "seed_shared.py"
 STAGED = HERE / "staged-tests"       # gitignored Playwright testDir (populated per run)
 STATE = HERE / ".e2e-ci.json"        # gitignored — persisted per-run secrets
 ENV_FILE = HERE / ".env"             # gitignored — loaded by playwright.config.ts
+CERTS = HERE / ".e2e-certs"          # gitignored — the run's authority + leaf certificates
+CERT_DAYS = 2                        # a run's certificates outlive any run, and no more
+
+# One leaf certificate per service, subject alternative names, all signed by the run's
+# authority: the browser facing edge, the mail sink (STARTTLS on the compose network) and
+# the hub's edge of the runner round.
+_LEAVES = {
+    "edge": ["localhost", "127.0.0.1", "::1"],
+    "mail": ["mail"],
+    "hub": ["kdf-api-tls"],
+}
+_CERT_FILES = ["ca.pem"] + [f"{name}{suffix}.pem" for name in _LEAVES for suffix in ("", "-key")]
 
 # Fixed login creds: match e2e/.env.example + Playwright's E2E_* defaults so the
 # suite needs no wiring. Not sensitive (throwaway account in an ephemeral DB).
@@ -65,7 +88,12 @@ LOGIN_EMAIL = "e2e-user@example.com"
 MOD_USERNAME = "e2e-moderator"
 MOD_PASSWORD = "E2eModTest123!"
 MOD_EMAIL = "e2e-moderator@example.com"
-AUTH_UI_URL = "http://localhost:3002"
+# The two published ports, loopback only, movable when the owner's local stack holds 3002.
+EDGE_PORT = int(os.environ.get("E2E_EDGE_PORT", "3002"))
+MAIL_PORT = int(os.environ.get("E2E_MAIL_PORT", "8025"))
+AUTH_UI_URL = f"https://localhost:{EDGE_PORT}"
+MAIL_API_URL = f"http://localhost:{MAIL_PORT}"
+IMAGE_TARGETS = ("dev", "runner")
 
 # Env-tunable so CI (slower cold `next dev` compiles, image builds) can grant
 # headroom without editing the driver. Defaults suit local runs.
@@ -73,7 +101,12 @@ BUILD_TIMEOUT = int(os.environ.get("E2E_BUILD_TIMEOUT", "1800"))  # cold: SDK cl
 WAIT_TIMEOUT = int(os.environ.get("E2E_WAIT_TIMEOUT", "420"))  # healthcheck gate
 
 # Shared secrets (not per-journey) + their byte sizes for token_urlsafe.
-_SHARED_RANDOMS = {"oidc_session_secret": 48, "postgres_password": 18}
+_SHARED_RANDOMS = {
+    "oidc_session_secret": 48,
+    "postgres_password": 18,
+    "auth_ui_service_key": 32,  # the auth UI's entry in the hub's SERVICE_API_KEYS
+    "smtp_password": 18,        # the hub's login at the sink, which accepts any
+}
 
 
 # ── journey registry (discovered from manifests) ─────────────────────────────
@@ -178,6 +211,139 @@ def _generate_keypair() -> tuple[str, str]:
         return priv, pub
 
 
+def _san(value: str):
+    """One subject alternative name, an IP address or a DNS name (cryptography objects)."""
+    from cryptography import x509
+    try:
+        return x509.IPAddress(ipaddress.ip_address(value))
+    except ValueError:
+        return x509.DNSName(value)
+
+
+def _make_certs_cryptography() -> None:
+    """The authority and the leaves with the `cryptography` lib. The authority's key stays in memory."""
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    not_before = now - datetime.timedelta(minutes=5)
+    not_after = now + datetime.timedelta(days=CERT_DAYS)
+
+    def key():
+        return rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+    def pem_key(k) -> bytes:
+        return k.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                               serialization.NoEncryption())
+
+    ca_key = key()
+    ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "kdf-e2e run authority")])
+    # Python 3.13+ verifies in OpenSSL's strict mode, which wants a subject key identifier on
+    # the authority and an authority key identifier on every leaf (measured, the hub refused
+    # the sink's certificate with "Missing Authority Key Identifier" without them)
+    ca_ski = x509.SubjectKeyIdentifier.from_public_key(ca_key.public_key())
+    ca = (
+        x509.CertificateBuilder()
+        .subject_name(ca_name).issuer_name(ca_name)
+        .public_key(ca_key.public_key()).serial_number(x509.random_serial_number())
+        .not_valid_before(not_before).not_valid_after(not_after)
+        .add_extension(ca_ski, critical=False)
+        .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+        .add_extension(x509.KeyUsage(digital_signature=True, key_cert_sign=True, crl_sign=True,
+                                     content_commitment=False, key_encipherment=False,
+                                     data_encipherment=False, key_agreement=False,
+                                     encipher_only=False, decipher_only=False), critical=True)
+        .sign(ca_key, hashes.SHA256())
+    )
+    (CERTS / "ca.pem").write_bytes(ca.public_bytes(serialization.Encoding.PEM))
+    for name, sans in _LEAVES.items():
+        leaf_key = key()
+        leaf = (
+            x509.CertificateBuilder()
+            .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, sans[0])]))
+            .issuer_name(ca_name)
+            .public_key(leaf_key.public_key()).serial_number(x509.random_serial_number())
+            .not_valid_before(not_before).not_valid_after(not_after)
+            .add_extension(x509.SubjectAlternativeName([_san(s) for s in sans]), critical=False)
+            .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+            .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
+            .add_extension(x509.SubjectKeyIdentifier.from_public_key(leaf_key.public_key()), critical=False)
+            .add_extension(x509.AuthorityKeyIdentifier.from_issuer_subject_key_identifier(ca_ski), critical=False)
+            .sign(ca_key, hashes.SHA256())
+        )
+        (CERTS / f"{name}.pem").write_bytes(leaf.public_bytes(serialization.Encoding.PEM))
+        (CERTS / f"{name}-key.pem").write_bytes(pem_key(leaf_key))
+
+
+def _make_certs_openssl() -> None:
+    """The same with the `openssl` CLI (3.x, for -addext and -copy_extensions). The authority's key
+    exists on disk only while the leaves are signed, then it is removed."""
+    def run(*args: str) -> None:
+        subprocess.run(["openssl", *args], check=True, capture_output=True)
+
+    ca_key = CERTS / "ca-key.pem"
+    try:
+        run("req", "-x509", "-newkey", "rsa:2048", "-nodes", "-sha256", "-days", str(CERT_DAYS),
+            "-keyout", str(ca_key), "-out", str(CERTS / "ca.pem"),
+            "-subj", "/CN=kdf-e2e run authority",
+            "-addext", "basicConstraints=critical,CA:TRUE,pathlen:0",
+            "-addext", "keyUsage=critical,digitalSignature,keyCertSign,cRLSign",
+            "-addext", "subjectKeyIdentifier=hash")
+        for name, sans in _LEAVES.items():
+            csr = CERTS / f"{name}.csr"
+            ext = CERTS / f"{name}.ext"
+            alt = ",".join(("IP:" if _is_ip(s) else "DNS:") + s for s in sans)
+            # the leaf's extensions, the key identifiers among them, which a request cannot carry
+            ext.write_text(
+                f"subjectAltName={alt}\nbasicConstraints=critical,CA:FALSE\nextendedKeyUsage=serverAuth\n"
+                "subjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid,issuer\n",
+                encoding="utf-8",
+            )
+            run("req", "-newkey", "rsa:2048", "-nodes", "-sha256",
+                "-keyout", str(CERTS / f"{name}-key.pem"), "-out", str(csr),
+                "-subj", f"/CN={sans[0]}")
+            run("x509", "-req", "-sha256", "-days", str(CERT_DAYS), "-in", str(csr),
+                "-CA", str(CERTS / "ca.pem"), "-CAkey", str(ca_key), "-CAcreateserial",
+                "-extfile", str(ext), "-out", str(CERTS / f"{name}.pem"))
+            csr.unlink()
+            ext.unlink()
+    finally:
+        ca_key.unlink(missing_ok=True)
+        (CERTS / "ca.srl").unlink(missing_ok=True)
+
+
+def _is_ip(value: str) -> bool:
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        return False
+
+
+def make_certs(regen: bool) -> None:
+    """The run's certificate authority and one leaf per service in _LEAVES, written to CERTS.
+    Made once and reused, like the keypair, unless --regen or a file is missing. Prefers the
+    `cryptography` lib (the action installs it), falls back to the `openssl` CLI."""
+    if not regen and all((CERTS / f).exists() for f in _CERT_FILES):
+        return
+    if CERTS.exists():
+        shutil.rmtree(CERTS)
+    CERTS.mkdir(parents=True)
+    try:
+        import cryptography  # noqa: F401
+        _make_certs_cryptography()
+    except ImportError:
+        _make_certs_openssl()
+    for name in _LEAVES:
+        try:
+            (CERTS / f"{name}-key.pem").chmod(0o600)
+        except OSError:
+            pass  # a Windows host keeps the directory's ACL
+    print(f"[ci_stack] wrote the run's authority + {len(_LEAVES)} certificate(s) -> {CERTS.name}/")
+
+
 def load_or_make_state(journeys: list[str], regen: bool) -> dict:
     """Load e2e/.e2e-ci.json, filling any missing keys (shared secrets + a client
     id/secret for each requested journey). An OLD flat-schema file (pre-D-006) is
@@ -252,27 +418,49 @@ def _resolve_gh_npm_token() -> str:
     return ""
 
 
-def _base_env(state: dict) -> dict:
+def _target_env(target: str) -> dict:
+    """What the image target decides: the auth UI's build target and NODE_ENV, the hub URL it
+    calls (its own edge under `runner`, the runner refuses an http hub) and the compose
+    profile that starts that edge."""
+    runner = target == "runner"
+    return dict(
+        E2E_IMAGE_TARGET=target,
+        E2E_NODE_ENV="production" if runner else "development",
+        E2E_HUB_INTERNAL_URL="https://kdf-api-tls:8443" if runner else "http://kdf-api:8000",
+        COMPOSE_PROFILES="runner" if runner else "",
+    )
+
+
+def _base_env(state: dict, target: str = "dev") -> dict:
     """Env common to every compose invocation: workspace root (for the absolute
-    ${E2E_WORKSPACE} build contexts) + the shared identity secrets + the PAT."""
+    ${E2E_WORKSPACE} build contexts), the engine dir and the certificates (for the bind
+    mounts), the two published ports, the image target, the shared identity secrets + the PAT."""
     sh = state["shared"]
     env = dict(os.environ)
     env.update(
         E2E_WORKSPACE=WORKSPACE.as_posix(),  # forward slashes — Docker-friendly on Windows
+        E2E_ENGINE=HERE.as_posix(),
+        E2E_CERTS=CERTS.as_posix(),
+        E2E_EDGE_PORT=str(EDGE_PORT),
+        E2E_MAIL_PORT=str(MAIL_PORT),
         POSTGRES_PASSWORD=sh["postgres_password"],
         AUTH_PRIVATE_KEY=sh["auth_private_key"],
         AUTH_PUBLIC_KEY=sh["auth_public_key"],
         OIDC_SESSION_SECRET=sh["oidc_session_secret"],
+        AUTH_UI_SERVICE_KEY=sh["auth_ui_service_key"],
+        SMTP_PASSWORD=sh["smtp_password"],
         GH_PACKAGES_PAT=_resolve_gh_pat(),
         GH_NPM_TOKEN=_resolve_gh_npm_token(),
+        **_target_env(target),
     )
     return env
 
 
-def _compose_env(state: dict, journeys: list[str], registry: dict[str, Journey]) -> dict:
+def _compose_env(state: dict, journeys: list[str], registry: dict[str, Journey],
+                 target: str = "dev") -> dict:
     """Base env + each active journey's client id/secret under the var names its
     fragment/spec expect (manifest oidc_client.id_env / secret_env)."""
-    env = _base_env(state)
+    env = _base_env(state, target)
     for j in journeys:
         oc = registry[j].oidc_client
         env[oc["id_env"]] = state["clients"][j]["id"]
@@ -308,10 +496,12 @@ def _run(cmd: list[str], env: dict, *, timeout: int | None = None,
 
 
 def _stage_specs(journeys: list[str], registry: dict[str, Journey]) -> int:
-    """Copy the active journeys' *.spec.ts into e2e/staged-tests/ (the testDir).
-    Journey-prefixed to avoid name collisions across tenants. Cleared each run.
-    Returns the number of spec files staged (0 → the caller should fail loudly,
-    else `npm test` dies later with a confusing Playwright 'no tests found')."""
+    """Copy each active journey's tests folder into e2e/staged-tests/<journey>/ (the testDir
+    recurses). One directory per journey keeps tenants' file names apart, and a folder copied
+    whole lets a journey's specs share a support module beside them (`./support`), which a
+    spec-only copy under a prefixed name broke. Cleared each run. Returns the number of spec
+    files staged (0 → the caller should fail loudly, else `npm test` dies later with a
+    confusing Playwright 'no tests found')."""
     if STAGED.exists():
         shutil.rmtree(STAGED)
     STAGED.mkdir(parents=True)
@@ -324,14 +514,14 @@ def _stage_specs(journeys: list[str], registry: dict[str, Journey]) -> int:
         specs = sorted(tests_dir.glob("*.spec.ts"))
         if not specs:
             print(f"\033[1;33m[ci_stack] WARNING: {j} has no *.spec.ts in {tests_dir}\033[0m")
-        for spec in specs:
-            shutil.copy2(spec, STAGED / f"{j}-{spec.name}")
-            total += 1
+        shutil.copytree(tests_dir, STAGED / j, ignore=shutil.ignore_patterns("node_modules", "__pycache__"))
+        total += len(specs)
     print(f"[ci_stack] staged {total} spec file(s) for: {', '.join(journeys)}")
     return total
 
 
-def _write_env_file(state: dict, journeys: list[str], registry: dict[str, Journey]) -> None:
+def _write_env_file(state: dict, journeys: list[str], registry: dict[str, Journey],
+                    target: str = "dev") -> None:
     """Write e2e/.env (gitignored) so `npm test` picks up the login creds + each
     journey's URLs + its generated client id/secret (playwright.config.ts loads it)."""
     lines = [
@@ -342,6 +532,10 @@ def _write_env_file(state: dict, journeys: list[str], registry: dict[str, Journe
         f"E2E_MOD_USERNAME={MOD_USERNAME}",
         f"E2E_MOD_PASSWORD={MOD_PASSWORD}",
         f"E2E_AUTH_UI_URL={AUTH_UI_URL}",
+        # the auth UI image under test, a spec expects the production headers under runner alone
+        f"E2E_IMAGE_TARGET={target}",
+        # the sink's API, where a spec reads the verification and reset links the hub mailed
+        f"E2E_MAIL_API_URL={MAIL_API_URL}",
     ]
     for j in journeys:
         d = registry[j]
@@ -377,7 +571,7 @@ def _check_repos(journeys: list[str], registry: dict[str, Journey]) -> None:
 # ── commands ─────────────────────────────────────────────────────────────────
 
 
-def cmd_up(raw_journeys: str, regen: bool) -> None:
+def cmd_up(raw_journeys: str, regen: bool, target: str = "dev") -> None:
     if not SHARED_COMPOSE.exists():
         sys.exit(f"[ci_stack] missing {SHARED_COMPOSE}")
     registry = discover()
@@ -386,7 +580,8 @@ def cmd_up(raw_journeys: str, regen: bool) -> None:
         sys.exit("[ci_stack] no journeys resolved (no manifests discovered?)")
     _check_repos(journeys, registry)
     state = load_or_make_state(journeys, regen)
-    env = _compose_env(state, journeys, registry)
+    make_certs(regen)
+    env = _compose_env(state, journeys, registry, target)
     files = _compose_files(journeys, registry)
     if not env["GH_PACKAGES_PAT"]:
         print("\033[1;33m[ci_stack] WARNING: no GH_PACKAGES_PAT — the private-SDK "
@@ -395,7 +590,7 @@ def cmd_up(raw_journeys: str, regen: bool) -> None:
         print("\033[1;33m[ci_stack] WARNING: no GH_NPM_TOKEN — frontend image builds "
               "(npm ci of the private @needless2say scope) will fail unless the layer "
               "is cached.\033[0m")
-    print(f"[ci_stack] journeys: {', '.join(journeys)}")
+    print(f"[ci_stack] journeys: {', '.join(journeys)}  (auth UI image: {target})")
 
     _run(_compose(files, "build"), env, timeout=BUILD_TIMEOUT, step="build images")
     _run(_compose(files, "up", "-d", "--wait", "--wait-timeout", str(WAIT_TIMEOUT)),
@@ -452,12 +647,13 @@ def cmd_up(raw_journeys: str, regen: bool) -> None:
     if _stage_specs(journeys, registry) == 0:
         sys.exit(f"[ci_stack] no spec files staged for: {', '.join(journeys)} — "
                  f"check each journey manifest's 'tests' dir")
-    _write_env_file(state, journeys, registry)
+    _write_env_file(state, journeys, registry, target)
 
     print(
         "\n\033[0;32m[ci_stack] stack up + seeded.\033[0m\n"
         f"  journeys   : {', '.join(journeys)}\n"
-        f"  hub auth-UI: {AUTH_UI_URL}  (E2E_AUTH_UI_URL)\n"
+        f"  hub auth-UI: {AUTH_UI_URL}  (E2E_AUTH_UI_URL, behind the edge)\n"
+        f"  mail sink  : {MAIL_API_URL}  (E2E_MAIL_API_URL, the API the specs read)\n"
         f"  login as   : {LOGIN_USERNAME} / {LOGIN_PASSWORD}\n"
         f"  moderator  : {MOD_USERNAME} / {MOD_PASSWORD}  (reports journeys)\n"
         "  run tests  : make e2e   (or: cd e2e && npm test)\n"
@@ -486,8 +682,12 @@ def _interp_env(registry: dict[str, Journey]) -> dict:
     we never generate/persist secrets just to tear down."""
     env = dict(os.environ)
     env["E2E_WORKSPACE"] = WORKSPACE.as_posix()
+    env["E2E_ENGINE"] = HERE.as_posix()
+    env["E2E_CERTS"] = CERTS.as_posix()
+    env["COMPOSE_PROFILES"] = "runner"  # so a `down` removes the runner round's edge too
     for var in ("POSTGRES_PASSWORD", "AUTH_PRIVATE_KEY", "AUTH_PUBLIC_KEY",
-                "OIDC_SESSION_SECRET", "GH_PACKAGES_PAT", "GH_NPM_TOKEN"):
+                "OIDC_SESSION_SECRET", "AUTH_UI_SERVICE_KEY", "SMTP_PASSWORD",
+                "GH_PACKAGES_PAT", "GH_NPM_TOKEN"):
         env.setdefault(var, "placeholder")
     for j in registry.values():
         env.setdefault(j.oidc_client["id_env"], "placeholder")
@@ -526,7 +726,11 @@ def main() -> None:
                     help="comma-separated journeys to bring up, or 'all' (app journeys). "
                          "Discovered from e2e/manifest.json files.")
     up.add_argument("--regen", action="store_true",
-                    help="regenerate secrets (default: reuse e2e/.e2e-ci.json)")
+                    help="regenerate secrets and certificates (default: reuse e2e/.e2e-ci.json "
+                         "and e2e/.e2e-certs/)")
+    up.add_argument("--target", choices=IMAGE_TARGETS, default="dev",
+                    help="the auth UI image to build, dev (default) or the production runner, "
+                         "which also puts the hub behind its own edge")
     st = sub.add_parser("stage", help="stage specs only (no docker)")
     st.add_argument("--journey", default="all", help="journeys to stage, or 'all' (app journeys)")
     st.add_argument("--all", action="store_true",
@@ -537,7 +741,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "up":
-        cmd_up(args.journey, args.regen)
+        cmd_up(args.journey, args.regen, args.target)
     elif args.command == "stage":
         cmd_stage(args.journey, args.all)
     elif args.command == "down":

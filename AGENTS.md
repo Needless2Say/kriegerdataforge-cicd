@@ -20,8 +20,8 @@ tenant's `cd.yml` is a thin caller (`uses: Needless2Say/kriegerdataforge-cicd/.g
 
 The owner's vision is **safe, uniform, least privilege automation that one person can run and onboard
 collaborators into**. Every deploy is manual (`workflow_dispatch` only, Vercel git auto deploy is off),
-pauses at a GitHub Environment approval gate before any secret loads, and is fenced by a per repo
-**deployer authorization gate** that fails closed. Credentials never live in `.env` or code, only in
+runs under a GitHub Environment that pauses for approval only where a reviewer is configured (none is
+today, measured 2026-09-17), and is fenced by a per repo **deployer authorization gate** that fails closed. Credentials never live in `.env` or code, only in
 GitHub Environment secrets, and the shared Vercel deploy token plus the `GH_PACKAGES_PAT` are rotated on
 a schedule by scripts in this repo. As KDF grows, this library is also the planned home for AI driven
 agent workflows (`agents/`, skeleton only) so automation scales with the platform.
@@ -62,7 +62,8 @@ agent workflows (`agents/`, skeleton only) so automation scales with the platfor
 
 1. **Never commit secrets.** Use `${{ secrets.NAME }}` exclusively, never hardcode, never `echo` a secret.
 2. **Pin all third party actions to a specific tag or SHA** (e.g. `@v6` / full SHA), never `@main` or `@latest`.
-3. **Every deployment workflow MUST set `environment:`** to activate the GitHub Environment approval gate.
+3. **Every deployment workflow MUST set `environment:`**, which loads the environment's secrets and
+   pauses for approval where the environment configures a reviewer.
 4. **Treat every change to an existing workflow as a breaking change candidate**, all consumer repos
    call these live from `@main`. When in doubt, add a new workflow rather than mutate an existing one.
 5. **Adding a `required: true` input, removing/renaming an input, changing an input `type:`, renaming

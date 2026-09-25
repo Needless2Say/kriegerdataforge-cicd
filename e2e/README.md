@@ -15,6 +15,10 @@ Unit + integration tests (including the hub OIDC E2E in
 > generated secrets, no `.env.local`). The self contained stack also runs in
 > GitHub Actions via each repo's own `e2e.yml` job (the `run-e2e` composite
 > action). See [CI (GitHub Actions)](#ci-github-actions-a-per-repo-job-via-a-composite-action-adr-d-007).
+> Since D-016 the self contained stack has the deployed shape, the third state `local`,
+> an https issuer behind a Caddy edge under a per run certificate authority, a mail sink
+> the hub reaches over STARTTLS, the service key gate on, and every published port on
+> the loopback interface.
 
 ## The journeys under test
 
@@ -134,16 +138,30 @@ sibling. `ci_stack.py`:
 
 - **discovers** each journey's `manifest.json` (no hardcoded tenant list) and, for
   the requested `--journey`, generates a throwaway RS256 keypair + session secret +
-  DB password (shared) and a fixed per run OIDC `client_id`/`secret` **per journey**
-  (persisted to `e2e/.e2e-ci.json`, gitignored), threading them through the compose
-  so the hub, each frontend, and the seed all agree. No capture and inject dance;
+  DB password + the auth UI's service key + an SMTP password (shared) and a fixed per
+  run OIDC `client_id`/`secret` **per journey** (persisted to `e2e/.e2e-ci.json`,
+  gitignored), threading them through the compose so the hub, each frontend, and the
+  seed all agree. No capture and inject dance;
+- generates a per run **certificate authority** and a leaf certificate each for the
+  browser facing edge (`https://localhost:3002`, `E2E_EDGE_PORT` moves it), the mail
+  sink's STARTTLS and the hub's edge of the runner round (`e2e/.e2e-certs/`,
+  gitignored, the authority's own key never written). The hub trusts the authority
+  through `SSL_CERT_FILE`, Playwright ignores certificate errors by config, so no trust
+  store is touched;
+- brings up the **edge** (Caddy, the shape of the local stack's `docker/Caddyfile` and of
+  Vercel's edge, `e2e/edge/Caddyfile`) and the **mail sink** (Mailpit, pinned, STARTTLS
+  required, any login accepted, its API on `http://localhost:8025`, `E2E_MAIL_PORT`
+  moves it) beside the db, the hub and the auth UI. A spec reads the verification and
+  reset links the hub mailed from `E2E_MAIL_API_URL`;
 - merges `-f docker-compose.shared.yml` with the active journeys' fragments, builds
   every service from source (the `dev` image targets, source COPY'd in, **no**
   bind mounts), brings them up on their own network with healthcheck gating,
   migrates the hub DB + each journey's backend, then seeds the active login user +
   one OIDC client per journey (hub) and each catalogue;
-- **stages** the active journeys' specs into `e2e/staged-tests/` (the Playwright
-  `testDir`) and writes `e2e/.env`, so `npm test` runs exactly those journeys;
+- **stages** each active journey's tests folder whole into `e2e/staged-tests/<journey>/`
+  (the Playwright `testDir` recurses, and a folder copied whole lets a journey's specs
+  share a support module beside them) and writes `e2e/.env`, so `npm test` runs
+  exactly those journeys;
 - sources `GH_PACKAGES_PAT` from the environment (the CI secret), falling back to
   `fitness-app-backend/.env.local` locally so you needn't export it by hand, likewise
   `GH_NPM_TOKEN` (env → `fitness-app-frontend`/`tiffanys-space` `.env.local`) for the
@@ -160,10 +178,16 @@ make e2e-ci-down     # remove containers, volumes, network
 
 The generated keys are ephemeral and never touch your real dev keypair. The
 seeded login user is the same deterministic `e2e-user` / `E2eTest123!` the suite
-defaults to, so no `.env` wiring is needed. It uses the `dev` image targets on
-purpose. The production `runner`/standalone build breaks a plain http E2E
-(Secure cookies get dropped, CSP upgrades http→https, `NEXT_PUBLIC_*` bake at
-build). MinIO is omitted (not on the login→`/database` path).
+defaults to, so no `.env` wiring is needed. It builds the `dev` image targets by
+default. `python e2e/ci_stack.py up --journey auth --target runner` builds the auth
+UI's production `runner` image instead, and since that image refuses an http hub
+(auth UI D-001) the driver then puts the hub behind its own edge (`e2e/edge/Caddyfile.hub`)
+and the runner trusts the run's authority through `NODE_EXTRA_CA_CERTS`. That is the
+image round of the auth UI review's Phase C. MinIO is omitted (not on the login path).
+
+When your own local stack holds `3002`, move the two published ports:
+`E2E_EDGE_PORT=3102 E2E_MAIL_PORT=8125 python e2e/ci_stack.py up --journey auth`. The
+issuer, the hub's link bases and the specs' `.env` follow the port.
 
 ## Selectors (data-testid, with fallbacks)
 
@@ -188,12 +212,18 @@ repo owns a thin CI job (`.github/workflows/e2e.yml`) that `uses:` it. The actio
 tenant-agnostic. It reads the **calling repo's `e2e/manifest.json`** for the sibling
 repos, so cicd never learns tenant names.
 
-**What the action does.** Reads the caller's manifest → mints a short lived App token
-(`contents:read`, scoped to `{hub, auth-ui, sdk}` + the manifest's `repos`) → checks
-out cicd + those repos as siblings under `$GITHUB_WORKSPACE` (a token clone loop, the
-caller repo is already checked out by the job) → `python e2e/ci_stack.py up --journey
-<j>` → `npm test` → uploads the report → always tears down. Secrets are auto masked,
-CI gets headroom via `E2E_BUILD_TIMEOUT` / `E2E_WAIT_TIMEOUT`.
+**What the action does.** Reads the caller's manifest for the journey and the specs, and
+the manifest on the caller's **default branch** for the repositories the App token may
+read, so a branch cannot widen the token before it merges → mints a short lived App token
+(`contents:read`, scoped to `{hub, auth-ui, sdk}` + those `repos`) → checks out cicd
+(no credential kept) + the sibling repos under `$GITHUB_WORKSPACE`, each at the
+**caller's own branch name** when the sibling has one and at its default branch
+otherwise, so a change spanning two repos is tested together before either merges →
+holds the auth UI's copy of the hub contract to the hub's recording → `python
+e2e/ci_stack.py up --journey <j>` → `npm test` → uploads the report → always tears
+down. Secrets are auto masked, CI gets headroom via `E2E_BUILD_TIMEOUT` /
+`E2E_WAIT_TIMEOUT`. The `journey` input is optional, the manifest names it, and a
+`sibling-ref` input names one branch for every sibling on a manual run.
 
 ## Enabling E2E in a repo. CI gate, CD/nightly, or on demand
 
@@ -206,7 +236,7 @@ Each E2E-journey repo ships a **dormant** CI job, `.github/workflows/e2e.yml`, t
 | `fitness-app-backend` | `fitness-api` | fitness backend + identity, no frontend. Headless OIDC → protected API serves seeded data |
 | `tiffanys-space` | `tiffanys` | tiffanys tenant. Full browser journey (login → `/shop`) |
 | `tiffanys-space-backend` | `tiffanys-api` | tiffanys backend + identity, no frontend. Headless OIDC → protected `/cart` served with the token, rejected without |
-| `kriegerdataforge-auth-ui` | `auth` | shared identity layer (hosted login/consent + hub + db), a synthetic client, no tenant app |
+| `kriegerdataforge-auth-ui` | `auth` | shared identity layer (hosted login/consent + hub + db + the edge + the mail sink), a synthetic client, no tenant app. Thirteen journeys, consent denied and allowed, sign out, registration and reset through the mailed links, the proxy's gates and headers, and a spent sign in limit |
 | `kriegerdataforge` (hub) | `hub` | shared identity core, OIDC discovery/JWKS + full auth code+PKCE flow + userinfo + refresh + negatives, vs. the built image + real DB |
 
 ### Three run modes (two variables)
@@ -245,7 +275,7 @@ jobs:
         with: { path: ${{ github.event.repository.name }} }   # sibling layout
       - uses: Needless2Say/kriegerdataforge-cicd/.github/actions/run-e2e@main
         with:
-          journey: fitness   # ← this repo's journey
+          # journey: fitness  # optional, the manifest names it; must match when given
           app-id: ${{ secrets.KDF_APP_ID }}
           app-private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
 ```

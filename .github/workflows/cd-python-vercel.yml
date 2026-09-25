@@ -1,18 +1,28 @@
 # Reusable CD workflow — Python FastAPI → Vercel
 #
 # Called by consumer repos to deploy the FastAPI backend to a Vercel project.
-# The `environment` input controls which GitHub Environment is activated,
-# which in turn:
-#   1. Requires approval from the configured reviewers (prod: owner only,
-#      dev: owner + collaborator)
-#   2. Loads its secrets. A job with `environment:` reads repository AND environment
+# The `environment` input names the GitHub Environment the deploy job runs under:
+#   1. Loads its secrets. A job with `environment:` reads repository AND environment
 #      secrets together, so the two singular tokens live at REPOSITORY level (one value
 #      everywhere) while the genuinely per-env values stay environment-scoped.
+#   2. Pauses for approval only where the calling repository's environment configures
+#      a required reviewer. None does today (measured 2026-09-17, no environment
+#      carries a reviewer or a branch policy), so the deployer authorization gate
+#      below is what stands in front of the token.
 #
-# Deploy steps:
+# Deploy steps (hub register row 83, the owner's order of 2026-09-25):
 #   1. Compact api/ into vercel_api/app/ via vercel_compactor.py
-#   2. Deploy vercel_api/ to the target Vercel project via CLI
+#   2. Deploy vercel_api/ to the target Vercel project WITHOUT its domains (--skip-domain),
+#      so the release that is serving keeps serving
 #   3. Optionally run Alembic migrations against DB_DATABASE_URL
+#   4. Smoke the new deployment's /healthz. A release that refuses at boot stops here,
+#      never promoted, and the migration is undone to the revision found in step 3
+#   5. Promote the deployment to the production domains
+#
+# Optional environment secret:
+#   VERCEL_AUTOMATION_BYPASS_SECRET — the project's "Protection Bypass for Automation"
+#                                     value, sent on the smoke when Vercel's deployment
+#                                     protection covers the production deployment URL
 #
 # Repository secrets (one global value — set at repo level, NOT per environment):
 #   VERCEL_DEPLOYMENT_TOKEN — shared Vercel deploy/management token
@@ -41,7 +51,7 @@ on:
         required: true
         type: string
       run_migrations:
-        description: 'Run "alembic upgrade head" after deployment'
+        description: 'Run "alembic upgrade head" after the deployment and before its promotion'
         required: false
         type: string
         default: 'true'
@@ -86,14 +96,14 @@ jobs:
     needs: authorize
     runs-on: ubuntu-slim
 
-    # Activates the GitHub Environment gate for the caller repo:
-    # - Pauses for required reviewer approval
-    # - Loads environment-scoped secrets into this job
+    # Names the caller repo's GitHub Environment. The job reads its secrets, and pauses for
+    # approval only where that environment configures a required reviewer. None does today
+    # (measured 2026-09-17), so the deployer authorization gate above is the control. No
+    # id-token permission: the pinned Vercel CLI never requests a GitHub OIDC token.
     environment: ${{ inputs.environment }}
 
     permissions:
       contents: read
-      id-token: write  # Required for Vercel OIDC
 
     steps:
       - name: Checkout
@@ -138,22 +148,38 @@ jobs:
         # / dependency-chain risk (CICD-SEC-3 / SLSA). Bump via Dependabot.
         run: npm install -g vercel@58.5.1
 
-      - name: Deploy to Vercel
+      - name: Deploy to Vercel, without the domains
+        id: deploy
         working-directory: vercel_api
+        # The release is built and deployed to the production target but NOT promoted: --skip-domain
+        # leaves the production domains on the release that is serving. The migration runs against
+        # the new code's schema next, the new deployment is smoked, and only then are the domains
+        # moved (hub register row 83). A release that refuses at boot is therefore never migrated
+        # behind, and never serves.
         run: |
-          # A VERCEL_DEPLOYMENT_TOKEN env secret pasted by hand often carries a trailing newline/space, which
+          # A VERCEL_DEPLOYMENT_TOKEN secret pasted by hand often carries a trailing newline/space, which
           # the Vercel CLI rejects ("The specified token is not valid") even though the token itself is valid.
-          # Strip whitespace, fail fast if empty, and pass it explicitly via --token. (Only the LENGTH is
-          # logged for debugging — the token value is never printed.)
+          # Strip whitespace, fail fast if empty, mask the trimmed value (a different string from the raw
+          # secret, which automatic masking does not cover) and pass it explicitly via --token here and at
+          # the promotion. Only the LENGTH is logged for debugging — the token value is never printed.
           TOKEN="$(printf '%s' "$VERCEL_DEPLOYMENT_TOKEN" | tr -d '[:space:]')"
           if [ -z "$TOKEN" ]; then
-            echo "::error::VERCEL_DEPLOYMENT_TOKEN is empty in the '${{ inputs.environment }}' environment — set the VERCEL_DEPLOYMENT_TOKEN environment secret on this repo (correct environment)."
+            echo "::error::VERCEL_DEPLOYMENT_TOKEN is empty — set the VERCEL_DEPLOYMENT_TOKEN repository secret on the calling repo (one value, read by every environment)."
             exit 1
           fi
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
           echo "VERCEL_DEPLOYMENT_TOKEN trimmed length=${#TOKEN}; org=${VERCEL_ORG_ID}; project=${VERCEL_PROJECT_ID}"
-          NODE_OPTIONS="--require ./dns-preload.js" vercel --prod --yes \
+          # the CLI prints the deployment URL alone on stdout, its progress goes to stderr
+          URL="$(NODE_OPTIONS="--require ./dns-preload.js" vercel deploy --prod --yes --skip-domain \
             --token "$TOKEN" \
-            --build-env "GH_PACKAGES_PAT=$GH_PACKAGES_PAT"
+            --build-env "GH_PACKAGES_PAT=$GH_PACKAGES_PAT" | tail -n 1)"
+          case "$URL" in
+            https://*) ;;
+            *) echo "::error::vercel deploy printed no deployment URL (got '${URL}')"; exit 1 ;;
+          esac
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "deployed, not yet promoted: $URL"
         env:
           VERCEL_DEPLOYMENT_TOKEN: ${{ secrets.VERCEL_DEPLOYMENT_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -173,6 +199,63 @@ jobs:
 
       - name: Run Alembic migrations
         if: inputs.run_migrations == 'true'
-        run: alembic upgrade head
+        id: migrate
+        # The revision in place is recorded first, so a smoke failure below can undo the
+        # upgrade to exactly it (the hub's rule, a release and its migrations in one window
+        # with full downgrades). An empty database reports no revision, which is `base`.
+        run: |
+          BEFORE="$(alembic current 2>/dev/null | awk 'NF {print $1; exit}')"
+          echo "before=${BEFORE:-base}" >> "$GITHUB_OUTPUT"
+          echo "schema before the upgrade: ${BEFORE:-base}"
+          alembic upgrade head
         env:
           DB_DATABASE_URL: ${{ secrets.DB_DATABASE_URL }}
+
+      - name: Smoke the new deployment before it serves
+        id: smoke
+        # /healthz answers as soon as the process is up and sits outside the hub's service key
+        # gate. A deployment that refuses at boot answers 500 here and is never promoted. With
+        # Vercel's deployment protection on the production deployment URL the answer is 401 until
+        # the project's bypass secret rides along.
+        run: |
+          set +e
+          URL="${DEPLOY_URL}/healthz"
+          code=""
+          for attempt in 1 2 3 4 5 6; do
+            if [ -n "$BYPASS" ]; then
+              code="$(curl -s -o /dev/null -w '%{http_code}' -H "x-vercel-protection-bypass: $BYPASS" "$URL")"
+            else
+              code="$(curl -s -o /dev/null -w '%{http_code}' "$URL")"
+            fi
+            if [ "$code" = "200" ]; then
+              echo "healthz answered 200 on attempt ${attempt}"
+              exit 0
+            fi
+            echo "attempt ${attempt}: healthz answered ${code:-nothing}"
+            sleep 10
+          done
+          if [ "$code" = "401" ] && [ -z "$BYPASS" ]; then
+            echo "::error::the deployment URL sits behind Vercel's deployment protection and no VERCEL_AUTOMATION_BYPASS_SECRET is set — add the project's Protection Bypass for Automation secret to this environment, or exempt production deployment URLs from the protection"
+          else
+            echo "::error::the new deployment does not answer /healthz with 200, it is not promoted"
+          fi
+          exit 1
+        env:
+          DEPLOY_URL: ${{ steps.deploy.outputs.url }}
+          BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+
+      - name: Undo the migration, the new release will not serve
+        if: failure() && steps.smoke.outcome == 'failure' && inputs.run_migrations == 'true'
+        run: alembic downgrade "$BEFORE"
+        env:
+          BEFORE: ${{ steps.migrate.outputs.before }}
+          DB_DATABASE_URL: ${{ secrets.DB_DATABASE_URL }}
+
+      - name: Promote the deployment to the production domains
+        working-directory: vercel_api
+        run: NODE_OPTIONS="--require ./dns-preload.js" vercel promote "$DEPLOY_URL" --yes --token "$TOKEN"
+        env:
+          DEPLOY_URL: ${{ steps.deploy.outputs.url }}
+          TOKEN: ${{ steps.deploy.outputs.token }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

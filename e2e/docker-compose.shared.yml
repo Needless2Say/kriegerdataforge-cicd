@@ -1,11 +1,12 @@
 # =============================================================================
 # Shared identity layer for the self-contained Tier-2 E2E — the ALWAYS-UP base.
 # =============================================================================
-# db + hub (kdf-api) + auth-UI. There is exactly one hub and one auth-UI in the
-# ecosystem, so this file does NOT grow as tenants are onboarded — it is the
-# reusable base every journey brings up. Each tenant contributes its own services
-# as a SEPARATE fragment (its repo's e2e/docker-compose.e2e.yml) that the driver
-# (ci_stack.py) merges on top with `-f docker-compose.shared.yml -f <fragment>`.
+# db + hub (kdf-api) + auth-UI behind its TLS edge + a mail sink. There is exactly
+# one hub and one auth-UI in the ecosystem, so this file does NOT grow as tenants
+# are onboarded — it is the reusable base every journey brings up. Each tenant
+# contributes its own services as a SEPARATE fragment (its repo's
+# e2e/docker-compose.e2e.yml) that the driver (ci_stack.py) merges on top with
+# `-f docker-compose.shared.yml -f <fragment>`.
 #
 # Cross-repo build contexts are ABSOLUTE via ${E2E_WORKSPACE} (the workspace root
 # holding all sibling repos) so a multi-`-f` merge resolves them unambiguously —
@@ -13,10 +14,20 @@
 # would be the wrong repo. ci_stack.py sets E2E_WORKSPACE; do not run this with a
 # bare `docker compose up` (the ${VAR}s would be empty). See e2e/README.md.
 #
-# TOPOLOGY (mirrors the proven-green local stack's issuer/URL wiring exactly):
-#   browser → <tenant fe> ─(gated)→ auth-UI :3002 (issuer origin) → hub
-#   (back-channel kdf-api:8000) → tenant fe callback → token exchange
-#   (back-channel kdf-auth-ui:3000). Issuer is http://localhost:3002 EVERYWHERE.
+# TOPOLOGY (the deployed shape, the hub declares an https issuer in every state):
+#   browser → https://localhost:${E2E_EDGE_PORT} (edge, Caddy, TLS under the run's
+#   authority) → auth-UI :3000 (http inside the network) → hub :8000 (back channel)
+#   browser → <tenant fe> ─(gated)→ the edge → … → tenant fe callback → token
+#   exchange (back-channel kdf-auth-ui:3000). Mail the hub sends lands in the sink
+#   (Mailpit), whose API the specs read on http://localhost:${E2E_MAIL_PORT}. Every
+#   published port binds the loopback interface alone, the stack never answers a LAN.
+#
+# The state is `local`, the third state, what the hub's own suites declare. It
+# clears the boot refusals a deployment keeps (a shared rate limit store) and
+# nothing else: the issuer is https in every state, the service key gate is on
+# when keys are set, and mail authenticates on every send. ci_stack.py generates
+# the run's authority, the edge and sink certificates, the service key and the
+# SMTP password beside the keypair, and writes them to ${E2E_CERTS} (gitignored).
 # =============================================================================
 
 name: kriegerdataforge-e2e
@@ -44,40 +55,46 @@ services:
       target: dev
       secrets:
         - gh_packages_pat
-    # DNS name kdf-api → matches KDF_AUTH_INTERNAL_URL / KDF_AUTH_BASE_URL.
     environment:
-      ENVIRONMENT: development
+      ENVIRONMENT: local
       DB_DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD}@kdf-db:5432/kdf_db
       AUTH_PRIVATE_KEY: ${AUTH_PRIVATE_KEY:?set by ci_stack.py}
       AUTH_PUBLIC_KEY: ${AUTH_PUBLIC_KEY:?set by ci_stack.py}
       AUTH_ALGORITHM: RS256
-      AUTH_ACCESS_TOKEN_EXPIRE_MINUTES: "60"
-      AUTH_ADMIN_EMAIL: e2e-admin@example.com
-      # SMTP is never exercised by the OIDC journey — placeholder, not a secret.
-      AUTH_ADMIN_EMAIL_PASSWORD: e2e-smtp-unused
-      AUTH_JWT_ISSUER: KriegerDataForge
-      AUTH_JWT_AUDIENCE: KDFUsers
-      # OIDC issuer origin = the browser-facing auth-UI (proven-green value).
-      OIDC_ISSUER: http://localhost:3002
-      OIDC_LOGIN_URL: http://localhost:3002/login
-      OIDC_CONSENT_URL: http://localhost:3002/consent
+      # The issuer is the edge, https in every state, and the hosted pages sit behind it.
+      OIDC_ISSUER: https://localhost:${E2E_EDGE_PORT:-3002}
+      OIDC_LOGIN_URL: https://localhost:${E2E_EDGE_PORT:-3002}/login
+      OIDC_CONSENT_URL: https://localhost:${E2E_EDGE_PORT:-3002}/consent
       OIDC_SESSION_SECRET: ${OIDC_SESSION_SECRET:?set by ci_stack.py}
-      OIDC_REQUIRE_SESSION_SECRET: "false"
-      CORS_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:3002
-      # SERVICE_API_KEYS intentionally unset → ServiceKeyMiddleware disabled.
-      # MinIO not deployed; dummies keep StorageSettings construction happy.
-      MINIO_ENDPOINT: minio.invalid:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-      MINIO_BUCKET: kdf
-      MINIO_USE_SSL: "false"
-      MINIO_PUBLIC_URL: http://localhost:9002
+      # The service key gate, on, one key for the auth UI's BFF, the deployed shape.
+      SERVICE_API_KEYS: auth-ui=${AUTH_UI_SERVICE_KEY:?set by ci_stack.py}
+      # The browser's address rides KDF-Client-IP from the auth UI (the edge sets
+      # X-Real-IP), so every rate limit keys on the browser, not on the auth UI container.
+      FORWARDED_CLIENT_IP_HEADER: kdf-client-ip
+      CORS_ORIGINS: https://localhost:${E2E_EDGE_PORT:-3002}
+      # Mail through the sink over the real path, STARTTLS under the run's authority
+      # (trusted through SSL_CERT_FILE) and a login the sink accepts whatever it is.
+      AUTH_EMAIL_PROVIDER: smtp
+      AUTH_SMTP_HOST: mail
+      AUTH_SMTP_PORT: "1025"
+      AUTH_ADMIN_EMAIL: e2e-hub@example.com
+      AUTH_ADMIN_EMAIL_PASSWORD: ${SMTP_PASSWORD:?set by ci_stack.py}
+      SSL_CERT_FILE: /certs/ca.pem
+      # The lifecycle journeys register and recover through the emailed links.
+      AUTH_ENABLE_PUBLIC_REGISTRATION: "true"
+      AUTH_VERIFICATION_URL_BASE: https://localhost:${E2E_EDGE_PORT:-3002}/verify-email
+      AUTH_PASSWORD_RESET_URL_BASE: https://localhost:${E2E_EDGE_PORT:-3002}/reset-password
+    volumes:
+      - type: bind
+        source: ${E2E_CERTS:?set by ci_stack.py}/ca.pem
+        target: /certs/ca.pem
+        read_only: true
     depends_on:
       kdf-db:
         condition: service_healthy
+      mail:
+        condition: service_healthy
     healthcheck:
-      # 127.0.0.1 (not localhost): the app binds IPv4 0.0.0.0; localhost can
-      # resolve to IPv6 ::1 in-container and the probe would be refused.
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/healthz || exit 1"]
       interval: 10s
       timeout: 10s
@@ -89,19 +106,35 @@ services:
     build:
       context: ${E2E_WORKSPACE:?set by ci_stack.py}/kriegerdataforge-auth-ui
       dockerfile: Dockerfile
-      target: dev
-    # DNS name kdf-auth-ui → matches each tenant FE's KDF_OIDC_INTERNAL_URL.
-    ports:
-      - "3002:3000" # browser-facing OIDC issuer origin (E2E_AUTH_UI_URL)
+      # `dev` by default. The driver's `--target runner` builds the production image,
+      # which refuses an http hub (auth UI D-001), so that target also puts the hub
+      # behind its own edge below and points the app at it.
+      target: ${E2E_IMAGE_TARGET:-dev}
+    # No host port. The browser reaches the app through the edge alone, so plain http
+    # is never a browser origin. Back channel callers use http://kdf-auth-ui:3000.
+    expose:
+      - "3000"
     environment:
-      NODE_ENV: development
-      ENVIRONMENT: development
-      KDF_AUTH_INTERNAL_URL: http://kdf-api:8000
-      OIDC_ISSUER: http://localhost:3002
-      KDF_SERVICE_KEY: "" # blank — hub runs middleware disabled
+      # The runner image sets its own NODE_ENV, this line must not override it there.
+      NODE_ENV: ${E2E_NODE_ENV:-development}
+      ENVIRONMENT: local
+      KDF_AUTH_INTERNAL_URL: ${E2E_HUB_INTERNAL_URL:-http://kdf-api:8000}
+      OIDC_ISSUER: https://localhost:${E2E_EDGE_PORT:-3002}
+      KDF_SERVICE_KEY: ${AUTH_UI_SERVICE_KEY:?set by ci_stack.py}
+      REGISTRATION_ENABLED: "true"
+      # The runner trusts the run's authority for the hub's edge. Harmless on `dev`.
+      NODE_EXTRA_CA_CERTS: /certs/ca.pem
+    volumes:
+      - type: bind
+        source: ${E2E_CERTS:?set by ci_stack.py}/ca.pem
+        target: /certs/ca.pem
+        read_only: true
     depends_on:
       kdf-api:
         condition: service_healthy
+      kdf-api-tls:
+        condition: service_healthy
+        required: false # only under the `runner` profile
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/ || exit 1"]
       interval: 10s
@@ -110,11 +143,97 @@ services:
       start_period: 30s
     networks: [e2e-net]
 
+  # ========================= TLS EDGE (the browser facing origin) =========================
+  # Terminates HTTPS on https://localhost:${E2E_EDGE_PORT} and forwards to the auth UI,
+  # the shape Vercel's edge has in front of the deployed app and the shape the local
+  # stack runs (its docker/Caddyfile). The certificate is the run's, signed by the
+  # authority ci_stack.py wrote to ${E2E_CERTS}. Config: e2e/edge/Caddyfile.
+  edge:
+    image: caddy:2.10-alpine
+    ports:
+      # Loopback alone. A bare "3002:3002" binds every interface, and the stack, with the
+      # hub's OIDC endpoints behind the auth UI's proxy, would answer the whole LAN.
+      - "127.0.0.1:${E2E_EDGE_PORT:-3002}:3002"
+    volumes:
+      - type: bind
+        source: ${E2E_ENGINE:?set by ci_stack.py}/edge/Caddyfile
+        target: /etc/caddy/Caddyfile
+        read_only: true
+      - type: bind
+        source: ${E2E_CERTS:?set by ci_stack.py}
+        target: /certs
+        read_only: true
+    depends_on:
+      kdf-auth-ui:
+        condition: service_healthy
+    # busybox wget, the image ships no curl. The certificate is the run's own, which the
+    # container does not trust, so verification is skipped here, this asks "is the edge up".
+    healthcheck:
+      test: ["CMD", "wget", "--no-check-certificate", "-q", "-O", "/dev/null", "https://127.0.0.1:3002/"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks: [e2e-net]
+
+  # The hub behind its own edge, for the auth UI's production image alone (`--target
+  # runner`), which refuses an http hub (auth UI D-001). Config: e2e/edge/Caddyfile.hub.
+  kdf-api-tls:
+    image: caddy:2.10-alpine
+    profiles: [runner]
+    volumes:
+      - type: bind
+        source: ${E2E_ENGINE:?set by ci_stack.py}/edge/Caddyfile.hub
+        target: /etc/caddy/Caddyfile
+        read_only: true
+      - type: bind
+        source: ${E2E_CERTS:?set by ci_stack.py}
+        target: /certs
+        read_only: true
+    depends_on:
+      kdf-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-check-certificate", "-q", "-O", "/dev/null", "https://127.0.0.1:8443/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks: [e2e-net]
+
+  # ========================= MAIL SINK =========================
+  # Every message the hub sends lands here over the real path, STARTTLS under the run's
+  # authority and a login it accepts whatever it is. The specs read the verification
+  # and reset links from its API on http://localhost:${E2E_MAIL_PORT}. Nothing is
+  # forwarded anywhere. Pinned by tag, the ecosystem's rule for a base image.
+  mail:
+    image: axllent/mailpit:v1.31.2
+    command:
+      - --smtp=0.0.0.0:1025
+      - --listen=0.0.0.0:8025
+      - --smtp-tls-cert=/certs/mail.pem
+      - --smtp-tls-key=/certs/mail-key.pem
+      - --smtp-require-starttls
+      - --smtp-auth-accept-any
+    ports:
+      - "127.0.0.1:${E2E_MAIL_PORT:-8025}:8025"
+    volumes:
+      - type: bind
+        source: ${E2E_CERTS:?set by ci_stack.py}
+        target: /certs
+        read_only: true
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 3s
+    networks: [e2e-net]
+
 secrets:
-  # Private-SDK token for the Python image builds, sourced from the
-  # GH_PACKAGES_PAT env var (ci_stack.py sets it) and mounted (tmpfs) into the
-  # build — never an image layer or a build-log line. Tenant fragments whose
-  # backend clones the SDK reference this same secret id.
+  # Private-SDK credential for the hub image build (`pip install` of kdf-sdk from
+  # GitHub), sourced from the GH_PACKAGES_PAT env var (ci_stack.py sets it) and
+  # mounted (tmpfs) into the build — never an image layer or a build-log line.
   gh_packages_pat:
     environment: GH_PACKAGES_PAT
   # Private-npm token for the frontend image builds (`npm ci` of the private
