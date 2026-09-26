@@ -106,6 +106,7 @@ _SHARED_RANDOMS = {
     "postgres_password": 18,
     "auth_ui_service_key": 32,  # the auth UI's entry in the hub's SERVICE_API_KEYS
     "e2e_service_key": 32,      # the specs' own entry, a journey that calls the hub direct sends it (D-020)
+    "tenant_service_key": 32,   # the tenant backends' entry, their JWKS fetches from the hub carry it (D-023)
     "smtp_password": 18,        # the hub's login at the sink, which accepts any
 }
 
@@ -450,6 +451,7 @@ def _base_env(state: dict, target: str = "dev") -> dict:
         OIDC_SESSION_SECRET=sh["oidc_session_secret"],
         AUTH_UI_SERVICE_KEY=sh["auth_ui_service_key"],
         E2E_SERVICE_KEY=sh["e2e_service_key"],
+        E2E_TENANT_SERVICE_KEY=sh["tenant_service_key"],
         SMTP_PASSWORD=sh["smtp_password"],
         GH_PACKAGES_PAT=_resolve_gh_pat(),
         GH_NPM_TOKEN=_resolve_gh_npm_token(),
@@ -692,8 +694,8 @@ def _interp_env(registry: dict[str, Journey]) -> dict:
     env["E2E_CERTS"] = CERTS.as_posix()
     env["COMPOSE_PROFILES"] = "runner"  # so a `down` removes the runner round's edge too
     for var in ("POSTGRES_PASSWORD", "AUTH_PRIVATE_KEY", "AUTH_PUBLIC_KEY",
-                "OIDC_SESSION_SECRET", "AUTH_UI_SERVICE_KEY", "E2E_SERVICE_KEY", "SMTP_PASSWORD",
-                "GH_PACKAGES_PAT", "GH_NPM_TOKEN"):
+                "OIDC_SESSION_SECRET", "AUTH_UI_SERVICE_KEY", "E2E_SERVICE_KEY", "E2E_TENANT_SERVICE_KEY",
+                "SMTP_PASSWORD", "GH_PACKAGES_PAT", "GH_NPM_TOKEN"):
         env.setdefault(var, "placeholder")
     for j in registry.values():
         env.setdefault(j.oidc_client["id_env"], "placeholder")

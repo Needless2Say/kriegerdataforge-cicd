@@ -66,10 +66,11 @@ services:
       OIDC_LOGIN_URL: https://localhost:${E2E_EDGE_PORT:-3002}/login
       OIDC_CONSENT_URL: https://localhost:${E2E_EDGE_PORT:-3002}/consent
       OIDC_SESSION_SECRET: ${OIDC_SESSION_SECRET:?set by ci_stack.py}
-      # The service key gate, on, the deployed shape. One key for the auth UI's BFF and one for
-      # the specs, a journey that calls the hub direct sends it as KDF-Service-Key (D-020). The
-      # name is what the hub's audit rows record, so a spec's calls read as the spec's.
-      SERVICE_API_KEYS: auth-ui=${AUTH_UI_SERVICE_KEY:?set by ci_stack.py},e2e=${E2E_SERVICE_KEY:?set by ci_stack.py}
+      # The service key gate, on, the deployed shape. One key for the auth UI's BFF, one for
+      # the specs, a journey that calls the hub direct sends it as KDF-Service-Key (D-020), and
+      # one for the tenant backends, whose JWKS fetches carry it as KDF_SERVICE_KEY (D-023). The
+      # name is what the hub's audit rows record, so each caller's calls read as its own.
+      SERVICE_API_KEYS: auth-ui=${AUTH_UI_SERVICE_KEY:?set by ci_stack.py},e2e=${E2E_SERVICE_KEY:?set by ci_stack.py},tenant=${E2E_TENANT_SERVICE_KEY:?set by ci_stack.py}
       # The browser's address rides KDF-Client-IP from the auth UI (the edge sets
       # X-Real-IP), so every rate limit keys on the browser, not on the auth UI container.
       FORWARDED_CLIENT_IP_HEADER: kdf-client-ip
