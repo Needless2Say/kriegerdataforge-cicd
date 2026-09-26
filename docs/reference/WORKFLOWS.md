@@ -11,7 +11,7 @@ this writing. Each entry cites `file:line`.
 - **Overview + consumption rules.** This section.
 - **The contract.** [Reusable workflow catalog](#reusable-workflow-catalog) (per workflow inputs,
   secrets, outputs, permissions, caller snippet) + [`run-e2e` composite action](#run-e2e-composite-action).
-- **Deploy gate / approval model.** [Deployment model](#deployment-model) + [Deployer authorization gate](#deployer-authorization-gate).
+- **Deploy gate / approval model.** [Deployment model](#deployment-model) + [Deployer authorization gate](#deployer-authorization-gate) + [E2E gate](#e2e-gate).
 - **Live vs. not-`uses:`-able.** [Repo-internal event-triggered workflows](#repo-internal-event-triggered-workflows) (the ops / rotation / provisioning workflows that are **not** `workflow_call`).
 
 ---
@@ -53,11 +53,14 @@ workflow). There are no push triggered deploys, Vercel git auto deploy is off. F
 2. The reusable CD workflow's **`authorize`** job runs *first* (before any approval or secret load)
    and fails closed if the actor is not an approved deployer. See
    [Deployer authorization gate](#deployer-authorization-gate).
-3. The `deploy`/`apply` job declares `environment: ${{ inputs.environment }}`, which loads that
+3. The two Vercel deploys then run **`verify-e2e`**, which asks GitHub for a successful run of the
+   consumer's own E2E workflow on the commit the release tag names, and fails closed on `prod`
+   when there is none. See [E2E gate](#e2e-gate).
+4. The `deploy`/`apply` job declares `environment: ${{ inputs.environment }}`, which loads that
    environment's secrets and pauses for approval only where the environment configures a
    required reviewer. Measured on 2026-09-17, no environment in any repo carries a reviewer or a
    branch policy, so the deployer authorization gate is the control in front of the token.
-4. The deploy runs. A Next.js deploy pulls the project, builds once and ships the prebuilt
+5. The deploy runs. A Next.js deploy pulls the project, builds once and ships the prebuilt
    output. A Python deploy deploys without the domains, migrates, smokes the new deployment and
    only then promotes it (D-016).
 
@@ -138,6 +141,39 @@ private (post org move), this checkout needs a read only token, tracked in
 `KDF docs/engineering/GITHUB_FUTURE_ENHANCEMENTS.md`.
 
 `check_deployer.py` is stdlib only and unit tested in `scripts/tests/test_check_deployer.py`.
+
+---
+
+## E2E gate
+
+A release reaches `prod` only after its own E2E journey passed on that exact release. The two Vercel
+deploys run a **`verify-e2e`** job between `authorize` and `deploy` (D-019), the same shape as the
+deployer gate, a sparse checkout of this repo's `scripts/` and
+[`scripts/check_e2e.py`](../../scripts/check_e2e.py).
+
+**How it works:**
+
+1. The script resolves the tag `v<version>` in the consumer repo to its commit, following an
+   annotated tag to the commit it names. The deploy job checks out that same tag.
+2. It lists the runs of the consumer's E2E workflow (`e2e.yml`, the one every deploying repo owns,
+   see [`E2E_TESTING.md`](../guides/E2E_TESTING.md)) whose `head_sha` is that commit and whose
+   status is `success`, and takes the newest one whose own jobs ran and passed. A run whose `e2e`
+   job was skipped (the dormant modes) reports `skipped`, never `success`, and does not count. A
+   green run on any other commit does not count either.
+3. **On `prod`, none found means the job fails and the deploy never runs**, with the reason on the
+   line and in the step summary, no tag, no workflow, or no green run for that commit, and what to
+   do, dispatch **Actions, E2E, Run workflow** on the tag `v<version>` and deploy again once it is
+   green. When one is found, the step summary records which run tested the release, its number,
+   time and link, the way the deployer gate records who deployed.
+4. **On `dev` the lookup runs and reports, and never denies.** DEV is the soak that comes before
+   the E2E dispatch on the release.
+
+The runs listing needs `actions: read`, which a called workflow can only hold when the caller grants
+it, so every consumer's `cd.yml` gives its deploy job `contents: read`, `id-token: write` and
+`actions: read`. A caller that omits it fails at startup with GitHub's own permission message.
+
+`check_e2e.py` is stdlib only and unit tested in `scripts/tests/test_check_e2e.py`, against a map of
+the API answers. The job is pinned by `scripts/tests/test_workflow_contracts.py`.
 
 ---
 

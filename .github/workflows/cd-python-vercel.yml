@@ -39,6 +39,9 @@
 #   jobs:
 #     deploy:
 #       uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/cd-python-vercel.yml@main
+#       permissions:
+#         contents: read
+#         actions: read   # the E2E gate lists this repo's E2E runs for the release (D-019)
 #       with:
 #         environment: ${{ inputs.environment }}
 #         version: ${{ inputs.version }}
@@ -94,9 +97,42 @@ jobs:
           DEPLOY_ACTOR: ${{ github.triggering_actor }}
           DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
 
+  # ── E2E gate ───────────────────────────────────────────────────────────────
+  # Runs after the deployer authorization and before the deploy job. A release deploys to
+  # prod only when this repo's E2E workflow (e2e.yml, the run-e2e action) has a successful
+  # run for the commit the release tag names, the commit the deploy job checks out below.
+  # On dev the same lookup is reported and never denies, DEV is the soak that precedes the
+  # E2E dispatch on the release. Fails closed on prod, and the step summary names the run
+  # that tested the release when it passes (scripts/check_e2e.py, D-019). The runs listing
+  # needs actions: read, which the calling cd.yml grants on its deploy job.
+  verify-e2e:
+    name: Verify E2E passed for v${{ inputs.version }}
+    needs: authorize
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Check out the E2E gate (kriegerdataforge-cicd)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Needless2Say/kriegerdataforge-cicd
+          ref: main
+          sparse-checkout: scripts
+          path: _kdf_cicd
+          token: ${{ github.token }}
+
+      - name: Verify a successful E2E run exists for this release
+        run: python3 _kdf_cicd/scripts/check_e2e.py
+        env:
+          DEPLOY_REPO: ${{ github.repository }}
+          DEPLOY_VERSION: ${{ inputs.version }}
+          DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+          GH_TOKEN: ${{ github.token }}
+
   deploy:
     name: Deploy (${{ inputs.environment }})
-    needs: authorize
+    needs: [authorize, verify-e2e]
     runs-on: ubuntu-slim
 
     # Names the caller repo's GitHub Environment. The job reads its secrets, and pauses for
