@@ -54,8 +54,23 @@ def _github(
     jobs: list[dict] | None = None,
     annotated: bool = False,
     workflow_missing: bool = False,
+    dispatched: list[dict] | None = None,
+    dispatched_jobs: list[dict] | None = None,
 ) -> dict[str, object]:
+    """
+    ``runs`` answer the listing by the tag's commit, ``dispatched`` the listing of dispatched runs, each run's jobs
+    ``jobs`` or ``dispatched_jobs``. The dispatched listing's prefix is the longer one, so it is registered first,
+    the fetch answers the first prefix that matches.
+    """
     answers: dict[str, object] = {}
+    if dispatched is not None:
+        answers[f"{API}/repos/{REPO}/actions/workflows/e2e.yml/runs?event=workflow_dispatch"] = {
+            "workflow_runs": dispatched,
+        }
+        for run in dispatched:
+            answers[f"{API}/repos/{REPO}/actions/runs/{run['id']}/jobs"] = {
+                "jobs": dispatched_jobs if dispatched_jobs is not None else [{"name": "E2E", "conclusion": "success"}],
+            }
     if tag_sha is not None:
         if annotated:
             answers[f"{API}/repos/{REPO}/git/ref/tags/v0.3.7"] = _ref("tagobject", "tag")
@@ -96,6 +111,43 @@ class TestProdIsGated:
         ok, reason = _decide(_github(runs = [_run(7)]))
         assert ok is True
         assert "v0.3.7" in reason and "run #41" in reason and f"actions/runs/7" in reason
+        assert "on its commit" in reason
+
+
+    def test_a_run_dispatched_for_the_release_counts_by_its_jobs_name(self):
+        """
+        The E2E workflow's ``version`` input checks the tag out on whatever ref it was dispatched on and names its
+        job ``E2E v<version>`` (D-021). Its head is that ref, not the tag's commit, so the gate finds it by the name.
+        """
+        answers = _github(
+            runs = [],
+            dispatched = [_run(9)],
+            dispatched_jobs = [{"name": "E2E v0.3.7", "conclusion": "success"}],
+        )
+        ok, reason = _decide(answers)
+        assert ok is True
+        assert "actions/runs/9" in reason and "dispatched for the release" in reason and "E2E v0.3.7" in reason
+
+
+    def test_a_run_dispatched_for_another_release_does_not_count(self):
+        answers = _github(
+            runs = [],
+            dispatched = [_run(9)],
+            dispatched_jobs = [{"name": "E2E v0.3.6", "conclusion": "success"}],
+        )
+        ok, reason = _decide(answers)
+        assert ok is False
+        assert "No successful E2E run" in reason
+
+
+    def test_a_release_dispatch_whose_job_was_skipped_does_not_count(self):
+        answers = _github(
+            runs = [],
+            dispatched = [_run(9)],
+            dispatched_jobs = [{"name": "E2E v0.3.7", "conclusion": "skipped"}],
+        )
+        ok, _ = _decide(answers)
+        assert ok is False
 
 
     def test_an_annotated_tag_is_followed_to_its_commit(self):
@@ -119,7 +171,7 @@ class TestProdIsGated:
     def test_no_run_for_the_commit_denies_and_says_how_to_get_one(self):
         ok, reason = _decide(_github(runs = []))
         assert ok is False
-        assert "No successful E2E run" in reason and "ref v0.3.7" in reason
+        assert "No successful E2E run" in reason and "ref v0.3.7" in reason and "version 0.3.7" in reason
 
 
     def test_a_run_whose_every_job_was_skipped_does_not_count(self):

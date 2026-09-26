@@ -1032,3 +1032,33 @@ the auth UI for the spec's calls).
 **Consequences.** Pinned by `test_a_spec_that_calls_the_hub_direct_is_handed_its_own_service_key` and the deployed
 shape test. The hub's spec change rides with the hub's next pull request, and its E2E reads the engine from `main`
 here, so this merges first.
+
+## D-021. The E2E workflow takes a release version, and names its run after it
+
+- **Date.** 2026-09-26
+- **Status.** Accepted
+- **Tier / scope:** `scripts/check_e2e.py` · the `e2e.yml` of every deploying repo, the hub, the auth UI and the four
+  tenant repos
+
+**Context.** D-019's gate finds the release's E2E run by the tag's commit, so the dispatch had to be made on the tag
+in the dispatch form's ref picker. The first day of it, the auth UI's and three tenants' tags fell behind `main` on
+merges without a bump, the green runs on `main` no longer counted, and the owner asked for the dispatch to take the
+release version outright and for the run to mark that version as tested.
+
+**Decision.** Every `e2e.yml` gains a `version` input on its manual dispatch. Given one, the job checks out the tag
+`v<version>`, the commit the PROD deploy checks out, names itself `E2E v<version>` and, once the journey passed,
+writes the release and commit it tested to its step summary. The gate keeps the lookup by the tag's commit and adds a
+second, the workflow's successful dispatched runs whose passed job carries that name. The mark is the run itself,
+GitHub's own record, made by the workflow from the same input that chose the checkout, so what the name says was
+tested is what the job checked out. No status, tag or file is written anywhere. The input is text, a dispatch form
+cannot list a repo's tags, and the release version is what the CD form asks for too, so the two forms read alike.
+
+**Alternatives considered.** A commit status on the tag's commit (rejected in D-019 and still, a second record anyone
+with write access can post) · a second tag `e2e-passed-v<version>` pushed by the run (rejected, a write to the repo
+from CI, the owner's rule is that CI never writes repo files, and a tag is a ref anyone with write access can move) ·
+a choice input listing versions (impossible, a dispatch form's choices are static).
+
+**Consequences.** `scripts/check_e2e.py` searches the newest thirty dispatched runs for the name, pinned by three
+tests in `scripts/tests/test_check_e2e.py`. Each consumer's `e2e.yml` carries the input, the job name, the checkout
+ref and the summary step in its working tree, riding with that repo's next pull request. A repo without the change
+is still gated the D-019 way, on the tag's commit.

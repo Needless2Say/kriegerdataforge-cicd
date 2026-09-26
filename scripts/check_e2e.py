@@ -19,7 +19,9 @@ soak that comes before the E2E dispatch on the release.
 
 A run counts only when GitHub reports it `success`. A run whose e2e job was skipped (the dormant modes,
 RUN_E2E_GATE and RUN_E2E_CD unset) reports `skipped`, not `success`, and does not count. The run must be
-for the tag's commit exactly, a green run on an earlier commit says nothing about this release.
+for the tag's commit exactly, a green run on an earlier commit says nothing about this release. Two runs
+are, one dispatched on the tag itself, whose head is the tag's commit, and one dispatched with the
+workflow's `version` input, which checks the tag out and names its job `E2E v<version>` (D-021).
 
 Inputs (CLI flags take precedence over environment variables):
   --repo         / DEPLOY_REPO        / GITHUB_REPOSITORY            e.g. "Needless2Say/fitness-app-frontend"
@@ -55,6 +57,12 @@ from collections.abc import Callable
 DEFAULT_WORKFLOW: str = "e2e.yml"
 DEFAULT_API_URL:  str = "https://api.github.com"
 API_TIMEOUT:      int = 30
+
+# the job name a release dispatch gives itself, the E2E workflow's `version` input (D-021)
+RELEASE_JOB_NAME: str = "E2E v{version}"
+
+# how many dispatched runs are searched for that job name, newest first
+DISPATCHED_RUNS_SEARCHED: int = 30
 
 # the states a deploy names, the gate denies on the second alone
 ENVIRONMENT_DEV:  str = "dev"
@@ -148,33 +156,73 @@ def tag_commit(fetch: Fetch, api_url: str, repo: str, tag: str) -> str | None:
     return target.get("sha") or None
 
 
-def successful_run(fetch: Fetch, api_url: str, repo: str, workflow: str, sha: str) -> dict | None:
+def _passed_jobs(fetch: Fetch, api_url: str, repo: str, run: dict) -> list[dict]:
     """
-    Find the newest successful run of the E2E workflow for one commit, whose own jobs ran and passed.
+    The jobs of one successful run that ran and passed.
+
+    Args:
+        fetch: The API reader
+        api_url: The API base
+        repo: owner/name
+        run: The run, as the runs listing returned it
+
+    Returns:
+        The jobs whose conclusion is success, empty when every job was skipped
+    """
+    if run.get("conclusion") != "success":
+        return []
+    jobs = fetch(f"{api_url}/repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100").get("jobs") or []
+    # the workflow can only be success when no job failed, but every job may have been skipped, which
+    # GitHub reports as a skipped workflow, so this keeps the jobs that actually ran and passed
+    return [job for job in jobs if job.get("conclusion") == "success"]
+
+
+def successful_run(
+    fetch: Fetch,
+    api_url: str,
+    repo: str,
+    workflow: str,
+    sha: str,
+    version: str,
+) -> tuple[dict, str] | None:
+    """
+    Find the newest successful run of the E2E workflow that tested one release, and say how it did.
+
+    Two runs count. One whose head is the tag's commit, a dispatch on the tag, and one dispatched with the
+    workflow's ``version`` input, which checks the tag out on any ref and names its job after the release
+    (D-021). Either way the run's own job must have run and passed.
 
     Args:
         fetch: The API reader
         api_url: The API base
         repo: owner/name
         workflow: The workflow file name
-        sha: The commit
+        sha: The tag's commit
+        version: The release version, without the v
 
     Returns:
-        The run, or None when there is none
+        ``(run, how)``, ``how`` a phrase for the verdict, or None when there is none
 
     Raises:
         ApiError: With status 404 when the repo has no such workflow
     """
+    runs_url = f"{api_url}/repos/{repo}/actions/workflows/{urllib.parse.quote(workflow)}/runs"
+
     query = urllib.parse.urlencode({"head_sha": sha, "status": "success", "per_page": 20})
-    runs  = fetch(f"{api_url}/repos/{repo}/actions/workflows/{urllib.parse.quote(workflow)}/runs?{query}")
-    for run in runs.get("workflow_runs") or []:
-        if run.get("conclusion") != "success":
-            continue
-        jobs = fetch(f"{api_url}/repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100").get("jobs") or []
-        # the workflow can only be success when no job failed, but every job may have been skipped, which
-        # GitHub reports as a skipped workflow, so this asks for one job that actually ran and passed
-        if any(job.get("conclusion") == "success" for job in jobs):
-            return run
+    for run in fetch(f"{runs_url}?{query}").get("workflow_runs") or []:
+        if _passed_jobs(fetch, api_url, repo, run):
+            return run, "on its commit"
+
+    # a run dispatched with the version input has another head, the ref it was dispatched on, and carries
+    # the release in its job's name instead. the name is what the workflow gave itself from the same input
+    # that chose the checkout, so the job that passed is the one that tested the tag
+    wanted = RELEASE_JOB_NAME.format(version = version)
+    query  = urllib.parse.urlencode({
+        "event": "workflow_dispatch", "status": "success", "per_page": DISPATCHED_RUNS_SEARCHED,
+    })
+    for run in fetch(f"{runs_url}?{query}").get("workflow_runs") or []:
+        if any(job.get("name") == wanted for job in _passed_jobs(fetch, api_url, repo, run)):
+            return run, f"dispatched for the release, its job named {wanted}"
     return None
 
 
@@ -215,7 +263,7 @@ def decide(
                 f"The release workflow creates the tag when VERSION lands on main."
             )
         try:
-            run = successful_run(fetch, api_url, repo, workflow, sha)
+            found = successful_run(fetch, api_url, repo, workflow, sha, version)
         except ApiError as exc:
             if exc.status == 404:
                 return (not gated), (
@@ -228,15 +276,17 @@ def decide(
             f"The E2E gate could not ask GitHub ({exc}). The token needs actions: read on {repo}, "
             f"the calling cd.yml grants it on its deploy job (denied, nothing is known)."
         )
-    if run is None:
+    if found is None:
         return (not gated), (
             f"No successful E2E run of {workflow} exists for {tag} (commit {sha[:12]}) in {repo} ({verdict}). "
-            f"Dispatch it on that tag, Actions, E2E, Run workflow, ref {tag}, and deploy again once it is green. "
-            f"A run on another commit, or one whose e2e job was skipped, does not count."
+            f"Dispatch it for the release, Actions, E2E, Run workflow, version {version}, or on the ref {tag}, "
+            f"and deploy again once it is green. A run on another commit that was not dispatched for this "
+            f"version, or one whose e2e job was skipped, does not count."
         )
+    run, how = found
     when = run.get("updated_at") or run.get("created_at") or ""
     return True, (
-        f"{tag} (commit {sha[:12]}) passed E2E in {repo}, run #{run.get('run_number')} of {workflow}, "
+        f"{tag} (commit {sha[:12]}) passed E2E in {repo}, run #{run.get('run_number')} of {workflow} ({how}), "
         f"{when}, {run.get('html_url')}."
     )
 
