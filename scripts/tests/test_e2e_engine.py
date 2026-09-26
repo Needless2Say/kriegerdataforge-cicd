@@ -224,6 +224,8 @@ def test_the_action_reads_the_journey_and_the_token_reach_from_the_right_manifes
     assert "JOURNEY=$(jq -r '.journey // empty' \"$MF\")" in ACTION, "the journey comes from the caller's manifest"
     assert 'JOURNEY: ${{ steps.resolve.outputs.journey }}' in ACTION
     assert "git ls-remote --exit-code --heads" in ACTION, "a sibling at the caller's branch name when it has one"
+    # every tenant backend's requirements pin both SDKs, and the token reaches only what this names (D-022)
+    assert "SDK=(kriegerdataforge-sdk kriegerdataforge-reports-sdk)" in ACTION, "the token reaches both SDKs"
     assert ACTION.count("persist-credentials: false") == 1, "cicd's checkout keeps no credential"
     assert "jq -S '{about, answers}'" in ACTION, "the two copies of the hub contract are held to each other"
     journey_input = ACTION.split("inputs:\n  journey:\n", 1)[1].split("\n  sibling-ref:\n", 1)[0]

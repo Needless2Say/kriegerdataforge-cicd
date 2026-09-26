@@ -1062,3 +1062,22 @@ a choice input listing versions (impossible, a dispatch form's choices are stati
 tests in `scripts/tests/test_check_e2e.py`. Each consumer's `e2e.yml` carries the input, the job name, the checkout
 ref and the summary step in its working tree, riding with that repo's next pull request. A repo without the change
 is still gated the D-019 way, on the tag's commit.
+
+## D-022. The E2E App token reaches the reports SDK too
+
+- **Date.** 2026-09-26
+- **Status.** Accepted
+- **Tier / scope:** `.github/actions/run-e2e/action.yml`
+
+**Context.** The four tenant E2E dispatches of 2026-09-26 failed at the same line, the tenant backend image's
+`pip install` cloning `kriegerdataforge-reports-sdk` and GitHub answering `Repository not found`. The action mints its
+App token for the repos the journey names plus the shared constants, the hub, the auth UI and `kriegerdataforge-sdk`,
+and a GitHub App token answers not found, never forbidden, for a private repo outside its reach. Every tenant backend
+has pinned the reports SDK beside the auth SDK since the reports ecosystem epic, and the hub's and the auth UI's
+journeys never noticed because neither installs it.
+
+**Decision.** The reports SDK joins the shared constants the token reaches. It is an ecosystem constant like the auth
+SDK, one repo every backend installs, so it lives in the action and not in each manifest, D-007's rule.
+
+**Consequences.** Pinned in `test_the_action_reads_the_journey_and_the_token_reach_from_the_right_manifests`. The App
+must be installed on the reports SDK repo as it is on the others, or the mint step refuses and says so by name.
