@@ -158,13 +158,17 @@ deployer gate, a sparse checkout of this repo's `scripts/` and
 2. It lists the runs of the consumer's E2E workflow (`e2e.yml`, the one every deploying repo owns,
    see [`E2E_TESTING.md`](../guides/E2E_TESTING.md)) whose `head_sha` is that commit and whose
    status is `success`, and takes the newest one whose own jobs ran and passed. A run whose `e2e`
-   job was skipped (the dormant modes) reports `skipped`, never `success`, and does not count. A
-   green run on any other commit does not count either.
+   job was skipped (the dormant modes) reports `skipped`, never `success`, and does not count.
+   Failing that, it lists the workflow's successful dispatched runs, newest first, and takes the
+   first whose passed job is named `E2E v<version>`, the name a run dispatched with the workflow's
+   `version` input gives its job after checking that tag out (D-021). A green run on any other
+   commit that was not dispatched for the version does not count.
 3. **On `prod`, none found means the job fails and the deploy never runs**, with the reason on the
-   line and in the step summary, no tag, no workflow, or no green run for that commit, and what to
-   do, dispatch **Actions, E2E, Run workflow** on the tag `v<version>` and deploy again once it is
-   green. When one is found, the step summary records which run tested the release, its number,
-   time and link, the way the deployer gate records who deployed.
+   line and in the step summary, no tag, no workflow, or no green run for the release, and what to
+   do, dispatch **Actions, E2E, Run workflow** with the version, or on the tag `v<version>`, and
+   deploy again once it is green. When one is found, the step summary records which run tested the
+   release, how it was found, its number, time and link, the way the deployer gate records who
+   deployed.
 4. **On `dev` the lookup runs and reports, and never denies.** DEV is the soak that comes before
    the E2E dispatch on the release.
 
