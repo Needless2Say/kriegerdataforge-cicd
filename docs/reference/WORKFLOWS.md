@@ -74,7 +74,7 @@ keys the deployer registry is keyed on, are:
 |---|---|---|
 | `dev` | Owner (provisioned owner only, a collaborator may be **added manually** to the `dev` required reviewers list, `issue-create-repo.yml:198-223`, completion checklist line 277) | `main` only |
 | `prod` | Owner only (`issue-create-repo.yml:168-196`) | `main` only |
-| `github-pages` | Owner (`arthurs-portfolio` only, self contained Pages deploy, `MANUAL_SETUP.md` Phase 4 "For arthurs-portfolio") | GitHub Pages (no `dev`/`prod`) |
+| `github-pages` | Owner (`arthurs-portfolio` and `kriegerdataforge-portfolio`, self contained Pages deploys, `MANUAL_SETUP.md` Phase 4 "For arthurs-portfolio") | GitHub Pages (no `dev`/`prod`) |
 
 > **There is no `infra` / `infrastructure` / `development` / `production` environment.** The Terraform
 > CD workflow deploys to `dev`/`prod` like the others (`cd-terraform.yml:99`, `deployer_registry.json`
@@ -612,6 +612,7 @@ The authoritative allow list is [`scripts/deployer_registry.json`](../../scripts
 | `tiffanys-space-backend` | `dev`, `prod` | `cd-python-vercel.yml` |
 | `kriegerdataforge-terraform` | `dev`, `prod` | `cd-terraform.yml` |
 | `arthurs-portfolio` | `github-pages` | self contained `cd.yml` → GitHub Pages (runs the gate) |
+| `kriegerdataforge-portfolio` | `github-pages` | self contained `cd.yml` → GitHub Pages (runs the gate) |
 | `kriegerdataforge-template-nextjs` | `dev`, `prod` | `cd-nextjs-vercel.yml` (prepared files placeholder) |
 | `kriegerdataforge-template-fastapi` | `dev`, `prod` | `cd-python-vercel.yml` (prepared files placeholder) |
 

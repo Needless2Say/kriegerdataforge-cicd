@@ -73,7 +73,7 @@ agent workflows (`agents/`, skeleton only) so automation scales with the platfor
 7. **`secrets: inherit` is the standard caller pattern** for passing environment secrets to a reusable workflow.
 8. **Never use `pull_request_target` with an untrusted code checkout.**
 9. **Environment names are `dev` / `prod`** (plus `github-pages` for GitHub Pages deploys), NEVER `development` / `production` / `infrastructure` / `infra`.
-   (`arthurs-portfolio` uses `github-pages`.) These keys must match `deployer_registry.json`.
+   (`arthurs-portfolio` and `kriegerdataforge-portfolio` use `github-pages`.) These keys must match `deployer_registry.json`.
 10. **Deploys fail closed.** A repo/env/actor not in `scripts/deployer_registry.json` is denied. When you
     onboard a tenant, add its registry entry *before* its first deploy.
 11. **`scripts/` is stdlib first** and unit-tested. Keep `make check-all` green before opening a PR.
