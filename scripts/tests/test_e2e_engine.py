@@ -181,11 +181,33 @@ def test_the_stack_declares_the_deployed_shape():
     assert "development" not in re.sub(r"#.*", "", COMPOSE).replace("E2E_NODE_ENV:-development", "")
     assert "OIDC_ISSUER: https://localhost:${E2E_EDGE_PORT:-3002}" in COMPOSE
     assert "FORWARDED_CLIENT_IP_HEADER: kdf-client-ip" in COMPOSE
-    assert "SERVICE_API_KEYS: auth-ui=${AUTH_UI_SERVICE_KEY:?" in COMPOSE
+    assert "SERVICE_API_KEYS: auth-ui=${AUTH_UI_SERVICE_KEY:?set by ci_stack.py},e2e=${E2E_SERVICE_KEY:?" in COMPOSE
     assert "KDF_SERVICE_KEY: ${AUTH_UI_SERVICE_KEY:?" in COMPOSE
     assert "SSL_CERT_FILE: /certs/ca.pem" in COMPOSE
     for dead in DEAD_SETTINGS:
         assert dead not in COMPOSE, dead
+
+
+def test_a_spec_that_calls_the_hub_direct_is_handed_its_own_service_key(tmp_path, monkeypatch):
+    """
+    The hub journey calls discovery, token and userinfo on the hub itself, and the gate has been on since D-016, so
+    the first dispatch after it was three 403s (D-020). The driver mints a second key, registers it as the `e2e` entry
+    beside the auth UI's and writes it to e2e/.env for the spec, as E2E_HUB_SERVICE_KEY.
+    """
+    monkeypatch.setattr(ci_stack, "_resolve_gh_pat", lambda: "pat")
+    monkeypatch.setattr(ci_stack, "_resolve_gh_npm_token", lambda: "npm")
+    monkeypatch.setattr(ci_stack, "ENV_FILE", tmp_path / ".env")
+    state = {
+        "shared":  {key: f"<{key}>" for key in ("auth_private_key", "auth_public_key", *ci_stack._SHARED_RANDOMS)},
+        "clients": {},
+    }
+
+    assert ci_stack._SHARED_RANDOMS["e2e_service_key"] >= 32, "as long as the auth UI's"
+    assert ci_stack._base_env(state)["E2E_SERVICE_KEY"] == "<e2e_service_key>", "the compose receives the key"
+    ci_stack._write_env_file(state, [], {})
+    assert "\nE2E_HUB_SERVICE_KEY=<e2e_service_key>\n" in (tmp_path / ".env").read_text(encoding = "utf-8"), (
+        "the spec receives the same key"
+    )
 
 
 def test_the_sink_requires_starttls_under_the_run_certificate_and_is_pinned():

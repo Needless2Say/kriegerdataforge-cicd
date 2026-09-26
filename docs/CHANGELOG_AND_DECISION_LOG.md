@@ -1004,3 +1004,31 @@ release, then PROD).
 API's answers) and the job pinned by `scripts/tests/test_workflow_contracts.py`. The consumers' `cd.yml` files carry the
 permission line in their working trees, the hub, the auth UI, the four tenant repos and the two templates. A `prod`
 dispatch of a release whose E2E has not run on the tag now fails in under a minute and says what to dispatch.
+
+## D-020. A spec that calls the hub direct holds its own service key
+
+- **Date.** 2026-09-26
+- **Status.** Accepted
+- **Tier / scope:** `e2e/ci_stack.py`, `e2e/docker-compose.shared.yml` · with the hub's `e2e/tests/hub.spec.ts`
+
+**Context.** D-016 turned the hub's service key gate on in the E2E stack, the deployed shape, with one key, the auth
+UI's. The hub journey's spec reaches the hub's port directly for discovery, JWKS, the token exchange, userinfo and the
+PKCE refusal at `/authorize`, that is the journey's point, the hub's own surface with no proxy in between. The first
+dispatch of that journey after D-016, on 2026-09-26, failed three of its four tests, each on the gate's 403, and the one
+that passed was the one that only drives the browser through the auth UI. The DEV hub answers the same 403 to a bare
+curl of its discovery document, by design, every caller of the hub holds a key and the SDK sends it.
+
+**Decision.** The driver mints a second shared secret, `e2e_service_key`, registers it in the hub's `SERVICE_API_KEYS`
+as the `e2e` entry beside `auth-ui`, and writes it to `e2e/.env` as `E2E_HUB_SERVICE_KEY`. A spec that calls the hub
+direct sends it as `KDF-Service-Key`, and the hub's spec refuses to run without it rather than skip, a skip would be a
+green run that tested nothing. Its own entry rather than the auth UI's, the name a key is registered under is what the
+hub's audit rows record, so a spec's calls read as the spec's and the auth UI's as the auth UI's.
+
+**Alternatives considered.** Exempting discovery from the gate in the hub (rejected, the gate is the deployed shape and
+the E2E exists to test it) · the spec reaching the hub through the auth UI's proxy (rejected, the journey tests the
+hub's surface, the proxy is the auth UI journey's) · reusing `AUTH_UI_SERVICE_KEY` (rejected, the audit rows would name
+the auth UI for the spec's calls).
+
+**Consequences.** Pinned by `test_a_spec_that_calls_the_hub_direct_is_handed_its_own_service_key` and the deployed
+shape test. The hub's spec change rides with the hub's next pull request, and its E2E reads the engine from `main`
+here, so this merges first.
