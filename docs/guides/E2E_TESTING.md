@@ -86,6 +86,18 @@ Each repo ships a **dormant** job, `.github/workflows/e2e.yml`, that `uses:` the
 > schedule) instead of blocking each PR, while the fast in repo unit/contract tests stay
 > the per PR check.
 
+## The release gate, prod deploys need a green run on the tag
+
+Since D-019 the two reusable Vercel deploys refuse a `prod` deploy of a release whose E2E workflow
+has no successful run on the release's commit. The order for a release is therefore, merge with the
+version bump, let `release.yml` cut the tag `v<version>`, dispatch **Actions, E2E, Run workflow** with
+the ref set to that tag, wait for green, then dispatch the CD to `prod`. A `dev` deploy is never
+refused, the gate reports what it found and lets it through, so DEV can be soaked first and the E2E
+dispatched once the release is what will go to PROD. The run must be on the tag's commit, the same
+run number on `main` counts when the tag points at that merge commit, which is what `release.yml`
+produces. The gate's verdict and the run it found are in the deploy's step summary,
+[`WORKFLOWS.md`](../reference/WORKFLOWS.md#e2e-gate).
+
 ## Onboarding a new repo
 
 Add, **in the new repo** (zero cicd edits). `e2e/manifest.json` (declares its journey +

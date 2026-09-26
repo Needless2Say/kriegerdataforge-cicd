@@ -70,6 +70,30 @@ def _step(text: str, name: str) -> str:
 
 
 @pytest.mark.parametrize("text", [NEXTJS, PYTHON], ids = ["nextjs", "python"])
+def test_the_deploy_verifies_the_releases_e2e_run_before_deploying(text):
+    """
+    A release deploys to prod only after its own E2E run passed, the gate sits between the deployer check and
+    the deploy job and reads the runs with the job token (D-019).
+    """
+    # the usage comment in the header names a `deploy:` job too, so the anchors start at a line
+    assert "\n  verify-e2e:\n" in text
+    gate = text[text.index("\n  verify-e2e:\n"):text.index("\n  deploy:\n")]
+    assert "needs: authorize" in gate
+    assert "actions: read" in gate, "the runs listing needs it, the calling cd.yml grants it"
+    assert "python3 _kdf_cicd/scripts/check_e2e.py" in gate
+    for line in (
+        "DEPLOY_REPO: ${{ github.repository }}",
+        "DEPLOY_VERSION: ${{ inputs.version }}",
+        "DEPLOY_ENVIRONMENT: ${{ inputs.environment }}",
+        "GH_TOKEN: ${{ github.token }}",
+    ):
+        assert line in gate
+    deploy = text[text.index("\n  deploy:\n"):]
+    assert "needs: [authorize, verify-e2e]" in deploy
+    assert "actions: read" in text[:text.index("name: CD")], "the usage header tells the caller to grant it"
+
+
+@pytest.mark.parametrize("text", [NEXTJS, PYTHON], ids = ["nextjs", "python"])
 def test_no_deploy_holds_a_permission_nothing_uses_or_claims_a_reviewer(text):
     assert "id-token: write" not in text
     assert "Requires approval from the configured reviewers" not in text

@@ -969,3 +969,38 @@ changes, the tenant backends calling the deploy see the truthful label and nothi
 needs the project's `VERCEL_AUTOMATION_BYPASS_SECRET` in its `dev` environment and a shared rate limit store
 applied before its next dispatch, both in the auth UI's `docs/security/DEV_ROLLOUT_RUNBOOK.md`, section 8. DEV's
 database is at head with the previous release serving until that dispatch promotes.
+
+## D-019. A release deploys to PROD only after its E2E run passed on that release
+
+- **Date.** 2026-09-26
+- **Status.** Accepted
+- **Tier / scope:** `cd-nextjs-vercel.yml`, `cd-python-vercel.yml`, `scripts/check_e2e.py`, and one line in every
+  consumer's `cd.yml` · one pull request here, the callers' lines ride with their next pull requests
+
+**Context.** The owner deployed the auth provider and both tenant pairs to DEV on 2026-09-26 and signed in across the
+two apps. Asked what stood between DEV and PROD, the E2E dispatches of the runbook's Round 2 had never run green, the
+one dispatch of the evening before had failed at load on the action's descriptions (D-018). Nothing in the deploys
+asked whether they had. The deployer gate answers who may deploy, no gate answered whether the release was tested,
+and the owner asked for one, mandatory, refusing with a clear reason and recording its pass to GitHub the way the
+deployer check does.
+
+**Decision.** A `verify-e2e` job sits between `authorize` and `deploy` in both Vercel deploys. It resolves the release
+tag `v<version>` to its commit, the commit the deploy job checks out, and asks GitHub for a successful run of the
+consumer's own E2E workflow on that commit whose jobs ran and passed. On `prod` none means the job fails and the deploy
+never runs, the reason on the line and in the step summary with the dispatch to make, on the tag. When one exists the
+summary names the run, its number, time and link. On `dev` the same lookup is reported and never denies, DEV is the soak
+that precedes the E2E dispatch on the release. The record is GitHub's own, the run on that commit, so nothing is
+written anywhere to be forged or to drift, and a run whose job was skipped, the dormant modes, reports `skipped` and
+never counts. The listing needs `actions: read`, which a called workflow holds only when its caller grants it, so every
+consumer's `cd.yml` grants it on the deploy job, one line each.
+
+**Alternatives considered.** A commit status written by the E2E job and read by the deploy (rejected, a second record
+of a fact GitHub already holds, and anyone with write access can post a status) · requiring the E2E as a ruleset
+check on `main` (kept as the pull request gate, but it tests the branch, not the release, and a rollback to an older
+version would pass on the newest run) · gating `dev` too (rejected, the owner's order is DEV first, then the E2E on the
+release, then PROD).
+
+**Consequences.** `scripts/check_e2e.py` (stdlib, unit tested in `scripts/tests/test_check_e2e.py` against a map of the
+API's answers) and the job pinned by `scripts/tests/test_workflow_contracts.py`. The consumers' `cd.yml` files carry the
+permission line in their working trees, the hub, the auth UI, the four tenant repos and the two templates. A `prod`
+dispatch of a release whose E2E has not run on the tag now fails in under a minute and says what to dispatch.
