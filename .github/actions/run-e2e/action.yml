@@ -103,10 +103,12 @@ runs:
         done
         # Shared identity repos are ecosystem constants (one hub / auth-UI / SDK),
         # so they live in the action, not per-tenant config. hub + auth-UI are built
-        # from source (checked out); the SDK is cloned during the image build via the
-        # token (scope only, not a sibling checkout).
+        # from source (checked out); the SDKs are cloned during the image builds via the
+        # token (scope only, not a sibling checkout). Both SDKs, every tenant backend's
+        # requirements pin the reports SDK beside the auth SDK, and a token that does not
+        # reach a private repo makes its clone answer "Repository not found" (D-022).
         SHARED_CHECKOUT=(kriegerdataforge kriegerdataforge-auth-ui)
-        SDK=(kriegerdataforge-sdk)
+        SDK=(kriegerdataforge-sdk kriegerdataforge-reports-sdk)
         TOKEN_REPOS=$(printf '%s\n' "${SHARED_CHECKOUT[@]}" "${SDK[@]}" "${DEFAULT_REPOS[@]}" | awk 'NF' | sort -u)
         CLONE_REPOS=$(printf '%s\n' "${SHARED_CHECKOUT[@]}" "${BRANCH_REPOS[@]}" | awk 'NF' | sort -u | grep -vx "$CALLER" || true)
         {
