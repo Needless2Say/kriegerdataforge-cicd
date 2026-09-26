@@ -1081,3 +1081,30 @@ SDK, one repo every backend installs, so it lives in the action and not in each 
 
 **Consequences.** Pinned in `test_the_action_reads_the_journey_and_the_token_reach_from_the_right_manifests`. The App
 must be installed on the reports SDK repo as it is on the others, or the mint step refuses and says so by name.
+
+## D-023. The tenant fragments meet the D-016 stack, https issuer and a tenant service key
+
+- **Date.** 2026-09-26
+- **Status.** Accepted
+- **Tier / scope:** `e2e/ci_stack.py`, `e2e/docker-compose.shared.yml` · with the four tenant repos' `e2e/docker-compose.e2e.yml`
+
+**Context.** D-016 put the auth UI behind an https edge and turned the hub's service key gate on, and the hub's and the
+auth UI's journeys were made to meet it. The four tenant fragments were not. Each still named the issuer as
+`http://localhost:3002`, so the fitness journey's first dispatch after D-022 sent the browser to a plain http authorize
+URL nothing answers, and each backend held no service key, so its JWKS fetch from the hub would have been the gate's
+403 once a login got that far. The backends verify tokens against the issuer the hub signs, the edge's https origin.
+
+**Decision.** The driver mints a third shared key, `tenant_service_key`, registers it as the `tenant` entry of the
+hub's `SERVICE_API_KEYS` and hands it to the compose as `E2E_TENANT_SERVICE_KEY`. Each tenant fragment sets its
+backend's `KDF_SERVICE_KEY` to it and names the issuer `https://localhost:3002` wherever it names it, the backends'
+`KDF_JWT_ISSUER`, the frontends' `KDF_OIDC_ISSUER` and tiffanys' `AUTH_ISSUER`. The back channels stay http inside the
+network, the frontends reach the auth UI at `http://kdf-auth-ui:3000` and the backends the hub at `http://kdf-api:8000`,
+so no container needs the run's authority. One key for every tenant backend in a disposable stack, the deployed shape
+holds one per tenant, and the audit rows of the stack read `tenant` for all of them.
+
+**Consequences.** Pinned by the deployed shape test. The four fragments ride with their repos' next pull requests, and
+a fragment without the change fails at the first login redirect the way the fitness dispatch did. Measured on the
+stack once the fragments were right, the next wall was the login submit. The auth UI's `next dev` compiles `/login` on
+its first request, the spec's click lands before the page's JavaScript attached, the submit is a native POST the page
+answers with itself and empty fields, and a retry that only clicks again submits an empty form. The tenant specs fill
+and click on every attempt now, the way the hub's does not yet need to.

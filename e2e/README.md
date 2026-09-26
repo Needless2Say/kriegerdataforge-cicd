@@ -139,7 +139,9 @@ sibling. `ci_stack.py`:
 - **discovers** each journey's `manifest.json` (no hardcoded tenant list) and, for
   the requested `--journey`, generates a throwaway RS256 keypair + session secret +
   DB password + the auth UI's service key + a second service key the specs send on a
-  direct call to the hub (`E2E_HUB_SERVICE_KEY`) + an SMTP password (shared) and a fixed per
+  direct call to the hub (`E2E_HUB_SERVICE_KEY`) + a third the tenant backends send on their
+  JWKS fetches (`E2E_TENANT_SERVICE_KEY`, a fragment's `KDF_SERVICE_KEY`) + an SMTP password
+  (shared) and a fixed per
   run OIDC `client_id`/`secret` **per journey** (persisted to `e2e/.e2e-ci.json`,
   gitignored), threading them through the compose so the hub, each frontend, and the
   seed all agree. No capture and inject dance;

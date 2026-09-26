@@ -181,7 +181,10 @@ def test_the_stack_declares_the_deployed_shape():
     assert "development" not in re.sub(r"#.*", "", COMPOSE).replace("E2E_NODE_ENV:-development", "")
     assert "OIDC_ISSUER: https://localhost:${E2E_EDGE_PORT:-3002}" in COMPOSE
     assert "FORWARDED_CLIENT_IP_HEADER: kdf-client-ip" in COMPOSE
-    assert "SERVICE_API_KEYS: auth-ui=${AUTH_UI_SERVICE_KEY:?set by ci_stack.py},e2e=${E2E_SERVICE_KEY:?" in COMPOSE
+    assert (
+        "SERVICE_API_KEYS: auth-ui=${AUTH_UI_SERVICE_KEY:?set by ci_stack.py},e2e=${E2E_SERVICE_KEY:?set by ci_stack.py},"
+        "tenant=${E2E_TENANT_SERVICE_KEY:?" in COMPOSE
+    ), "the auth UI, the specs and the tenant backends each hold a key (D-016, D-020, D-023)"
     assert "KDF_SERVICE_KEY: ${AUTH_UI_SERVICE_KEY:?" in COMPOSE
     assert "SSL_CERT_FILE: /certs/ca.pem" in COMPOSE
     for dead in DEAD_SETTINGS:
