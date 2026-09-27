@@ -25,8 +25,23 @@ WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 NEXTJS    = (WORKFLOWS / "cd-nextjs-vercel.yml").read_text(encoding = "utf-8")
 PYTHON    = (WORKFLOWS / "cd-python-vercel.yml").read_text(encoding = "utf-8")
 
-# the lanes a release dispatch of a consumer's e2e.yml calls on the release tag (D-024, D-025)
-TEST_LANES = ("ci-python-tests.yml", "ci-python-integration.yml", "ci-nextjs-tests.yml", "ci-nextjs-integration.yml")
+# the lanes a release dispatch of a consumer's e2e.yml calls on the release tag, through its ci.yml or beside it
+# (D-024, D-025, D-026)
+TEST_LANES = (
+    "ci-python-tests.yml",
+    "ci-python-integration.yml",
+    "ci-python-lint.yml",
+    "ci-python-kdf-fmt.yml",
+    "ci-python-typecheck.yml",
+    "ci-python-security.yml",
+    "ci-vercel-compactor.yml",
+    "ci-nextjs-tests.yml",
+    "ci-nextjs-integration.yml",
+    "ci-nextjs-lint-typecheck.yml",
+    "ci-nextjs-build.yml",
+    "ci-npm-audit.yml",
+    "secret-scan.yml",
+)
 
 # a stand in for alembic whose env.py prints two lines of its own to stdout, the hub's shape
 FAKE_ALEMBIC = """#!/usr/bin/env bash
@@ -242,7 +257,10 @@ def test_a_test_lane_checks_out_the_ref_it_is_given(name):
     """
     text = _lane(name)
     assert re.search(r"\n      ref:\n        description: [^\n]+\n        type: string\n        default: \"\"\n", text)
-    checkouts = re.findall(r"uses: actions/checkout@[0-9a-f]{40}[^\n]*\n((?:        [^\n]*\n|          [^\n]*\n)*)", text)
+    checkouts = re.findall(
+        r"uses: actions/checkout@[0-9a-f]{40}[^\n]*\n((?:        [^\n]*\n|          [^\n]*\n)*)",
+        text,
+    )
     assert checkouts, name
     for given in checkouts:
         assert given.startswith("        with:\n          ref: ${{ inputs.ref }}\n"), name
@@ -266,4 +284,3 @@ def test_the_nextjs_integration_lane_holds_a_read_only_token_and_its_own_job_nam
     text = _lane("ci-nextjs-integration.yml")
     assert "\npermissions:\n  contents: read\n" in text
     assert "\n  integration-tests:\n    name: Integration Tests\n" in text
-

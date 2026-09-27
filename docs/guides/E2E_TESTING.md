@@ -116,16 +116,26 @@ its weekly schedule with D-024, it now runs per release instead of on a timer. A
 a concurrency group of its own, so a merge to `main` while it runs does not cancel it, and a second
 dispatch of the same version on the same ref replaces the first.
 
-What each repo's release dispatch runs ahead of the journey (D-024, D-025).
+What each repo's release dispatch runs ahead of the journey (D-024, D-025, D-026). `ci` is the repo's own
+`ci.yml`, called whole on the release tag, so a check added to `ci.yml` is a check of every release.
 
-| Repo | Unit | Integration | System | Mutation |
-|---|---|---|---|---|
-| kriegerdataforge (hub) | yes | yes, Postgres | yes | yes, seven lanes |
-| kriegerdataforge-auth-ui | yes | none, see below | | yes, four lanes |
-| fitness-app-backend | yes | yes, Postgres | | |
-| tiffanys-space-backend | yes | yes, Postgres | | |
-| fitness-app-frontend | yes | yes, `src/__tests__/integration/` | | |
-| tiffanys-space | yes | yes, `src/__tests__/integration/` | | |
+| Repo | `ci`, every check of a pull request | Beside it, a release's own lanes |
+|---|---|---|
+| kriegerdataforge (hub) | lint, style, type check, bundle up to date, unit, integration, bandit, pip-audit, secret scan | system suite, seven mutation lanes |
+| kriegerdataforge-auth-ui | lint and type check, build, unit, npm audit, secret scan, production image | four mutation lanes |
+| fitness-app-backend, tiffanys-space-backend | lint, style, type check, bundle up to date, unit, integration, bandit, pip-audit, secret scan | |
+| fitness-app-frontend, tiffanys-space | lint and type check, build, unit, npm audit, style, secret scan, production image | integration tree |
+
+Three things a release does not run, and why.
+
+- **The version check.** It holds a pull request's version one above `main`'s. A release is a tag, and a tag is
+  not a change to `main`, so the job is skipped when `ci.yml` is called.
+- **CodeQL.** It is off until a repo sets `ENABLE_CODEQL`, it needs `security-events: write`, and it files
+  findings, it does not pass or fail a commit.
+- **The hub's load smoke**, `system_tests/test_tc_system_load.py`, kept out of CI by its own marker.
+
+The secret scan reads the commits a pull request adds. Called on a release it reads the tree the tag names, a
+checkout one commit deep, and not the whole history, a release is judged by what it ships.
 
 The auth UI holds no integration suite of its own. What it integrates with is the hub, and that is
 tested in its `e2e` job twice, the step that holds its copy of the hub's contract to the hub's own
