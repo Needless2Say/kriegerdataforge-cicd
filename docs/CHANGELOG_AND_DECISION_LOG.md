@@ -1226,3 +1226,40 @@ The lane takes no coverage, a part of the suite cannot meet a threshold set for 
 **Consequences.** Pinned in `scripts/tests/test_workflow_contracts.py`, the four test lanes check out the
 ref they are given and each Next.js lane runs its one target. Merge this repo first, a consumer that calls
 a lane `main` does not hold fails at startup.
+
+## D-026. A release runs every check a pull request runs, the consumer's ci.yml called on the tag
+
+- **Date.** 2026-09-27
+- **Status.** Accepted. Owner decision.
+- **Tier / scope:** every reusable check lane and `secret-scan.yml` (a `ref` input) · the six deploying repos'
+  `ci.yml` and `e2e.yml`
+
+**Context.** D-024 and D-025 put the test lanes in a release, unit, integration, system, mutation and the
+journey. A pull request is held to more, lint, style, the type check, the build, the bundle's staleness, the
+security scans, the secret scan and the production image, and none of it ran on the commit a release ships.
+The owner asked for every check of every repo in the run that signs off a PROD deploy.
+
+**Decision.** Each consumer's `ci.yml` takes `workflow_call` and a `ref`, and hands the `ref` to every lane it
+calls and every checkout of its own. Its `e2e.yml` calls `./.github/workflows/ci.yml` on `v<version>` as one
+lane, `ci`, which the `e2e` job needs, beside the lanes a release alone runs. The test lanes D-024 had copied
+into `e2e.yml` are gone, `ci.yml` holds them. Every lane of this repo a consumer calls takes `ref`. The
+`ci` job is granted `contents: read` and `pull-requests: read`, what `ci.yml` holds, a called workflow may
+hold no more than its caller grants. The version check runs on a pull request alone. The secret scan reads
+the tree at the tag, `fetch-depth` 1, when called with a ref.
+
+**Alternatives considered.** Each check as its own job in `e2e.yml` (rejected, a second list of lanes and
+their inputs to keep in step with `ci.yml`, the hub's copy of its unit job was one such and is removed) · a
+suite workflow per stack in this repo (rejected, the inputs differ per repo and `ci.yml` already holds them)
+· CodeQL in the release (rejected, off by default and it files findings, it does not judge a commit).
+
+**Trade-offs.** A release waits on about ten more jobs. `pip-audit` and `npm audit` read the advisory
+database of the day, so a release can fail on an advisory published after its pull request merged, which is
+the point and can hold a hotfix. A pull request now runs `ci.yml` with one more trigger and an empty `ref`,
+its checks and their names are unchanged.
+
+**Consequences.** Merge this repo FIRST. A consumer's `ci.yml` hands `ref` to every lane, and a lane at
+`main` that does not take it stops the consumer's `ci.yml` at startup, its pull requests included. Pinned
+here in `scripts/tests/test_workflow_contracts.py`, every lane checks out the ref it is given, and in
+`scripts/tests/test_consumer_release_workflows.py`, the six consumers' shape, read where their checkouts sit
+beside this one. The hub and the auth UI pin their own, mutants RE-M-53 to RE-M-69 and UI-F-121 to UI-F-132.
+A release tests the tag, so each consumer needs a release cut after its change merged.

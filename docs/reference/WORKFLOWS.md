@@ -387,6 +387,10 @@ jobs:
 
 ### Python CI
 
+Every lane in this section and the next, and `secret-scan.yml`, takes `ref`=`""`, the ref to check out. Empty
+is the caller run's own ref. A consumer's `ci.yml` hands each lane the `ref` it was called with, so a release
+dispatch judges the release tag in every lane (D-026).
+
 The command driven lanes let the caller override the install/run commands. `needs_sdk_auth: true`
 (where present) configures a `git insteadOf` credential so `pip` can resolve the private packages
 (`kdf_sdk`, `kdf_reports`). The credential is **App token first** (reports ecosystem epic W2.5):

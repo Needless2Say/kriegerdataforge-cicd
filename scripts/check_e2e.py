@@ -247,6 +247,7 @@ def successful_run(
     runs_url = f"{api_url}/repos/{repo}/actions/workflows/{urllib.parse.quote(workflow)}/runs"
     wanted   = RELEASE_JOB_NAME.format(version = version)
 
+
     def tested_the_release(run: dict) -> bool:
         """
         Whether a run's passed jobs hold the one named after the release.
@@ -259,6 +260,7 @@ def successful_run(
         """
         return any(job.get("name") == wanted for job in _passed_jobs(fetch, api_url, repo, run))
 
+
     # a run on the tag's commit ran the workflow the release itself carries. one with the version input empty
     # is on that commit too, a push to the default branch or a dispatch on the tag, and ran no lane but the
     # journey, so the name is asked of it as well
@@ -270,7 +272,7 @@ def successful_run(
     # a release dispatched once the default branch moved on has another head. the name is what the workflow
     # gave itself from the same input that chose the checkout, so the job that passed is the one that tested
     # the tag. the ref it ran on is the default branch alone, another branch's workflow is anyone's to write
-    query = urllib.parse.urlencode({
+    query      = urllib.parse.urlencode({
         "event": "workflow_dispatch", "status": "success", "per_page": DISPATCHED_RUNS_SEARCHED,
     })
     dispatched = fetch(f"{runs_url}?{query}").get("workflow_runs") or []
