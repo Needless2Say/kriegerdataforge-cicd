@@ -1195,3 +1195,34 @@ Measured after the fixes. The new gate run read only against the six live releas
 found on the tag's commit and two dispatched on `main`. `scripts/tests/test_check_e2e.py` holds the new
 rules, seven hand mutants of the gate killed. Merge order, this repo first, a consumer's `e2e.yml`
 passes the `ref` input and fails at startup against a lane that does not take it.
+
+## D-025. The Next.js apps' integration suites are a lane of their own in a release
+
+- **Date.** 2026-09-27
+- **Status.** Accepted. Owner decision.
+- **Tier / scope:** `ci-nextjs-integration.yml` (new) · `fitness-app-frontend` and `tiffanys-space`, their
+  `e2e.yml` and `Makefile`
+
+**Context.** D-024 gave every release a unit lane, and the backends an integration lane. The two tenant
+frontends keep an integration suite too, the flows under `src/__tests__/integration/`, and it ran inside the
+unit lane, Jest's one run matches every `__tests__` tree. A release showed unit tests and the journey and no
+integration job, and the owner asked for one.
+
+**Decision.** A reusable lane, `ci-nextjs-integration.yml`, the unit lane's own steps with
+`make ci-integration-tests` as its one target. Each tenant frontend's `Makefile` gains that target, Jest with
+its roots narrowed to the integration tree, and each `e2e.yml` calls the lane on the release tag as a job the
+`e2e` job needs. The unit lane is unchanged, it runs the whole Jest suite, the integration tree included.
+
+**Alternatives considered.** Taking the integration tree out of the unit lane (rejected, the coverage
+thresholds are set for the whole suite and a pull request's `ci.yml` would lose the tree unless it grew a
+job, which D-024 kept fast) · an input on `ci-nextjs-tests.yml` naming the target (rejected, the job would
+still be named Unit Tests, and the name is what the owner reads) · a lane for the auth UI (not built, it
+holds no integration suite, its integration with the hub is the contract step and the journey of its `e2e`
+job, a lane that ran part of its unit suite again under another name would claim a test that does not exist).
+
+**Trade-offs.** The integration tree runs twice in a release, once in each lane, 10 and 22 tests, seconds.
+The lane takes no coverage, a part of the suite cannot meet a threshold set for all of it.
+
+**Consequences.** Pinned in `scripts/tests/test_workflow_contracts.py`, the four test lanes check out the
+ref they are given and each Next.js lane runs its one target. Merge this repo first, a consumer that calls
+a lane `main` does not hold fails at startup.
