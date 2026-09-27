@@ -83,10 +83,15 @@ jobs:
   # Runs after the deployer authorization and before the deploy job. A release deploys to
   # prod only when this repo's E2E workflow (e2e.yml, the run-e2e action) has a successful
   # run for the commit the release tag names, the commit the deploy job checks out below.
-  # On dev the same lookup is reported and never denies, DEV is the soak that precedes the
-  # E2E dispatch on the release. Fails closed on prod, and the step summary names the run
-  # that tested the release when it passes (scripts/check_e2e.py, D-019). The runs listing
-  # needs actions: read, which the calling cd.yml grants on its deploy job.
+  # A release dispatch of e2e.yml (the version input, D-021) runs the repo's unit and
+  # integration lanes, and its mutation lane where one exists, as jobs the e2e job needs
+  # before it runs (D-024), so this one check certifies the whole release test suite, not
+  # only the E2E journey. A run with the version input empty ran no lane and does not count,
+  # nor does one dispatched on a branch that is not the default one. On dev the same lookup
+  # is reported and never denies, DEV is the soak that precedes the release dispatch. Fails
+  # closed on prod, and the step summary
+  # names the run that tested the release when it passes (scripts/check_e2e.py, D-019). The
+  # runs listing needs actions: read, which the calling cd.yml grants on its deploy job.
   verify-e2e:
     name: Verify E2E passed for v${{ inputs.version }}
     needs: authorize

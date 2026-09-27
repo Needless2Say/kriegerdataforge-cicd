@@ -1108,3 +1108,90 @@ stack once the fragments were right, the next wall was the login submit. The aut
 its first request, the spec's click lands before the page's JavaScript attached, the submit is a native POST the page
 answers with itself and empty fields, and a retry that only clicks again submits an empty form. The tenant specs fill
 and click on every attempt now, the way the hub's does not yet need to.
+
+## D-024. A release deploys only after its whole test suite passed, not only E2E
+
+- **Date.** 2026-09-27
+- **Status.** Accepted
+- **Tier / scope:** `ci-python-tests.yml`, `ci-python-integration.yml`, `ci-nextjs-tests.yml`,
+  `scripts/check_e2e.py` (the lookup, see the validation below) · every deploying repo's `e2e.yml`, the two
+  repos with a `mutation-tests.yml`, the hub and the auth UI, and the hub's `system-tests.yml`
+
+**Context.** D-019 and D-021 gate a PROD deploy on a green E2E run for the release, and nothing else. A
+repo's unit and integration lanes only ever run in `ci.yml`, on a PR's head commit before it merges, so
+by the time a release tag exists, nothing has run against that tag's own commit, the merge is a new
+commit on `main` and `ci.yml` fires on `pull_request` alone. Mutation testing runs weekly from `main` on
+a schedule, or by hand per lane, never tied to a release, and is slow enough that the hub and the auth
+UI kept it off the PR path on purpose (D-015). Asked to gate PROD on the whole suite, the owner also asked
+that PR `ci.yml` stay the fast unit and integration check it is today, and that the cost of the heavier
+lanes, including mutation, land on the one path that already exists for a release, the E2E dispatch,
+rather than double the cost of every PR or every merge to `main`.
+
+**Decision.** A release dispatch of `e2e.yml` (the `version` input, D-021) grows new jobs, `unit-tests`
+and, for a backend, `integration-tests`, calling the same reusable lanes `ci.yml` already calls
+(`ci-python-tests.yml`, `ci-python-integration.yml`, `ci-nextjs-tests.yml`), and for the hub and the auth
+UI a `mutation-tests` job calling that repo's own `mutation-tests.yml` with `lane: all`. Each of the three
+reusable test lanes gains an optional `ref` input, empty by default, so a release dispatch can point it
+at the tag `v<version>` instead of the run's own ref, the same commit the `e2e` job's own checkout already
+uses. Every new job is gated `if: inputs.version != ''`, so a PR, push or scheduled run of `e2e.yml` skips
+them exactly as before, at no added cost, and the `e2e` job's own `if` now also requires each of them to
+have succeeded or been skipped before it runs. A failure in any of them therefore fails the whole
+workflow run, GitHub never reports it `success`, and `check_e2e.py` denies the deploy the same way it
+already denies a missing or failed E2E run (D-019, D-021). The gate's lookup did change, a run with the
+input empty no longer counts, see the validation below.
+The two mutation workflows drop their `schedule` trigger, mutation testing now runs once per release
+instead of on a timer, and keep `workflow_dispatch` for an ad hoc per lane run.
+
+**Alternatives considered.** Running `ci.yml` again on `push` to `main` (rejected, the owner's stated
+reason, it doubles CI minutes on every merge for a check the release path can run once instead) ·
+looking up the PR that merged into the release commit and reading its pre merge CI status (rejected,
+that never tests the actual commit being deployed, only its parent PR's head, and a bad merge could
+still ship untested) · dispatching mutation testing as its own workflow per release and having the gate
+check for a second, differently named job (rejected, `needs` inside `e2e.yml` gets the same guarantee for
+free, one job name for the gate to find, matching D-021's reasoning for a single mark) · gating `dev` too
+(rejected for the same reason D-019 rejected it, DEV is the soak that precedes the release dispatch).
+
+**Consequences.** A release now takes longer to clear for PROD, the unit, integration and (on the hub
+and the auth UI) mutation lanes run before E2E instead of alongside or before it in a separate workflow,
+serial where `ci.yml`'s jobs run in parallel, since `needs` orders them ahead of `e2e`. PR `ci.yml` is
+unchanged, still the fast unit and integration check on every PR. A repo without unit or integration
+jobs in `e2e.yml` (none, after this change, across the six deploying repos) is gated on the
+`E2E v<version>` job name alone. The decision function never learns a new lane's name.
+
+**Validation, 2026-09-27, before the first push.** Each finding was measured, and each fix is pinned by a
+test and a mutant.
+
+- **The gate counted a run that skipped every lane.** Its first lookup took any green run whose head is
+  the tag's commit, by any job that passed. A push to `main` under `RUN_E2E_CD`, or a dispatch with the
+  input empty on the tag or on `main` right after the release, has that head, skips the lanes, names its
+  job `E2E`, and passed the gate on the journey alone. A run now counts only when its passed job is
+  named `E2E v<version>`, in both lookups. The deny message no longer offers a dispatch on the tag.
+- **A release dispatch on any branch counted.** A dispatch runs the workflow of the ref it names, so a
+  branch whose `e2e.yml` dropped the lanes and kept the job's name passed the gate. The second lookup
+  now takes a run dispatched on the repository's default branch alone, read from the API and not a
+  name. `main` is ruleset protected in all seven repos (measured). The first lookup needs no such rule,
+  its head is the tag's commit and the workflow it ran is the release's own.
+- **The hub's mutation job was handed no secret.** Its install reads `GH_PACKAGES_PAT`, a called
+  workflow is handed no secret it is not passed, and the install would have failed on an empty token on
+  every release. `secrets: inherit` on the job.
+- **The hub's system suite was not in the release.** `system-tests.yml` takes `workflow_call` and a
+  `ref`, and `e2e.yml` calls it as a fourth lane the journey needs.
+- **The hub's mutation workflow was red on GitHub**, run 35567824725 of 2026-09-21, the one run it ever
+  had. The unit control run of the auth and oauth lanes failed on a missing signing keypair, which
+  `.env.test` supplies on a developer's machine and no runner holds, and AD-M-33 survived, its line runs
+  on Windows alone. The runner makes a throwaway keypair for the unit suite and a mutant may name its
+  `platform` (hub D-025). Measured on Linux, Python 3.14.7, an environment holding nothing of the
+  machine's, no dotenv file, auth 27 of 27, oauth 18 of 18, admin 17 of 17 and one not run.
+- **The auth UI's own suite was red.** Its pins refuse `secrets: inherit` outside `cd.yml`, since
+  `e2e.yml` runs on a pull request too, and refuse a `uses:` without a full commit id. The unit lane is
+  handed no secret, as `ci.yml` hands it none, and a workflow of the repo called by its path is first
+  party.
+- **`always()` started the journey in a cancelled run**, `!cancelled()` in all six. **A merge to `main`
+  cancelled a release under test**, the push starts `e2e.yml` in the ref's concurrency group, so a
+  release dispatch has a group of its own, `e2e-<ref>-<version>`. The called workflows' groups carry
+  the ref they are given for the same reason.
+
+Measured after the fixes. The new gate run read only against the six live releases allows all six, four
+found on the tag's commit and two dispatched on `main`. `scripts/tests/test_check_e2e.py` holds the new
+rules, seven hand mutants of the gate killed. Merge order, this repo first, a consumer's `e2e.yml`
+passes the `ref` input and fails at startup against a lane that does not take it.

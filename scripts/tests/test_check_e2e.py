@@ -2,7 +2,8 @@
 Unit tests for scripts/check_e2e.py.
 
 GitHub is a dict of URL to answer, handed in as the fetch, so no network and no token. The shapes are the
-ones the REST API returns for a tag ref, an annotated tag object, a workflow's runs and a run's jobs.
+ones the REST API returns for a tag ref, an annotated tag object, a workflow's runs, a run's jobs and the
+repository, whose default branch a release dispatch must have run on.
 """
 
 from __future__ import annotations
@@ -16,16 +17,31 @@ REPO  = "Needless2Say/tiffanys-space"
 SHA   = "0123456789abcdef0123456789abcdef01234567"
 OTHER = "fedcba9876543210fedcba9876543210fedcba98"
 
+REPOSITORY = f"{API}/repos/{REPO}"
+
+# a release dispatch's jobs, the lanes the e2e job needs and the job the release names (D-024)
+RELEASE_JOBS = [
+    {"name": "Unit Tests / Unit Tests", "conclusion": "success"},
+    {"name": "E2E v0.3.7", "conclusion": "success"},
+]
+
+# the same workflow with the version input empty, every lane skipped and the job named E2E alone
+PLAIN_JOBS = [
+    {"name": "Unit Tests", "conclusion": "skipped"},
+    {"name": "E2E", "conclusion": "success"},
+]
+
 
 def _ref(sha: str, kind: str = "commit") -> dict:
     return {"ref": "refs/tags/v0.3.7", "object": {"sha": sha, "type": kind}}
 
 
-def _run(run_id: int, conclusion: str = "success") -> dict:
+def _run(run_id: int, conclusion: str = "success", head_branch: str = "main") -> dict:
     return {
         "id": run_id,
         "run_number": 41,
         "conclusion": conclusion,
+        "head_branch": head_branch,
         "html_url": f"https://github.com/{REPO}/actions/runs/{run_id}",
         "updated_at": "2026-09-26T20:00:00Z",
     }
@@ -36,8 +52,14 @@ def _fetch(answers: dict[str, object]):
     A fetch that answers from the map, raising ApiError for a status the map names.
     """
     def fetch(url: str) -> dict:
+        # the repository's own URL begins every other, so it is answered by equality and never as a prefix
+        if url == REPOSITORY:
+            answer = answers.get(REPOSITORY, ApiError(404, f"GitHub answered 404 for {url}"))
+            if isinstance(answer, ApiError):
+                raise answer
+            return answer
         for prefix, answer in answers.items():
-            if url.startswith(prefix):
+            if prefix != REPOSITORY and url.startswith(prefix):
                 if isinstance(answer, ApiError):
                     raise answer
                 return answer
@@ -56,20 +78,23 @@ def _github(
     workflow_missing: bool = False,
     dispatched: list[dict] | None = None,
     dispatched_jobs: list[dict] | None = None,
+    default_branch: str | None = "main",
 ) -> dict[str, object]:
     """
     ``runs`` answer the listing by the tag's commit, ``dispatched`` the listing of dispatched runs, each run's jobs
-    ``jobs`` or ``dispatched_jobs``. The dispatched listing's prefix is the longer one, so it is registered first,
-    the fetch answers the first prefix that matches.
+    ``jobs`` or ``dispatched_jobs``, a release dispatch's unless the test says otherwise. The dispatched listing's
+    prefix is the longer one, so it is registered first, the fetch answers the first prefix that matches.
     """
     answers: dict[str, object] = {}
+    if default_branch is not None:
+        answers[REPOSITORY] = {"full_name": REPO, "default_branch": default_branch}
     if dispatched is not None:
         answers[f"{API}/repos/{REPO}/actions/workflows/e2e.yml/runs?event=workflow_dispatch"] = {
             "workflow_runs": dispatched,
         }
         for run in dispatched:
             answers[f"{API}/repos/{REPO}/actions/runs/{run['id']}/jobs"] = {
-                "jobs": dispatched_jobs if dispatched_jobs is not None else [{"name": "E2E", "conclusion": "success"}],
+                "jobs": dispatched_jobs if dispatched_jobs is not None else RELEASE_JOBS,
             }
     if tag_sha is not None:
         if annotated:
@@ -85,7 +110,7 @@ def _github(
     for run in runs or []:
         answers[
             f"{API}/repos/{REPO}/actions/runs/{run['id']}/jobs"
-        ] = {"jobs": jobs if jobs is not None else [{"name": "e2e", "conclusion": "success"}]}
+        ] = {"jobs": jobs if jobs is not None else RELEASE_JOBS}
     return answers
 
 
@@ -107,26 +132,89 @@ class TestProdIsGated:
     """
     On prod the gate denies whatever it cannot prove and names the run when it can.
     """
-    def test_a_green_run_on_the_tags_commit_allows_and_names_the_run(self):
+    def test_a_release_dispatch_on_the_tags_commit_allows_and_names_the_run(self):
         ok, reason = _decide(_github(runs = [_run(7)]))
         assert ok is True
         assert "v0.3.7" in reason and "run #41" in reason and f"actions/runs/7" in reason
-        assert "on its commit" in reason
+        assert "on its commit" in reason and "E2E v0.3.7" in reason
+
+
+    @pytest.mark.parametrize("how", ["a push to main", "a dispatch on the tag"])
+    def test_a_run_on_the_tags_commit_with_the_version_empty_does_not_count(self, how):
+        """
+        The version input is what runs the unit, integration and mutation lanes ahead of the journey (D-024). A
+        run with it empty skipped every one of them and named its job ``E2E``, and its head is the tag's commit
+        all the same, the merge commit the release workflow tags. D-019 and D-021 counted it, which let a release
+        reach PROD on the journey alone.
+        """
+        branch = "main" if how == "a push to main" else "v0.3.7"
+        ok, reason = _decide(_github(runs = [_run(7, head_branch = branch)], jobs = PLAIN_JOBS))
+        assert ok is False
+        assert "No successful E2E run" in reason
+
+
+    def test_a_plain_dispatch_on_the_default_branch_does_not_count(self):
+        answers = _github(runs = [], dispatched = [_run(9)], dispatched_jobs = PLAIN_JOBS)
+        ok, _ = _decide(answers)
+        assert ok is False
 
 
     def test_a_run_dispatched_for_the_release_counts_by_its_jobs_name(self):
         """
-        The E2E workflow's ``version`` input checks the tag out on whatever ref it was dispatched on and names its
-        job ``E2E v<version>`` (D-021). Its head is that ref, not the tag's commit, so the gate finds it by the name.
+        The E2E workflow's ``version`` input checks the tag out on the ref it was dispatched on and names its job
+        ``E2E v<version>`` (D-021). Its head is that ref, not the tag's commit, so the gate finds it by the name.
         """
-        answers = _github(
-            runs = [],
-            dispatched = [_run(9)],
-            dispatched_jobs = [{"name": "E2E v0.3.7", "conclusion": "success"}],
-        )
+        answers = _github(runs = [], dispatched = [_run(9)])
         ok, reason = _decide(answers)
         assert ok is True
-        assert "actions/runs/9" in reason and "dispatched for the release" in reason and "E2E v0.3.7" in reason
+        assert "actions/runs/9" in reason and "dispatched for the release on main" in reason
+        assert "E2E v0.3.7" in reason
+
+
+    def test_a_release_dispatched_on_another_branch_does_not_count(self):
+        """
+        A dispatch runs the workflow of the ref it names. A branch's copy may have dropped every lane and kept
+        the job's name, so the default branch, which the branch rules protect, is the one ref that counts.
+        """
+        answers = _github(runs = [], dispatched = [_run(9, head_branch = "skip-the-lanes")])
+        ok, reason = _decide(answers)
+        assert ok is False
+        assert "No successful E2E run" in reason and "another branch" in reason
+
+
+    def test_the_default_branch_is_the_repositorys_own_and_not_a_name(self):
+        answers = _github(runs = [], dispatched = [_run(9, head_branch = "trunk")], default_branch = "trunk")
+        ok, reason = _decide(answers)
+        assert ok is True
+        assert "dispatched for the release on trunk" in reason
+
+        answers = _github(runs = [], dispatched = [_run(9, head_branch = "main")], default_branch = "trunk")
+        ok, _ = _decide(answers)
+        assert ok is False
+
+
+    def test_the_newest_trusted_release_dispatch_is_taken_past_one_that_is_not(self):
+        answers = _github(runs = [], dispatched = [_run(9, head_branch = "skip-the-lanes"), _run(8)])
+        ok, reason = _decide(answers)
+        assert ok is True
+        assert "actions/runs/8" in reason
+
+
+    def test_a_repository_that_cannot_be_read_denies_and_is_not_a_missing_workflow(self):
+        answers = _github(runs = [], dispatched = [_run(9)], default_branch = None)
+        ok, reason = _decide(answers)
+        assert ok is False
+        assert "could not ask GitHub" in reason and "has no workflow" not in reason
+
+
+    def test_a_repository_without_a_default_branch_counts_no_dispatch(self):
+        """
+        GitHub names no head branch for some runs. No default branch and no head branch are not the same branch.
+        """
+        run = _run(9)
+        run["head_branch"] = None
+        ok, _ = _decide(_github(runs = [], dispatched = [run], default_branch = ""))
+        assert ok is False
 
 
     def test_a_run_dispatched_for_another_release_does_not_count(self):
@@ -171,7 +259,9 @@ class TestProdIsGated:
     def test_no_run_for_the_commit_denies_and_says_how_to_get_one(self):
         ok, reason = _decide(_github(runs = []))
         assert ok is False
-        assert "No successful E2E run" in reason and "ref v0.3.7" in reason and "version 0.3.7" in reason
+        assert "No successful E2E run" in reason and "version 0.3.7" in reason
+        assert "on the default branch" in reason
+        assert "ref v0.3.7" not in reason, "a dispatch on the tag with the version empty no longer counts"
 
 
     def test_a_run_whose_every_job_was_skipped_does_not_count(self):
@@ -179,9 +269,18 @@ class TestProdIsGated:
         The dormant modes skip the job, GitHub then reports the run skipped, and a success filter never
         returns it, but a run answered as success with no job that ran is refused here too.
         """
-        ok, reason = _decide(_github(runs = [_run(7)], jobs = [{"name": "e2e", "conclusion": "skipped"}]))
+        ok, reason = _decide(_github(runs = [_run(7)], jobs = [{"name": "E2E v0.3.7", "conclusion": "skipped"}]))
         assert ok is False
         assert "No successful E2E run" in reason
+
+
+    def test_a_run_whose_lanes_passed_and_whose_journey_did_not_run_does_not_count(self):
+        jobs = [
+            {"name": "Unit Tests / Unit Tests", "conclusion": "success"},
+            {"name": "E2E v0.3.7", "conclusion": "skipped"},
+        ]
+        ok, _ = _decide(_github(runs = [_run(7)], jobs = jobs))
+        assert ok is False
 
 
     def test_a_run_not_reported_success_does_not_count(self):
