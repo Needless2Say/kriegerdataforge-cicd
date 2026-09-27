@@ -1,27 +1,41 @@
 """
-E2E gate for the KriegerDataForge CD workflows, a release deploys to PROD only after its E2E run passed.
+E2E gate for the KriegerDataForge CD workflows, a release deploys to PROD only after its full release
+test suite passed on that release, unit, integration, mutation where the repo has it, and E2E last.
 
-Every repo with a deploy owns one E2E journey (`.github/workflows/e2e.yml`, the `run-e2e` action). This
-gate asks GitHub whether that workflow has a successful run for the exact commit the release tag names,
-`v<version>`, the commit the deploy job checks out. The `verify-e2e` job in `cd-nextjs-vercel.yml` and
-`cd-python-vercel.yml` runs it after the deployer authorization and before the deploy job, the same
-place and the same shape as `check_deployer.py`, so a PROD deploy of an untested release fails closed
-with the reason, and a deploy of a tested one records which run tested it in the step summary.
+Every repo with a deploy owns one E2E journey (`.github/workflows/e2e.yml`, the `run-e2e` action). A
+release dispatch of that workflow (the `version` input, D-021) runs the repo's unit and integration
+lanes, and its mutation lane where one exists, ahead of the E2E job itself, each gated so the E2E job
+only runs once they all passed (D-024). This gate asks GitHub whether that workflow has a successful
+run for the exact commit the release tag names, `v<version>`, the commit the deploy job checks out, and
+whose own E2E job ran and passed. Since the E2E job depends on the earlier lanes, its pass already
+certifies the rest of the suite passed too, one lookup answers for the whole release. The `verify-e2e`
+job in `cd-nextjs-vercel.yml` and `cd-python-vercel.yml` runs it after the deployer authorization and
+before the deploy job, the same place and the same shape as `check_deployer.py`, so a PROD deploy of an
+untested or partially tested release fails closed with the reason, and a deploy of a tested one records
+which run tested it in the step summary.
 
 Decision, for `prod`:
   - no tag v<version>                              -> DENY  (exit 1, fail closed)
   - the repo has no E2E workflow                   -> DENY  (exit 1)
-  - no successful run of it for the tag's commit   -> DENY  (exit 1)
-  - the run's own e2e job did not run or failed    -> DENY  (exit 1)
-  - a successful run whose e2e job passed          -> ALLOW (exit 0), the run named in the summary
+  - no successful release dispatch for the version -> DENY  (exit 1)
+  - the run's `E2E v<version>` job did not pass    -> DENY  (exit 1)
+  - a successful run whose `E2E v<version>` passed -> ALLOW (exit 0), the run named in the summary
 For `dev` the same lookup runs and its result is reported, and the deploy is never denied, DEV is the
 soak that comes before the E2E dispatch on the release.
 
-A run counts only when GitHub reports it `success`. A run whose e2e job was skipped (the dormant modes,
-RUN_E2E_GATE and RUN_E2E_CD unset) reports `skipped`, not `success`, and does not count. The run must be
-for the tag's commit exactly, a green run on an earlier commit says nothing about this release. Two runs
-are, one dispatched on the tag itself, whose head is the tag's commit, and one dispatched with the
-workflow's `version` input, which checks the tag out and names its job `E2E v<version>` (D-021).
+A run counts only when GitHub reports it `success` and its passed job is named `E2E v<version>`, the name
+a run dispatched with the workflow's `version` input gives its job after checking the tag out (D-021).
+That input is the one that runs the unit, integration and mutation lanes as jobs the e2e job needs
+(D-024), so the name is the proof the whole suite ran. A failure in any lane fails the run, GitHub never
+reports it `success`, and this check denies without needing to know those lanes' job names. A run with
+the input empty names its job `E2E` and skips every lane, so it does not count, not on the tag's own
+commit either, which D-019 and D-021 counted (D-024). A run whose e2e job was skipped (the dormant
+modes, RUN_E2E_GATE and RUN_E2E_CD unset) reports `skipped`, not `success`, and does not count.
+
+The workflow a run ran is the one on the ref it was dispatched on, so the ref is held too. A run counts
+when its head is the tag's commit, the release's own workflow, or when it was dispatched on the
+repository's default branch, which the branch rules protect. A dispatch on any other branch does not
+count, that branch's copy of the workflow may have dropped a lane and kept the job's name.
 
 Inputs (CLI flags take precedence over environment variables):
   --repo         / DEPLOY_REPO        / GITHUB_REPOSITORY            e.g. "Needless2Say/fitness-app-frontend"
@@ -156,6 +170,29 @@ def tag_commit(fetch: Fetch, api_url: str, repo: str, tag: str) -> str | None:
     return target.get("sha") or None
 
 
+def default_branch(fetch: Fetch, api_url: str, repo: str) -> str | None:
+    """
+    The repository's default branch, the one ref besides the tag whose workflow a release dispatch may run.
+
+    Args:
+        fetch: The API reader
+        api_url: The API base
+        repo: owner/name
+
+    Returns:
+        The branch name, or None when GitHub names none
+
+    Raises:
+        ApiError: With status 0 when the repository cannot be read, a 404 here is never a missing workflow
+    """
+    try:
+        return fetch(f"{api_url}/repos/{repo}").get("default_branch") or None
+    except ApiError as exc:
+        if exc.status == 404:
+            raise ApiError(0, f"GitHub answered 404 for the repository {repo} itself") from exc
+        raise
+
+
 def _passed_jobs(fetch: Fetch, api_url: str, repo: str, run: dict) -> list[dict]:
     """
     The jobs of one successful run that ran and passed.
@@ -186,11 +223,12 @@ def successful_run(
     version: str,
 ) -> tuple[dict, str] | None:
     """
-    Find the newest successful run of the E2E workflow that tested one release, and say how it did.
+    Find the newest successful release dispatch of the E2E workflow for one release, and say how it was found.
 
-    Two runs count. One whose head is the tag's commit, a dispatch on the tag, and one dispatched with the
-    workflow's ``version`` input, which checks the tag out on any ref and names its job after the release
-    (D-021). Either way the run's own job must have run and passed.
+    A run counts when its passed job is named after the release, ``E2E v<version>``, the name the workflow's
+    ``version`` input gives it (D-021), the same input that runs the rest of the suite ahead of it (D-024).
+    The workflow it ran must be one to trust, the release's own, its head the tag's commit, or the default
+    branch's.
 
     Args:
         fetch: The API reader
@@ -207,22 +245,41 @@ def successful_run(
         ApiError: With status 404 when the repo has no such workflow
     """
     runs_url = f"{api_url}/repos/{repo}/actions/workflows/{urllib.parse.quote(workflow)}/runs"
+    wanted   = RELEASE_JOB_NAME.format(version = version)
 
+    def tested_the_release(run: dict) -> bool:
+        """
+        Whether a run's passed jobs hold the one named after the release.
+
+        Args:
+            run: The run, as the runs listing returned it
+
+        Returns:
+            True when the job ran and passed
+        """
+        return any(job.get("name") == wanted for job in _passed_jobs(fetch, api_url, repo, run))
+
+    # a run on the tag's commit ran the workflow the release itself carries. one with the version input empty
+    # is on that commit too, a push to the default branch or a dispatch on the tag, and ran no lane but the
+    # journey, so the name is asked of it as well
     query = urllib.parse.urlencode({"head_sha": sha, "status": "success", "per_page": 20})
     for run in fetch(f"{runs_url}?{query}").get("workflow_runs") or []:
-        if _passed_jobs(fetch, api_url, repo, run):
-            return run, "on its commit"
+        if tested_the_release(run):
+            return run, f"on its commit, its job named {wanted}"
 
-    # a run dispatched with the version input has another head, the ref it was dispatched on, and carries
-    # the release in its job's name instead. the name is what the workflow gave itself from the same input
-    # that chose the checkout, so the job that passed is the one that tested the tag
-    wanted = RELEASE_JOB_NAME.format(version = version)
-    query  = urllib.parse.urlencode({
+    # a release dispatched once the default branch moved on has another head. the name is what the workflow
+    # gave itself from the same input that chose the checkout, so the job that passed is the one that tested
+    # the tag. the ref it ran on is the default branch alone, another branch's workflow is anyone's to write
+    query = urllib.parse.urlencode({
         "event": "workflow_dispatch", "status": "success", "per_page": DISPATCHED_RUNS_SEARCHED,
     })
-    for run in fetch(f"{runs_url}?{query}").get("workflow_runs") or []:
-        if any(job.get("name") == wanted for job in _passed_jobs(fetch, api_url, repo, run)):
-            return run, f"dispatched for the release, its job named {wanted}"
+    dispatched = fetch(f"{runs_url}?{query}").get("workflow_runs") or []
+    if not dispatched:
+        return None
+    trusted = default_branch(fetch, api_url, repo)
+    for run in dispatched:
+        if trusted and run.get("head_branch") == trusted and tested_the_release(run):
+            return run, f"dispatched for the release on {trusted}, its job named {wanted}"
     return None
 
 
@@ -279,9 +336,9 @@ def decide(
     if found is None:
         return (not gated), (
             f"No successful E2E run of {workflow} exists for {tag} (commit {sha[:12]}) in {repo} ({verdict}). "
-            f"Dispatch it for the release, Actions, E2E, Run workflow, version {version}, or on the ref {tag}, "
-            f"and deploy again once it is green. A run on another commit that was not dispatched for this "
-            f"version, or one whose e2e job was skipped, does not count."
+            f"Dispatch it for the release, Actions, E2E, Run workflow, on the default branch, version {version}, "
+            f"and deploy again once it is green. A run with the version left empty ran no lane but the journey "
+            f"and does not count, nor does one dispatched on another branch, nor one whose job was skipped."
         )
     run, how = found
     when = run.get("updated_at") or run.get("created_at") or ""

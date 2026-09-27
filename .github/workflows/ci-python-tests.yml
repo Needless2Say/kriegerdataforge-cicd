@@ -23,6 +23,10 @@ on:
         description: Configure git credentials for the private packages (App installation token when the caller sets USE_GITHUB_APP, else the GH_PACKAGES_PAT secret)
         type: boolean
         default: false
+      ref:
+        description: Git ref to check out (tag, branch or SHA). Empty checks out the caller run's own ref, a release dispatch passes the release tag so this lane tests the exact commit being deployed.
+        type: string
+        default: ""
 
 jobs:
   unit-tests:
@@ -31,6 +35,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.ref }}
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:

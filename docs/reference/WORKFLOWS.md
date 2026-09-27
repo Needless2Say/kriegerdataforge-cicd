@@ -146,10 +146,13 @@ private (post org move), this checkout needs a read only token, tracked in
 
 ## E2E gate
 
-A release reaches `prod` only after its own E2E journey passed on that exact release. The two Vercel
-deploys run a **`verify-e2e`** job between `authorize` and `deploy` (D-019), the same shape as the
-deployer gate, a sparse checkout of this repo's `scripts/` and
-[`scripts/check_e2e.py`](../../scripts/check_e2e.py).
+A release reaches `prod` only after its own E2E journey passed on that exact release. Since D-024 a
+release dispatch of `e2e.yml` (the `version` input) runs the consumer's unit lane, integration lane,
+and system and mutation lanes where it has them, as jobs the `e2e` job `needs`, before the E2E journey itself runs.
+So "the E2E journey passed" now certifies the whole release test suite passed, not only E2E, without
+this gate needing to know each repo's lane names. The two Vercel deploys run a **`verify-e2e`** job
+between `authorize` and `deploy` (D-019), the same shape as the deployer gate, a sparse checkout of
+this repo's `scripts/` and [`scripts/check_e2e.py`](../../scripts/check_e2e.py).
 
 **How it works:**
 
@@ -157,15 +160,17 @@ deployer gate, a sparse checkout of this repo's `scripts/` and
    annotated tag to the commit it names. The deploy job checks out that same tag.
 2. It lists the runs of the consumer's E2E workflow (`e2e.yml`, the one every deploying repo owns,
    see [`E2E_TESTING.md`](../guides/E2E_TESTING.md)) whose `head_sha` is that commit and whose
-   status is `success`, and takes the newest one whose own jobs ran and passed. A run whose `e2e`
-   job was skipped (the dormant modes) reports `skipped`, never `success`, and does not count.
-   Failing that, it lists the workflow's successful dispatched runs, newest first, and takes the
-   first whose passed job is named `E2E v<version>`, the name a run dispatched with the workflow's
-   `version` input gives its job after checking that tag out (D-021). A green run on any other
-   commit that was not dispatched for the version does not count.
+   status is `success`, and takes the newest one whose passed job is named `E2E v<version>`, the
+   name a run dispatched with the workflow's `version` input gives its job after checking that tag
+   out (D-021). Failing that, it lists the workflow's successful dispatched runs, newest first, and
+   takes the first that ran on the repository's default branch and whose passed job has that name.
+   The name is asked of every run (D-024). The `version` input is what runs the lanes, so a run with
+   it empty tested the journey alone and does not count, on the tag's own commit either. A release
+   dispatched on another branch does not count, that branch's workflow may have dropped a lane. A
+   run whose `e2e` job was skipped reports `skipped`, never `success`, and does not count.
 3. **On `prod`, none found means the job fails and the deploy never runs**, with the reason on the
    line and in the step summary, no tag, no workflow, or no green run for the release, and what to
-   do, dispatch **Actions, E2E, Run workflow** with the version, or on the tag `v<version>`, and
+   do, dispatch **Actions, E2E, Run workflow** on the default branch with the version, and
    deploy again once it is green. When one is found, the step summary records which run tested the
    release, how it was found, its number, time and link, the way the deployer gate records who
    deployed.
@@ -367,7 +372,7 @@ App installation tokens (classic PAT / `GITHUB_TOKEN` only, see `SECRET_ROTATION
 |---|---|---|---|
 | `ci-nextjs-build.yml` | `node_version`=`"22"`, `upload_artifact` (boolean)=`false`, `artifact_name`=`"static-export"`, `artifact_path`=`"out/"`, `artifact_retention_days` (number)=`3` | `make ci-build` | uploads artifact only when `upload_artifact` (`:46-52`) |
 | `ci-nextjs-lint-typecheck.yml` | `node_version`=`"22"` | `make ci-lint` + `make ci-typecheck` | |
-| `ci-nextjs-tests.yml` | `node_version`=`"22"` | `make ci-unit-tests` (Jest) | |
+| `ci-nextjs-tests.yml` | `node_version`=`"24"`, `ref`=`""` (the ref to check out, a release dispatch passes the tag, D-024) | `make ci-unit-tests` (Jest) | |
 | `ci-npm-audit.yml` | `node_version`=`"22"` | `make ci-npm-audit` | fails on high/critical prod dep CVEs |
 
 ```yaml
@@ -398,8 +403,8 @@ the slim runner.
 | `ci-python-kdf-fmt.yml` | `python_version`=`3.14`, `kdf_fmt_ref` (**required**, pin a `vX.Y.Z` tag), `check_command`=`python -m kdf_fmt.cli check --no-cache` | always (kdf-fmt is private, App token first, `GH_PACKAGES_PAT` fallback, callers pass `secrets: inherit`) | `contents: read` |
 | `ci-python-lint.yml` | `python_version`=`3.14`, `install_command`=`pip install -r requirements.txt`, `lint_command`=`python -m ruff check .`, `needs_sdk_auth` (bool)=`false` | yes | `contents: read` |
 | `ci-python-typecheck.yml` | + `typecheck_command`=`python -m mypy api/` (same shape as lint) | yes | `contents: read` |
-| `ci-python-tests.yml` | + `test_command`=`python -m pytest unit_tests/ -q --tb=short` (fast, DB free unit lane) | yes | `contents: read` |
-| `ci-python-integration.yml` | `python_version`=`3.14`, `install_command`=`pip install -r requirements.txt`, `migrate_command`=`alembic upgrade head`, `seed_command`=`""`, `test_command`=`python -m pytest -m requires_postgres -q --tb=short`, `needs_sdk_auth` (bool)=`false` | yes | `contents: read` |
+| `ci-python-tests.yml` | + `test_command`=`python -m pytest unit_tests/ -q --tb=short` (fast, DB free unit lane), `ref`=`""` (the ref to check out, a release dispatch passes the tag, D-024) | yes | `contents: read` |
+| `ci-python-integration.yml` | `python_version`=`3.14`, `install_command`=`pip install -r requirements.txt`, `migrate_command`=`alembic upgrade head`, `seed_command`=`""`, `test_command`=`python -m pytest -m requires_postgres -q --tb=short`, `needs_sdk_auth` (bool)=`false`, `ref`=`""` (as the unit lane's) | yes | `contents: read` |
 | `ci-python-security.yml` | `python_version`=`3.14`, `bandit_paths`=`api/ scripts/ vercel_api/`, `needs_sdk_auth` (bool)=`false` | yes | `contents: read` |
 | `ci-vercel-compactor.yml` | `python_version`=`3.14` | no | *(none declared)* |
 

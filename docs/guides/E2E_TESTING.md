@@ -95,14 +95,26 @@ the **version** input set to the release, wait for green, then dispatch the CD t
 deploy is never refused, the gate reports what it found and lets it through, so DEV can be soaked
 first and the E2E dispatched once the release is what will go to PROD.
 
-Two runs count (D-021). A dispatch with the `version` input checks out the tag `v<version>` on
-whatever ref the dispatch runs on, names its job `E2E v<version>`, and writes the release and commit
-it tested to its step summary, the gate finds it by that name. A dispatch with the input empty tests
-the ref chosen in the dispatch form, and counts when that ref is the tag itself, since its head is
-then the tag's commit. A green run on `main` with the input empty counts only while the tag points
-at that merge commit, which is what `release.yml` produces until the next merge. The gate's verdict
-and the run it found are in the deploy's step summary,
+One run counts (D-021, D-024), a dispatch with the `version` input. It checks out the tag
+`v<version>`, names its job `E2E v<version>`, and writes the release and commit it tested to its step
+summary, the gate finds it by that name. Dispatch it on the default branch, the form's own choice. A
+release dispatched on another branch does not count, unless that branch's head is the tag's commit,
+the workflow a run runs is the one on its ref. A dispatch with the input empty tests the ref chosen in
+the form and runs the journey alone, so it does not count, on the tag or on `main` either, which
+D-021 counted. The gate's verdict and the run it found are in the deploy's step summary,
 [`WORKFLOWS.md`](../reference/WORKFLOWS.md#e2e-gate).
+
+**A release dispatch runs the whole test suite, not only E2E (D-024).** Given the `version` input,
+`e2e.yml` runs the repo's unit lane, its integration lane where it has one, and its system and
+mutation lanes where it has them, against the tag `v<version>`, as jobs the `e2e` job `needs`. The `e2e` job only
+starts once all of them pass, so a failure anywhere in the suite fails the whole run and no `E2E
+v<version>` job exists to be found, the gate denies with the same "no successful run" reason it
+always has. This keeps the per PR `ci.yml` lanes fast (unit + integration only, on the PR head, the
+`pull_request` trigger alone), and puts the full suite, including the slow mutation lane, on the one
+path that actually needs it before a release ships, the release dispatch. Mutation testing dropped
+its weekly schedule with D-024, it now runs per release instead of on a timer. A release dispatch has
+a concurrency group of its own, so a merge to `main` while it runs does not cancel it, and a second
+dispatch of the same version on the same ref replaces the first.
 
 ## Onboarding a new repo
 
