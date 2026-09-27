@@ -25,6 +25,9 @@ WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 NEXTJS    = (WORKFLOWS / "cd-nextjs-vercel.yml").read_text(encoding = "utf-8")
 PYTHON    = (WORKFLOWS / "cd-python-vercel.yml").read_text(encoding = "utf-8")
 
+# the lanes a release dispatch of a consumer's e2e.yml calls on the release tag (D-024, D-025)
+TEST_LANES = ("ci-python-tests.yml", "ci-python-integration.yml", "ci-nextjs-tests.yml", "ci-nextjs-integration.yml")
+
 # a stand in for alembic whose env.py prints two lines of its own to stdout, the hub's shape
 FAKE_ALEMBIC = """#!/usr/bin/env bash
 echo "[Alembic] Using PROD environment"
@@ -222,3 +225,45 @@ def test_the_revision_capture_reads_alembics_line_past_an_env_that_prints(tmp_pa
         assert run.returncode == 0, run.stdout + run.stderr
         assert output.read_text().strip() == before
     assert mark.exists() == upgraded, "the upgrade runs after a revision or alembic's own word that there is none"
+
+
+def _lane(name: str) -> str:
+    """
+    One reusable lane's text, its line ends the runner's.
+    """
+    return (WORKFLOWS / name).read_text(encoding = "utf-8").replace("\r\n", "\n")
+
+
+@pytest.mark.parametrize("name", TEST_LANES)
+def test_a_test_lane_checks_out_the_ref_it_is_given(name):
+    """
+    A release is tested on its tag. A lane that ignores the ref tests the head of the branch the dispatch ran on,
+    and passes for a release it never read (D-024).
+    """
+    text = _lane(name)
+    assert re.search(r"\n      ref:\n        description: [^\n]+\n        type: string\n        default: \"\"\n", text)
+    checkouts = re.findall(r"uses: actions/checkout@[0-9a-f]{40}[^\n]*\n((?:        [^\n]*\n|          [^\n]*\n)*)", text)
+    assert checkouts, name
+    for given in checkouts:
+        assert given.startswith("        with:\n          ref: ${{ inputs.ref }}\n"), name
+
+
+@pytest.mark.parametrize("name, target", [
+    ("ci-nextjs-tests.yml", "make ci-unit-tests"),
+    ("ci-nextjs-integration.yml", "make ci-integration-tests"),
+], ids = ["unit", "integration"])
+def test_a_nextjs_lane_runs_the_callers_own_target(name, target):
+    """
+    The two lanes differ by the target alone, so a release names which suite failed (D-025).
+    """
+    text = _lane(name)
+    assert f"        run: {target}\n" in text
+    assert text.count("        run: make ") == 1
+    assert "GH_NPM_TOKEN: ${{ secrets.GH_NPM_TOKEN }}" in text, "the install reads the private npm scope"
+
+
+def test_the_nextjs_integration_lane_holds_a_read_only_token_and_its_own_job_name():
+    text = _lane("ci-nextjs-integration.yml")
+    assert "\npermissions:\n  contents: read\n" in text
+    assert "\n  integration-tests:\n    name: Integration Tests\n" in text
+

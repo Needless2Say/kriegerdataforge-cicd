@@ -1,0 +1,49 @@
+name: Node.js · Integration tests (Jest)
+
+# Reusable integration lane for the KDF Next.js apps (D-025). The caller's `make ci-integration-tests`
+# runs the suite that drives whole flows through several modules at once, its
+# `src/__tests__/integration/` tree, apart from the unit lane so a release names which of the two
+# failed. It reads nothing the unit lane does not, the same checkout, install and token.
+
+# Least privilege, the lane clones and runs tests and never writes to the repo.
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: Node.js version to use
+        type: string
+        default: "24"
+      ref:
+        description: Git ref to check out (tag, branch or SHA). Empty checks out the caller run's own ref, a release dispatch passes the release tag so this lane tests the exact commit being deployed.
+        type: string
+        default: ""
+
+jobs:
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-slim
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: "npm"
+
+      - name: Install dependencies
+        env:
+          # Private GH-Packages npm auth (reports-ecosystem epic W3.5): consumers that
+          # depend on @needless2say/* commit an .npmrc interpolating ${GH_NPM_TOKEN} — a
+          # CLASSIC read:packages PAT (GH Packages rejects fine-grained PATs and App
+          # installation tokens). Always exported; empty for token-less consumers.
+          GH_NPM_TOKEN: ${{ secrets.GH_NPM_TOKEN }}
+        run: npm ci
+
+      - name: Integration tests
+        run: make ci-integration-tests

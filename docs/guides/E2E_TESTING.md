@@ -116,6 +116,21 @@ its weekly schedule with D-024, it now runs per release instead of on a timer. A
 a concurrency group of its own, so a merge to `main` while it runs does not cancel it, and a second
 dispatch of the same version on the same ref replaces the first.
 
+What each repo's release dispatch runs ahead of the journey (D-024, D-025).
+
+| Repo | Unit | Integration | System | Mutation |
+|---|---|---|---|---|
+| kriegerdataforge (hub) | yes | yes, Postgres | yes | yes, seven lanes |
+| kriegerdataforge-auth-ui | yes | none, see below | | yes, four lanes |
+| fitness-app-backend | yes | yes, Postgres | | |
+| tiffanys-space-backend | yes | yes, Postgres | | |
+| fitness-app-frontend | yes | yes, `src/__tests__/integration/` | | |
+| tiffanys-space | yes | yes, `src/__tests__/integration/` | | |
+
+The auth UI holds no integration suite of its own. What it integrates with is the hub, and that is
+tested in its `e2e` job twice, the step that holds its copy of the hub's contract to the hub's own
+recording, and the journey itself, the real auth UI against the real hub.
+
 ## Onboarding a new repo
 
 Add, **in the new repo** (zero cicd edits). `e2e/manifest.json` (declares its journey +

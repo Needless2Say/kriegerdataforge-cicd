@@ -188,7 +188,7 @@ the API answers. The job is pinned by `scripts/tests/test_workflow_contracts.py`
 
 ## Reusable workflow catalog
 
-20 workflows are `on: workflow_call`. None declares an explicit `secrets:` block, so callers pass
+21 workflows are `on: workflow_call`. None declares an explicit `secrets:` block, so callers pass
 `secrets: inherit`. Permissions are stated as declared in each file (top level and/or per job), an
 undeclared scope means the workflow relies on the caller's / default token.
 
@@ -373,6 +373,7 @@ App installation tokens (classic PAT / `GITHUB_TOKEN` only, see `SECRET_ROTATION
 | `ci-nextjs-build.yml` | `node_version`=`"22"`, `upload_artifact` (boolean)=`false`, `artifact_name`=`"static-export"`, `artifact_path`=`"out/"`, `artifact_retention_days` (number)=`3` | `make ci-build` | uploads artifact only when `upload_artifact` (`:46-52`) |
 | `ci-nextjs-lint-typecheck.yml` | `node_version`=`"22"` | `make ci-lint` + `make ci-typecheck` | |
 | `ci-nextjs-tests.yml` | `node_version`=`"24"`, `ref`=`""` (the ref to check out, a release dispatch passes the tag, D-024) | `make ci-unit-tests` (Jest) | |
+| `ci-nextjs-integration.yml` | `node_version`=`"24"`, `ref`=`""` (as the unit lane's) | `make ci-integration-tests` (Jest, the caller's `src/__tests__/integration/` tree, no coverage), a release dispatch's lane (D-025) | `contents: read` |
 | `ci-npm-audit.yml` | `node_version`=`"22"` | `make ci-npm-audit` | fails on high/critical prod dep CVEs |
 
 ```yaml
