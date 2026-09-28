@@ -28,7 +28,7 @@
 #       uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/cd-nextjs-vercel.yml@main
 #       permissions:
 #         contents: read
-#         actions: read   # the E2E gate lists this repo's E2E runs for the release (D-019)
+#         actions: read   # the PROD gate lists this repo's PROD Gate runs for the release (D-027)
 #       with:
 #         environment: ${{ inputs.environment }}
 #         version: ${{ inputs.version }}
@@ -79,28 +79,28 @@ jobs:
           DEPLOY_ACTOR: ${{ github.triggering_actor }}
           DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
 
-  # ── E2E gate ───────────────────────────────────────────────────────────────
+  # ── PROD gate ──────────────────────────────────────────────────────────────
   # Runs after the deployer authorization and before the deploy job. A release deploys to
-  # prod only when this repo's E2E workflow (e2e.yml, the run-e2e action) has a successful
-  # run for the commit the release tag names, the commit the deploy job checks out below.
-  # A release dispatch of e2e.yml (the version input, D-021) runs the repo's unit and
-  # integration lanes, and its mutation lane where one exists, as jobs the e2e job needs
-  # before it runs (D-024), so this one check certifies the whole release test suite, not
-  # only the E2E journey. A run with the version input empty ran no lane and does not count,
-  # nor does one dispatched on a branch that is not the default one. On dev the same lookup
-  # is reported and never denies, DEV is the soak that precedes the release dispatch. Fails
+  # prod only when this repo's PROD Gate workflow (prod-gate.yml, D-027) has a successful
+  # run for the release. The PROD Gate is dispatched with the release version and runs, on
+  # the tag, the commit the deploy job checks out below, the repo's checks, its unit,
+  # integration, system and mutation suites and its E2E journey, and its last job, named
+  # PROD Gate v<version>, passes only when every one of them passed. So this one check
+  # certifies the whole suite. A run of the E2E workflow alone does not count, nor does a
+  # PROD Gate dispatched on a branch that is not the default one. On dev the same lookup
+  # is reported and never denies, DEV is the soak that precedes the PROD Gate. Fails
   # closed on prod, and the step summary
-  # names the run that tested the release when it passes (scripts/check_e2e.py, D-019). The
+  # names the run that tested the release when it passes (scripts/check_prod_gate.py). The
   # runs listing needs actions: read, which the calling cd.yml grants on its deploy job.
-  verify-e2e:
-    name: Verify E2E passed for v${{ inputs.version }}
+  verify-prod-gate:
+    name: Verify the PROD Gate passed for v${{ inputs.version }}
     needs: authorize
     runs-on: ubuntu-slim
     permissions:
       contents: read
       actions: read
     steps:
-      - name: Check out the E2E gate (kriegerdataforge-cicd)
+      - name: Check out the PROD gate (kriegerdataforge-cicd)
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: Needless2Say/kriegerdataforge-cicd
@@ -109,8 +109,8 @@ jobs:
           path: _kdf_cicd
           token: ${{ github.token }}
 
-      - name: Verify a successful E2E run exists for this release
-        run: python3 _kdf_cicd/scripts/check_e2e.py
+      - name: Verify a successful PROD Gate run exists for this release
+        run: python3 _kdf_cicd/scripts/check_prod_gate.py
         env:
           DEPLOY_REPO: ${{ github.repository }}
           DEPLOY_VERSION: ${{ inputs.version }}
@@ -119,7 +119,7 @@ jobs:
 
   deploy:
     name: Deploy (${{ inputs.environment }})
-    needs: [authorize, verify-e2e]
+    needs: [authorize, verify-prod-gate]
     runs-on: ubuntu-slim
 
     # Names the caller repo's GitHub Environment. The job reads its secrets, and pauses for

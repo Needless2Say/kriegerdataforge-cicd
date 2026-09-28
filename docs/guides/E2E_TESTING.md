@@ -86,67 +86,29 @@ Each repo ships a **dormant** job, `.github/workflows/e2e.yml`, that `uses:` the
 > schedule) instead of blocking each PR, while the fast in repo unit/contract tests stay
 > the per PR check.
 
-## The release gate, prod deploys need a green run on the tag
+## The journey is one lane of the PROD Gate
 
-Since D-019 the two reusable Vercel deploys refuse a `prod` deploy of a release whose E2E workflow
-has no successful run for the release. The order for a release is therefore, merge with the
-version bump, let `release.yml` cut the tag `v<version>`, dispatch **Actions, E2E, Run workflow** with
-the **version** input set to the release, wait for green, then dispatch the CD to `prod`. A `dev`
-deploy is never refused, the gate reports what it found and lets it through, so DEV can be soaked
-first and the E2E dispatched once the release is what will go to PROD.
+A release reaches `prod` only after the repo's **PROD Gate** passed for it, the workflow
+`prod-gate.yml` (D-027). The gate runs the repo's checks and suites on the release tag and then calls
+this workflow, `e2e.yml`, as its last lane, handing it the release version and the secrets the journey
+reads. What the gate runs, how to run it and how the deploy reads it are in
+[`PROD_GATE.md`](PROD_GATE.md).
 
-One run counts (D-021, D-024), a dispatch with the `version` input. It checks out the tag
-`v<version>`, names its job `E2E v<version>`, and writes the release and commit it tested to its step
-summary, the gate finds it by that name. Dispatch it on the default branch, the form's own choice. A
-release dispatched on another branch does not count, unless that branch's head is the tag's commit,
-the workflow a run runs is the one on its ref. A dispatch with the input empty tests the ref chosen in
-the form and runs the journey alone, so it does not count, on the tag or on `main` either, which
-D-021 counted. The gate's verdict and the run it found are in the deploy's step summary,
-[`WORKFLOWS.md`](../reference/WORKFLOWS.md#e2e-gate).
+The journey alone signs off nothing. Until D-027 a dispatch of `e2e.yml` with the `version` input ran
+the lanes and was the mark the deploy read (D-021, D-024). It still takes the input, checks out the tag
+`v<version>` and names its job `E2E v<version>`, which is how to test a release's journey by hand, and
+the deploy no longer looks at it.
 
-**A release dispatch runs the whole test suite, not only E2E (D-024).** Given the `version` input,
-`e2e.yml` runs the repo's unit lane, its integration lane where it has one, and its system and
-mutation lanes where it has them, against the tag `v<version>`, as jobs the `e2e` job `needs`. The `e2e` job only
-starts once all of them pass, so a failure anywhere in the suite fails the whole run and no `E2E
-v<version>` job exists to be found, the gate denies with the same "no successful run" reason it
-always has. This keeps the per PR `ci.yml` lanes fast (unit + integration only, on the PR head, the
-`pull_request` trigger alone), and puts the full suite, including the slow mutation lane, on the one
-path that actually needs it before a release ships, the release dispatch. Mutation testing dropped
-its weekly schedule with D-024, it now runs per release instead of on a timer. A release dispatch has
-a concurrency group of its own, so a merge to `main` while it runs does not cancel it, and a second
-dispatch of the same version on the same ref replaces the first.
-
-What each repo's release dispatch runs ahead of the journey (D-024, D-025, D-026). `ci` is the repo's own
-`ci.yml`, called whole on the release tag, so a check added to `ci.yml` is a check of every release.
-
-| Repo | `ci`, every check of a pull request | Beside it, a release's own lanes |
-|---|---|---|
-| kriegerdataforge (hub) | lint, style, type check, bundle up to date, unit, integration, bandit, pip-audit, secret scan | system suite, seven mutation lanes |
-| kriegerdataforge-auth-ui | lint and type check, build, unit, npm audit, secret scan, production image | four mutation lanes |
-| fitness-app-backend, tiffanys-space-backend | lint, style, type check, bundle up to date, unit, integration, bandit, pip-audit, secret scan | |
-| fitness-app-frontend, tiffanys-space | lint and type check, build, unit, npm audit, style, secret scan, production image | integration tree |
-
-Three things a release does not run, and why.
-
-- **The version check.** It holds a pull request's version one above `main`'s. A release is a tag, and a tag is
-  not a change to `main`, so the job is skipped when `ci.yml` is called.
-- **CodeQL.** It is off until a repo sets `ENABLE_CODEQL`, it needs `security-events: write`, and it files
-  findings, it does not pass or fail a commit.
-- **The hub's load smoke**, `system_tests/test_tc_system_load.py`, kept out of CI by its own marker.
-
-The secret scan reads the commits a pull request adds. Called on a release it reads the tree the tag names, a
-checkout one commit deep, and not the whole history, a release is judged by what it ships.
-
-The auth UI holds no integration suite of its own. What it integrates with is the hub, and that is
-tested in its `e2e` job twice, the step that holds its copy of the hub's contract to the hub's own
-recording, and the journey itself, the real auth UI against the real hub.
+A run for a release has a concurrency group of its own, so a merge to `main`, whose push starts this
+workflow, does not cancel a journey the gate is waiting on.
 
 ## Onboarding a new repo
 
 Add, **in the new repo** (zero cicd edits). `e2e/manifest.json` (declares its journey +
 synthetic OIDC client), a Playwright spec under `e2e/tests/`, a compose fragment if it
 runs its own service(s), and a `.github/workflows/e2e.yml` copied from the template in
-[`e2e/README.md`](../../e2e/README.md) with its own `journey:`. Then flip
+[`e2e/README.md`](../../e2e/README.md) with its own `journey:`, and a `prod-gate.yml` that calls
+it, [`PROD_GATE.md`](PROD_GATE.md). Then flip
 `RUN_E2E_GATE`/`RUN_E2E_CD` when ready. See
 [`docs/design/e2e-every-repo-journeys.md`](../design/e2e-every-repo-journeys.md) (ADR
 D-008).

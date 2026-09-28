@@ -22,11 +22,12 @@ from pathlib import Path
 import pytest
 
 WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
+SCRIPTS   = Path(__file__).resolve().parents[1]
 NEXTJS    = (WORKFLOWS / "cd-nextjs-vercel.yml").read_text(encoding = "utf-8")
 PYTHON    = (WORKFLOWS / "cd-python-vercel.yml").read_text(encoding = "utf-8")
 
-# the lanes a release dispatch of a consumer's e2e.yml calls on the release tag, through its ci.yml or beside it
-# (D-024, D-025, D-026)
+# the lanes a consumer's PROD Gate calls on the release tag, through its ci.yml or beside it
+# (D-024, D-025, D-026, D-027)
 TEST_LANES = (
     "ci-python-tests.yml",
     "ci-python-integration.yml",
@@ -37,6 +38,9 @@ TEST_LANES = (
     "ci-vercel-compactor.yml",
     "ci-nextjs-tests.yml",
     "ci-nextjs-integration.yml",
+    "ci-nextjs-mutation.yml",
+    "ci-python-mutation.yml",
+    "ci-python-system.yml",
     "ci-nextjs-lint-typecheck.yml",
     "ci-nextjs-build.yml",
     "ci-npm-audit.yml",
@@ -88,17 +92,20 @@ def _step(text: str, name: str) -> str:
 
 
 @pytest.mark.parametrize("text", [NEXTJS, PYTHON], ids = ["nextjs", "python"])
-def test_the_deploy_verifies_the_releases_e2e_run_before_deploying(text):
+def test_the_deploy_verifies_the_releases_prod_gate_run_before_deploying(text):
     """
-    A release deploys to prod only after its own E2E run passed, the gate sits between the deployer check and
-    the deploy job and reads the runs with the job token (D-019).
+    A release deploys to prod only after its own PROD Gate run passed, the gate sits between the deployer check
+    and the deploy job and reads the runs with the job token (D-019, D-027).
     """
     # the usage comment in the header names a `deploy:` job too, so the anchors start at a line
-    assert "\n  verify-e2e:\n" in text
-    gate = text[text.index("\n  verify-e2e:\n"):text.index("\n  deploy:\n")]
+    assert "\n  verify-prod-gate:\n" in text
+    assert "verify-e2e" not in text and "check_e2e" not in text, "the journey alone opens nothing"
+    gate = text[text.index("\n  verify-prod-gate:\n"):text.index("\n  deploy:\n")]
     assert "needs: authorize" in gate
     assert "actions: read" in gate, "the runs listing needs it, the calling cd.yml grants it"
-    assert "python3 _kdf_cicd/scripts/check_e2e.py" in gate
+    assert "python3 _kdf_cicd/scripts/check_prod_gate.py" in gate
+    assert (SCRIPTS / "check_prod_gate.py").is_file() and not (SCRIPTS / "check_e2e.py").exists()
+    assert "PROD_GATE_WORKFLOW" not in gate, "no deploy names another workflow to read"
     for line in (
         "DEPLOY_REPO: ${{ github.repository }}",
         "DEPLOY_VERSION: ${{ inputs.version }}",
@@ -107,7 +114,7 @@ def test_the_deploy_verifies_the_releases_e2e_run_before_deploying(text):
     ):
         assert line in gate
     deploy = text[text.index("\n  deploy:\n"):]
-    assert "needs: [authorize, verify-e2e]" in deploy
+    assert "needs: [authorize, verify-prod-gate]" in deploy
     assert "actions: read" in text[:text.index("name: CD")], "the usage header tells the caller to grant it"
 
 
@@ -284,3 +291,63 @@ def test_the_nextjs_integration_lane_holds_a_read_only_token_and_its_own_job_nam
     text = _lane("ci-nextjs-integration.yml")
     assert "\npermissions:\n  contents: read\n" in text
     assert "\n  integration-tests:\n    name: Integration Tests\n" in text
+
+
+@pytest.mark.parametrize("name, runner", [
+    ("ci-nextjs-mutation.yml", 'node mutation_tests/run.mjs --lane "$LANE" --report "$RUNNER_TEMP/kdf-mutation"'),
+    (
+        "ci-python-mutation.yml",
+        'python mutation_tests/run.py --lane "$LANE" --worktree "$RUNNER_TEMP/kdf-mutation/$LANE"',
+    ),
+], ids = ["nextjs", "python"])
+def test_a_mutation_lane_runs_each_lane_the_caller_names_and_a_survivor_fails_it(name, runner):
+    """
+    One job per lane, none stopped by another's failure, and the lane's name reaches the shell as a variable,
+    a name written into the script's own text would be run as shell (D-027).
+    """
+    text = _lane(name)
+    assert "\npermissions:\n  contents: read\n" in text
+    assert "\n      lanes:\n" in text and "        required: true\n" in text
+    assert "\n      fail-fast: false\n      matrix:\n        lane: ${{ fromJSON(inputs.lanes) }}\n" in text
+    step = text[
+        text.index("      - name: Run the lane's mutants\n"):text.index("      - name: Keep the lane's report\n")
+    ]
+    assert "        env:\n          LANE: ${{ matrix.lane }}\n" in step
+    assert f"        run: {runner}\n" in step
+    assert "${{" not in step.split("        run: ", 1)[1], "no expression is written into the shell"
+    assert "continue-on-error" not in text
+
+
+def test_the_nextjs_mutation_lane_leaves_no_credential_in_the_tree_it_mutates():
+    text = _lane("ci-nextjs-mutation.yml")
+    assert "          ref: ${{ inputs.ref }}\n" in text
+    assert "          persist-credentials: false\n" in text
+
+
+@pytest.mark.parametrize("name, database", [
+    ("ci-python-system.yml", "kdf_system"),
+    ("ci-python-mutation.yml", "kdf_mutation_sys"),
+], ids = ["system", "mutation"])
+def test_a_system_suite_is_given_a_database_of_its_own(name, database):
+    """
+    A system test commits rows. On the integration suite's database, which rolls back, those rows are read by
+    the next integration test.
+    """
+    text = _lane(name)
+    assert f"KDF_SYSTEM_DATABASE_URL: postgresql+psycopg2://kdf:kdf@localhost:5432/{database}\n" in text
+    assert "localhost:5432/kdf_test\n" not in text and "POSTGRES_DB: kdf_test\n" not in text
+
+
+@pytest.mark.parametrize("name", ["ci-python-system.yml", "ci-python-mutation.yml"])
+def test_a_lane_that_installs_a_private_package_asks_the_app_first(name):
+    """
+    The package token is a person's and expires, the App's is minted per job (D-010). On 2026-09-27 the token
+    expired and every lane that fell back to it failed at its install.
+    """
+    text  = _lane(name)
+    mint  = text.index("      - name: Mint GitHub App token for private-package installs\n")
+    token = text.index("      - name: Configure private SDK access\n")
+    assert mint < token < text.index("      - name: Install dependencies\n")
+    assert "        if: ${{ inputs.needs_sdk_auth && vars.USE_GITHUB_APP == 'true' }}\n" in text
+    assert "PKG_INSTALL_TOKEN: ${{ steps.pkg-token.outputs.token || secrets.GH_PACKAGES_PAT }}" in text
+    assert "permission-contents: read" in text

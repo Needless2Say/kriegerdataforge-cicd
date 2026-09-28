@@ -1,5 +1,5 @@
 """
-Unit tests for scripts/check_e2e.py.
+Unit tests for scripts/check_prod_gate.py.
 
 GitHub is a dict of URL to answer, handed in as the fetch, so no network and no token. The shapes are the
 ones the REST API returns for a tag ref, an annotated tag object, a workflow's runs, a run's jobs and the
@@ -8,9 +8,9 @@ repository, whose default branch a release dispatch must have run on.
 
 from __future__ import annotations
 
-import check_e2e as ce
+import check_prod_gate as gate
 import pytest
-from check_e2e import ApiError, decide, main
+from check_prod_gate import ApiError, decide, main
 
 API   = "https://api.github.com"
 REPO  = "Needless2Say/tiffanys-space"
@@ -18,17 +18,19 @@ SHA   = "0123456789abcdef0123456789abcdef01234567"
 OTHER = "fedcba9876543210fedcba9876543210fedcba98"
 
 REPOSITORY = f"{API}/repos/{REPO}"
+WORKFLOW   = "prod-gate.yml"
 
-# a release dispatch's jobs, the lanes the e2e job needs and the job the release names (D-024)
+# a PROD Gate run's jobs, the lanes and the last job, which needs every lane and carries the release (D-027)
 RELEASE_JOBS = [
-    {"name": "Unit Tests / Unit Tests", "conclusion": "success"},
-    {"name": "E2E v0.3.7", "conclusion": "success"},
+    {"name": "CI / unit-tests / Unit Tests", "conclusion": "success"},
+    {"name": "E2E / E2E v0.3.7", "conclusion": "success"},
+    {"name": "PROD Gate v0.3.7", "conclusion": "success"},
 ]
 
-# the same workflow with the version input empty, every lane skipped and the job named E2E alone
-PLAIN_JOBS = [
-    {"name": "Unit Tests", "conclusion": "skipped"},
-    {"name": "E2E", "conclusion": "success"},
+# a run whose journey passed and whose last job never did, the name D-021 read opens nothing now
+JOURNEY_ALONE = [
+    {"name": "E2E v0.3.7", "conclusion": "success"},
+    {"name": "E2E / E2E v0.3.7", "conclusion": "success"},
 ]
 
 
@@ -79,17 +81,18 @@ def _github(
     dispatched: list[dict] | None = None,
     dispatched_jobs: list[dict] | None = None,
     default_branch: str | None = "main",
+    workflow: str = WORKFLOW,
 ) -> dict[str, object]:
     """
     ``runs`` answer the listing by the tag's commit, ``dispatched`` the listing of dispatched runs, each run's jobs
-    ``jobs`` or ``dispatched_jobs``, a release dispatch's unless the test says otherwise. The dispatched listing's
+    ``jobs`` or ``dispatched_jobs``, a PROD Gate run's unless the test says otherwise. The dispatched listing's
     prefix is the longer one, so it is registered first, the fetch answers the first prefix that matches.
     """
     answers: dict[str, object] = {}
     if default_branch is not None:
         answers[REPOSITORY] = {"full_name": REPO, "default_branch": default_branch}
     if dispatched is not None:
-        answers[f"{API}/repos/{REPO}/actions/workflows/e2e.yml/runs?event=workflow_dispatch"] = {
+        answers[f"{API}/repos/{REPO}/actions/workflows/{workflow}/runs?event=workflow_dispatch"] = {
             "workflow_runs": dispatched,
         }
         for run in dispatched:
@@ -102,7 +105,7 @@ def _github(
             answers[f"{API}/repos/{REPO}/git/tags/tagobject"] = {"object": {"sha": tag_sha, "type": "commit"}}
         else:
             answers[f"{API}/repos/{REPO}/git/ref/tags/v0.3.7"] = _ref(tag_sha)
-    runs_url = f"{API}/repos/{REPO}/actions/workflows/e2e.yml/runs"
+    runs_url = f"{API}/repos/{REPO}/actions/workflows/{workflow}/runs"
     if workflow_missing:
         answers[runs_url] = ApiError(404, "GitHub answered 404 for the workflow")
     else:
@@ -121,7 +124,7 @@ def _decide(answers: dict[str, object], environment: str = "prod") -> tuple[bool
         repo = REPO,
         version = "0.3.7",
         environment = environment,
-        workflow = "e2e.yml",
+        workflow = WORKFLOW,
     )
 
 # ======================================================================================================================
@@ -132,43 +135,48 @@ class TestProdIsGated:
     """
     On prod the gate denies whatever it cannot prove and names the run when it can.
     """
-    def test_a_release_dispatch_on_the_tags_commit_allows_and_names_the_run(self):
+    def test_a_run_on_the_tags_commit_allows_and_names_the_run(self):
         ok, reason = _decide(_github(runs = [_run(7)]))
         assert ok is True
-        assert "v0.3.7" in reason and "run #41" in reason and f"actions/runs/7" in reason
-        assert "on its commit" in reason and "E2E v0.3.7" in reason
+        assert "v0.3.7" in reason and "run #41" in reason and "actions/runs/7" in reason
+        assert "on its commit" in reason and "PROD Gate v0.3.7" in reason
 
 
-    @pytest.mark.parametrize("how", ["a push to main", "a dispatch on the tag"])
-    def test_a_run_on_the_tags_commit_with_the_version_empty_does_not_count(self, how):
+    @pytest.mark.parametrize("where", ["on the tag's commit", "dispatched on the default branch"])
+    def test_the_journeys_own_name_opens_nothing(self, where):
         """
-        The version input is what runs the unit, integration and mutation lanes ahead of the journey (D-024). A
-        run with it empty skipped every one of them and named its job ``E2E``, and its head is the tag's commit
-        all the same, the merge commit the release workflow tags. D-019 and D-021 counted it, which let a release
-        reach PROD on the journey alone.
+        Until D-027 the mark was the journey's job, ``E2E v<version>``. The journey is one lane now, and a run
+        whose journey passed says nothing of the checks and the suites beside it.
         """
-        branch = "main" if how == "a push to main" else "v0.3.7"
-        ok, reason = _decide(_github(runs = [_run(7, head_branch = branch)], jobs = PLAIN_JOBS))
+        if where == "on the tag's commit":
+            answers = _github(runs = [_run(7)], jobs = JOURNEY_ALONE)
+        else:
+            answers = _github(runs = [], dispatched = [_run(9)], dispatched_jobs = JOURNEY_ALONE)
+        ok, reason = _decide(answers)
         assert ok is False
-        assert "No successful E2E run" in reason
+        assert "No successful PROD Gate run" in reason
 
 
-    def test_a_plain_dispatch_on_the_default_branch_does_not_count(self):
-        answers = _github(runs = [], dispatched = [_run(9)], dispatched_jobs = PLAIN_JOBS)
-        ok, _ = _decide(answers)
+    def test_a_run_of_the_e2e_workflow_is_never_read(self):
+        """
+        A repo that holds the journey's workflow and no PROD Gate has no gate run, however green the journey is.
+        """
+        answers = _github(runs = [_run(7)], dispatched = [_run(9)], workflow = "e2e.yml")
+        ok, reason = _decide(answers)
         assert ok is False
+        assert "has no workflow prod-gate.yml" in reason
 
 
     def test_a_run_dispatched_for_the_release_counts_by_its_jobs_name(self):
         """
-        The E2E workflow's ``version`` input checks the tag out on the ref it was dispatched on and names its job
-        ``E2E v<version>`` (D-021). Its head is that ref, not the tag's commit, so the gate finds it by the name.
+        The PROD Gate checks the tag out on the ref it was dispatched on and names its last job
+        ``PROD Gate v<version>``. Its head is that ref, not the tag's commit, so the gate finds it by the name.
         """
         answers = _github(runs = [], dispatched = [_run(9)])
         ok, reason = _decide(answers)
         assert ok is True
         assert "actions/runs/9" in reason and "dispatched for the release on main" in reason
-        assert "E2E v0.3.7" in reason
+        assert "PROD Gate v0.3.7" in reason
 
 
     def test_a_release_dispatched_on_another_branch_does_not_count(self):
@@ -179,7 +187,7 @@ class TestProdIsGated:
         answers = _github(runs = [], dispatched = [_run(9, head_branch = "skip-the-lanes")])
         ok, reason = _decide(answers)
         assert ok is False
-        assert "No successful E2E run" in reason and "another branch" in reason
+        assert "No successful PROD Gate run" in reason and "another branch" in reason
 
 
     def test_the_default_branch_is_the_repositorys_own_and_not_a_name(self):
@@ -217,22 +225,27 @@ class TestProdIsGated:
         assert ok is False
 
 
-    def test_a_run_dispatched_for_another_release_does_not_count(self):
-        answers = _github(
-            runs = [],
-            dispatched = [_run(9)],
-            dispatched_jobs = [{"name": "E2E v0.3.6", "conclusion": "success"}],
-        )
+    @pytest.mark.parametrize("where", ["on the tag's commit", "dispatched on the default branch"])
+    def test_a_run_for_another_release_does_not_count(self, where):
+        """
+        Two releases can share a commit's run listing, a dispatch for 0.3.6 made while main's head was the commit
+        0.3.7 was later tagged on. The name is asked of a run on the tag's commit too.
+        """
+        jobs = [{"name": "PROD Gate v0.3.6", "conclusion": "success"}]
+        if where == "on the tag's commit":
+            answers = _github(runs = [_run(7)], jobs = jobs)
+        else:
+            answers = _github(runs = [], dispatched = [_run(9)], dispatched_jobs = jobs)
         ok, reason = _decide(answers)
         assert ok is False
-        assert "No successful E2E run" in reason
+        assert "No successful PROD Gate run" in reason
 
 
-    def test_a_release_dispatch_whose_job_was_skipped_does_not_count(self):
+    def test_a_run_whose_last_job_was_skipped_does_not_count(self):
         answers = _github(
             runs = [],
             dispatched = [_run(9)],
-            dispatched_jobs = [{"name": "E2E v0.3.7", "conclusion": "skipped"}],
+            dispatched_jobs = [{"name": "PROD Gate v0.3.7", "conclusion": "skipped"}],
         )
         ok, _ = _decide(answers)
         assert ok is False
@@ -253,31 +266,31 @@ class TestProdIsGated:
     def test_no_workflow_denies(self):
         ok, reason = _decide(_github(workflow_missing = True))
         assert ok is False
-        assert "has no workflow e2e.yml" in reason
+        assert "has no workflow prod-gate.yml" in reason
 
 
     def test_no_run_for_the_commit_denies_and_says_how_to_get_one(self):
         ok, reason = _decide(_github(runs = []))
         assert ok is False
-        assert "No successful E2E run" in reason and "version 0.3.7" in reason
-        assert "on the default branch" in reason
-        assert "ref v0.3.7" not in reason, "a dispatch on the tag with the version empty no longer counts"
+        assert "No successful PROD Gate run" in reason and "version 0.3.7" in reason
+        assert "Actions, PROD Gate, Run workflow, on the default branch" in reason
 
 
     def test_a_run_whose_every_job_was_skipped_does_not_count(self):
         """
-        The dormant modes skip the job, GitHub then reports the run skipped, and a success filter never
-        returns it, but a run answered as success with no job that ran is refused here too.
+        A run answered as success with no job that ran is refused.
         """
-        ok, reason = _decide(_github(runs = [_run(7)], jobs = [{"name": "E2E v0.3.7", "conclusion": "skipped"}]))
+        jobs = [{"name": "PROD Gate v0.3.7", "conclusion": "skipped"}]
+        ok, reason = _decide(_github(runs = [_run(7)], jobs = jobs))
         assert ok is False
-        assert "No successful E2E run" in reason
+        assert "No successful PROD Gate run" in reason
 
 
-    def test_a_run_whose_lanes_passed_and_whose_journey_did_not_run_does_not_count(self):
+    def test_a_run_whose_lanes_passed_and_whose_last_job_did_not_run_does_not_count(self):
         jobs = [
-            {"name": "Unit Tests / Unit Tests", "conclusion": "success"},
-            {"name": "E2E v0.3.7", "conclusion": "skipped"},
+            {"name": "CI / unit-tests / Unit Tests", "conclusion": "success"},
+            {"name": "E2E / E2E v0.3.7", "conclusion": "success"},
+            {"name": "PROD Gate v0.3.7", "conclusion": "skipped"},
         ]
         ok, _ = _decide(_github(runs = [_run(7)], jobs = jobs))
         assert ok is False
@@ -317,7 +330,7 @@ class TestDevIsReported:
     def test_dev_with_a_green_run_says_so(self):
         ok, reason = _decide(_github(runs = [_run(7)]), environment = "dev")
         assert ok is True
-        assert "passed E2E" in reason
+        assert "passed the PROD Gate" in reason
 
 
     def test_an_api_failure_denies_dev_too(self):
@@ -344,14 +357,34 @@ class TestMain:
     def test_the_verdict_reaches_the_step_summary(self, monkeypatch, tmp_path, capsys):
         summary = tmp_path / "summary.md"
         monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
-        monkeypatch.setattr(ce, "github_fetch", _fetch(_github(runs = [_run(7)])))
+        monkeypatch.delenv("PROD_GATE_WORKFLOW", raising = False)
+        monkeypatch.setattr(gate, "github_fetch", _fetch(_github(runs = [_run(7)])))
         assert main(["--repo", REPO, "--version", "v0.3.7", "--environment", "prod"]) == 0
         out = capsys.readouterr().out
         assert out.startswith("OK: v0.3.7")
-        assert summary.read_text(encoding = "utf-8").startswith("### E2E gate (prod)\n\nOK: v0.3.7")
+        assert summary.read_text(encoding = "utf-8").startswith("### PROD gate (prod)\n\nOK: v0.3.7")
+
+
+    def test_the_workflow_read_is_the_prod_gate_unless_another_is_named(self, monkeypatch):
+        """
+        The journey's workflow holds green release runs from before D-027, each with a job the old gate read.
+        Nothing names that workflow now, so none of them opens PROD.
+        """
+        monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising = False)
+        monkeypatch.delenv("PROD_GATE_WORKFLOW", raising = False)
+        monkeypatch.delenv("E2E_WORKFLOW", raising = False)
+        monkeypatch.setattr(gate, "github_fetch", _fetch(_github(runs = [_run(7)], workflow = "e2e.yml")))
+        arguments = ["--repo", REPO, "--version", "0.3.7", "--environment", "prod"]
+        assert main(arguments) == 1
+        # the variable the old gate read names nothing here
+        monkeypatch.setenv("E2E_WORKFLOW", "e2e.yml")
+        assert main(arguments) == 1
+        monkeypatch.setenv("PROD_GATE_WORKFLOW", "e2e.yml")
+        assert main(arguments) == 0, "another file is read only when the deploy names it"
 
 
     def test_a_denial_exits_one(self, monkeypatch):
         monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising = False)
-        monkeypatch.setattr(ce, "github_fetch", _fetch(_github(runs = [])))
+        monkeypatch.delenv("PROD_GATE_WORKFLOW", raising = False)
+        monkeypatch.setattr(gate, "github_fetch", _fetch(_github(runs = [])))
         assert main(["--repo", REPO, "--version", "0.3.7", "--environment", "prod"]) == 1

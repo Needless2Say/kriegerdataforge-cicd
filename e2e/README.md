@@ -264,6 +264,14 @@ on:
   push: { branches: [main] }           # CD       — opt in with RUN_E2E_CD
   schedule: [{ cron: "0 6 * * 1" }]    # weekly   — opt in with RUN_E2E_CD
   workflow_dispatch:                   # manual   — always runs
+    inputs:
+      version: { type: string, required: false, default: "" }   # a release to test, without the v
+  workflow_call:                       # the PROD Gate — always runs, the event is the gate's dispatch
+    inputs:
+      version: { type: string, required: false, default: "" }
+    secrets:                           # every secret the job reads, a called workflow is handed no other
+      KDF_APP_ID: { required: true }
+      KDF_APP_PRIVATE_KEY: { required: true }
 permissions: { contents: read }
 jobs:
   e2e:
@@ -275,7 +283,9 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@<sha>
-        with: { path: ${{ github.event.repository.name }} }   # sibling layout
+        with:
+          path: ${{ github.event.repository.name }}           # sibling layout
+          ref: ${{ inputs.version && format('v{0}', inputs.version) || '' }}   # a release's tag
       - uses: Needless2Say/kriegerdataforge-cicd/.github/actions/run-e2e@main
         with:
           # journey: fitness  # optional, the manifest names it; must match when given
@@ -301,3 +311,8 @@ resulting **E2E** check to branch protection → *Require status checks to pass*
 
 No org move or public repos are required to run it manually, same account private
 repos are clonable with the App token.
+
+The journey is also the last lane of the repo's **PROD Gate**, `prod-gate.yml`, which calls this
+workflow for a release once every other lane passed and hands it the secrets above by name. The
+gate is what a `prod` deploy reads, the journey alone signs off nothing, see
+[`docs/guides/PROD_GATE.md`](../docs/guides/PROD_GATE.md).

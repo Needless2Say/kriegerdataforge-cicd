@@ -1,53 +1,48 @@
 """
-E2E gate for the KriegerDataForge CD workflows, a release deploys to PROD only after its full release
-test suite passed on that release, unit, integration, mutation where the repo has it, and E2E last.
+PROD gate for the KriegerDataForge CD workflows, a release deploys to PROD only after the repo's PROD Gate
+workflow passed on that release, every check and every suite the repo holds, the E2E journey last.
 
-Every repo with a deploy owns one E2E journey (`.github/workflows/e2e.yml`, the `run-e2e` action). A
-release dispatch of that workflow (the `version` input, D-021) runs the repo's unit and integration
-lanes, and its mutation lane where one exists, ahead of the E2E job itself, each gated so the E2E job
-only runs once they all passed (D-024). This gate asks GitHub whether that workflow has a successful
-run for the exact commit the release tag names, `v<version>`, the commit the deploy job checks out, and
-whose own E2E job ran and passed. Since the E2E job depends on the earlier lanes, its pass already
-certifies the rest of the suite passed too, one lookup answers for the whole release. The `verify-e2e`
-job in `cd-nextjs-vercel.yml` and `cd-python-vercel.yml` runs it after the deployer authorization and
-before the deploy job, the same place and the same shape as `check_deployer.py`, so a PROD deploy of an
-untested or partially tested release fails closed with the reason, and a deploy of a tested one records
-which run tested it in the step summary.
+Every repo with a deploy owns one PROD Gate (`.github/workflows/prod-gate.yml`, D-027). It is dispatched with a
+release version and runs, on the tag `v<version>`, the commit the deploy job checks out, the repo's `ci.yml`
+less the jobs a pull request alone is held to, its integration, system and mutation suites, and its E2E journey.
+Its last job needs every one of them, passes only when each of them passed, and is named after the release,
+`PROD Gate v<version>`. This gate asks GitHub whether that workflow has a successful run whose job of that name
+ran and passed. The job cannot pass unless every lane did, so one lookup answers for the whole release. The
+`verify-prod-gate` job in `cd-nextjs-vercel.yml` and `cd-python-vercel.yml` runs it after the deployer
+authorization and before the deploy job, the same place and the same shape as `check_deployer.py`, so a PROD
+deploy of an untested or partially tested release fails closed with the reason, and a deploy of a tested one
+records which run tested it in the step summary.
 
 Decision, for `prod`:
-  - no tag v<version>                              -> DENY  (exit 1, fail closed)
-  - the repo has no E2E workflow                   -> DENY  (exit 1)
-  - no successful release dispatch for the version -> DENY  (exit 1)
-  - the run's `E2E v<version>` job did not pass    -> DENY  (exit 1)
-  - a successful run whose `E2E v<version>` passed -> ALLOW (exit 0), the run named in the summary
-For `dev` the same lookup runs and its result is reported, and the deploy is never denied, DEV is the
-soak that comes before the E2E dispatch on the release.
+  - no tag v<version>                                  -> DENY  (exit 1, fail closed)
+  - the repo has no PROD Gate workflow                 -> DENY  (exit 1)
+  - no successful run for the version                  -> DENY  (exit 1)
+  - the run's `PROD Gate v<version>` job did not pass  -> DENY  (exit 1)
+  - a successful run whose `PROD Gate v<version>` passed -> ALLOW (exit 0), the run named in the summary
+For `dev` the same lookup runs and its result is reported, and the deploy is never denied, DEV is the soak
+that comes before the PROD Gate is dispatched for the release.
 
-A run counts only when GitHub reports it `success` and its passed job is named `E2E v<version>`, the name
-a run dispatched with the workflow's `version` input gives its job after checking the tag out (D-021).
-That input is the one that runs the unit, integration and mutation lanes as jobs the e2e job needs
-(D-024), so the name is the proof the whole suite ran. A failure in any lane fails the run, GitHub never
-reports it `success`, and this check denies without needing to know those lanes' job names. A run with
-the input empty names its job `E2E` and skips every lane, so it does not count, not on the tag's own
-commit either, which D-019 and D-021 counted (D-024). A run whose e2e job was skipped (the dormant
-modes, RUN_E2E_GATE and RUN_E2E_CD unset) reports `skipped`, not `success`, and does not count.
+A run counts only when GitHub reports it `success` and its passed job is named `PROD Gate v<version>`. A lane
+that failed fails the run, GitHub never reports it `success`, and this check denies without needing to know
+the lanes' names. A run of the E2E workflow does not count, whatever its job is named, the journey alone is
+one lane of the suite (D-027 supersedes D-021 and D-024 there).
 
-The workflow a run ran is the one on the ref it was dispatched on, so the ref is held too. A run counts
-when its head is the tag's commit, the release's own workflow, or when it was dispatched on the
-repository's default branch, which the branch rules protect. A dispatch on any other branch does not
-count, that branch's copy of the workflow may have dropped a lane and kept the job's name.
+The workflow a run ran is the one on the ref it was dispatched on, so the ref is held too. A run counts when
+its head is the tag's commit, the release's own workflow, or when it was dispatched on the repository's
+default branch, which the branch rules protect. A dispatch on any other branch does not count, that branch's
+copy of the workflow may have dropped a lane and kept the job's name.
 
 Inputs (CLI flags take precedence over environment variables):
   --repo         / DEPLOY_REPO        / GITHUB_REPOSITORY            e.g. "Needless2Say/fitness-app-frontend"
   --version      / DEPLOY_VERSION                                    e.g. "1.2.0", the tag is v1.2.0
   --environment  / DEPLOY_ENVIRONMENT                                "dev" or "prod"
-  --workflow     / E2E_WORKFLOW                                      the workflow file, default e2e.yml
+  --workflow     / PROD_GATE_WORKFLOW                                the workflow file, default prod-gate.yml
   GH_TOKEN / GITHUB_TOKEN                                            a token with actions: read on the repo
   GITHUB_API_URL                                                     default https://api.github.com
 
 Usage:
-    python3 check_e2e.py
-    python3 check_e2e.py --repo Needless2Say/tiffanys-space --version 0.3.7 --environment prod
+    python3 check_prod_gate.py
+    python3 check_prod_gate.py --repo Needless2Say/tiffanys-space --version 0.3.7 --environment prod
 
 Requirements: standard library only (no pip install).
 """
@@ -68,12 +63,12 @@ from collections.abc import Callable
 # Configuration
 # ======================================================================================================================
 
-DEFAULT_WORKFLOW: str = "e2e.yml"
+DEFAULT_WORKFLOW: str = "prod-gate.yml"
 DEFAULT_API_URL:  str = "https://api.github.com"
 API_TIMEOUT:      int = 30
 
-# the job name a release dispatch gives itself, the E2E workflow's `version` input (D-021)
-RELEASE_JOB_NAME: str = "E2E v{version}"
+# the name the PROD Gate's last job gives itself, the job that needs every lane (D-027)
+RELEASE_JOB_NAME: str = "PROD Gate v{version}"
 
 # how many dispatched runs are searched for that job name, newest first
 DISPATCHED_RUNS_SEARCHED: int = 30
@@ -91,7 +86,7 @@ EPILOG: str = "\n".join((
     "  --repo         <- DEPLOY_REPO / GITHUB_REPOSITORY",
     "  --version      <- DEPLOY_VERSION",
     "  --environment  <- DEPLOY_ENVIRONMENT",
-    "  --workflow     <- E2E_WORKFLOW (default e2e.yml)",
+    "  --workflow     <- PROD_GATE_WORKFLOW (default prod-gate.yml)",
 ))
 
 # ======================================================================================================================
@@ -223,12 +218,11 @@ def successful_run(
     version: str,
 ) -> tuple[dict, str] | None:
     """
-    Find the newest successful release dispatch of the E2E workflow for one release, and say how it was found.
+    Find the newest successful run of the PROD Gate for one release, and say how it was found.
 
-    A run counts when its passed job is named after the release, ``E2E v<version>``, the name the workflow's
-    ``version`` input gives it (D-021), the same input that runs the rest of the suite ahead of it (D-024).
-    The workflow it ran must be one to trust, the release's own, its head the tag's commit, or the default
-    branch's.
+    A run counts when its passed job is named after the release, ``PROD Gate v<version>``, the job that needs
+    every lane of the suite (D-027). The workflow it ran must be one to trust, the release's own, its head the
+    tag's commit, or the default branch's.
 
     Args:
         fetch: The API reader
@@ -261,9 +255,9 @@ def successful_run(
         return any(job.get("name") == wanted for job in _passed_jobs(fetch, api_url, repo, run))
 
 
-    # a run on the tag's commit ran the workflow the release itself carries. one with the version input empty
-    # is on that commit too, a push to the default branch or a dispatch on the tag, and ran no lane but the
-    # journey, so the name is asked of it as well
+    # a run on the tag's commit ran the workflow the release itself carries, a dispatch on the tag or on the
+    # default branch while its head was the release. the name is asked of it all the same, a run for another
+    # version on the same commit tested another tag
     query = urllib.parse.urlencode({"head_sha": sha, "status": "success", "per_page": 20})
     for run in fetch(f"{runs_url}?{query}").get("workflow_runs") or []:
         if tested_the_release(run):
@@ -306,7 +300,7 @@ def decide(
         repo: owner/name of the repo being deployed
         version: The release version, without the v
         environment: The target, dev or prod
-        workflow: The E2E workflow file name
+        workflow: The PROD Gate workflow file name
 
     Returns:
         ``(allowed, reason)``
@@ -318,7 +312,7 @@ def decide(
         sha = tag_commit(fetch, api_url, repo, tag)
         if sha is None:
             return (not gated), (
-                f"There is no tag {tag} in {repo}, so no E2E run can have tested it ({verdict}). "
+                f"There is no tag {tag} in {repo}, so no PROD Gate run can have tested it ({verdict}). "
                 f"The release workflow creates the tag when VERSION lands on main."
             )
         try:
@@ -326,27 +320,27 @@ def decide(
         except ApiError as exc:
             if exc.status == 404:
                 return (not gated), (
-                    f"{repo} has no workflow {workflow}, so its releases carry no E2E run ({verdict}). "
-                    f"Every repo that deploys owns one, see kriegerdataforge-cicd/docs/guides/E2E_TESTING.md."
+                    f"{repo} has no workflow {workflow}, so its releases carry no PROD Gate run ({verdict}). "
+                    f"Every repo that deploys owns one, see kriegerdataforge-cicd/docs/guides/PROD_GATE.md."
                 )
             raise
     except ApiError as exc:
         return False, (
-            f"The E2E gate could not ask GitHub ({exc}). The token needs actions: read on {repo}, "
+            f"The PROD gate could not ask GitHub ({exc}). The token needs actions: read on {repo}, "
             f"the calling cd.yml grants it on its deploy job (denied, nothing is known)."
         )
     if found is None:
         return (not gated), (
-            f"No successful E2E run of {workflow} exists for {tag} (commit {sha[:12]}) in {repo} ({verdict}). "
-            f"Dispatch it for the release, Actions, E2E, Run workflow, on the default branch, version {version}, "
-            f"and deploy again once it is green. A run with the version left empty ran no lane but the journey "
-            f"and does not count, nor does one dispatched on another branch, nor one whose job was skipped."
+            f"No successful PROD Gate run of {workflow} exists for {tag} (commit {sha[:12]}) in {repo} "
+            f"({verdict}). Dispatch it for the release, Actions, PROD Gate, Run workflow, on the default branch, "
+            f"version {version}, and deploy again once it is green. A run of the E2E workflow alone does not "
+            f"count, nor does a PROD Gate dispatched on another branch, nor one a lane of which failed."
         )
     run, how = found
     when = run.get("updated_at") or run.get("created_at") or ""
     return True, (
-        f"{tag} (commit {sha[:12]}) passed E2E in {repo}, run #{run.get('run_number')} of {workflow} ({how}), "
-        f"{when}, {run.get('html_url')}."
+        f"{tag} (commit {sha[:12]}) passed the PROD Gate in {repo}, run #{run.get('run_number')} of {workflow} "
+        f"({how}), {when}, {run.get('html_url')}."
     )
 
 # ======================================================================================================================
@@ -371,7 +365,7 @@ def _emit(message: str, *, ok: bool, environment: str) -> None:
     if summary_path:
         try:
             with open(summary_path, "a", encoding = "utf-8") as summary:
-                summary.write(f"### E2E gate ({environment})\n\n{line}\n")
+                summary.write(f"### PROD gate ({environment})\n\n{line}\n")
         except OSError:
             pass
 
@@ -390,14 +384,14 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         The parsed namespace
     """
     parser = argparse.ArgumentParser(
-        description = "Verify the release being deployed has a successful E2E run for its tag's commit.",
+        description = "Verify the release being deployed has a successful PROD Gate run.",
         formatter_class = argparse.RawDescriptionHelpFormatter,
         epilog = EPILOG,
     )
     parser.add_argument("--repo", default = None, help = "owner/repo, e.g. Needless2Say/tiffanys-space")
     parser.add_argument("--version", default = None, help = "the release version being deployed, e.g. 0.3.7")
     parser.add_argument("--environment", default = None, help = "target environment, dev or prod")
-    parser.add_argument("--workflow", default = None, help = "the E2E workflow file name, default e2e.yml")
+    parser.add_argument("--workflow", default = None, help = "the PROD Gate workflow file name, default prod-gate.yml")
     return parser.parse_args(argv)
 
 
@@ -435,7 +429,7 @@ def main(argv: list[str] | None = None) -> int:
     repo        = _resolve(args.repo, "DEPLOY_REPO", "GITHUB_REPOSITORY")
     version     = _resolve(args.version, "DEPLOY_VERSION").strip().lstrip("v")
     environment = _resolve(args.environment, "DEPLOY_ENVIRONMENT").strip().lower()
-    workflow    = _resolve(args.workflow, "E2E_WORKFLOW") or DEFAULT_WORKFLOW
+    workflow    = _resolve(args.workflow, "PROD_GATE_WORKFLOW") or DEFAULT_WORKFLOW
     api_url     = os.environ.get("GITHUB_API_URL", "").rstrip("/") or DEFAULT_API_URL
 
     inputs  = (("repo", repo), ("version", version), ("environment", environment))

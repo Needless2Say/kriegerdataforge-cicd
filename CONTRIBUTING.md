@@ -54,6 +54,7 @@ is a thin caller. All deploy logic lives in this repo.
 | **Reusable E2E engine** (driver `ci_stack.py`, `docker-compose.shared.yml`, the `run-e2e` composite action, Playwright harness) | `e2e/` + `.github/actions/run-e2e/` | — |
 | **A tenant's E2E journey** (its Playwright spec, its compose service fragment, its seed data, its `e2e/manifest.json`) | — | `e2e/` in that tenant repo |
 | **E2E gate job** (a thin CI job that `uses:` the `run-e2e` action, gated by `RUN_E2E_GATE`) | — | `.github/workflows/e2e.yml` |
+| **PROD Gate** (the workflow a release must pass before `prod`, it calls the repo's `ci.yml`, its suites and its journey) | the lanes it calls, `.github/workflows/ci-*.yml`, and the check the deploy runs, `scripts/check_prod_gate.py` | `.github/workflows/prod-gate.yml` |
 
 ### Rule of thumb
 
