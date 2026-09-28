@@ -1,5 +1,7 @@
 # kriegerdataforge-cicd, Agent instructions
 
+@AGENTS.md
+
 **The canonical agent guide for this repo is [`AGENTS.md`](./AGENTS.md). Read it first.**
 
 It covers this repo's vision & purpose, tech stack, module map, critical rules, **required reading**,
