@@ -1263,3 +1263,64 @@ here in `scripts/tests/test_workflow_contracts.py`, every lane checks out the re
 `scripts/tests/test_consumer_release_workflows.py`, the six consumers' shape, read where their checkouts sit
 beside this one. The hub and the auth UI pin their own, mutants RE-M-53 to RE-M-69 and UI-F-121 to UI-F-132.
 A release tests the tag, so each consumer needs a release cut after its change merged.
+
+## D-027. The PROD Gate, a workflow of its own, the owner's list of lanes and a verdict job the deploy reads
+
+- **Date.** 2026-09-27
+- **Status.** Accepted. Owner decision. Supersedes D-021 and D-024 where they made the journey's job the mark,
+  and D-026 where it ran every job of `ci.yml`.
+- **Tier / scope:** `scripts/check_prod_gate.py` (was `check_e2e.py`) · `cd-nextjs-vercel.yml`,
+  `cd-python-vercel.yml` · three new lanes, `ci-python-system.yml`, `ci-python-mutation.yml`,
+  `ci-nextjs-mutation.yml` · the six deploying repos' `prod-gate.yml`, `e2e.yml` and `ci.yml`
+
+**Context.** The first release runs under D-026 failed in five of the six repos, and no test failed in any of
+them. Every job that installs a private package stopped at its install, `Invalid username or token`. The
+package token `GH_PACKAGES_PAT` expired that day, 2026-09-27, the date `scripts/secret_registry.json` records
+for it. It worked in pull request runs at 18:51 UTC and was refused from 19:54 UTC on. The hub's lanes that
+call this repo passed, the hub has set `USE_GITHUB_APP` and they mint a token per job, and the hub's own four
+jobs, which read the package token alone, failed. The four tenants have the App's credentials and not the
+variable, so every lane fell back to the token. The two frontends also failed their integration lane, they
+were dispatched for tags cut before the target the lane runs existed.
+
+The owner then named the lanes a release is held to, one list for the FastAPI repos and one for the Next.js
+repos, asked for the workflow to be named for what it does, and for the image build to leave the gate and
+stay in the repo, Vercel runs no image and a later deploy target will.
+
+**Decision.**
+
+- **A workflow of its own.** Each deploying repo holds `prod-gate.yml`, named PROD Gate, started by a dispatch
+  with a required `version` and by nothing else. `e2e.yml` is the journey alone again, callable, and the gate
+  calls it as its last lane with the secrets it reads handed over by name.
+- **The owner's lanes.** `ci` is the repo's `ci.yml` less the jobs a pull request alone is held to, the version
+  check, the style check and the image build, each marked `if: github.event_name == 'pull_request'`. Beside it,
+  the integration tree for a Next.js repo, the system suite for a FastAPI repo, and the mutation lanes for
+  both. The four tenants held no mutation suite, the two tenant backends no system suite and the auth UI no
+  integration suite, so each was written, and three lanes were added here to run them.
+- **A verdict job.** The gate's last job needs every lane, runs whenever the run was not cancelled, and passes
+  only when every lane's result is `success`. It is named `PROD Gate v<version>`. The verdict is a program
+  handed to `python3`, so a test runs it on every result GitHub can write.
+- **The deploy reads the gate.** `check_prod_gate.py` reads `prod-gate.yml` and the job `PROD Gate v<version>`.
+  A run of `e2e.yml` opens nothing, which closes what D-024 left open, the green release runs made before it,
+  each with a job the old check read.
+- **The App before the package token.** The three new lanes mint the App's token first, as every lane here
+  that installs does, and the hub's own four jobs now do the same.
+
+**Alternatives considered.** Renaming `e2e.yml`'s `name` and leaving it the gate (rejected, every pull request
+would then show a skipped check named PROD Gate, and the old release runs would still open PROD) · the verdict
+as a job with no condition, which GitHub skips when a lane fails (rejected, the run is red either way and the
+owner asked which lane, a job that runs says so) · the verdict in `jq` (rejected, no test on a developer's
+machine could run it) · the mutation runner handed out by the scripts sync (rejected for now, it would land in
+seventeen repos, the tenants hold a copy each and a test holds the copies equal).
+
+**Trade-offs.** A release waits on the mutation lanes, minutes each. `pip-audit` and `npm audit` read the
+advisories of the day, so a release can fail on one published after its pull request merged. The style check
+no longer holds a release, a pull request is where it is held.
+
+**Consequences.** Merge this repo FIRST, a consumer's gate calls three lanes that do not exist before it.
+Pinned in `scripts/tests/test_check_prod_gate.py`, `scripts/tests/test_workflow_contracts.py` and
+`scripts/tests/test_consumer_release_workflows.py`. The hub and the auth UI pin their own gates. The owner
+rotates `GH_PACKAGES_PAT`, the deploy's Vercel build still reads it, and sets `USE_GITHUB_APP` to `true` on the
+four tenant repos so their lanes stop depending on it. When a deploy target runs the image, the `if` comes off
+the `docker-build` job of that repo's `ci.yml` and the gate builds it. See
+[`docs/guides/PROD_GATE.md`](guides/PROD_GATE.md).
+

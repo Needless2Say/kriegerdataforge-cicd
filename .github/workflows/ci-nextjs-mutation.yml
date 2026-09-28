@@ -1,0 +1,75 @@
+name: Node.js · Mutation tests
+
+# Reusable mutation lane for the KDF Next.js apps (D-027). The caller's `mutation_tests/run.mjs` applies
+# every hand written mutant of a lane to the checkout in turn, runs the tests that pin the rule, and
+# restores the file. A mutant counts as killed only when its tests go red, and a survivor, a rule no test
+# pins any more, fails its lane. Minutes per lane, so the PROD Gate runs it on the release tag and a pull
+# request does not.
+#
+# One job per lane, the caller names its lanes, the tables `mutation_tests/<lane>.json` it holds.
+
+# Least privilege, the lane clones and runs tests and never writes to the repo.
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+    inputs:
+      lanes:
+        description: The lanes to run, a JSON list of the caller's table names, e.g. '["foundation", "bff"]'
+        type: string
+        required: true
+      node_version:
+        description: Node.js version to use
+        type: string
+        default: "24"
+      ref:
+        description: Git ref to check out (tag, branch or SHA). Empty checks out the caller run's own ref, the PROD Gate passes the release tag so this lane tests the exact commit being deployed.
+        type: string
+        default: ""
+
+jobs:
+  mutation-tests:
+    name: Mutation (${{ matrix.lane }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: ${{ fromJSON(inputs.lanes) }}
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.ref }}
+          # the runner writes mutants into the checkout and restores them, so no credential may sit in it
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: "npm"
+
+      - name: Install dependencies
+        env:
+          # Private GH-Packages npm auth (reports-ecosystem epic W3.5): consumers that
+          # depend on @needless2say/* commit an .npmrc interpolating ${GH_NPM_TOKEN} — a
+          # CLASSIC read:packages PAT (GH Packages rejects fine-grained PATs and App
+          # installation tokens). Always exported; empty for token-less consumers.
+          GH_NPM_TOKEN: ${{ secrets.GH_NPM_TOKEN }}
+        run: npm ci
+
+      # the lane's name reaches the shell as a variable and never as text of the script
+      - name: Run the lane's mutants
+        env:
+          LANE: ${{ matrix.lane }}
+        run: node mutation_tests/run.mjs --lane "$LANE" --report "$RUNNER_TEMP/kdf-mutation"
+
+      - name: Keep the lane's report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: mutation-${{ matrix.lane }}
+          path: ${{ runner.temp }}/kdf-mutation/mutation-${{ matrix.lane }}.json
+          if-no-files-found: ignore

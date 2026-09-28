@@ -31,6 +31,7 @@ How to and operational walkthroughs.
 - [Manual Setup Guide](guides/MANUAL_SETUP.md). The runbook for everything that can't be automated. GitHub Environments, environment secrets, PAT/token creation, tenant onboarding, org migration.
 - [Secret Rotation, runbook](guides/SECRET_ROTATION.md). Rotate a repo/environment secret via `scripts/rotate_secret.py` + `secret_registry.json`. §8.3a includes fanning a rotated App key out to the consumer repo copies via `ops:distribute-app-secrets` (`scripts/distribute_app_secrets.py`).
 - [End-to-end (E2E) testing. CI gate, CD/nightly, or on demand](guides/E2E_TESTING.md). How the reusable E2E engine runs.
+- [The PROD Gate. One workflow a release must pass before PROD](guides/PROD_GATE.md). What each repo's gate runs, how to run it, how the deploy reads it, and what to do when it is red.
 - [GitHub Projects boards, catalog + operations](guides/PROJECTS_BOARDS.md). The 6 ecosystem ticket boards, the `ops:provision-projects` runbook, and the one time manual steps (Status options, views, invites).
 - [Reports triage, trigger operations](guides/REPORTS_TRIAGE_OPS.md). The disarmed at birth weekly triage trigger (`trigger_triage.py` + `reports_registry.json`), the `ops:triage-reports` run now form, the per app wiring checklist, and the dual store cron secret model.
 

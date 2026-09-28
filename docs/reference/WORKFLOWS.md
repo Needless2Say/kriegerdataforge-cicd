@@ -11,7 +11,7 @@ this writing. Each entry cites `file:line`.
 - **Overview + consumption rules.** This section.
 - **The contract.** [Reusable workflow catalog](#reusable-workflow-catalog) (per workflow inputs,
   secrets, outputs, permissions, caller snippet) + [`run-e2e` composite action](#run-e2e-composite-action).
-- **Deploy gate / approval model.** [Deployment model](#deployment-model) + [Deployer authorization gate](#deployer-authorization-gate) + [E2E gate](#e2e-gate).
+- **Deploy gate / approval model.** [Deployment model](#deployment-model) + [Deployer authorization gate](#deployer-authorization-gate) + [PROD gate](#prod-gate).
 - **Live vs. not-`uses:`-able.** [Repo-internal event-triggered workflows](#repo-internal-event-triggered-workflows) (the ops / rotation / provisioning workflows that are **not** `workflow_call`).
 
 ---
@@ -53,9 +53,9 @@ workflow). There are no push triggered deploys, Vercel git auto deploy is off. F
 2. The reusable CD workflow's **`authorize`** job runs *first* (before any approval or secret load)
    and fails closed if the actor is not an approved deployer. See
    [Deployer authorization gate](#deployer-authorization-gate).
-3. The two Vercel deploys then run **`verify-e2e`**, which asks GitHub for a successful run of the
-   consumer's own E2E workflow on the commit the release tag names, and fails closed on `prod`
-   when there is none. See [E2E gate](#e2e-gate).
+3. The two Vercel deploys then run **`verify-prod-gate`**, which asks GitHub for a successful run of
+   the consumer's own PROD Gate workflow for the release, and fails closed on `prod` when there is
+   none. See [PROD gate](#prod-gate).
 4. The `deploy`/`apply` job declares `environment: ${{ inputs.environment }}`, which loads that
    environment's secrets and pauses for approval only where the environment configures a
    required reviewer. Measured on 2026-09-17, no environment in any repo carries a reviewer or a
@@ -144,51 +144,51 @@ private (post org move), this checkout needs a read only token, tracked in
 
 ---
 
-## E2E gate
+## PROD gate
 
-A release reaches `prod` only after its own E2E journey passed on that exact release. Since D-024 a
-release dispatch of `e2e.yml` (the `version` input) runs the consumer's unit lane, integration lane,
-and system and mutation lanes where it has them, as jobs the `e2e` job `needs`, before the E2E journey itself runs.
-So "the E2E journey passed" now certifies the whole release test suite passed, not only E2E, without
-this gate needing to know each repo's lane names. The two Vercel deploys run a **`verify-e2e`** job
-between `authorize` and `deploy` (D-019), the same shape as the deployer gate, a sparse checkout of
-this repo's `scripts/` and [`scripts/check_e2e.py`](../../scripts/check_e2e.py).
+A release reaches `prod` only after the consumer's **PROD Gate** passed for it (D-027). The gate is the
+consumer's `prod-gate.yml`, dispatched with the release version. It runs the repo's `ci.yml`, its
+integration, system and mutation suites and its E2E journey on the release tag, and its last job, which
+needs every lane and passes only when each passed, is named `PROD Gate v<version>`. The two Vercel
+deploys run a **`verify-prod-gate`** job between `authorize` and `deploy`, the same shape as the deployer
+gate, a sparse checkout of this repo's `scripts/` and
+[`scripts/check_prod_gate.py`](../../scripts/check_prod_gate.py). What the gate runs per stack is in
+[`PROD_GATE.md`](../guides/PROD_GATE.md).
 
 **How it works:**
 
 1. The script resolves the tag `v<version>` in the consumer repo to its commit, following an
    annotated tag to the commit it names. The deploy job checks out that same tag.
-2. It lists the runs of the consumer's E2E workflow (`e2e.yml`, the one every deploying repo owns,
-   see [`E2E_TESTING.md`](../guides/E2E_TESTING.md)) whose `head_sha` is that commit and whose
-   status is `success`, and takes the newest one whose passed job is named `E2E v<version>`, the
-   name a run dispatched with the workflow's `version` input gives its job after checking that tag
-   out (D-021). Failing that, it lists the workflow's successful dispatched runs, newest first, and
-   takes the first that ran on the repository's default branch and whose passed job has that name.
-   The name is asked of every run (D-024). The `version` input is what runs the lanes, so a run with
-   it empty tested the journey alone and does not count, on the tag's own commit either. A release
-   dispatched on another branch does not count, that branch's workflow may have dropped a lane. A
-   run whose `e2e` job was skipped reports `skipped`, never `success`, and does not count.
+2. It lists the runs of the consumer's `prod-gate.yml` whose `head_sha` is that commit and whose
+   status is `success`, and takes the newest one whose passed job is named `PROD Gate v<version>`.
+   Failing that, it lists the workflow's successful dispatched runs, newest first, and takes the
+   first that ran on the repository's default branch and whose passed job has that name. The name is
+   asked of every run, a run for another version on the same commit tested another tag. A gate
+   dispatched on another branch does not count, that branch's workflow may have dropped a lane. A run
+   of the E2E workflow is never read, the journey is one lane (D-027 supersedes D-021 and D-024 here).
 3. **On `prod`, none found means the job fails and the deploy never runs**, with the reason on the
    line and in the step summary, no tag, no workflow, or no green run for the release, and what to
-   do, dispatch **Actions, E2E, Run workflow** on the default branch with the version, and
+   do, dispatch **Actions, PROD Gate, Run workflow** on the default branch with the version, and
    deploy again once it is green. When one is found, the step summary records which run tested the
    release, how it was found, its number, time and link, the way the deployer gate records who
    deployed.
 4. **On `dev` the lookup runs and reports, and never denies.** DEV is the soak that comes before
-   the E2E dispatch on the release.
+   the gate is dispatched for the release.
 
 The runs listing needs `actions: read`, which a called workflow can only hold when the caller grants
 it, so every consumer's `cd.yml` gives its deploy job `contents: read`, `id-token: write` and
 `actions: read`. A caller that omits it fails at startup with GitHub's own permission message.
 
-`check_e2e.py` is stdlib only and unit tested in `scripts/tests/test_check_e2e.py`, against a map of
-the API answers. The job is pinned by `scripts/tests/test_workflow_contracts.py`.
+`check_prod_gate.py` is stdlib only and unit tested in `scripts/tests/test_check_prod_gate.py`, against
+a map of the API answers. The job is pinned by `scripts/tests/test_workflow_contracts.py`, and the six
+consumers' gates by `scripts/tests/test_consumer_release_workflows.py`, which runs each gate's verdict
+on every result GitHub can write.
 
 ---
 
 ## Reusable workflow catalog
 
-21 workflows are `on: workflow_call`. None declares an explicit `secrets:` block, so callers pass
+24 workflows are `on: workflow_call`. None declares an explicit `secrets:` block, so callers pass
 `secrets: inherit`. Permissions are stated as declared in each file (top level and/or per job), an
 undeclared scope means the workflow relies on the caller's / default token.
 
@@ -374,6 +374,7 @@ App installation tokens (classic PAT / `GITHUB_TOKEN` only, see `SECRET_ROTATION
 | `ci-nextjs-lint-typecheck.yml` | `node_version`=`"22"` | `make ci-lint` + `make ci-typecheck` | |
 | `ci-nextjs-tests.yml` | `node_version`=`"24"`, `ref`=`""` (the ref to check out, a release dispatch passes the tag, D-024) | `make ci-unit-tests` (Jest) | |
 | `ci-nextjs-integration.yml` | `node_version`=`"24"`, `ref`=`""` (as the unit lane's) | `make ci-integration-tests` (Jest, the caller's `src/__tests__/integration/` tree, no coverage), a release dispatch's lane (D-025) | `contents: read` |
+| `ci-nextjs-mutation.yml` | `lanes` (**required**, a JSON list of the caller's tables), `node_version`=`"24"`, `ref`=`""` | `node mutation_tests/run.mjs --lane <lane>`, one job per lane, a survivor fails its lane, the PROD Gate's lane (D-027) | `contents: read`, the checkout keeps no credential |
 | `ci-npm-audit.yml` | `node_version`=`"22"` | `make ci-npm-audit` | fails on high/critical prod dep CVEs |
 
 ```yaml
@@ -410,6 +411,8 @@ the slim runner.
 | `ci-python-typecheck.yml` | + `typecheck_command`=`python -m mypy api/` (same shape as lint) | yes | `contents: read` |
 | `ci-python-tests.yml` | + `test_command`=`python -m pytest unit_tests/ -q --tb=short` (fast, DB free unit lane), `ref`=`""` (the ref to check out, a release dispatch passes the tag, D-024) | yes | `contents: read` |
 | `ci-python-integration.yml` | `python_version`=`3.14`, `install_command`=`pip install -r requirements.txt`, `migrate_command`=`alembic upgrade head`, `seed_command`=`""`, `test_command`=`python -m pytest -m requires_postgres -q --tb=short`, `needs_sdk_auth` (bool)=`false`, `ref`=`""` (as the unit lane's) | yes | `contents: read` |
+| `ci-python-system.yml` | `python_version`=`3.14`, `install_command`=`pip install -r requirements.txt`, `test_command`=`python -m pytest system_tests/ -q --tb=short -p no:warnings -ra`, `needs_sdk_auth` (bool)=`false`, `ref`=`""`, the PROD Gate's lane (D-027) | yes | `contents: read` |
+| `ci-python-mutation.yml` | `lanes` (**required**, a JSON list of the caller's tables), `python_version`=`3.14`, `install_command`=`pip install -r requirements.txt`, `needs_sdk_auth` (bool)=`false`, `ref`=`""`, one job per lane, the PROD Gate's lane (D-027) | yes | `contents: read` |
 | `ci-python-security.yml` | `python_version`=`3.14`, `bandit_paths`=`api/ scripts/ vercel_api/`, `needs_sdk_auth` (bool)=`false` | yes | `contents: read` |
 | `ci-vercel-compactor.yml` | `python_version`=`3.14` | no | *(none declared)* |
 
@@ -421,6 +424,13 @@ None of these declares outputs.
 gate), so a `-m requires_postgres` suite actually runs instead of silently green skipping (finding
 PL-166). App specific schema (e.g. a `kdfusers` table) is provisioned by the caller's `seed_command`,
 whose SQL lives in the caller's private repo (`:59-107`).
+
+**`ci-python-system.yml`** provisions a `postgres:16` service whose database is `kdf_system` and
+exports `KDF_SYSTEM_DATABASE_URL`. The suite's harness builds each server's environment from nothing, so
+the job hands it the database alone. **`ci-python-mutation.yml`** provisions one too, `kdf_mutation`, makes
+a second database `kdf_mutation_sys` beside it, and exports both `KDF_TEST_DATABASE_URL` and
+`KDF_SYSTEM_DATABASE_URL`, a lane may hold mutants of all three suites and the system suite commits rows
+the integration suite must never read.
 
 **`ci-python-security.yml`** runs two jobs. `bandit` SAST over `bandit_paths` and `pip-audit` (CVE
 check) against `requirements.txt`. No SARIF upload, hence no `security-events: write`.
