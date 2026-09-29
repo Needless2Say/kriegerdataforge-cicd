@@ -134,7 +134,9 @@ review gated PRs. It never calls upstream.
 Trigger events (`:14`). `workflow_dispatch`, plus `schedule` cron `0 12 * * 1` (Mondays 12:00 UTC).
 The scheduled run is a **read only drift alarm**. `mode` defaults to `check` via
 `${{ github.event.inputs.mode || 'check' }}` (`:91`), so a failing weekly run means some repo has
-drifted.
+drifted, or its own files lack part of the ecosystem standard, the `AGENTS.md` role pointer, a tracked
+`.env.kdf.example` or a `.gitignore` that keeps `.env.kdf` out (ADR D-030). `check` lists those under
+`GAPS`, and each repo fixes its own in its own pull request, `distribute` opens none for them.
 
 Permissions (`:35`). Top level `contents: read`. The write capability comes from a separately minted
 token, not `GITHUB_TOKEN`.
