@@ -872,8 +872,8 @@ const CURL_LONG_VALUES = new Set(['url', 'header', 'request', 'data', 'data-asci
   'data-urlencode', 'json', 'user-agent', 'referer', 'write-out', 'max-time', 'connect-timeout', 'range', 'user', 'retry',
   'retry-delay', 'retry-max-time']);
 const CURL_AT_READS = new Set(['H', 'd', 'w', 'header', 'data', 'data-ascii', 'data-binary', 'json', 'write-out']);
-// The host is matched as text, never through a URL parser, since curl and a parser disagree on a URL such as
-// http://localhost\@example.com, which curl sends to example.com.
+// The host is matched as text in one strict shape, never through a URL parser, whose reading of an odd URL need not
+// match curl's own. A URL in any other shape is refused, even one curl would send to this machine.
 const LOCAL_URL = /^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1|\[::1\])(?::(\d+))?(?:[/?#].*)?$/i;
 // The Docker Engine API and Caddy's admin API listen here, and a request to either starts or stops the stack.
 const CONTROL_PORTS = new Set(['2375', '2376', '2019']);

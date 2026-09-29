@@ -91,8 +91,9 @@ files under `docs/security`, never a tracked brief, plan, log or earlier report 
 stack and never changes it. docker runs only `ps` and `logs`, their compose forms too, against this machine's daemon,
 and curl reaches `localhost`, `127.0.0.1` or `[::1]` over http or https alone. curl takes an allow list of options,
 so nothing writes a file, reads one with `@`, follows a redirect, goes through a proxy or a socket, or reaches port
-2375, 2376 or 2019, the Docker Engine and Caddy admin APIs. The host is matched as text, since curl and a URL parser
-disagree on `http://localhost\@example.com`. Neither takes an environment assignment such as `https_proxy=`. A reviewer follows
+2375, 2376 or 2019, the Docker Engine and Caddy admin APIs. The host is matched as text in one strict shape, so no
+URL parser has to agree with curl's own, and a URL in any other shape is refused. Neither takes an environment
+assignment such as `https_proxy=`. A reviewer follows
 `.gitignore`, so Read, Grep, Glob and every shell program that prints a file are refused a path git ignores,
 `.env.local` aside, and the reports the launcher holds in
 `.git/kdf-review`. A recursive `grep`, `rg -u` or `--no-ignore`, and `git grep` or `git diff` with `--no-index` are
