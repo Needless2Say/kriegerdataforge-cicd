@@ -7,7 +7,7 @@ unchanged — it is the regression alarm for the engine extraction.)
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import common.repo_sync as rs
 
@@ -120,6 +120,7 @@ def _distribute(items, **patches):
         "_get_branch_sha": {"return_value": "basesha"},
         "_create_branch": {},
         "_put_file": {},
+        "_open_pr_url": {"return_value": None},
         "_create_pr": {"return_value": "https://pr"},
     }
     defaults.update(patches)
@@ -160,6 +161,39 @@ def test_distribute_skips_in_sync_repo():
         rc, mocks = _distribute([item])
     assert rc == 0
     mocks["_create_pr"].assert_not_called()
+
+
+def test_distribute_rerun_with_an_open_pr_updates_the_branch_and_opens_no_second_pr(capsys):
+    """
+    A second run over the same sync branch still writes what changed, then finds the open PR and does not ask
+    GitHub for another, so a doubled run reads as already open and not as a 422 from every repo.
+    """
+    item = _file_item("a.md", "new")
+    with patch.object(rs, "_get_remote_file", return_value = ("old", "sha")):
+        rc, mocks = _distribute([item], _open_pr_url = {"return_value": "https://github.com/o/r/pull/7"})
+    assert rc == 0
+    assert mocks["_put_file"].call_count == 2
+    mocks["_create_pr"].assert_not_called()
+    out = capsys.readouterr().out
+    assert "PR already open — https://github.com/o/r/pull/7" in out
+    assert "2 PR(s) were already open" in out
+
+
+def test_open_pr_url_asks_for_open_prs_from_the_branch_into_the_base():
+    """
+    The lookup asks for open PRs from owner:head into base and returns the first one's URL, or None.
+    """
+    found                   = MagicMock()
+    found.json.return_value = [{"html_url": "https://github.com/o/r/pull/3"}]
+    empty                   = MagicMock()
+    empty.json.return_value = []
+    with patch.object(rs._SESSION, "get", return_value = found) as get:
+        assert rs._open_pr_url("tok", "o/r", "chore/kit-sync-v1", "main") == "https://github.com/o/r/pull/3"
+    assert get.call_args.kwargs[
+        "params"
+    ] == {"head": "o:chore/kit-sync-v1", "base": "main", "state": "open", "per_page": 1}
+    with patch.object(rs._SESSION, "get", return_value = empty):
+        assert rs._open_pr_url("tok", "o/r", "chore/kit-sync-v1", "main") is None
 
 
 def test_distribute_skips_put_when_sync_branch_current():

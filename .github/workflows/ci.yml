@@ -1,11 +1,14 @@
-# CI — runs on every PR targeting main (opened, updated, reopened).
+# CI, runs on every PR targeting main (opened, updated, reopened).
 #
 # Jobs:
-#   lint   — actionlint validates all .github/workflows/*.yml files
-#   test   — pytest runs the Python unit tests in scripts/tests/
+#   lint            actionlint validates every .github/workflows/*.yml file
+#   style           kdf-fmt, the KDF house style, over scripts/
+#   test            pytest runs the Python unit tests in scripts/tests/
+#   version-check   VERSION is exactly one step ahead of main
+#   secret-scan     gitleaks over the pull request's commits
 #
-# Both jobs must pass before a PR can be merged (configure as required
-# status checks in repo Settings → Branches → main → protection rules).
+# Every job must pass before a PR can be merged. The owner sets them as required status checks in the repo's
+# ruleset for main.
 
 name: CI
 
@@ -13,6 +16,12 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
+
+# Every job reads the repo, and the secret scan also reads the pull request's commits. A called workflow never holds
+# more than its caller grants, and without pull-requests: read the whole run fails at startup with no check at all.
+permissions:
+  contents: read
+  pull-requests: read
 
 jobs:
   lint:
@@ -83,3 +92,9 @@ jobs:
 
   version-check:
     uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/bump-version-check.yml@main
+
+  # The secret scan every other repo calls, now run on this public repo too. A local reference, like style, so a change
+  # to secret-scan.yml is exercised by the pull request that makes it. It uses the default gitleaks rules, since this
+  # repo has no .gitleaks.toml, and its full history held no finding on gitleaks 8.30.1 on 2026-09-29.
+  secret-scan:
+    uses: ./.github/workflows/secret-scan.yml

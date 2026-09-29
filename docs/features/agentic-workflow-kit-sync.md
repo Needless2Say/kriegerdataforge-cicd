@@ -12,7 +12,7 @@ is one source of truth (`kit/common/`), one registry of targets
 (`scripts/kit_registry.json`), and a Python propagation engine (`scripts/distribute_kit.py`) that
 either reports drift (`check`) or opens one review gated pull request per drifted repo
 (`distribute`). It **never auto merges**. The owner reviews and merges each sync PR. It exists so
-that a change to how agents operate is authored once and fans out to ~14 repos as ordinary PRs,
+that a change to how agents operate is authored once and fans out to every registry repo as ordinary PRs,
 instead of being hand copied and going stale (ADR **D-001**, see
 [`../CHANGELOG_AND_DECISION_LOG.md`](../CHANGELOG_AND_DECISION_LOG.md)).
 
@@ -33,8 +33,8 @@ ADR D-001 option B).
   │   kit/common/docs/agent/KIT_VERSION ── v1.2.0 ──┘  (vendored copy, itself a synced file)│
   │                                                                                        │
   │   kit/common/                       scripts/kit_registry.json                          │
-  │     ├ skills.md                       ├ files[]  (12 kit paths, exact)                 │
-  │     ├ WORKFLOW.md                     └ repos[]  (14 owner/repo + branch targets)      │
+  │     ├ skills.md                       ├ files[]  (19 kit paths, exact)                 │
+  │     ├ WORKFLOW.md                     └ repos[]  (17 owner/repo + branch targets)      │
   │     └ docs/agent/{AGENT_OPERATING_STANDARD, DESIGN_AND_EPICS,                          │
   │        DEFINITION_OF_DONE, DOCUMENTATION_STANDARD, KIT_VERSION, templates/*}           │
   │                    │                          │                                        │
@@ -102,7 +102,7 @@ review gated PRs. It never calls upstream.
   drift/missing).
 - `_SESSION` (built by `common/http.py::build_session`). A shared `requests.Session` with a `urllib3`
   retry adapter. Transient GitHub failures (`429`/`500`/`502`/`503`/`504`) and DNS/connection blips are
-  retried with exponential backoff, so a single hiccup on a ~14-repo fan out no longer aborts a repo.
+  retried with exponential backoff, so a single hiccup in a fan out to every repo no longer aborts a repo.
   Retries are limited to **idempotent** methods (GET/PUT). The branch- and PR create POSTs are not
   status retried, so a 502-after-success can't create a duplicate ref/PR. `404` (missing = drift) and
   `422` (ref exists) are never retried. The same session hardens `rotate_secret.py` (GitHub + Vercel).
@@ -134,7 +134,9 @@ review gated PRs. It never calls upstream.
 Trigger events (`:14`). `workflow_dispatch`, plus `schedule` cron `0 12 * * 1` (Mondays 12:00 UTC).
 The scheduled run is a **read only drift alarm**. `mode` defaults to `check` via
 `${{ github.event.inputs.mode || 'check' }}` (`:91`), so a failing weekly run means some repo has
-drifted.
+drifted, or its own files lack part of the ecosystem standard, the `AGENTS.md` role pointer, a tracked
+`.env.kdf.example` or a `.gitignore` that keeps `.env.kdf` out (ADR D-030). `check` lists those under
+`GAPS`, and each repo fixes its own in its own pull request, `distribute` opens none for them.
 
 Permissions (`:35`). Top level `contents: read`. The write capability comes from a separately minted
 token, not `GITHUB_TOKEN`.
@@ -251,7 +253,7 @@ GH_TOKEN=… python scripts/distribute_kit.py distribute --repos kriegerdataforg
 | `kit/KIT_VERSION` | this repo | Canonical kit version. Drives branch name, PR title, and the consistency check. Bump via `make bump-*`? **no**, the kit version is separate from the repo `VERSION` and is edited by the kit epic (ADR D-003). |
 | `kit/common/docs/agent/KIT_VERSION` | this repo (a synced file) | Vendored marker. Must equal the canonical or the engine aborts (`_assert_version_consistency`). Bump **both together**. |
 | `kit_registry.json → files[]` | this repo | The exact set of synced paths, also the source of the version-check exemption set. |
-| `kit_registry.json → repos[]` | this repo | The 14 target repos (`owner/repo` + `branch`, default `main`). cicd itself is deliberately absent. |
+| `kit_registry.json → repos[]` | this repo | The target repos, 17 since `kriegerdataforge-fmt` joined on 2026-09-29 (`owner/repo` + `branch`, default `main`). cicd itself is deliberately absent. |
 | `vars.USE_GITHUB_APP` | repo Actions **variable** | `'true'` → mint a GitHub App token. Anything else → `CICD_PAT` fallback. |
 | `secrets.KDF_APP_ID`, `secrets.KDF_APP_PRIVATE_KEY` | repo/org secrets | GitHub App credentials (only used when `USE_GITHUB_APP=true`). |
 | `secrets.CICD_PAT` | repo/org secret | Fallback token with contents + PR write across targets. |
@@ -277,9 +279,14 @@ alarm) vs `distribute` (opens PRs).
 4. Review and merge each opened PR in the tenant repos (nothing auto merges).
 
 **Onboard a new tenant repo.** Add a `{ "repo": "Needless2Say/<name>", "branch": "main" }` entry to
-`kit_registry.json → repos[]` and, for the Ops form, add the name to the `repos` dropdown options
-(`ops-distribute-kit.yml` issue template). Because `check_version.py` derives its exempt set from the
-same registry, no consumer side change is needed for the version gate.
+`kit_registry.json → repos[]`, put the repo on one board in `projects_registry.json` (a test requires it),
+and, for the Ops form, add the name to the `repos` dropdown options (`ops-distribute-kit.yml` issue
+template). Because `check_version.py` derives its exempt set from the same registry, no consumer side
+change is needed for the version gate.
+
+**cicd's own copies.** cicd is the source and never a sync target, so its root copies of the kit files are
+updated in the same pull request as `kit/common`. A test in `scripts/tests/test_distribute_kit.py` fails
+when a root copy differs from its canonical file.
 
 **Add a new synced kit file.** Add its repo relative path to `files[]`. If it lives outside
 `docs/agent/**`, `skills.md`, or `WORKFLOW.md`, also confirm the version-check exemption covers it.

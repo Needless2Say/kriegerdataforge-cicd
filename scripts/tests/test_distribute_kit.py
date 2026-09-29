@@ -12,6 +12,9 @@ from unittest.mock import MagicMock, patch
 import distribute_kit as dk
 import pytest
 
+# the real check, kept before the autouse fixture below replaces it in every test
+REAL_COMPUTE_GAPS = dk.compute_gaps
+
 
 # ── Fixtures ────────────────────────────────────────────────────────────────────
 @pytest.fixture
@@ -23,6 +26,24 @@ def registry():
             {"repo": "Needless2Say/repo-b", "branch": "main"},
         ],
     }
+
+
+@pytest.fixture(autouse = True)
+def no_open_pr():
+    """
+    No sync pull request is open unless a test says so, and no test reaches GitHub for it.
+    """
+    with patch.object(dk, "_open_pr_url", return_value = None) as open_pr:
+        yield open_pr
+
+
+@pytest.fixture(autouse = True)
+def no_gaps():
+    """
+    Every repo's own files meet the standard unless a test says so, and no check test reaches GitHub for them.
+    """
+    with patch.object(dk, "compute_gaps", return_value = []) as gaps:
+        yield gaps
 
 
 # ── Pure helpers ─────────────────────────────────────────────────────────────────
@@ -105,7 +126,7 @@ def test_session_retries_transient_failures():
     """
     Regression guard: the shared session must retry transient GitHub failures.
 
-    A fan-out check/distribute across ~14 repos routinely hits a 502/503/429 or a
+    A fan-out check/distribute across every kit repo routinely hits a 502/503/429 or a
     DNS/connection blip; without retries a single hiccup aborts a whole repo (the
     2026-07 distribute check errored on two 502s + one DNS failure). The retry must
     stay wired, cover the transient status codes + connection errors, and NOT retry
@@ -230,6 +251,50 @@ def test_cmd_distribute_reports_failure_rc():
     assert rc == 1
 
 
+def test_cmd_distribute_rerun_updates_the_open_pr_and_opens_no_second_one(no_open_pr, capsys):
+    """
+    A second run over the same sync branch brings the branch up to date and does not ask GitHub for the PR again.
+    """
+    reg                     = {"files": ["skills.md"], "repos": [{"repo": "Needless2Say/repo-a", "branch": "main"}]}
+    no_open_pr.return_value = "https://github.com/Needless2Say/repo-a/pull/7"
+    with (
+        patch.object(dk, "compute_drift", return_value = ["skills.md"]),
+        patch.object(dk, "_read_local", return_value = "new"),
+        patch.object(dk, "_get_branch_sha", return_value = "basesha"),
+        patch.object(dk, "_create_branch"),
+        patch.object(dk, "_get_remote_file", return_value = ("old", "blobsha")),
+        patch.object(dk, "_put_file") as put_file,
+        patch.object(dk, "_create_pr") as create_pr,
+    ):
+        rc = dk.cmd_distribute(reg, "tok", None)
+    assert rc == 0
+    put_file.assert_called_once()
+    create_pr.assert_not_called()
+    out = capsys.readouterr().out
+    assert "PR already open — https://github.com/Needless2Say/repo-a/pull/7" in out
+    assert "1 PR(s) were already open" in out
+
+
+def test_cmd_distribute_skips_a_file_the_sync_branch_already_carries():
+    """
+    A file whose sync branch copy already matches the kit is not written again, so a re-run adds no commits.
+    """
+    reg = {"files": ["skills.md"], "repos": [{"repo": "Needless2Say/repo-a", "branch": "main"}]}
+    with (
+        patch.object(dk, "compute_drift", return_value = ["skills.md"]),
+        patch.object(dk, "_read_local", return_value = "same\r\n"),
+        patch.object(dk, "_get_branch_sha", return_value = "basesha"),
+        patch.object(dk, "_create_branch"),
+        patch.object(dk, "_get_remote_file", return_value = ("same\n", "blobsha")),
+        patch.object(dk, "_put_file") as put_file,
+        patch.object(dk, "_create_pr", return_value = "https://pr") as create_pr,
+    ):
+        rc = dk.cmd_distribute(reg, "tok", None)
+    assert rc == 0
+    put_file.assert_not_called()
+    create_pr.assert_called_once()
+
+
 # ── version-marker consistency ───────────────────────────────────────────────────
 def test_assert_version_consistency_passes_when_match():
     marker                        = MagicMock()
@@ -285,6 +350,19 @@ def test_real_kit_version_markers_match():
     assert canonical == root_copy, (f"kit/KIT_VERSION ({canonical}) != root docs/agent/KIT_VERSION ({root_copy}).")
 
 
+def test_cicd_keeps_its_own_kit_copies_current():
+    """
+    cicd is the source and never a sync target, so its root copies of the kit files change in the same pull request as
+    kit/common. Every agent working in cicd reads the root copies, and they had fallen versions behind by 2026-09-29.
+    """
+    def text(path):
+        return path.read_bytes().replace(b"\r\n", b"\n")
+
+
+    drifted = [name for name in dk._load_registry()["files"] if text(dk.REPO_ROOT / name) != text(dk.KIT_DIR / name)]
+    assert not drifted, f"cicd's own copies differ from kit/common, copy these over: {drifted}"
+
+
 def test_real_kit_registry_files_all_exist_under_kit_common():
     """
     Every kit_registry.json files[] entry must resolve under kit/common/ — a
@@ -295,3 +373,52 @@ def test_real_kit_registry_files_all_exist_under_kit_common():
     assert files, "kit_registry.json files[] is empty"
     missing = [f for f in files if not (dk.KIT_DIR / f).is_file()]
     assert not missing, f"kit_registry files[] paths absent under kit/common/: {missing}"
+
+
+# ── gaps in a repo's own files ───────────────────────────────────────────────────
+@pytest.mark.parametrize(
+    ("gitignore", "ignored"),
+    [
+        (".env*\n!.env.example\n", True),
+        ("**/.env.*\n", True),
+        ("/.env.kdf\n", True),
+        ("# .env*\n.env.local\n.env.github\n", False),
+        (".env*\n!.env.kdf\n", False),
+        (".env*\n!.env.*.example\n", True),
+        (".env/\n", False),
+    ],
+)
+def test_ignores_reads_a_root_gitignore_as_git_does(gitignore: str, ignored: bool):
+    """
+    The last matching line wins, a negation re-includes, a comment and a directory rule never match a file.
+    """
+    assert dk._ignores(gitignore, ".env.kdf") is ignored
+
+
+def test_a_repo_that_meets_the_standard_has_no_gaps():
+    files = {
+        "AGENTS.md": "Know your role, [`docs/agent/AGENT_ROLES.md`](docs/agent/AGENT_ROLES.md)",
+        ".env.kdf.example": "GH_PACKAGES_PAT=\n",
+        ".gitignore": ".env*\n!.env.local.example\n!.env.kdf.example\n",
+    }
+    with patch.object(dk, "_get_remote_file", side_effect = lambda _t, _r, _b, path: (files.get(path), "sha")):
+        assert REAL_COMPUTE_GAPS("tok", "o/r", "main") == []
+
+
+def test_a_repo_without_the_pointer_the_example_or_the_ignore_reports_each_gap():
+    files = {"AGENTS.md": "# a guide without the pointer\n", ".gitignore": ".env.local\n"}
+    with patch.object(dk, "_get_remote_file", side_effect = lambda _t, _r, _b, path: (files.get(path), "sha")):
+        gaps = REAL_COMPUTE_GAPS("tok", "o/r", "main")
+    assert len(gaps) == 3
+    assert any("AGENT_ROLES.md" in gap for gap in gaps)
+    assert any(".env.kdf.example" in gap for gap in gaps)
+    assert any("does not ignore .env.kdf" in gap for gap in gaps)
+
+
+def test_cmd_check_returns_1_on_a_gap_and_says_distribute_opens_none(registry, no_gaps, capsys):
+    no_gaps.side_effect = [["no .env.kdf.example, the env standard of ADR D-030"], []]
+    with patch.object(dk, "compute_drift", return_value = []):
+        assert dk.cmd_check(registry, "tok", None) == 1
+    out = capsys.readouterr().out
+    assert "GAPS (1)" in out
+    assert "distribute opens none" in out

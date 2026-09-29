@@ -38,6 +38,9 @@ body:
         - ALL
         - kriegerdataforge
         - kriegerdataforge-sdk
+        - kriegerdataforge-reports-sdk
+        - kriegerdataforge-report-form
+        - kriegerdataforge-fmt
         - kriegerdataforge-terraform
         - kriegerdataforge-auth-ui
         - fitness-app-frontend

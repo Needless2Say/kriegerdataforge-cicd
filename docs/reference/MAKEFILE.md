@@ -212,8 +212,9 @@ clearing `__pycache__` directories.
 | --- | --- | --- | --- |
 | `GH_PACKAGES_PAT` | **Fine grained**, Contents. Read | `style`, `ci-style` | pip installing `kdf-fmt` |
 
-Read from `.env.local` only when not already exported (CI exports it), and never expanded into
-recipe text. `$$GH_PACKAGES_PAT` resolves in the recipe's shell, so `make -n` prints the variable
+Read from `.env.kdf`, the env standard's file for credentials (ADR D-030), only when not already
+exported (CI exports it). A `.env.local` that still holds it is read after, with a warning, until the
+token moves. Never expanded into recipe text. `$$GH_PACKAGES_PAT` resolves in the recipe's shell, so `make -n` prints the variable
 name, not a secret. Process scoped - it never writes the global `.gitconfig`, whose pollution
 previously caused 403-on-push across every repo.
 

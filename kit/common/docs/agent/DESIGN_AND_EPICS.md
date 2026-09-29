@@ -190,5 +190,5 @@ hold for any agent. The **mechanisms** are optional and depend on your tooling.
   manually.** The review is mandatory, the slash command is not.
 
 Match the fan out to the task. A one repo feature rarely needs it. An ecosystem epic almost always
-does. A review of a whole repo or package, rather than of a change, is its own process,
-[`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md).
+does. An independent review by more than one model, of any scope from one function to every repo, is its own
+process, [`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md).

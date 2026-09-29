@@ -16,14 +16,21 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-// The tools the guard must see. A hook only runs for tools its matcher names, so a gap here is a hole.
-const MATCHER = 'Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit|mcp__.*|Artifact.*|SendUserFile|SendMessage|PushNotification|RemoteTrigger|Cron.*|DesignSync|EnterWorktree|Workflow';
+// The tools the guard must see. A hook only runs for tools its matcher names, so a gap here is a hole. Read, Grep
+// and Glob carry the .gitignore rule for reviewers and the package token rule for .env.local.
+const MATCHER = 'Bash|PowerShell|Read|Grep|Glob|Edit|Write|MultiEdit|NotebookEdit|WebFetch|WebSearch|mcp__.*|Artifact.*|SendUserFile|SendMessage|PushNotification|RemoteTrigger|Cron.*|DesignSync|EnterWorktree|Workflow';
 const MUST_MATCH = [
-  'Bash', 'PowerShell', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'mcp__claude_ai_Google_Drive__share_file', 'Artifact',
-  'ArtifactData', 'SendUserFile', 'SendMessage', 'PushNotification', 'RemoteTrigger', 'CronCreate', 'DesignSync',
-  'EnterWorktree', 'Workflow'
+  'Bash', 'PowerShell', 'Read', 'Grep', 'Glob', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'WebFetch', 'WebSearch',
+  'mcp__claude_ai_Google_Drive__share_file', 'Artifact', 'ArtifactData', 'SendUserFile', 'SendMessage',
+  'PushNotification', 'RemoteTrigger', 'CronCreate', 'DesignSync', 'EnterWorktree', 'Workflow'
 ];
-const SECRET_READ_DENIES = ['Read(**/.env.local)', 'Read(**/.env.test)', 'Read(**/.env.github)', 'Read(**/*.tfvars)', 'Read(**/*.pem)'];
+// A second fence behind the guard, which never blocks when it crashes. .env.local is not among them, the owner opened
+// it on 2026-09-29 and the guard keeps one that still holds a credential closed. .env.kdf holds the credentials, and
+// .env.dev and .env.prod are the owner's admin files.
+const SECRET_READ_DENIES = [
+  'Read(**/.env.kdf)', 'Read(**/.env.dev)', 'Read(**/.env.prod)', 'Read(**/.env.test)', 'Read(**/.env.github)',
+  'Read(**/*.tfvars)', 'Read(**/*.pem)'
+];
 
 const argv = process.argv.slice(2);
 const flag = (name) => argv.includes(name);

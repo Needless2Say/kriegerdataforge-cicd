@@ -487,11 +487,15 @@ Runs **gitleaks** over the consumer's working tree **and** git history to catch 
 
 | Input | Type | Default | Required |
 |---|---|---|---|
-| `fetch-depth` | number | `0` (full history) | no (`:20-25`) |
+| `ref` | string | `""`, the caller run's own ref | no (`:21-24`) |
+| `fetch-depth` | number | `0` (full history) | no (`:25-29`) |
 
 - **Secrets.** `GITHUB_TOKEN` (default). **Outputs.** None.
-- **Permissions.** Top level **and** job. `contents: read`, `pull-requests: read` (`:27-29`, `:36-38`).
-- **Consumers.** Any repo (from `ci.yml`). No `GITLEAKS_LICENSE` needed for public/individual use.
+- **Permissions.** Top level **and** job. `contents: read`, `pull-requests: read` (`:31-33`, `:40-42`). The caller
+  grants both at its top level, or the whole run fails at startup and shows no check at all.
+- **Consumers.** Every repo, from its `ci.yml`, and since 2026-09-29 this repo too, as a local reference so a change to
+  the lane is exercised by the pull request that makes it. No `GITLEAKS_LICENSE` needed for public/individual use. On
+  a pull request the action scans the commits the pull request adds, not the whole history.
 - **gitleaks version.** Pinned by `GITLEAKS_VERSION: "8.30.1"`. Left unset the action installs 8.24.3, which ignores a
   consumer's `[[allowlists]]` array without a word (the array arrived in 8.25.0). Raise the pin deliberately, after
   scanning every consumer's full history on the new version with its own `.gitleaks.toml`.
@@ -638,7 +642,7 @@ owner gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for 
 | `ops-provision-projects.yml` | `issues: labeled` (`ops:provision-projects`) | issue form front end for `provision_projects.py` (`check`/`execute`). Adopts/creates the 6 Projects v2 boards from `projects_registry.json`. Runs on an owner staged **classic** PAT in `SECRET_VALUE_NEW`. Neither an App token nor a fine grained PAT can manage user owned ProjectsV2 (ADR D-010 W1 finding) | `_authorize-owner` |
 | `ops-distribute-app-secrets.yml` | `issues: labeled` (`ops:distribute-app-secrets`) | issue form front end for `distribute_app_secrets.py` (`check`/`execute`). Copies this repo's `KDF_APP_ID`/`KDF_APP_PRIVATE_KEY` to every consumer repo in `secret_registry.json` (`distribute_source_env` entries, the 12-repo registry list generalizes `ops-setup-e2e`'s fixed copy step). App token scoped `secrets:write` to exactly those repos. Run after an App key rotation (§8.3a) or when onboarding a consumer | `_authorize-owner` |
 | `ops-triage-reports.yml` | `issues: labeled` (`ops:triage-reports`) | issue form front end for `trigger_triage.py` (`dry-run`/`execute`, dev/prod). The owner's "run triage now" button. Fires the selected apps' `/reports/triage/cron` endpoints from `reports_registry.json` and comments the metadata only result (executing against prod requires the Confirm dropdown). Ops guide, `docs/guides/REPORTS_TRIAGE_OPS.md` | `_authorize-owner` |
-| `distribute-kit.yml` | `workflow_dispatch` (`mode` check/distribute, `only`, `repos`) + weekly `schedule` (drift alarm) | runs `distribute_kit.py`. Opens one sync PR per drifted repo | `_authorize-owner` (dispatch only) |
+| `distribute-kit.yml` | `workflow_dispatch` (`mode` check/distribute, `only`, `repos`) + weekly `schedule` (drift alarm) | runs `distribute_kit.py`. Opens one sync PR per drifted repo. `check` also fails on a gap in a repo's own files (the `AGENTS.md` role pointer, `.env.kdf.example`, `.env.kdf` ignored), which that repo fixes itself | `_authorize-owner` (dispatch only) |
 | `distribute-gh-pat.yml` | `workflow_dispatch` | distributes a staged `GH_PACKAGES_PAT_NEW` via `rotate_secret.py --mode paste` | `_authorize-owner` |
 | `rotate-vercel-tokens.yml` | monthly `schedule` + `workflow_dispatch` | re-mints the shared `VERCEL_DEPLOYMENT_TOKEN` (`--mode generate`, 45-day life) and opens a PR stamping the new expiry | `_authorize-owner` (dispatch only) |
 | `check-secret-expiry.yml` | weekly `schedule` (Mon 09:00 UTC) + `workflow_dispatch` | `rotate_secret.py --mode check --secrets all` (registry metadata only). Keeps one dedup tracking issue (`ops:secret-expiry`) open/closed | n/a (`issues:write`) |

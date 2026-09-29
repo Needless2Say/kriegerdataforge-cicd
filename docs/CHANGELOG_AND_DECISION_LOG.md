@@ -1391,3 +1391,188 @@ that the version check exempts. Each machine runs `install.sh`, adds the printed
 the cycle, and the SDK's plan and the auth UI's files are the worked examples. See
 [`tools/claude-code/README.md`](../tools/claude-code/README.md).
 
+## D-029. The review process scales from one function to the ecosystem, and every review reads a pinned commit
+
+- **Date.** 2026-09-29
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Extends D-028.
+- **Tier / scope:** Epic · `kit/common/docs/agent/CODE_REVIEW_PROCESS.md` and its four templates, kit v1.6.0 ·
+  `tools/claude-code/kdf-review.sh` · `scripts/common/repo_sync.py`, `scripts/distribute_kit.py` · every kit repo
+  receives Markdown only, through the existing sync
+
+**Context.** The owner wants the KDF Code Review Process to serve any size of review, a function, a file, several
+files, a feature, a repo, several repos, or more. D-028's standard was written for a repo and told the reader not to
+use it for a single pull request. The owner also could not reach Codex from a phone, so a Codex review can start only
+hours after the Claude review of the same slice. Under D-028 both reviewers read the working tree "at the same time".
+A late reviewer would read a tree the orchestrator had changed since, and could open the first reviewer's report,
+which lives in the same `docs/security`. Separately, the owner's double submission of the Distribute form on
+2026-09-29 made every repo answer 422, an open pull request already existed, which read as sixteen failures. Before
+merging, the owner turned down a copy of the repo per reviewer, "this does not scale well. I want the other models to
+be able to review the repo itself without me creating these environments", and asked that every model follow
+`.gitignore` the way Claude's search does. The same evening the owner opened `.env.local` to every model, "those are
+secrets for my local docker setup", approved five enhancements, the guard holding reviewers to `.gitignore`, Codex in
+the cloud, the role pointer in every `AGENTS.md`, a check that the pin is pushed and a tool that measures a brief's
+line counts, asked for cicd's own housekeeping, and put a sixth, moving secret files out of the folder during a Codex
+review, in the backlog.
+
+**Decision.**
+
+- **Scales.** The standard opens with the scale, spot (one function, a few files or a pull request's diff, no plan,
+  the brief is the plan), feature, repo, multi repo (one plan in the lead repo, a seam slice per contract), and
+  ecosystem (a program of campaigns in the hub). The rules, the severity scale and the security model are the same at
+  every scale, the plan, the slices, the Sol rounds and Phase B scale with it.
+- **The pin.** At step 2 and step 5 the orchestrator commits the slice's state with the brief and pushes it. The brief
+  names that commit. Every reviewer reads the repo folder itself at the pin, with the repo's own environment, one
+  review of a folder open at a time, and the orchestrator changes nothing in that folder until both reports are in.
+  `kdf-review.sh --pin` checks that the folder is at the pin with no tracked file changed. While a review is open the
+  other report of the scope waits in the repo's `.git/kdf-review` folder, out of the working tree, so neither reviewer
+  sees the other's, whichever goes first.
+- **Codex.** `--prepare` opens Codex's turn in the same folder and prints the one line. `--collect` closes it only when
+  nothing but new files under `docs/security` changed and HEAD is still at the pin, and otherwise leaves it open for
+  the orchestrator to put right. Codex runs outside Claude Code with no guard, so collect is its fence. Remote tracking
+  refs are left out of the check, an editor's background fetch moves them.
+- **Both families, always**, rule 15. When one model family cannot run for a while, the other goes ahead and the
+  missing review reads a later pin when it can run. It is never skipped, and the slice does not close without it.
+- **Follow `.gitignore`**, rule 6 of `AGENT_ROLES.md` for every role. What git ignores is not the project, so no model
+  searches, opens or quotes it, and a reviewer reviews only what git tracks. `WORKFLOW.md`, every brief and the
+  `AGENTS.md` pointer say so. Measured on 2026-09-29, Claude Code's Grep skips ignored paths but reads one named to it,
+  and its Glob and Read do not look at `.gitignore` at all, so the guard now reads Read, Grep and Glob calls. A
+  reviewer is refused a path git ignores in those tools and in every shell program that prints a file, the reports the
+  launcher holds, a recursive `grep`, `rg -u` and `--no-index`. The hook matcher adds `Read|Grep|Glob`, and every
+  such call pays the guard's 65 ms, 83 ms for a reviewer's, which also asks git.
+- **`.env.local` is open to every model**, the owner's decision, since it holds the local stack's settings, and
+  D-030 makes that safe by moving every credential to `.env.kdf`. A `.env.local` that still holds one stays closed in
+  every session, and the charter tells every other model to check with `grep -q` before it opens one. The guard's
+  secret list now matches the charter's, every `.env` file but an example, where it had missed `.env.dev` and the
+  `.env.local.bak`, `.remote` and `.friend` copies found on the owner's machine.
+- **The pin is pushed, and the brief's facts are measured.** `--pin` refuses a commit no branch of `origin` holds.
+  `kdf-brief.js` prints the commit line and the scope table's line counts at the pin, and checks a written brief's
+  table, and the launcher runs that check before every pinned review.
+- **Codex in the cloud.** It reads a review branch that stays at the pin, `review/<pfx>-<slice>`, on GitHub, where no
+  ignored file exists, and the owner starts it from a phone. Its report comes back on the branch of the pull request
+  it opens, and `--collect-branch` writes it into the folder only when the branch is built on the pin and adds nothing
+  but new files under `docs/security`. Every report's header lists what its reviewer read first, and every collect
+  warns when the header does not name the pin or that list.
+- **cicd's housekeeping.** cicd's own CI runs the secret scan it offers every other repo, and its root copies of the
+  kit, which had fallen behind, are synced and held equal to `kit/common` by a test. `kriegerdataforge-fmt` joins the
+  kit registry and the Platform board. `AGENTS.md` names `make ci`, which exists.
+- **A fresh review before merging.** Two fresh sessions read the kit and the tooling on 2026-09-29, and every
+  finding was reproduced before it was fixed. A reviewer's edit to a tracked file under `docs/security`, a brief, a
+  plan or a log, now fails the review, and the guard refuses a reviewer that write. The orchestrator writes a report's
+  adjudication rows only once both reports of the pin are in, so the second reviewer never reads them. A reviewer never
+  starts, stops or resets the running stack and probes it through the tests or a script. A mutant the brief names is
+  the one edit a reviewer may make, restored with `git status --porcelain` unchanged. A cloud reviewer's commit of its
+  report is its one git write. A late pin under rule 15 carries the first family's report, so its brief names what to
+  skip. The template links resolve where the templates are copied to.
+- **Distribute can run twice.** Both engines skip a file whose sync branch copy already matches, and look for an open
+  pull request from the sync branch before opening one. A second run brings the branch up to date and prints "PR
+  already open" in place of a 422.
+- **Roles for every model.** The owner asked that the limits the guard enforces on Claude also reach the models that
+  read only `AGENTS.md` and the kit. A new kit file, `docs/agent/AGENT_ROLES.md`, writes four roles for any model or
+  tool, implementer by default, orchestrator, reviewer and chat reader, and ten rules every role keeps, the guard's
+  owner rules in words and `.gitignore`. `WORKFLOW.md`, which every `AGENTS.md` sends an agent to for every task,
+  opens with them, and every review brief states the reviewer's role in its own text, since a reviewer of any model
+  reads its brief. The guard and the charter change together.
+
+**Alternatives considered.**
+
+- A git worktree copy per reviewer at the pin, set up by a command per repo. Built first, and measured on the SDK at
+  `97d2fe9`, a copy set up from public packages in 32 seconds ran all 887 tests and `mypy` clean. Rejected by the
+  owner, each review needs an environment of its own, a virtual environment or `node_modules`, and Codex would be
+  opened in a folder made for it. Its two gains, a copy holds no secret and the orchestrator works on meanwhile, are
+  traded for the folder the owner already uses.
+- The late reviewer reads the moved tree and is told not to open the other report. Rejected, independence would rest
+  on an instruction, and the late reviewer would read code the first never saw.
+- Codex skipped at step 2 when it cannot run, and kept for step 5. Rejected, the owner's decision is that both models
+  read every slice twice.
+- The roles written only into `WORKFLOW.md` and the briefs. The owner wanted the pointer in every `AGENTS.md` too.
+  `AGENTS.md` is per repo and not synced, so it is a pull request per repo with a version bump each. This repo's
+  carries the pointer now, the SDK's rides with its review's first slice, and the others follow the v1.6.0 sync, so
+  the page they point to is there first.
+- Moving the secret files out of the folder while Codex reads it. Held in the backlog by the owner, issue #236. A reviewer's
+  tests and the running stack read those files, and a move that is cut off between out and back leaves a repo without
+  its settings. Codex in the cloud gives the same protection with nothing moved.
+
+**Trade-offs.** A review freezes its folder. The orchestrator reads, plans and works in other repos meanwhile, and a
+slice waits for Codex as long as Codex waits for the owner, unless Codex runs in the cloud. Codex on the owner's
+machine reads the folder that holds the owner's local secret files, and its sandbox limits what it writes, not what it
+reads, so rules 5 and 6 alone keep it from them, a `.env.local` that still holds a package token included. Codex in
+the cloud reads GitHub, where no ignored file exists. For a model that does not run the guard the roles are
+instructions, not enforcement, and what holds it is its own sandbox, collect for a reviewer, and GitHub's rulesets.
+Every Read, Grep and Glob call now costs a guard run.
+
+**Consequences.** After this merges the owner reinstalls the guard, adds `Read|Grep|Glob` to the hook matcher, then
+swaps `Read(**/.env.local)` in the deny list for `Read(**/.env.kdf)`, `Read(**/.env.dev)` and `Read(**/.env.prod)`, in
+that order, and runs Distribute once, kit v1.6.0. A `.env.local` that still holds a credential stays closed until it
+is split under D-030. Every slice's step 2 pins, and the SDK plan's section 13 runs both reviewers in the SDK folder
+with no setup. The launcher's tests prove the pushed pin, the pin check, the brief check, one review of a folder at a
+time, the held report in both orders, collect's fence, the cloud branch's fence, and the recovery of a Claude run that
+was cut off.
+
+## D-030. Two local env files, `.env.local` open to every model and `.env.kdf` closed, and secret files closed to every session
+
+- **Date.** 2026-09-29
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it, cicd #235. Each repo adopts
+  it in a pull request of its own.
+- **Tier / scope:** Epic · kit `skills.md`, `docs/agent/AGENT_ROLES.md` rule 5 and the contributor onboarding template ·
+  `tools/claude-code/kdf-guard.js` and `check-wiring.js` · then every repo's env examples, Makefile, compose,
+  `.gitignore` and onboarding doc
+
+**Context.** The owner opened `.env.local` to every model on 2026-09-29, for the local docker stack. The app repos
+also keep real credentials there, the GitHub package tokens and, for a collaborator without a hub checkout, the SSO
+client secret the DEV hub issued, and the hub's example adds third party keys. Moving secret files out of the folder
+while a reviewer reads it went to the backlog, #236. The owner's answer, "why not have 2 .env files for local",
+"`.env.local` for setup of the docker containers to run" and "`.env.kdf` for github tokens and the sso secrets that
+are sensitive", so it is "not spread out among alot of different files". The owner keeps `.env.dev` and `.env.prod`
+for admin scripts against the DEV and PROD databases, "leave those files alone", and a future tenant may keep its own.
+The owner also asked that secret files be protected in every session, not only in reviews, and settled the spelling,
+`.env.dev` and `.env.prod`.
+
+**Decision.**
+
+- **`.env.local`** holds every value that works only on this machine, local database and MinIO passwords, local
+  signing keys, session secrets, ports and URLs. It is open to every model once its repo has adopted the standard, a
+  tracked `.env.kdf.example` beside it, and only while it holds none of the credentials named there or built in.
+  Until then it fails closed, since it may hold anything. The fresh review found why, the hub's `vercel_api/.env.local`,
+  which `vercel env pull` wrote, holds Vercel and database credentials no built in name covered.
+- **`.env.kdf`** holds every credential that works beyond this machine, `GH_PACKAGES_PAT`, `GH_NPM_TOKEN`, the hub's
+  `KDF_OIDC_CLIENT_SECRET` and `KDF_SERVICE_KEY`, and third party keys such as `AUTH_RESEND_API_KEY`,
+  `AUTH_TWILIO_AUTH_TOKEN` and `AUTH_ADMIN_EMAIL_PASSWORD`. It is closed, and it replaces `.env.github`. Each file has
+  a tracked example, and a repo's `.env.kdf.example` names its own credentials.
+- **`.env.test`, `.env.dev` and `.env.prod`** stay as they are, closed. A session starts a stack or a test through the
+  repo's make target. The spelling is `.env.dev` and `.env.prod` everywhere, the kit's onboarding template included.
+- **Secret files are closed to every session.** The guard refuses a read, write, copy, source or pass of one, in the
+  shell and to Read, Grep, Edit and Write, and allows only a check that one exists. A redirect counts whatever the
+  program, since the fresh review found `ls . > .env.kdf` passing, and so does a curl style `@file`. A search pattern
+  that names no file, `'^\.env'`, is not a path. A `.env.local` that is not open counts as a secret file.
+  `check-wiring.js` recommends Read denies for `.env.kdf`, `.env.dev` and `.env.prod` as a second fence, and adds
+  `WebFetch|WebSearch` to the matcher, so a reviewer, who downloads nothing, is refused the web too.
+
+**Alternatives considered.**
+
+- A file per kind of credential, `.env.github` for tokens and another for SSO secrets. Rejected, the owner wants one
+  closed file.
+- Moving the secret files out of the folder during a review. In the backlog, #236, a crash or a running stack makes it
+  unsafe.
+- Letting `source` and `--env-file` pass a secret file, since they print nothing. Rejected, a sourced file is one `env`
+  away from printed, and the make targets already read the files for the commands that need them.
+
+**Trade-offs.** Each repo needs one adoption pull request, its examples split, its Makefile reading the tokens from
+`.env.kdf`, compose handing a container only the `.env.kdf` values it needs, `.gitignore` covering `.env.kdf` and
+tracking `.env.kdf.example`, and its onboarding doc. Measured on 2026-09-29, the Next.js template and terraform do not
+ignore `.env.kdf` yet, and ten repos would ignore `.env.kdf.example`. Until a repo's `.env.local` is split, the guard
+keeps it closed while it holds a credential. A session can no longer create `.env.kdf` from its example, the owner
+fills it.
+
+**Consequences.** Each repo gets one pull request carrying its env split, and its `AGENTS.md` role pointer follows in
+a pull request of its own. The owner splits their own `.env.local` files, moving the credential lines to `.env.kdf`,
+never a session. `.env.dev` and `.env.prod` are left alone.
+
+**Refined during the rollout, 2026-09-29.** The owner asked for the rollout before #235 merged, "go through all of my
+repos and create the .env.kdf.example file", so the adoption pull requests opened that night, one per repo, while a
+repo whose clone held the owner's uncommitted work was changed in a worktree of its own. Two findings of the sessions
+doing it changed the standard. Compose loads `.env.kdf` after `.env.local`, so an empty line in a copied example
+blanked a value `.env.local` still held, and every line of `.env.kdf.example` now starts commented out, so a copy
+overrides nothing until a person fills it. The guard read a repo's credential names only from active lines, and it now
+reads commented ones too, so a `.env.local` holding such a name stays closed. cicd adopted the standard in #235
+itself, and its E2E stack reads the sibling repos' package tokens from `.env.kdf` first.
+

@@ -12,7 +12,8 @@ deep dives (`<slug>.md`) may live alongside these files and are repo-owned.
 
 1. **`AGENTS.md`** (repo root, per repo). What this repo is, its vision, module map, critical rules.
 2. [**`WORKFLOW.md`**](../../WORKFLOW.md) (repo root, kit). The three lane loop every task follows:
-   Quick / Standard (plan → owner approves → implement → `make ci` → PR) / Epic.
+   Quick / Standard (plan → owner approves → implement → `make ci` → PR) / Epic. It opens with your role,
+   [`AGENT_ROLES.md`](AGENT_ROLES.md), what any agent of any model may do, read before you act.
 3. [**`skills.md`**](../../skills.md) (repo root, kit). The scenario organized security playbook.
    Read the matching scenario before any security sensitive work.
 4. This directory. The deeper standards below, consulted when their topic comes up.
@@ -26,7 +27,8 @@ deep dives (`<slug>.md`) may live alongside these files and are repo-owned.
 | [`DESIGN_AND_EPICS.md`](DESIGN_AND_EPICS.md) | The design gate + cross repo Epic playbook (design doc → ADR → approval → vertical slices) | Anything complex, novel, or spanning repos |
 | [`DOCUMENTATION_STANDARD.md`](DOCUMENTATION_STANDARD.md) | How repo docs are organized, kept honest, and kept discoverable (taxonomy, README front door, deprecate with banner) | Any documentation work |
 | [`REPORTS_STANDARD.md`](REPORTS_STANDARD.md) | The reports standard. The six Projects boards + the AI bug reporter. Certified packages, adoption recipes, security posture, per repo type applicability | Touching reports/boards/triage, or adopting the feature in an app |
-| [`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md) | The KDF Code Review Process. A repo reviewed one slice at a time by fresh Claude and Codex sessions and Sol rounds. The roles, the cycle, the rules, severity, the artifacts and the security model | Reviewing a whole repo or package for production readiness |
+| [`AGENT_ROLES.md`](AGENT_ROLES.md) | Agent roles and limits. What any agent, of any model or tool, may do. Implementer, orchestrator, reviewer and chat reader, the rules every role keeps, and what holds each tool to them | **Before you act**, and whenever your role is unclear |
+| [`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md) | The KDF Code Review Process. Any scope, from one function to every repo, reviewed by fresh Claude and Codex sessions at a pinned commit and Sol rounds. The scales, the roles, the cycle, the rules, severity, the artifacts and the security model | An independent review by more than one model, of any size |
 | [`templates/design-spec.template.md`](templates/design-spec.template.md) | Copy me 10-section design spec → `docs/design/{feature}.md` | The design gate applies |
 | [`templates/adr-entry.template.md`](templates/adr-entry.template.md) | Copy me ADR block → `docs/CHANGELOG_AND_DECISION_LOG.md` | Recording an architectural decision (`D-NNN`) |
 | [`templates/epic-tracker.template.md`](templates/epic-tracker.template.md) | Copy me tracker → `kriegerdataforge/docs/epics/{name}.md` (the hub) | Coordinating a cross repo Epic |
@@ -47,8 +49,9 @@ deep dives (`<slug>.md`) may live alongside these files and are repo-owned.
   first and follow the matching scenario. When unsure, choose the fail closed option.
 - **Docs work**. Follow `DOCUMENTATION_STANDARD.md`. Code is ground truth. Update the doc in the
   same PR as the behavior. Deprecate with a banner, don't delete.
-- **Reviewing a whole repo or package**. Follow `CODE_REVIEW_PROCESS.md`. The plan comes from the template, the owner
-  approves it, and each slice runs the cycle before its pull request opens.
+- **Reviewing code with more than one model**, one function or every repo. Follow `CODE_REVIEW_PROCESS.md`. Pick the
+  scale first. A spot review needs only a brief, a larger one a plan the owner approves, and each slice runs the cycle
+  before its pull request opens.
 - **To improve the kit itself**. Propose the change in `kriegerdataforge-cicd` (`kit/common/` +
   both `KIT_VERSION` markers), per *How the standard is maintained* in
   [`AGENT_OPERATING_STANDARD.md`](AGENT_OPERATING_STANDARD.md).

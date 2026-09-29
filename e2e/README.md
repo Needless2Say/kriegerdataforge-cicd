@@ -78,10 +78,11 @@ exactly it. No `--grep`. See
 - **Node ≥ 20** and **Docker Desktop**.
 - The four sibling repos checked out next to each other (`kriegerdataforge`,
   `kriegerdataforge-auth-ui`, `fitness-app-backend`, `fitness-app-frontend`),
-  each with its `.env.local` provisioned (RSA dev keypair, `GH_PACKAGES_PAT`,
-  a seeded fitness OIDC client). See each repo's `.env.local.example`.
+  each with its `.env.local` provisioned (RSA dev keypair, a seeded fitness OIDC
+  client) and its `.env.kdf` holding the credentials (`GH_PACKAGES_PAT`). See each
+  repo's `.env.local.example` and `.env.kdf.example`, the env standard of ADR D-030.
 - For the **browser journeys** (`fitness`, `tiffanys`). `GH_NPM_TOKEN` in the
-  frontend repo's `.env.local` (or exported). The frontend images `npm ci` the
+  frontend repo's `.env.kdf` (or exported). The frontend images `npm ci` the
   private `@needless2say/report-form` package and fail closed (npm E401) without it.
 
 ## Run it locally
@@ -166,8 +167,9 @@ sibling. `ci_stack.py`:
   share a support module beside them) and writes `e2e/.env`, so `npm test` runs
   exactly those journeys;
 - sources `GH_PACKAGES_PAT` from the environment (the CI secret), falling back to
-  `fitness-app-backend/.env.local` locally so you needn't export it by hand, likewise
-  `GH_NPM_TOKEN` (env → `fitness-app-frontend`/`tiffanys-space` `.env.local`) for the
+  `fitness-app-backend/.env.kdf`, then its `.env.local`, locally so you needn't export it
+  by hand, likewise `GH_NPM_TOKEN` (env → `fitness-app-frontend`/`tiffanys-space`
+  `.env.kdf`, then `.env.local`) for the
   frontends' private npm `npm ci` (classic PAT only, GH Packages npm rejects App tokens).
 
 ```bash

@@ -97,13 +97,23 @@ endif
 
 # ---------- Private GitHub repo (kdf-fmt, over pip) ----------
 
-# To download private kdf python packages, reads GH_PACKAGES_PAT from .env.local if not already set in the environment.
+# To download private kdf python packages, reads GH_PACKAGES_PAT from .env.kdf, the env standard's file for
+# credentials (ADR D-030), if not already set in the environment. A .env.local that still holds it is read after,
+# with a warning, until the token moves, and an empty line in .env.kdf never hides it.
 # The PAT must be a fine grained token with read access to the kriegerdataforge-fmt repo, NOT a classic token.
-# Quotes, stray spaces and CRs are stripped: copying .env.example on Windows leaves
-# CRLF endings, and a trailing \r corrupts the token silently.
+# Quotes, stray spaces and CRs are stripped, since copying .env.kdf.example on Windows leaves
+# CRLF endings and a trailing \r corrupts the token silently.
+ifeq ($(GH_PACKAGES_PAT),)
+  ifneq ($(wildcard .env.kdf),)
+    GH_PACKAGES_PAT := $(call from_env_file,.env.kdf,GH_PACKAGES_PAT)
+  endif
+endif
 ifeq ($(GH_PACKAGES_PAT),)
   ifneq ($(wildcard .env.local),)
     GH_PACKAGES_PAT := $(call from_env_local,GH_PACKAGES_PAT)
+    ifneq ($(GH_PACKAGES_PAT),)
+      $(warning GH_PACKAGES_PAT was read from .env.local. Move it to .env.kdf, the env standard of ADR D-030.)
+    endif
   endif
 endif
 export GH_PACKAGES_PAT

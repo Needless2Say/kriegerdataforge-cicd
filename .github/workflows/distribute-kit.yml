@@ -6,7 +6,9 @@ name: Distribute Agentic-Workflow Kit
 #   • workflow_dispatch — run on demand. 'check' (read-only drift report) or
 #     'distribute' (open one sync PR per drifted repo; never auto-merges).
 #   • schedule — weekly read-only drift alarm: a failed run = some repo drifted
-#     from the canonical kit.
+#     from the canonical kit, or its own files lack part of the standard (the
+#     AGENTS.md role pointer, .env.kdf.example, .env.kdf ignored), which that
+#     repo fixes in its own PR, distribute opens none for it.
 #
 # Before the first 'distribute', each consumer repo's version-check must exempt the
 # kit paths (ADR D-001 option B — shipped in scripts/common/check_version.py).
