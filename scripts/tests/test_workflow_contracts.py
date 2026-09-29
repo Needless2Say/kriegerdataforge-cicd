@@ -351,3 +351,32 @@ def test_a_lane_that_installs_a_private_package_asks_the_app_first(name):
     assert "        if: ${{ inputs.needs_sdk_auth && vars.USE_GITHUB_APP == 'true' }}\n" in text
     assert "PKG_INSTALL_TOKEN: ${{ steps.pkg-token.outputs.token || secrets.GH_PACKAGES_PAT }}" in text
     assert "permission-contents: read" in text
+
+
+@pytest.mark.parametrize("tracked, code", [
+    ((".env.example", ".env.local.example", ".env.kdf.example", "e2e/.env.example"), 0),
+    ((".env.kdf.example", ".env.kdf"), 1),
+    (("apps/web/.env.local",), 1),
+    ((".env",), 1),
+], ids = ["examples", "env-kdf", "nested-env-local", "bare-env"])
+def test_the_secret_scan_refuses_a_committed_env_file_and_passes_the_examples(tmp_path, tracked, code):
+    """
+    A .env file holds real values that gitleaks may not see, so the scan every repo calls fails a pull request that
+    commits one, and passes the examples (D-030). The step's own shell runs here against a scratch repo.
+    """
+    bash = _bash()
+    if bash is None:
+        pytest.skip("no bash to run the step's shell")
+    step  = _step((WORKFLOWS / "secret-scan.yml").read_text(encoding = "utf-8"), "Refuse committed env files")
+    block = step.split("run: |\n", 1)[1]
+    shell = tmp_path / "step.sh"
+    shell.write_text("\n".join(line[10:] for line in block.split("\n")) + "\n", encoding = "utf-8", newline = "\n")
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", str(repo)], check = True)
+    for name in tracked:
+        path = repo / name
+        path.parent.mkdir(parents = True, exist_ok = True)
+        path.write_text("X=\n", encoding = "utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "-f", *tracked], check = True)
+    run = subprocess.run([bash, shell.as_posix()], cwd = repo, capture_output = True, text = True)
+    assert run.returncode == code, run.stdout + run.stderr

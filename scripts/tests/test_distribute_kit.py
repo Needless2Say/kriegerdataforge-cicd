@@ -12,6 +12,9 @@ from unittest.mock import MagicMock, patch
 import distribute_kit as dk
 import pytest
 
+# the real check, kept before the autouse fixture below replaces it in every test
+REAL_COMPUTE_GAPS = dk.compute_gaps
+
 
 # ── Fixtures ────────────────────────────────────────────────────────────────────
 @pytest.fixture
@@ -32,6 +35,15 @@ def no_open_pr():
     """
     with patch.object(dk, "_open_pr_url", return_value = None) as open_pr:
         yield open_pr
+
+
+@pytest.fixture(autouse = True)
+def no_gaps():
+    """
+    Every repo's own files meet the standard unless a test says so, and no check test reaches GitHub for them.
+    """
+    with patch.object(dk, "compute_gaps", return_value = []) as gaps:
+        yield gaps
 
 
 # ── Pure helpers ─────────────────────────────────────────────────────────────────
@@ -361,3 +373,52 @@ def test_real_kit_registry_files_all_exist_under_kit_common():
     assert files, "kit_registry.json files[] is empty"
     missing = [f for f in files if not (dk.KIT_DIR / f).is_file()]
     assert not missing, f"kit_registry files[] paths absent under kit/common/: {missing}"
+
+
+# ── gaps in a repo's own files ───────────────────────────────────────────────────
+@pytest.mark.parametrize(
+    ("gitignore", "ignored"),
+    [
+        (".env*\n!.env.example\n", True),
+        ("**/.env.*\n", True),
+        ("/.env.kdf\n", True),
+        ("# .env*\n.env.local\n.env.github\n", False),
+        (".env*\n!.env.kdf\n", False),
+        (".env*\n!.env.*.example\n", True),
+        (".env/\n", False),
+    ],
+)
+def test_ignores_reads_a_root_gitignore_as_git_does(gitignore: str, ignored: bool):
+    """
+    The last matching line wins, a negation re-includes, a comment and a directory rule never match a file.
+    """
+    assert dk._ignores(gitignore, ".env.kdf") is ignored
+
+
+def test_a_repo_that_meets_the_standard_has_no_gaps():
+    files = {
+        "AGENTS.md": "Know your role, [`docs/agent/AGENT_ROLES.md`](docs/agent/AGENT_ROLES.md)",
+        ".env.kdf.example": "GH_PACKAGES_PAT=\n",
+        ".gitignore": ".env*\n!.env.local.example\n!.env.kdf.example\n",
+    }
+    with patch.object(dk, "_get_remote_file", side_effect = lambda _t, _r, _b, path: (files.get(path), "sha")):
+        assert REAL_COMPUTE_GAPS("tok", "o/r", "main") == []
+
+
+def test_a_repo_without_the_pointer_the_example_or_the_ignore_reports_each_gap():
+    files = {"AGENTS.md": "# a guide without the pointer\n", ".gitignore": ".env.local\n"}
+    with patch.object(dk, "_get_remote_file", side_effect = lambda _t, _r, _b, path: (files.get(path), "sha")):
+        gaps = REAL_COMPUTE_GAPS("tok", "o/r", "main")
+    assert len(gaps) == 3
+    assert any("AGENT_ROLES.md" in gap for gap in gaps)
+    assert any(".env.kdf.example" in gap for gap in gaps)
+    assert any("does not ignore .env.kdf" in gap for gap in gaps)
+
+
+def test_cmd_check_returns_1_on_a_gap_and_says_distribute_opens_none(registry, no_gaps, capsys):
+    no_gaps.side_effect = [["no .env.kdf.example, the env standard of ADR D-030"], []]
+    with patch.object(dk, "compute_drift", return_value = []):
+        assert dk.cmd_check(registry, "tok", None) == 1
+    out = capsys.readouterr().out
+    assert "GAPS (1)" in out
+    assert "distribute opens none" in out

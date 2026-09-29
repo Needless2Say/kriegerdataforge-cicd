@@ -240,7 +240,8 @@ One brief serves both reviewers. Its shape, in this order, is the template's.
    the adjudication log, the decision log, the register, then the code. Never another reviewer's report of this scope.
 7. **Commands.** What the reviewer may run, what it may not, the baseline counts it reproduces first, and how the
    running stack is reached when a probe needs one. The orchestrator starts the stack before the review, and the
-   reviewer never starts, stops or resets it. It reads no secret file, `AGENT_ROLES.md` rule 5, and prints no value.
+   reviewer never starts, stops or resets it. It reads the stack with the tests, a script, `docker ps`, `docker logs`
+   and `curl` to this machine, `AGENT_ROLES.md` section 5. It reads no secret file, rule 5 there, and prints no value.
 8. **Settled.** Numbered, with the reasons, so a reviewer does not re-derive a decision.
 9. **Look for.** A starting list, by area. A question becomes a finding only when a probe proves it.
 10. **Rules of evidence.** Probe, quote the line, reproduce, and put what cannot be settled under "Could not settle".
@@ -432,8 +433,8 @@ review, so a session that compacts or restarts reads them and goes on. Every ste
 - **A repo with no runtime code**, Terraform or a static site. Slice by module or by page. A fix is pinned by a
   policy check or a plan test where a unit test does not fit, and the mutation step says which.
 - **A web app or a service.** The orchestrator starts the stack, and the brief carries how it is reached and probed,
-  through the tests or a script, and says
-  which state every probe leaves behind.
+  through the tests, a script, `docker ps`, `docker logs` or `curl` to `localhost`, and says which state every probe
+  leaves behind.
 
 ## 14. Closing a review
 

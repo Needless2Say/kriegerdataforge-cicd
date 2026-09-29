@@ -80,6 +80,12 @@ GUARD_RULES_IN_WORDS = (
     "`rg -u`",
     "`git grep --no-index`",
     "`.git/kdf-review`",
+    "package script",
+    "`docker ps`",
+    "`docker logs`",
+    "`curl`",
+    "`localhost`",
+    "follows no redirect",
 )
 
 # a stand in for claude, it writes what STUB_MODE says a reviewer did, and records how it was started

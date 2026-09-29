@@ -9,8 +9,9 @@ ONE source of truth (kit/common), ONE registry (kit_registry.json), owner-gated 
 
 Modes:
   check       Read-only. For each repo + kit file, fetch the repo's copy via the GitHub Contents
-              API and compare it to kit/common/. Prints a drift report and exits non-zero if any
-              repo is out of sync. Used by the scheduled drift-alarm workflow; it OPENS NOTHING.
+              API and compare it to kit/common/. Also reports gaps in the repo's own files, the role
+              pointer in AGENTS.md and the env standard (ADR D-030). Prints a drift report and exits
+              non-zero if any repo is out of sync. Used by the scheduled drift-alarm workflow; it OPENS NOTHING.
   distribute  For each repo that has drifted, create a branch, commit the updated kit files, and
               OPEN a pull request titled "chore(kit): sync agentic-workflow kit <KIT_VERSION>".
               It NEVER auto-merges — the owner reviews and merges. Requires a write-scoped token.
@@ -39,6 +40,7 @@ from __future__ import annotations
 
 # standard imports
 import argparse
+import fnmatch
 import json
 import os
 import sys
@@ -130,6 +132,61 @@ def compute_drift(token: str, owner_repo: str, branch: str, files: list[str]) ->
             drifted.append(rel)
     return drifted
 
+
+def _ignores(gitignore: str, name: str) -> bool:
+    """
+    Whether a root .gitignore ignores a file of this name at the repo root, the last matching line winning as in git.
+    Directory rules are skipped, the env files live at the root.
+
+    Args:
+        gitignore: The text of the repo's root .gitignore
+        name: A file name at the repo root, such as .env.kdf
+
+    Returns:
+        True when git would ignore the file
+    """
+    ignored = False
+    for raw in gitignore.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        negate  = line.startswith("!")
+        pattern = (line[1:] if negate else line).lstrip("/")
+        if pattern.startswith("**/"):
+            pattern = pattern[3:]
+        if pattern.endswith("/"):
+            continue
+        if fnmatch.fnmatchcase(name, pattern):
+            ignored = not negate
+    return ignored
+
+
+def compute_gaps(token: str, owner_repo: str, branch: str) -> list[str]:
+    """
+    Return what a repo's own files still lack of the ecosystem standard. The role pointer in AGENTS.md, and the env
+    standard of ADR D-030, a tracked .env.kdf.example and a .gitignore that keeps .env.kdf out of git. These files are
+    the repo's own, so check reports a gap and distribute never opens a pull request for one.
+
+    Args:
+        token: A GitHub token that reads the repo
+        owner_repo: The repo, as owner/name
+        branch: The branch to read
+
+    Returns:
+        One line per gap, empty when the repo meets the standard
+    """
+    gaps: list[str] = []
+    agents, _sha = _get_remote_file(token, owner_repo, branch, "AGENTS.md")
+    if agents is None or "docs/agent/AGENT_ROLES.md" not in agents:
+        gaps.append("AGENTS.md lacks the role pointer to docs/agent/AGENT_ROLES.md")
+    example, _sha = _get_remote_file(token, owner_repo, branch, ".env.kdf.example")
+    if example is None:
+        gaps.append("no .env.kdf.example, the env standard of ADR D-030")
+    gitignore, _sha = _get_remote_file(token, owner_repo, branch, ".gitignore")
+    if gitignore is None or not _ignores(gitignore, ".env.kdf"):
+        gaps.append(".gitignore does not ignore .env.kdf")
+    return gaps
+
 # ======================================================================================================================
 # Modes
 # ======================================================================================================================
@@ -144,11 +201,13 @@ def cmd_check(registry: dict, token: str, only: str | None, repos_arg: str | Non
     print(f"Checking agentic-workflow kit {version} across {len(repos)} repo(s), {len(files)} file(s):")
 
     any_drift = False
+    any_gap   = False
     errors: list[str] = []
     for entry in repos:
         repo, branch = entry["repo"], entry.get("branch", "main")
         try:
             drift = compute_drift(token, repo, branch, files)
+            gaps  = compute_gaps(token, repo, branch)
         except Exception as exc:  # noqa: BLE001
             print(f"  {repo}: ERROR — {exc}")
             errors.append(f"{repo}: {exc}")
@@ -156,15 +215,21 @@ def cmd_check(registry: dict, token: str, only: str | None, repos_arg: str | Non
         if drift:
             any_drift = True
             print(f"  {repo}: DRIFT ({len(drift)}): {', '.join(drift)}")
-        else:
+        if gaps:
+            any_gap = True
+            print(f"  {repo}: GAPS ({len(gaps)}): {'; '.join(gaps)}")
+        if not drift and not gaps:
             print(f"  {repo}: in sync")
 
     print()
     if errors:
         print(f"{len(errors)} repo(s) errored.")
         return 1
-    if any_drift:
-        print("Drift detected. Run 'distribute' to open sync PRs.")
+    if any_drift or any_gap:
+        if any_drift:
+            print("Drift detected. Run 'distribute' to open sync PRs.")
+        if any_gap:
+            print("Gaps in the repos' own files. Each is fixed in that repo's own pull request, distribute opens none.")
         return 1
     print("All repos in sync.")
     return 0

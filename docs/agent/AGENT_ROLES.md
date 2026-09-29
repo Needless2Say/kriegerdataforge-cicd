@@ -37,8 +37,10 @@ When your role is unclear, take the narrower one and ask the owner.
    state changes, and every make target or script that reaches the DEV or PROD environment or applies, deploys or
    publishes. A target that names `prod`, `production`, `deploy`, `apply`, `destroy`, `publish`, `release`,
    `promote` or `rollout`, or names `dev` without `local`, is one. So is any command with `ENVIRONMENT` or `HUB_ENV`
-   set to `dev`, `prod` or `production`. cicd's ops scripts run only in their read only modes. Local work, Docker and
-   the local databases are free to use, and a reviewer only reads the running stack, section 5.
+   set to `dev`, `prod` or `production`, and a package script run with `npm`, `pnpm`, `yarn` or `bun` whose name holds
+   one of those words, `npm run deploy` for example, while `npm run dev`, the local dev server, stays open. cicd's ops
+   scripts run only in their read only modes. Local work, Docker and the local databases are free to use, and a
+   reviewer only reads the running stack, section 5.
 4. **Never push to `main`, force push, delete a remote branch, push a tag, or push anywhere but `origin`.** Push your
    own branch by name, `git push -u origin <branch>`, and open a pull request.
 5. **Never touch a secret file, and never read, print or copy a secret value.** A secret file is closed to every
@@ -102,8 +104,11 @@ it.
 ## 5. Reviewer
 
 **May.** Read the tracked files of the repo and its sibling repos, read only. Run the tests, linters, type checks and
-probes that write no tracked file. Probe the running stack the orchestrator started, through its tests or a script,
-and never start, stop, restart or reset a container, a database or a volume. Run a mutant or a mutation lane the brief
+probes that write no tracked file. Probe the running stack the orchestrator started, through its tests, a script,
+`docker ps` and `docker logs` or their compose forms, and `curl` over http or https to `localhost`, `127.0.0.1` or
+`[::1]`, and never start, stop, restart or reset a container, a database or a volume. A reviewer's `curl` writes no
+file, reads none with `@`, follows no redirect, goes through no proxy and never reaches the Docker Engine or Caddy
+admin API, and it takes only the options the guard lists. Run a mutant or a mutation lane the brief
 names, which edits a file and restores it, when `git status --porcelain` reads the same before and after. Use read
 only git, `status`, `diff`, `log`, `show`, `blame`, `ls-files`, `grep`, `rev-parse`, `check-ignore`.
 
@@ -136,7 +141,7 @@ text, rule 9.
 
 | Tool | What holds it besides this page |
 | --- | --- |
-| Claude Code | The guard hook refuses a call that breaks a rule, the reviewer rules when `KDF_ROLE=reviewer` is set, and the permission deny rules and GitHub's rulesets stay behind it. The guard sees Read, Grep and Glob too. No session touches a secret file, or a `.env.local` that still holds a credential, beyond checking that it exists, and a reviewer cannot open a path git ignores or a held report, edit a tracked file, or reach the web. Glob still lists the names of ignored files, which hold no value |
+| Claude Code | The guard hook refuses a call that breaks a rule, the reviewer rules when `KDF_ROLE=reviewer` is set, and the permission deny rules and GitHub's rulesets stay behind it. The guard sees Read, Grep and Glob too. No session touches a secret file, or a `.env.local` that still holds a credential, beyond checking that it exists, and a reviewer cannot open a path git ignores or a held report, edit a tracked file, reach the web, or run docker beyond `ps` and `logs`. Glob still lists the names of ignored files, which hold no value |
 | Codex | For a review on the owner's machine, the launcher opens its turn in the repo folder at the pinned commit, closes it with a check that fails the review when anything but its report changed, and keeps the other reviewer's report of the scope out of the folder meanwhile. Its sandbox and approval settings limit what it writes, not what it reads, so the secret files and everything else `.gitignore` covers are kept from it by this page. Codex in the cloud reads the pushed pin on GitHub, where no ignored file exists, and the launcher brings in only a report its branch adds under `docs/security`. For other work, its sandbox and approval settings, and GitHub's rulesets |
 | Copilot, Cursor and others | Their own settings, GitHub's rulesets, and the owner's review of every pull request |
 | Chat readers | They have no access to the repo |

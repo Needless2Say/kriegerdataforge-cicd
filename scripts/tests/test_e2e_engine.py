@@ -241,3 +241,50 @@ def test_the_action_head_is_literal_text():
     head = ACTION.split("\nruns:", 1)[0]
     assert "${{" not in head, "nothing above runs: is an expression"
     assert "secrets." not in ACTION, "a composite action reads no secret, the caller passes them as inputs"
+
+
+# ── the package tokens ────────────────────────────────────────────────────────
+@pytest.mark.parametrize(
+    ("files", "expected"),
+    [
+        ({".env.kdf": "GH_PACKAGES_PAT=from-kdf\n", ".env.local": "GH_PACKAGES_PAT=from-local\n"}, "from-kdf"),
+        ({".env.kdf": "GH_PACKAGES_PAT=\n", ".env.local": "GH_PACKAGES_PAT=from-local\n"}, "from-local"),
+        ({".env.local": 'OTHER=1\r\nGH_PACKAGES_PAT="from-local"\r\n'}, "from-local"),
+        ({".env.kdf": "# GH_PACKAGES_PAT=commented\n"}, ""),
+        ({}, ""),
+    ],
+    ids = ["kdf-first", "an-empty-kdf-line-falls-back", "local-before-the-standard", "a-comment-is-none", "neither"],
+)
+def test_the_package_token_comes_from_env_kdf_first_then_env_local(tmp_path, monkeypatch, files, expected):
+    """
+    The env standard (cicd ADR D-030) moves the package tokens from .env.local to .env.kdf, and the stack still builds
+    while a repo moves over. An empty line in .env.kdf, the example copied and not yet filled, never hides the old one.
+    """
+    backend = tmp_path / "fitness-app-backend"
+    backend.mkdir()
+    for name, text in files.items():
+        (backend / name).write_text(text, encoding = "utf-8", newline = "")
+    monkeypatch.setattr(ci_stack, "WORKSPACE", tmp_path)
+    monkeypatch.delenv("GH_PACKAGES_PAT", raising = False)
+    assert ci_stack._resolve_gh_pat() == expected
+
+
+def test_the_environment_wins_over_every_file(tmp_path, monkeypatch):
+    backend = tmp_path / "fitness-app-backend"
+    backend.mkdir()
+    (backend / ".env.kdf").write_text("GH_PACKAGES_PAT=from-kdf\n", encoding = "utf-8")
+    monkeypatch.setattr(ci_stack, "WORKSPACE", tmp_path)
+    monkeypatch.setenv("GH_PACKAGES_PAT", " from-env ")
+    assert ci_stack._resolve_gh_pat() == "from-env"
+
+
+def test_the_npm_token_comes_from_the_first_frontend_that_holds_one(tmp_path, monkeypatch):
+    for repo, name, text in (
+        ("fitness-app-frontend", ".env.local", "GH_NPM_TOKEN=\n"),
+        ("tiffanys-space", ".env.kdf", "GH_NPM_TOKEN=from-tiffanys\n"),
+    ):
+        (tmp_path / repo).mkdir()
+        (tmp_path / repo / name).write_text(text, encoding = "utf-8")
+    monkeypatch.setattr(ci_stack, "WORKSPACE", tmp_path)
+    monkeypatch.delenv("GH_NPM_TOKEN", raising = False)
+    assert ci_stack._resolve_gh_npm_token() == "from-tiffanys"

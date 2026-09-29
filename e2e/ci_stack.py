@@ -18,10 +18,10 @@ What it does:
     browser facing edge (https://localhost:<E2E_EDGE_PORT>), the mail sink's STARTTLS
     and the hub's edge of the runner round, written to e2e/.e2e-certs/ (gitignored).
     The authority's key is never written, the leaves are signed in memory.
-  * sources GH_PACKAGES_PAT (env → fitness-app-backend/.env.local fallback) for
-    the private-SDK image build, and GH_NPM_TOKEN (env → frontend .env.local
-    fallback) for the frontends' `npm ci` of the private @needless2say scope.
-    Never printed.
+  * sources GH_PACKAGES_PAT (env → fitness-app-backend/.env.kdf → .env.local
+    fallback) for the private-SDK image build, and GH_NPM_TOKEN (env → frontend
+    .env.kdf → .env.local fallback) for the frontends' `npm ci` of the private
+    @needless2say scope. Never printed.
   * merges the shared identity compose (docker-compose.shared.yml) with each
     active journey's fragment (`-f shared -f <fragment>`), brings them up with
     healthcheck gating, migrates the hub + each journey's backend, seeds the
@@ -385,38 +385,42 @@ def load_or_make_state(journeys: list[str], regen: bool) -> dict:
     return state
 
 
-def _resolve_gh_pat() -> str:
-    """GH_PACKAGES_PAT for the private-SDK image build. Env first (CI secret),
-    then the local fitness-app-backend/.env.local as a dev convenience. Never logged."""
-    pat = os.environ.get("GH_PACKAGES_PAT", "").strip()
-    if pat:
-        return pat
-    env_local = WORKSPACE / "fitness-app-backend" / ".env.local"
-    if env_local.exists():
-        # errors=replace: only the ASCII GH_PACKAGES_PAT= line matters; a stray
-        # non-UTF-8 byte elsewhere must not crash the read (Windows).
-        for line in env_local.read_text(encoding="utf-8", errors="replace").splitlines():
-            if line.startswith("GH_PACKAGES_PAT="):
-                return line.split("=", 1)[1].strip().strip('"').strip("'")
+def _read_credential(repo: str, name: str) -> str:
+    """A credential from a sibling repo, its .env.kdf first, where the env standard keeps
+    every credential (cicd ADR D-030), then its .env.local, where it lived before. An
+    empty line, an example copied and not yet filled, never hides the other file. Never logged."""
+    for env_file in (".env.kdf", ".env.local"):
+        path = WORKSPACE / repo / env_file
+        if not path.exists():
+            continue
+        # errors=replace, since only the ASCII NAME= line matters and a stray
+        # non-UTF-8 byte elsewhere must not crash the read on Windows.
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith(name + "="):
+                value = line.split("=", 1)[1].strip().strip('"').strip("'")
+                if value:
+                    return value
     return ""
+
+
+def _resolve_gh_pat() -> str:
+    """GH_PACKAGES_PAT for the private-SDK image build. Env first (CI secret), then
+    fitness-app-backend's .env.kdf or .env.local as a dev convenience. Never logged."""
+    pat = os.environ.get("GH_PACKAGES_PAT", "").strip()
+    return pat or _read_credential("fitness-app-backend", "GH_PACKAGES_PAT")
 
 
 def _resolve_gh_npm_token() -> str:
     """GH_NPM_TOKEN for the frontend image builds (`npm ci` of the private
     @needless2say npm scope via each repo's committed .npmrc). Env first (CI
-    secret), then the frontend repos' .env.local as a dev convenience. Never logged."""
+    secret), then the frontend repos' .env.kdf or .env.local as a dev convenience. Never logged."""
     token = os.environ.get("GH_NPM_TOKEN", "").strip()
     if token:
         return token
     for repo in ("fitness-app-frontend", "tiffanys-space"):
-        env_local = WORKSPACE / repo / ".env.local"
-        if not env_local.exists():
-            continue
-        for line in env_local.read_text(encoding="utf-8", errors="replace").splitlines():
-            if line.startswith("GH_NPM_TOKEN="):
-                value = line.split("=", 1)[1].strip().strip('"').strip("'")
-                if value:
-                    return value
+        token = _read_credential(repo, "GH_NPM_TOKEN")
+        if token:
+            return token
     return ""
 
 

@@ -84,9 +84,11 @@ and restores it, the one edit your role allows, so run `git status --porcelain` 
 differ. You may not run {make ci, make bump, an install, anything that rewrites a tracked file}, and you create
 nothing in the tree but your report and any scratch note, both under `docs/security`.
 
-**The live stack.** {How the running stack is reached, what to probe it with, the tests or a script, and what state a
-probe leaves behind. The orchestrator has it running before you start, and you never start, stop or reset it. Delete
-this paragraph when the slice has no runtime.} Read no `.env*` file but an example and `.env.local` as your role
+**The live stack.** {How the running stack is reached, its URLs on `localhost` and its container names, what to probe
+it with, and what state a probe leaves behind. The orchestrator has it running before you start, and you never start,
+stop or reset it. Delete this paragraph when the slice has no runtime.} You may read it with the tests, a script,
+`docker ps`, `docker logs` and `curl` to `localhost`, `127.0.0.1` or `[::1]`, never with an option that writes or
+reads a file, follows a redirect or goes through a proxy. Read no `.env*` file but an example and `.env.local` as your role
 allows, and print no value from any, the variable names are in the examples.
 
 **Baseline.** {The counts measured after step 1, lint, type check, tests, `make ci`, mutants killed.} Run the lint,

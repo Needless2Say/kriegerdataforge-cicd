@@ -497,7 +497,7 @@ function analyze(toks, depth, whole) {
   if (prog === 'git') checkGit(args, whole);
   else if (prog === 'gh') checkGh(args, whole);
   else checkOther(prog, args, assigns, whole);
-  if (MODE === 'reviewer') checkReviewerProgram(prog, args, whole);
+  if (MODE === 'reviewer') checkReviewerProgram(prog, args, assigns, whole);
 }
 
 function nestedShell(prog, args, depth) {
@@ -748,6 +748,7 @@ function checkOther(prog, args, assigns, whole) {
     if (words.includes('push')) deny('docker push publishes an image. Only the owner does that.', whole);
   } else if (['npm', 'pnpm', 'yarn', 'bun'].includes(prog)) {
     if (words.includes('publish')) deny('Publishing a package is the owner\'s.', whole);
+    checkPackageScript(prog, words, whole);
   } else if (['npx', 'pnpx', 'bunx'].includes(prog) || (prog === 'pnpm' && words.includes('dlx'))) {
     if (words.some((w) => /^(vercel|firebase-tools|netlify-cli)/.test(w))) deny('Deploys are the owner\'s.', whole);
   } else if (prog === 'twine' && words.includes('upload')) {
@@ -765,11 +766,29 @@ const MAKE_VALUE_OPTS = /^(-C|-f|-I|-j|-l|-o|-W|--directory|--file|--makefile|--
 // ENVIRONMENT and HUB_ENV pick the environment a seed or migration target reaches.
 const REMOTE_ENV_ASSIGN = /^(ENVIRONMENT|HUB_ENV)=["']?(dev|prod|production)["']?$/i;
 
+// A package script named for a deploy, a release or a remote environment is the owner's, the way a make target is.
+// npm needs run or run-script before a script, yarn, pnpm and bun take its name alone. npm run dev, the local dev
+// server, stays allowed, since a package script names DEV only by saying prod or production.
+function checkPackageScript(prog, words, whole) {
+  let script = '';
+  if (words[0] === 'run' || words[0] === 'run-script') script = words[1] || '';
+  else if (prog !== 'npm') script = words[0] || '';
+  if (script.split(/[-_.:/]/).some((w) => REMOTE_MAKE_WORDS.has(w))) {
+    deny('A package script that deploys, releases or reaches DEV or PROD is the owner\'s. Ask the owner.', whole);
+  }
+}
+
 function checkMake(args, assigns, whole) {
   const why = 'Make targets that reach DEV or PROD, or apply, deploy or publish, are the owner\'s. Ask the owner.';
   if (assigns.some((a) => REMOTE_ENV_ASSIGN.test(a))) deny(why, whole);
   for (let i = 0; i < args.length; i++) {
     const a = String(args[i]);
+    // a redirect and its target belong to the shell and name no target, so make ci >/dev/null runs
+    const redirect = /^(\d*)(>>?|&>>?|<)(.*)$/.exec(a);
+    if (redirect) {
+      if (!redirect[3]) i++;
+      continue;
+    }
     if (MAKE_VALUE_OPTS.test(a)) {
       i++;
       continue;
@@ -832,16 +851,85 @@ const READER_DENIED = new Set([
   'rm', 'rmdir', 'del', 'erase', 'rd', 'ri', 'remove-item', 'mv', 'move', 'move-item', 'mi', 'cp', 'copy', 'copy-item',
   'cpi', 'ren', 'rename', 'rename-item', 'rni', 'mkdir', 'md', 'new-item', 'ni', 'touch', 'chmod', 'chown', 'tee',
   'tee-object', 'dd', 'truncate', 'set-content', 'sc', 'add-content', 'ac', 'clear-content', 'clc', 'out-file',
-  'set-item', 'set-itemproperty', 'curl', 'wget', 'iwr', 'irm', 'invoke-webrequest', 'invoke-restmethod', 'scp',
+  'set-item', 'set-itemproperty', 'wget', 'iwr', 'irm', 'invoke-webrequest', 'invoke-restmethod', 'scp',
   'ssh', 'sftp', 'ftp', 'start-process', 'saps', 'stop-process', 'kill', 'taskkill', 'expand-archive',
   'compress-archive', 'tar', 'zip', 'unzip', '7z', 'robocopy', 'xcopy', 'attrib', 'icacls', 'takeown', 'setx', 'reg',
-  'docker', 'docker-compose', 'kubectl'
+  'kubectl'
 ]);
+// A reviewer reads the running stack and never changes it, docker ps and docker logs, their compose forms too, and
+// curl to this machine alone. Neither takes an environment assignment, which can point it at another host.
+const DOCKER_VALUE_OPTS = /^(--config|-l|--log-level|-f|--file|-p|--project-name|--project-directory|--env-file|--profile|--ansi|--progress|--tlscacert|--tlscert|--tlskey)$/;
+// -H, --host, -c and --context point docker at another machine's daemon.
+const DOCKER_REMOTE = /^(-H|-c|--host|--context)(=|$)|^-[Hc]./;
+// curl has hundreds of options and many write a file, read one, follow a redirect or send the request somewhere else,
+// so a reviewer's curl takes these alone. A value that starts with @ reads a file, and so does --data-urlencode name@file.
+const CURL_SHORT_FLAGS = new Set('sSiIvkfGN46q#0g'.split(''));
+const CURL_SHORT_VALUES = new Set('HXdAewmru'.split(''));
+const CURL_LONG_FLAGS = new Set(['silent', 'show-error', 'include', 'head', 'verbose', 'insecure', 'fail', 'fail-with-body',
+  'get', 'compressed', 'no-buffer', 'ipv4', 'ipv6', 'http1.0', 'http1.1', 'http2', 'disable', 'progress-bar',
+  'no-progress-meter', 'globoff']);
+const CURL_LONG_VALUES = new Set(['url', 'header', 'request', 'data', 'data-ascii', 'data-binary', 'data-raw',
+  'data-urlencode', 'json', 'user-agent', 'referer', 'write-out', 'max-time', 'connect-timeout', 'range', 'user', 'retry',
+  'retry-delay', 'retry-max-time']);
+const CURL_AT_READS = new Set(['H', 'd', 'w', 'header', 'data', 'data-ascii', 'data-binary', 'json', 'write-out']);
+// The host is matched as text, never through a URL parser, since curl and a parser disagree on a URL such as
+// http://localhost\@example.com, which curl sends to example.com.
+const LOCAL_URL = /^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1|\[::1\])(?::(\d+))?(?:[/?#].*)?$/i;
+// The Docker Engine API and Caddy's admin API listen here, and a request to either starts or stops the stack.
+const CONTROL_PORTS = new Set(['2375', '2376', '2019']);
+
+function checkReviewerStack(prog, args, assigns, whole) {
+  const refuse = (why) => deny('A reviewer only reads the running stack. ' + why, whole);
+  if (assigns.length) refuse('Its ' + prog + ' takes no environment assignment, which can point it at another host.');
+  if (prog === 'docker' || prog === 'docker-compose') {
+    let compose = prog === 'docker-compose';
+    let sub     = '';
+    for (let i = 0; i < args.length && !sub; i++) {
+      if (DOCKER_REMOTE.test(args[i])) refuse('docker reaches the daemon on this machine alone.');
+      if (DOCKER_VALUE_OPTS.test(args[i])) i++;
+      else if (!args[i].startsWith('-')) {
+        if (!compose && args[i] === 'compose') compose = true;
+        else sub = args[i].toLowerCase();
+      }
+    }
+    if (sub !== 'ps' && sub !== 'logs') refuse('docker ' + (compose ? 'compose ' : '') + sub + ' is refused, only ps and logs.');
+    return;
+  }
+  const urls  = [];
+  const value = (opt, v) => {
+    if (CURL_AT_READS.has(opt) && v.startsWith('@')) refuse('A curl value that starts with @ reads a file.');
+    if (opt === 'data-urlencode' && /^[^=]*@/.test(v)) refuse('curl --data-urlencode name@file reads a file.');
+    if (opt === 'url') urls.push(v);
+  };
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a.startsWith('--')) {
+      const name = a.slice(2);
+      if (CURL_LONG_FLAGS.has(name)) continue;
+      if (!CURL_LONG_VALUES.has(name)) refuse('curl ' + a + ' is refused, see the reviewer\'s curl options in the guard.');
+      value(name, args[++i] || '');
+    } else if (a.length > 1 && a.startsWith('-')) {
+      for (let k = 1; k < a.length; k++) {
+        if (CURL_SHORT_FLAGS.has(a[k])) continue;
+        if (!CURL_SHORT_VALUES.has(a[k])) refuse('curl -' + a[k] + ' is refused, see the reviewer\'s curl options in the guard.');
+        value(a[k], k + 1 < a.length ? a.slice(k + 1) : args[++i] || '');
+        break;
+      }
+    } else {
+      urls.push(a);
+    }
+  }
+  for (const u of urls) {
+    const m = LOCAL_URL.exec(u);
+    if (!m) refuse('curl reaches this machine alone, http or https to localhost, 127.0.0.1 or [::1], and ' + u + ' is not that.');
+    if (m[1] && CONTROL_PORTS.has(m[1])) refuse('Port ' + m[1] + ' is the Docker Engine or Caddy admin API, which changes the stack.');
+  }
+}
 const INSTALLERS = new Set(['install', 'uninstall', 'download', 'wheel', 'add', 'remove', 'sync', 'lock']);
 const NODE_WRITERS = new Set(['install', 'i', 'add', 'remove', 'uninstall', 'update', 'upgrade', 'ci', 'publish', 'link', 'unlink', 'dedupe', 'prune']);
 const MAKE_WRITERS = /^(setup|clean.*|bump.*|docker.*|compile.*|release.*|publish.*|install.*|deploy.*)$/;
 
-function checkReviewerProgram(prog, args, whole) {
+function checkReviewerProgram(prog, args, assigns, whole) {
   const a = args.map((x) => x.toLowerCase());
   const refuse = () => deny('Reviewers only read and write their report. ' + prog + ' is refused.', whole);
   if (CONTENT_READERS.has(prog)) args.filter((x) => !x.startsWith('-')).forEach((x) => checkReviewerOpens(x, whole));
@@ -854,6 +942,7 @@ function checkReviewerProgram(prog, args, whole) {
     deny('rg -u and --no-ignore read what .gitignore excludes. Drop the flag.', whole);
   }
   if (READER_DENIED.has(prog)) refuse();
+  if (prog === 'docker' || prog === 'docker-compose' || prog === 'curl') checkReviewerStack(prog, args, assigns, whole);
   if ((prog === 'sed' || prog === 'perl') && a.some((x) => /^-[a-z]*i/.test(x) || x.startsWith('--in-place'))) refuse();
   if (/^(pip[0-9.]*|pipx|uv)$/.test(prog) && a.some((x) => INSTALLERS.has(x))) refuse();
   if (/^(python[0-9.]*|py)$/.test(prog)) {
