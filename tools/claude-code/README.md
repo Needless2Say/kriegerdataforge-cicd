@@ -39,11 +39,25 @@ list and git hooks are protected files. When the owner wants a session to edit o
 ## The two roles
 
 **Owner rules** apply to every session in every repo. Nothing merges, approves, marks ready, tags, releases,
-dispatches a workflow, publishes a package, runs `terraform apply` or `destroy`, runs `vercel`, or pushes to `main`,
-and the guard reads every spelling of those, including `git -C`, a nested `bash -c`, an `env` prefix and PowerShell. A
-push names its branch and goes to `origin`, and force, delete, tag, mirror and `--no-verify` pushes are refused. Git
-settings that run commands or change where code goes, aliases, hooks paths, credential helpers and remote URLs, are
-refused, and so is `gh gist`.
+dispatches a workflow, re-runs, cancels or deletes a workflow run, publishes a package, runs `terraform apply` or
+`destroy`, runs `vercel`, or pushes to `main`. The guard reads every spelling of those, including `git -C`, a nested
+`bash -c`, an `env` prefix quoted or not, a command after a shell keyword such as `do`, `then` or `!`, `cmd //c`,
+`env -S` and PowerShell. A push names its branch and goes to `origin`, and force, delete, tag, mirror and
+`--no-verify` pushes are refused, as are `git send-pack` and `git http-push`. Git settings that run commands or change
+where code goes, aliases, hooks paths, credential helpers, protocols and remote URLs, are refused whether they are
+written with `git config` or passed with `git -c`, and so are `gh gist`, deploy keys and account keys.
+
+**Make targets that reach DEV or PROD are the owner's.** A target whose name holds `prod`, `production`, `deploy`,
+`apply`, `destroy`, `publish`, `release`, `promote` or `rollout` is refused, and so is one that holds `dev` unless it
+also holds `local`. The ecosystem's Makefiles name the remote environments `dev` and `prod` and the developer's own
+machine `local`, so `make seed-dev-admins` and `make apply-prod` are refused while `make seed-local-dev-client`,
+`make reseed-local` and `make ci` run. `ENVIRONMENT` or `HUB_ENV` set to `dev`, `prod` or `production` on a make
+command is refused too. A new local target is named for `local`, never for `dev`.
+
+**cicd's ops scripts run in their read only mode only.** `rotate_secret.py --mode check`,
+`distribute_app_secrets.py check` or `targets`, `distribute_kit.py check`, `distribute_scripts.py check` and
+`provision_projects.py check` run. Every other mode is refused, and so is `trigger_triage.py`, which has no read only
+mode. The owner runs the rest through the ops issue forms.
 
 **Reviewer rules** apply on top when `KDF_ROLE=reviewer` is set, or the guard is started with `reviewer`. Read only
 git, no GitHub CLI, no shell command that writes, deletes, installs or downloads, no redirect into a file, no secret
@@ -86,7 +100,17 @@ override the claude program and the home directory, the tests use them.
 A one line Python or Node script can still write anywhere, and no command reader sees inside it. That is why the
 launcher checks git afterward. The guard is a fence against a session's mistakes and against text that leads it
 astray, it is not a sandbox against a determined program. The permission deny rules in `settings.json` stay as a
-second fence.
+second fence, and the rulesets on GitHub, with the admin bypass set to pull requests only, are the last.
+
+What it cannot read, by design. A program named through a variable (`c=gh; $c pr merge`) or built by a command
+substitution, a letter escaped with a backslash, what a script it runs does inside itself (`bash script.sh`,
+`python -c`), and a direct call to a repo's seed or migration code with the environment pointed at DEV or PROD by
+hand. Each of those is a deliberate way around a rule, and a session that writes one has stopped following the
+process.
+
+Running a file in a protected folder counts as touching it, so `node ~/.claude/hooks/kdf-guard.js` is refused inside a
+session. To try the installed guard, feed the same input to this folder's copy, which `check-wiring.js` confirms is
+byte identical.
 
 ## Changing a rule
 
