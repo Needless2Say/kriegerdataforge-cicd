@@ -92,6 +92,9 @@ const KDF_CREDENTIALS = [
   'AUTH_TWILIO_AUTH_TOKEN', 'AUTH_ADMIN_EMAIL_PASSWORD'
 ];
 const ENV_LINE = /^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*(.*)$/gm;
+// A name a .env.kdf.example lists, active or commented out, since every line of the standard's example starts commented
+// so a copy overrides nothing. A prose comment that looks like one only adds a name, which keeps more closed.
+const EXAMPLE_NAME = /^[ \t]*(?:#[ \t]*)?(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*=/gm;
 const SECRET_WHY = 'Secret files are the owner\'s. No session reads, writes, copies, sources or passes one to a '
   + 'command, it only checks that one exists. A stack or a test starts through the repo\'s make target, which reads the '
   + 'file itself. Otherwise ask the owner.';
@@ -201,7 +204,7 @@ function checkFileTool(target) {
 function credentialNames(dir) {
   const names = new Set(KDF_CREDENTIALS);
   try {
-    for (const m of fs.readFileSync(path.join(dir, '.env.kdf.example'), 'utf8').matchAll(ENV_LINE)) names.add(m[1]);
+    for (const m of fs.readFileSync(path.join(dir, '.env.kdf.example'), 'utf8').matchAll(EXAMPLE_NAME)) names.add(m[1]);
   } catch (err) {
     // no example, the built in names alone
   }

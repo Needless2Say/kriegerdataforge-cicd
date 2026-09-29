@@ -165,8 +165,8 @@ def _run_case(project: Path, case: dict[str, object]) -> tuple[int, str]:
 def _ignored_tree(project: Path) -> None:
     """
     A repo whose .gitignore covers a virtual environment, node_modules, logs and env files, with a .env.local that
-    holds no credential, ones that do by the built in names or by their repo's .env.kdf.example, one already split,
-    and a report the launcher holds.
+    holds no credential, ones that do by the built in names or by their repo's .env.kdf.example, active or commented
+    out, ones already split, and a report the launcher holds.
     """
     subprocess.run(["git", "init", "-q", str(project)], check = True, capture_output = True)
     files = {
@@ -183,6 +183,10 @@ def _ignored_tree(project: Path) -> None:
         "custom/.env.local": "MY_API_KEY=abc\nPORT=3000\n",
         "migrated/.env.kdf.example": "GH_PACKAGES_PAT=\nKDF_SERVICE_KEY=\n",
         "migrated/.env.local": "PORT=3000\nDB_POSTGRES_PASSWORD=local\n",
+        "commented/.env.kdf.example": "# Copy this file to .env.kdf, uncomment a line.\n#\n# STRIPE_SECRET_KEY=\n",
+        "commented/.env.local": "PORT=3000\nSTRIPE_SECRET_KEY=sk_x\n",
+        "moved/.env.kdf.example": "#   STRIPE_SECRET_KEY =\n",
+        "moved/.env.local": "PORT=3000\n",
         "environments/dev/common.auto.tfvars": "region = \"x\"\n",
         "environments/dev/credentials.auto.tfvars": "token = \"x\"\n",
         ".env.kdf.example": "GH_PACKAGES_PAT=\n",
@@ -199,6 +203,8 @@ def _ignored_tree(project: Path) -> None:
         ".env.kdf.example",
         "custom/.env.kdf.example",
         "migrated/.env.kdf.example",
+        "commented/.env.kdf.example",
+        "moved/.env.kdf.example",
         "docs/security/TRACKED.md",
     ]
     subprocess.run(["git", "-C", str(project), "add", "-f", *tracked], check = True, capture_output = True)

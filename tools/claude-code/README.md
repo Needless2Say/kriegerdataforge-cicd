@@ -64,7 +64,7 @@ through the repo's make target, which reads the file itself.
 **`.env.local` opens to every session once its repo has adopted the env standard**, the owner's decision too, since
 the standard (`skills.md`, ADR D-030) keeps only values that work on this machine there and every credential in
 `.env.kdf`. It fails closed. A `.env.local` is open only where git tracks a `.env.kdf.example` beside it, and only
-while it holds none of the credentials named there or built in, a non empty `GH_PACKAGES_PAT`, `GH_NPM_TOKEN`,
+while it holds none of the credentials named there, on an active or a commented line, or built in, a non empty `GH_PACKAGES_PAT`, `GH_NPM_TOKEN`,
 `KDF_OIDC_CLIENT_SECRET`, `KDF_SERVICE_KEY`, `AUTH_RESEND_API_KEY`, `AUTH_TWILIO_AUTH_TOKEN` or
 `AUTH_ADMIN_EMAIL_PASSWORD`. Anywhere else it stays closed, since it may hold anything. The hub's
 `vercel_api/.env.local`, which `vercel env pull` wrote, holds Vercel and database credentials no built in name covers.

@@ -43,6 +43,9 @@ security audit (`PL-###` findings). The canonical audit lives in the `kriegerdat
     `.env.github`.
   - The Makefile reads the tokens from `.env.kdf`, and compose passes a container only the `.env.kdf` values it needs
     at run time, never a package token. A new credential goes in `.env.kdf`, and its name in `.env.kdf.example`.
+  - Every line of `.env.kdf.example` starts commented out, `# NAME=`, so a copy overrides nothing until a person
+    fills it, and whatever loads both files loads `.env.kdf` last, so a filled value wins over one `.env.local`
+    still holds.
   - `.env.test` holds the test stack's settings. `.env.dev` and `.env.prod` are optional admin files, for an admin's
     scripts against the DEV and PROD databases, and a tenant may keep its own. All three are closed, and a session
     starts a stack or a test through the repo's make target.

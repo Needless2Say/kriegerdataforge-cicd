@@ -1563,8 +1563,16 @@ ignore `.env.kdf` yet, and ten repos would ignore `.env.kdf.example`. Until a re
 keeps it closed while it holds a credential. A session can no longer create `.env.kdf` from its example, the owner
 fills it.
 
-**Consequences.** After #235 merges and the v1.6.0 sync lands, each repo gets one pull request carrying its env split
-and its `AGENTS.md` role pointer, the templates first so a new repo is born split. The owner splits their own
-`.env.local` files, moving the credential lines to `.env.kdf`, never a session. `.env.dev` and `.env.prod` are left
-alone.
+**Consequences.** Each repo gets one pull request carrying its env split, and its `AGENTS.md` role pointer follows in
+a pull request of its own. The owner splits their own `.env.local` files, moving the credential lines to `.env.kdf`,
+never a session. `.env.dev` and `.env.prod` are left alone.
+
+**Refined during the rollout, 2026-09-29.** The owner asked for the rollout before #235 merged, "go through all of my
+repos and create the .env.kdf.example file", so the adoption pull requests opened that night, one per repo, while a
+repo whose clone held the owner's uncommitted work was changed in a worktree of its own. Two findings of the sessions
+doing it changed the standard. Compose loads `.env.kdf` after `.env.local`, so an empty line in a copied example
+blanked a value `.env.local` still held, and every line of `.env.kdf.example` now starts commented out, so a copy
+overrides nothing until a person fills it. The guard read a repo's credential names only from active lines, and it now
+reads commented ones too, so a `.env.local` holding such a name stays closed. cicd adopted the standard in #235
+itself, and its E2E stack reads the sibling repos' package tokens from `.env.kdf` first.
 

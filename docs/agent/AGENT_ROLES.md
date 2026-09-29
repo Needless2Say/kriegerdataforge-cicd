@@ -50,8 +50,8 @@ When your role is unclear, take the narrower one and ask the owner.
    - **`.env.local` is open once its repo has adopted the standard.** It holds the values that work only on this
      machine, and by the owner's decision every model may read it, but only where git tracks a `.env.kdf.example`
      beside it, since until then it may hold anything, a file `vercel env pull` wrote for example. Even then check it
-     first without reading it, adding every name that `.env.kdf.example` lists to the pattern below. When the example
-     is missing or this finds a line, leave the file closed and tell the owner.
+     first without reading it, adding every name that `.env.kdf.example` lists, commented out or not, to the pattern
+     below. When the example is missing or this finds a line, leave the file closed and tell the owner.
 
      ```bash
      grep -qE '^[[:space:]]*(export[[:space:]]+)?(GH_PACKAGES_PAT|GH_NPM_TOKEN|KDF_OIDC_CLIENT_SECRET|KDF_SERVICE_KEY|AUTH_RESEND_API_KEY|AUTH_TWILIO_AUTH_TOKEN|AUTH_ADMIN_EMAIL_PASSWORD)[[:space:]]*=[[:space:]]*[^[:space:]]' .env.local

@@ -2059,5 +2059,10 @@
  { "role": "owner", "tool": "Bash", "command": "make ci > /dev/null 2>&1", "expect": "allow" },
  { "role": "owner", "tool": "Bash", "command": "make lint 2> lint-dev.txt", "expect": "allow" },
  { "role": "owner", "tool": "Bash", "command": "make deploy > /dev/null", "expect": "block" },
- { "role": "owner", "tool": "Bash", "command": "make >/dev/null seed-dev-admins", "expect": "block" }
+ { "role": "owner", "tool": "Bash", "command": "make >/dev/null seed-dev-admins", "expect": "block" },
+ { "role": "owner", "tool": "Bash", "command": "cat commented/.env.local", "expect": "block" },
+ { "role": "owner", "tool": "Read", "file": "${PROJ}/commented/.env.local", "expect": "block" },
+ { "role": "reviewer", "tool": "Bash", "command": "grep PORT commented/.env.local", "expect": "block" },
+ { "role": "owner", "tool": "Bash", "command": "cat moved/.env.local", "expect": "allow" },
+ { "role": "reviewer", "tool": "Read", "file": "${PROJ}/moved/.env.local", "expect": "allow" }
 ]
