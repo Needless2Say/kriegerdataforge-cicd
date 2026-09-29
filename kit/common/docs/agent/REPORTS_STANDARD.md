@@ -71,7 +71,7 @@ fitness-app-frontend (`src/features/report/`), tiffanys-space, template-nextjs
 
 ## Where tickets land (every repo)
 
-All 16 repos map to one of six user owned Projects v2 boards (Fitness, Tiffany's Space,
+Every repo maps to one of six user owned Projects v2 boards (Fitness, Tiffany's Space,
 Platform, Infra, Portfolios, Templates) provisioned/audited by the cicd `ops:provision-projects`
 flow (classic PAT only on a personal account, see the D-010 W1 finding). Standard fields:
 Status (Inbox → … → Done), Priority (human), Type, Severity.

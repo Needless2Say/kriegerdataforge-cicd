@@ -12,11 +12,13 @@
  * Guardrails are the owner's to change, so a session cannot edit its own settings, hooks, MCP list or git hooks.
  * Git settings that run commands or change where code goes are refused. So is a make target that reaches DEV or
  * PROD or applies, deploys or publishes, one of cicd's ops scripts outside its read only mode, and re-running,
- * cancelling or deleting a workflow run, which can redeploy.
+ * cancelling or deleting a workflow run, which can redeploy. A .env.local is open to read, by the owner's decision,
+ * unless it still holds a package token.
  *
  * Reviewer rules, on top of those. Read only git, no GitHub CLI, no shell command that writes, installs or
  * downloads, no redirect into a file, no secret file, no connector, artifact, message, schedule or notification
- * tool, and file edits only under docs/security.
+ * tool, and file edits only under docs/security. A reviewer follows .gitignore, so it opens no path git ignores
+ * but .env.local, no report the launcher holds, and runs no recursive grep.
  *
  * A permission deny rule matches one tool and one spelling. This guard reads the command the way a shell does,
  * so it also catches the PowerShell tool, git -C, a nested shell, an env prefix, find -exec and a command after a
@@ -28,6 +30,7 @@
  * Environment. KDF_ROLE=reviewer picks the reviewer rules. KDF_GUARD_ALLOW_SELF_EDIT=1, set by the owner when the
  * session is started, lets that session edit guardrail files. KDF_GUARD_LOG=<file> appends one line per refusal.
  */
+const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
@@ -66,8 +69,32 @@ const PROTECTED = [
 ];
 const GUARDRAIL_WHY =
   'Guardrails are the owner\'s to change. Settings, hooks, the MCP list and git hooks are edited by hand.';
-// Files that hold secrets. .env.example is not one of them.
-const SECRET_FILE = /(^|[\\/])\.env(\.(local|test|github|prod\w*|development))?$|\.tfvars$|\.pem$|(^|[\\/])keys[\\/]/i;
+// Files that hold secrets. Every .env file is one, .env.dev, .env.prod and backups such as .env.local.bak too, but an
+// example is not, and .env.local has a rule of its own below.
+const ENV_FILE = /(^|[\\/])\.env(\.[^\\/]*)?$/i;
+const KEY_FILE = /\.tfvars(\.json)?$|\.pem$|(^|[\\/])keys[\\/]/i;
+function isSecretFile(p) {
+  const s = String(p);
+  if (ENV_FILE.test(s)) return !/\.example$/i.test(s) && !LOCAL_ENV.test(s);
+  return KEY_FILE.test(s);
+}
+const SECRET_WHY = 'Secret files are the owner\'s, a review never needs their values.';
+// .env.local holds the local stack's settings, and the owner lets any model read it. A package token is a real
+// GitHub credential that belongs in .env.github, so a .env.local that still holds one stays closed to every session.
+const LOCAL_ENV = /(^|[\\/])\.env\.local$/i;
+const PACKAGE_TOKEN_LINE = /^[ \t]*(export[ \t]+)?(GH_PACKAGES_PAT|GH_NPM_TOKEN)[ \t]*=[ \t]*["']?[^\s"'#]/m;
+const TOKEN_WHY = 'This .env.local still holds a package token, GH_PACKAGES_PAT or GH_NPM_TOKEN, a real GitHub '
+  + 'credential. It opens to reading once the token has moved to .env.github. Ask the owner.';
+// Programs that print what a file holds. The token rule applies to them, and a reviewer never points one at a path
+// git ignores.
+const CONTENT_READERS = new Set([
+  'cat', 'less', 'more', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'rg', 'sed', 'awk', 'gawk', 'bat', 'strings',
+  'xxd', 'od', 'hexdump', 'base64', 'nl', 'tac', 'sort', 'uniq', 'cut', 'diff', 'cmp', 'jq', 'yq', 'type',
+  'get-content', 'gc', 'select-string', 'sls'
+]);
+const IGNORED_WHY = 'Reviewers follow .gitignore, a path git ignores is not part of the review. Search with git grep '
+  + 'or rg, which skip ignored paths.';
+const HELD_WHY = 'The launcher holds the other reviewer\'s report of the scope there while a review is open. Never open it.';
 // Programs that only read, so naming a protected file to them is fine.
 const READ_ONLY_PROGRAMS = new Set([
   'cat', 'less', 'more', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'rg', 'ls', 'dir', 'wc', 'diff', 'cmp', 'stat',
@@ -77,6 +104,8 @@ const READ_ONLY_PROGRAMS = new Set([
 const GIT_READ = new Set(['status', 'diff', 'log', 'show', 'blame', 'ls-files', 'check-ignore', 'cat-file', 'rev-parse', 'ls-tree', 'grep']);
 
 let PROJECT = process.cwd();
+// The shell's directory for this call, which a relative path in a command or a tool input is read against.
+let CWD = process.cwd();
 
 function deny(why, detail) {
   const line = 'kdf-guard (' + MODE + ') refused this call. ' + why;
@@ -108,14 +137,15 @@ process.stdin.on('end', () => {
 
 function run(input) {
   PROJECT = path.resolve(process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd());
+  CWD = path.resolve(input.cwd || PROJECT);
   const tool = input.tool_name || '';
   const args = input.tool_input || {};
   if (tool === 'Bash' || tool === 'PowerShell') {
     check(String(args.command || ''), 0);
   } else if (FILE_TOOLS.test(tool)) {
     checkFileTool(String(args.file_path || args.notebook_path || ''));
-  } else if (MODE === 'reviewer' && tool === 'Read') {
-    if (SECRET_FILE.test(String(args.file_path || ''))) deny('Secret files are the owner\'s, a review never needs their values.', tool);
+  } else if (tool === 'Read' || tool === 'Grep' || tool === 'Glob') {
+    checkReadTool(tool, args);
   } else if (MODE === 'reviewer' && OUTWARD_TOOLS.test(tool)) {
     deny('Reviewers use no connector, artifact, message, schedule or notification tool. ' + tool + ' is refused.', tool);
   }
@@ -140,6 +170,63 @@ function checkFileTool(target) {
   if (!SELF_EDIT_OK && isProtected(target)) deny(GUARDRAIL_WHY, target);
   if (MODE === 'reviewer' && !insideSecurityDir(target)) {
     deny('Reviewers write only under docs/security. ' + target + ' is outside it.', target);
+  }
+}
+
+// ------------------------------------------------------------ reading files
+
+function holdsPackageToken(p) {
+  try {
+    return PACKAGE_TOKEN_LINE.test(fs.readFileSync(path.resolve(CWD, p), 'utf8'));
+  } catch (err) {
+    return false;
+  }
+}
+
+// Every session. A .env.local that still holds a package token stays closed.
+function checkLocalEnv(p, detail) {
+  if (LOCAL_ENV.test(p) && holdsPackageToken(p)) deny(TOKEN_WHY, detail);
+}
+
+// A path git ignores, judged by the repo that holds it. A path that does not exist holds nothing to read.
+function ignoredByGit(p) {
+  const abs = path.resolve(CWD, p);
+  let dir;
+  try {
+    dir = fs.statSync(abs).isDirectory() ? abs : path.dirname(abs);
+  } catch (err) {
+    return false;
+  }
+  try {
+    execFileSync('git', ['-C', dir, 'check-ignore', '-q', '--', abs], { stdio: 'ignore', timeout: 10000, windowsHide: true });
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+// Reviewers. The reports the launcher holds, a secret file, and a path git ignores stay closed. .env.local is the one
+// ignored file a reviewer may open, and the token rule decides it.
+function checkReviewerOpens(p, detail) {
+  if (/\/\.git\/kdf-review(\/|$)/.test(norm(path.resolve(CWD, p)))) deny(HELD_WHY, detail);
+  if (isSecretFile(p)) deny(SECRET_WHY, detail);
+  if (!LOCAL_ENV.test(p) && ignoredByGit(p)) deny(IGNORED_WHY + ' ' + p + ' is ignored.', detail);
+}
+
+// The Read, Grep and Glob tools. Glob lists names and never content, so the token rule leaves it alone.
+function checkReadTool(tool, args) {
+  const target = String((tool === 'Read' ? args.file_path : args.path) || '');
+  if (target && tool !== 'Glob') checkLocalEnv(target, tool + ' ' + target);
+  if (MODE !== 'reviewer') return;
+  if (target) checkReviewerOpens(target, tool + ' ' + target);
+  if (tool === 'Glob') {
+    // the pattern's leading directories before its first wildcard, node_modules/** for example
+    const literal = [];
+    for (const part of String(args.pattern || '').split(/[\\/]+/)) {
+      if (!part || /[*?[\]{}]/.test(part)) break;
+      literal.push(part);
+    }
+    if (literal.length) checkReviewerOpens(path.join(target || CWD, ...literal), tool + ' ' + args.pattern);
   }
 }
 
@@ -301,6 +388,7 @@ function analyze(toks, depth, whole) {
     if (k >= 0 && k + 1 < toks.length) analyze(toks.slice(k + 1), depth, whole);
   }
   checkProtectedInShell(toks, prog, args, whole);
+  if (CONTENT_READERS.has(prog)) args.filter((a) => !a.startsWith('-')).forEach((a) => checkLocalEnv(a, whole));
   if (MODE === 'reviewer') checkRedirects(toks, whole);
   if (nestedShell(prog, args, depth)) return;
   if (prog === 'git') checkGit(args, whole);
@@ -467,6 +555,9 @@ function reviewerGit(sub, rest, whole) {
     'count-objects', 'check-ignore', 'check-attr', 'ls-remote', 'help', 'version', 'whatchanged', 'range-diff',
     'verify-commit', 'verify-tag', 'tag', ''
   ]);
+  if ((sub === 'grep' || sub === 'diff') && rest.some((a) => /^--(no-index|no-exclude-standard)$/.test(a))) {
+    deny('git ' + sub + ' with --no-index or --no-exclude-standard reads what git does not track. ' + IGNORED_WHY, whole);
+  }
   if (READ.has(sub)) return;
   const first = (rest[0] || '').toLowerCase();
   if (sub === 'branch') {
@@ -650,7 +741,16 @@ const MAKE_WRITERS = /^(setup|clean.*|bump.*|docker.*|compile.*|release.*|publis
 function checkReviewerProgram(prog, args, whole) {
   const a = args.map((x) => x.toLowerCase());
   const refuse = () => deny('Reviewers only read and write their report. ' + prog + ' is refused.', whole);
-  if (args.some((x) => SECRET_FILE.test(x))) deny('Secret files are the owner\'s, a review never needs their values.', whole);
+  if (args.some((x) => isSecretFile(x))) deny(SECRET_WHY, whole);
+  if (CONTENT_READERS.has(prog)) args.filter((x) => !x.startsWith('-')).forEach((x) => checkReviewerOpens(x, whole));
+  if (/^(grep|egrep|fgrep)$/.test(prog) && a.some((x, k) => /^-[a-z]*r/.test(x)
+    || /^--(recursive|dereference-recursive|directories=recurse)$/.test(x)
+    || ((x === '-d' || x === '--directories') && a[k + 1] === 'recurse'))) {
+    deny('A recursive grep reads what .gitignore excludes. Use git grep or rg, which honour it.', whole);
+  }
+  if (prog === 'rg' && args.some((x) => /^-[a-zA-Z]*u/.test(x) || /^--(no-ignore(-[a-z-]+)?|unrestricted)$/.test(x))) {
+    deny('rg -u and --no-ignore read what .gitignore excludes. Drop the flag.', whole);
+  }
   if (READER_DENIED.has(prog)) refuse();
   if ((prog === 'sed' || prog === 'perl') && a.some((x) => /^-[a-z]*i/.test(x) || x.startsWith('--in-place'))) refuse();
   if (/^(pip[0-9.]*|pipx|uv)$/.test(prog) && a.some((x) => INSTALLERS.has(x))) refuse();

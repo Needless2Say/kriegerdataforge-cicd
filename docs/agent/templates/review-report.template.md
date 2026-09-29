@@ -10,6 +10,8 @@
 
 - **Pin read.** {sha}, as `git rev-parse HEAD` printed it, on branch {branch}. {If it differs from the brief's pin,
   say so first, and stop.}
+- **Read first.** {The files you read before the code, in the order you read them, from `AGENTS.md` to the brief's
+  reading list. The launcher warns when this line or the pin is missing.}
 - **Baseline reproduced.** {lint, type check, tests, the counts.} {A red baseline goes here first.}
 - **Time spent.** {hours.}
 - **Reviewer.** {model and effort.}

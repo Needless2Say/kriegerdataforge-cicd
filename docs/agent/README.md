@@ -1,37 +1,38 @@
-# The agentic-workflow kit — what's in this directory and how to use it
+# The agentic workflow kit. What's in this directory and how to use it
 
-Kept byte-identical across every KDF repo by the kit-sync engine (canonical source:
-`kriegerdataforge-cicd/kit/common/`; version marker: [`KIT_VERSION`](KIT_VERSION)). This directory
-plus the repo-root [`WORKFLOW.md`](../../WORKFLOW.md) and [`skills.md`](../../skills.md) **is the
-kit** — the shared operating standard that lets any developer or AI agent work the same way in
+Kept byte identical across every KDF repo by the kit sync engine (canonical source:
+`kriegerdataforge-cicd/kit/common/`, version marker. [`KIT_VERSION`](KIT_VERSION)). This directory
+plus the repo root [`WORKFLOW.md`](../../WORKFLOW.md) and [`skills.md`](../../skills.md) **is the
+kit**, the shared operating standard that lets any developer or AI agent work the same way in
 every KriegerDataForge repo. **Never edit the kit files locally** (a local edit is drift and gets
-overwritten); change `kit/common/` in `kriegerdataforge-cicd` instead. Repo-specific agent
-deep-dives (`<slug>.md`) may live alongside these files and are repo-owned.
+overwritten). Change `kit/common/` in `kriegerdataforge-cicd` instead. Repo specific agent
+deep dives (`<slug>.md`) may live alongside these files and are repo-owned.
 
 ## Reading order (first time in the ecosystem)
 
-1. **`AGENTS.md`** (repo root, per-repo) — what this repo is, its vision, module map, critical rules.
-2. [**`WORKFLOW.md`**](../../WORKFLOW.md) (repo root, kit) — the three-lane loop every task follows:
-   Quick / Standard (plan → owner approves → implement → `make ci` → PR) / Epic.
-3. [**`skills.md`**](../../skills.md) (repo root, kit) — the scenario-organized security playbook;
-   read the matching scenario before any security-sensitive work.
-4. This directory — the deeper standards below, consulted when their topic comes up.
+1. **`AGENTS.md`** (repo root, per repo). What this repo is, its vision, module map, critical rules.
+2. [**`WORKFLOW.md`**](../../WORKFLOW.md) (repo root, kit). The three lane loop every task follows:
+   Quick / Standard (plan → owner approves → implement → `make ci` → PR) / Epic. It opens with your role,
+   [`AGENT_ROLES.md`](AGENT_ROLES.md), what any agent of any model may do, read before you act.
+3. [**`skills.md`**](../../skills.md) (repo root, kit). The scenario organized security playbook.
+   Read the matching scenario before any security sensitive work.
+4. This directory. The deeper standards below, consulted when their topic comes up.
 
 ## What each file here is for
 
 | File | What it is | Consult it when |
 | --- | --- | --- |
-| [`AGENT_OPERATING_STANDARD.md`](AGENT_OPERATING_STANDARD.md) | The "why" behind the whole standard: the five principles, the three lanes with worked examples, who owns which contract, the glossary | You want to understand how the pieces fit, or you're prompting/reviewing an agent |
+| [`AGENT_OPERATING_STANDARD.md`](AGENT_OPERATING_STANDARD.md) | The "why" behind the whole standard. The five principles, the three lanes with worked examples, who owns which contract, the glossary | You want to understand how the pieces fit, or you're prompting/reviewing an agent |
 | [`DEFINITION_OF_DONE.md`](DEFINITION_OF_DONE.md) | The real bar beyond "CI is green", scaled by change type | **Before opening any PR** |
-| [`DESIGN_AND_EPICS.md`](DESIGN_AND_EPICS.md) | The design gate + cross-repo Epic playbook (design doc → ADR → approval → vertical slices) | Anything complex, novel, or spanning repos |
-| [`DOCUMENTATION_STANDARD.md`](DOCUMENTATION_STANDARD.md) | How repo docs are organized, kept honest, and kept discoverable (taxonomy, README front door, deprecate-with-banner) | Any documentation work |
-| [`REPORTS_STANDARD.md`](REPORTS_STANDARD.md) | The reports standard: the six Projects boards + the AI bug reporter — certified packages, adoption recipes, security posture, per-repo-type applicability | Touching reports/boards/triage, or adopting the feature in an app |
+| [`DESIGN_AND_EPICS.md`](DESIGN_AND_EPICS.md) | The design gate + cross repo Epic playbook (design doc → ADR → approval → vertical slices) | Anything complex, novel, or spanning repos |
+| [`DOCUMENTATION_STANDARD.md`](DOCUMENTATION_STANDARD.md) | How repo docs are organized, kept honest, and kept discoverable (taxonomy, README front door, deprecate with banner) | Any documentation work |
+| [`REPORTS_STANDARD.md`](REPORTS_STANDARD.md) | The reports standard. The six Projects boards + the AI bug reporter. Certified packages, adoption recipes, security posture, per repo type applicability | Touching reports/boards/triage, or adopting the feature in an app |
 | [`AGENT_ROLES.md`](AGENT_ROLES.md) | Agent roles and limits. What any agent, of any model or tool, may do. Implementer, orchestrator, reviewer and chat reader, the rules every role keeps, and what holds each tool to them | **Before you act**, and whenever your role is unclear |
 | [`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md) | The KDF Code Review Process. Any scope, from one function to every repo, reviewed by fresh Claude and Codex sessions at a pinned commit and Sol rounds. The scales, the roles, the cycle, the rules, severity, the artifacts and the security model | An independent review by more than one model, of any size |
-| [`templates/design-spec.template.md`](templates/design-spec.template.md) | Copy-me 10-section design spec → `docs/design/{feature}.md` | The design gate applies |
-| [`templates/adr-entry.template.md`](templates/adr-entry.template.md) | Copy-me ADR block → `docs/CHANGELOG_AND_DECISION_LOG.md` | Recording an architectural decision (`D-NNN`) |
-| [`templates/epic-tracker.template.md`](templates/epic-tracker.template.md) | Copy-me tracker → `kriegerdataforge/docs/epics/{name}.md` (the hub) | Coordinating a cross-repo Epic |
-| [`templates/contributor-onboarding.template.md`](templates/contributor-onboarding.template.md) | Copy-me onboarding spine → `docs/guides/CONTRIBUTOR_ONBOARDING.md` | Creating/refreshing a repo's contributor onboarding |
+| [`templates/design-spec.template.md`](templates/design-spec.template.md) | Copy me 10-section design spec → `docs/design/{feature}.md` | The design gate applies |
+| [`templates/adr-entry.template.md`](templates/adr-entry.template.md) | Copy me ADR block → `docs/CHANGELOG_AND_DECISION_LOG.md` | Recording an architectural decision (`D-NNN`) |
+| [`templates/epic-tracker.template.md`](templates/epic-tracker.template.md) | Copy me tracker → `kriegerdataforge/docs/epics/{name}.md` (the hub) | Coordinating a cross repo Epic |
+| [`templates/contributor-onboarding.template.md`](templates/contributor-onboarding.template.md) | Copy me onboarding spine → `docs/guides/CONTRIBUTOR_ONBOARDING.md` | Creating/refreshing a repo's contributor onboarding |
 | [`templates/review-plan.template.md`](templates/review-plan.template.md) | Copy me review campaign plan → `docs/security/<PFX>_REVIEW_PLAN.md` | Starting a review campaign |
 | [`templates/review-brief.template.md`](templates/review-brief.template.md) | Copy me reviewer brief, one for Claude and Codex → `docs/security/<PFX>_REVIEW_<slice>_PROMPT.md` | Step 2 of a slice, and the final review |
 | [`templates/review-report.template.md`](templates/review-report.template.md) | Copy me report format for a fresh reviewer | A reviewer writing its report |
@@ -40,14 +41,17 @@ deep-dives (`<slug>.md`) may live alongside these files and are repo-owned.
 
 ## How to use the kit to work well here
 
-- **Every task**: pick a lane in `WORKFLOW.md` and follow its loop — plan first, owner approves,
+- **Every task**. Pick a lane in `WORKFLOW.md` and follow its loop. Plan first, owner approves,
   `make ci` green locally before any PR, never self-merge.
-- **Before a PR**: walk `DEFINITION_OF_DONE.md` for your change type; the PR template is its
+- **Before a PR**. Walk `DEFINITION_OF_DONE.md` for your change type. The PR template is its
   checkbox form.
-- **Security-sensitive work** (auth, tokens, secrets, CSP, payments, infra, CI): open `skills.md`
-  first and follow the matching scenario; when unsure, choose the fail-closed option.
-- **Docs work**: follow `DOCUMENTATION_STANDARD.md` — code is ground truth; update the doc in the
-  same PR as the behavior; deprecate with a banner, don't delete.
-- **To improve the kit itself**: propose the change in `kriegerdataforge-cicd` (`kit/common/` +
+- **Security sensitive work** (auth, tokens, secrets, CSP, payments, infra, CI). Open `skills.md`
+  first and follow the matching scenario. When unsure, choose the fail closed option.
+- **Docs work**. Follow `DOCUMENTATION_STANDARD.md`. Code is ground truth. Update the doc in the
+  same PR as the behavior. Deprecate with a banner, don't delete.
+- **Reviewing code with more than one model**, one function or every repo. Follow `CODE_REVIEW_PROCESS.md`. Pick the
+  scale first. A spot review needs only a brief, a larger one a plan the owner approves, and each slice runs the cycle
+  before its pull request opens.
+- **To improve the kit itself**. Propose the change in `kriegerdataforge-cicd` (`kit/common/` +
   both `KIT_VERSION` markers), per *How the standard is maintained* in
   [`AGENT_OPERATING_STANDARD.md`](AGENT_OPERATING_STANDARD.md).

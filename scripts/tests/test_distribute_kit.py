@@ -114,7 +114,7 @@ def test_session_retries_transient_failures():
     """
     Regression guard: the shared session must retry transient GitHub failures.
 
-    A fan-out check/distribute across ~14 repos routinely hits a 502/503/429 or a
+    A fan-out check/distribute across every kit repo routinely hits a 502/503/429 or a
     DNS/connection blip; without retries a single hiccup aborts a whole repo (the
     2026-07 distribute check errored on two 502s + one DNS failure). The retry must
     stay wired, cover the transient status codes + connection errors, and NOT retry
@@ -336,6 +336,19 @@ def test_real_kit_version_markers_match():
         "distribute_kit._assert_version_consistency() would hard-exit; bump both."
     )
     assert canonical == root_copy, (f"kit/KIT_VERSION ({canonical}) != root docs/agent/KIT_VERSION ({root_copy}).")
+
+
+def test_cicd_keeps_its_own_kit_copies_current():
+    """
+    cicd is the source and never a sync target, so its root copies of the kit files change in the same pull request as
+    kit/common. Every agent working in cicd reads the root copies, and they had fallen versions behind by 2026-09-29.
+    """
+    def text(path):
+        return path.read_bytes().replace(b"\r\n", b"\n")
+
+
+    drifted = [name for name in dk._load_registry()["files"] if text(dk.REPO_ROOT / name) != text(dk.KIT_DIR / name)]
+    assert not drifted, f"cicd's own copies differ from kit/common, copy these over: {drifted}"
 
 
 def test_real_kit_registry_files_all_exist_under_kit_common():

@@ -487,11 +487,15 @@ Runs **gitleaks** over the consumer's working tree **and** git history to catch 
 
 | Input | Type | Default | Required |
 |---|---|---|---|
-| `fetch-depth` | number | `0` (full history) | no (`:20-25`) |
+| `ref` | string | `""`, the caller run's own ref | no (`:21-24`) |
+| `fetch-depth` | number | `0` (full history) | no (`:25-29`) |
 
 - **Secrets.** `GITHUB_TOKEN` (default). **Outputs.** None.
-- **Permissions.** Top level **and** job. `contents: read`, `pull-requests: read` (`:27-29`, `:36-38`).
-- **Consumers.** Any repo (from `ci.yml`). No `GITLEAKS_LICENSE` needed for public/individual use.
+- **Permissions.** Top level **and** job. `contents: read`, `pull-requests: read` (`:31-33`, `:40-42`). The caller
+  grants both at its top level, or the whole run fails at startup and shows no check at all.
+- **Consumers.** Every repo, from its `ci.yml`, and since 2026-09-29 this repo too, as a local reference so a change to
+  the lane is exercised by the pull request that makes it. No `GITLEAKS_LICENSE` needed for public/individual use. On
+  a pull request the action scans the commits the pull request adds, not the whole history.
 - **gitleaks version.** Pinned by `GITLEAKS_VERSION: "8.30.1"`. Left unset the action installs 8.24.3, which ignores a
   consumer's `[[allowlists]]` array without a word (the array arrived in 8.25.0). Raise the pin deliberately, after
   scanning every consumer's full history on the new version with its own `.gitleaks.toml`.

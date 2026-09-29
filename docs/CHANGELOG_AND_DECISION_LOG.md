@@ -1408,7 +1408,11 @@ which lives in the same `docs/security`. Separately, the owner's double submissi
 2026-09-29 made every repo answer 422, an open pull request already existed, which read as sixteen failures. Before
 merging, the owner turned down a copy of the repo per reviewer, "this does not scale well. I want the other models to
 be able to review the repo itself without me creating these environments", and asked that every model follow
-`.gitignore` the way Claude's search does.
+`.gitignore` the way Claude's search does. The same evening the owner opened `.env.local` to every model, "those are
+secrets for my local docker setup", approved five enhancements, the guard holding reviewers to `.gitignore`, Codex in
+the cloud, the role pointer in every `AGENTS.md`, a check that the pin is pushed and a tool that measures a brief's
+line counts, asked for cicd's own housekeeping, and put a sixth, moving secret files out of the folder during a Codex
+review, in the backlog.
 
 **Decision.**
 
@@ -1430,17 +1434,37 @@ be able to review the repo itself without me creating these environments", and a
   missing review reads a later pin when it can run. It is never skipped, and the slice does not close without it.
 - **Follow `.gitignore`**, rule 6 of `AGENT_ROLES.md` for every role. What git ignores is not the project, so no model
   searches, opens or quotes it, and a reviewer reviews only what git tracks. `WORKFLOW.md`, every brief and the
-  `AGENTS.md` pointer say so. Measured on 2026-09-29, Claude Code's Grep skips ignored paths while its Glob and Read do
-  not, so beyond the secret files the guard refuses, the rule holds Claude by instruction too.
+  `AGENTS.md` pointer say so. Measured on 2026-09-29, Claude Code's Grep skips ignored paths but reads one named to it,
+  and its Glob and Read do not look at `.gitignore` at all, so the guard now reads Read, Grep and Glob calls. A
+  reviewer is refused a path git ignores in those tools and in every shell program that prints a file, the reports the
+  launcher holds, a recursive `grep`, `rg -u` and `--no-index`. The hook matcher adds `Read|Grep|Glob`, and every
+  such call pays the guard's 65 ms, 83 ms for a reviewer's, which also asks git.
+- **`.env.local` is open to every model**, the owner's decision, since it holds the local stack's settings. A
+  `.env.local` that still holds `GH_PACKAGES_PAT` or `GH_NPM_TOKEN` stays closed, since both are real GitHub
+  credentials and the app repos still keep one there. The guard refuses it to Read, Grep and every shell program that
+  prints a file, in every session, and the charter tells every other model to check with `grep -q` before it opens
+  one. The guard's secret list now matches the charter's, every `.env` file but an example, where it had missed
+  `.env.dev` and the `.env.local.bak`, `.remote` and `.friend` copies found on the owner's machine.
+- **The pin is pushed, and the brief's facts are measured.** `--pin` refuses a commit no branch of `origin` holds.
+  `kdf-brief.js` prints the commit line and the scope table's line counts at the pin, and checks a written brief's
+  table, and the launcher runs that check before every pinned review.
+- **Codex in the cloud.** It reads a review branch that stays at the pin, `review/<pfx>-<slice>`, on GitHub, where no
+  ignored file exists, and the owner starts it from a phone. Its report comes back on the branch of the pull request
+  it opens, and `--collect-branch` writes it into the folder only when the branch is built on the pin and adds nothing
+  but new files under `docs/security`. Every report's header lists what its reviewer read first, and every collect
+  warns when the header does not name the pin or that list.
+- **cicd's housekeeping.** cicd's own CI runs the secret scan it offers every other repo, and its root copies of the
+  kit, which had fallen behind, are synced and held equal to `kit/common` by a test. `kriegerdataforge-fmt` joins the
+  kit registry and the Platform board. `AGENTS.md` names `make ci`, which exists.
 - **Distribute can run twice.** Both engines skip a file whose sync branch copy already matches, and look for an open
   pull request from the sync branch before opening one. A second run brings the branch up to date and prints "PR
   already open" in place of a 422.
 - **Roles for every model.** The owner asked that the limits the guard enforces on Claude also reach the models that
   read only `AGENTS.md` and the kit. A new kit file, `docs/agent/AGENT_ROLES.md`, writes four roles for any model or
   tool, implementer by default, orchestrator, reviewer and chat reader, and ten rules every role keeps, the guard's
-  owner rules in words and `.gitignore`. `WORKFLOW.md`, which every `AGENTS.md` sends an agent to for every task, opens with them, and
-  every review brief states the reviewer's role in its own text, since a reviewer of any model reads its brief. The
-  guard and the charter change together.
+  owner rules in words and `.gitignore`. `WORKFLOW.md`, which every `AGENTS.md` sends an agent to for every task,
+  opens with them, and every review brief states the reviewer's role in its own text, since a reviewer of any model
+  reads its brief. The guard and the charter change together.
 
 **Alternatives considered.**
 
@@ -1453,20 +1477,27 @@ be able to review the repo itself without me creating these environments", and a
   on an instruction, and the late reviewer would read code the first never saw.
 - Codex skipped at step 2 when it cannot run, and kept for step 5. Rejected, the owner's decision is that both models
   read every slice twice.
-- The roles written into each repo's `AGENTS.md`. Deferred, `AGENTS.md` is per repo and not synced, so it is eighteen
-  pull requests with a version bump each, and the SDK's bump cuts a release. `WORKFLOW.md` and the briefs reach every
-  agent through the sync today. This repo's `AGENTS.md` carries the pointer now, the SDK's rides with its review's
-  first slice, and each other repo's can ride with that repo's next pull request.
+- The roles written only into `WORKFLOW.md` and the briefs. The owner wanted the pointer in every `AGENTS.md` too.
+  `AGENTS.md` is per repo and not synced, so it is a pull request per repo with a version bump each. This repo's
+  carries the pointer now, the SDK's rides with its review's first slice, and the others follow the v1.6.0 sync, so
+  the page they point to is there first.
+- Moving the secret files out of the folder while Codex reads it. Held in the backlog by the owner, issue #236. A reviewer's
+  tests and the running stack read those files, and a move that is cut off between out and back leaves a repo without
+  its settings. Codex in the cloud gives the same protection with nothing moved.
 
 **Trade-offs.** A review freezes its folder. The orchestrator reads, plans and works in other repos meanwhile, and a
-slice waits for Codex as long as Codex waits for the owner. Codex on the owner's machine reads the folder that holds
-the owner's local secret files, and its sandbox limits what it writes, not what it reads, so rule 6 and the secret
-rule alone keep it from them. Codex in the cloud reads GitHub, where no ignored file exists. For a model that does not
-run the guard the roles are instructions, not enforcement, and what holds it is its own sandbox, collect for a
-reviewer, and GitHub's rulesets.
+slice waits for Codex as long as Codex waits for the owner, unless Codex runs in the cloud. Codex on the owner's
+machine reads the folder that holds the owner's local secret files, and its sandbox limits what it writes, not what it
+reads, so rules 5 and 6 alone keep it from them, a `.env.local` that still holds a package token included. Codex in
+the cloud reads GitHub, where no ignored file exists. For a model that does not run the guard the roles are
+instructions, not enforcement, and what holds it is its own sandbox, collect for a reviewer, and GitHub's rulesets.
+Every Read, Grep and Glob call now costs a guard run.
 
-**Consequences.** After this merges the owner runs Distribute once, kit v1.6.0. Every slice's step 2 pins, and the
-SDK plan's section 13 runs both reviewers in the SDK folder with no setup. The launcher's tests prove the pin check,
-one review of a folder at a time, the held report in both orders, collect's fence, and its recovery of a Claude run
-that was cut off.
+**Consequences.** After this merges the owner reinstalls the guard, adds `Read|Grep|Glob` to the hook matcher, then
+removes `Read(**/.env.local)` from the deny list, in that order, and runs Distribute once, kit v1.6.0. The app repos
+that keep a package token in `.env.local` stay closed until the token moves to `.env.github`, the auth UI's pattern,
+which is the owner's call per repo. Every slice's step 2 pins, and the SDK plan's section 13 runs both reviewers in the
+SDK folder with no setup. The launcher's tests prove the pushed pin, the pin check, the brief check, one review of a
+folder at a time, the held report in both orders, collect's fence, the cloud branch's fence, and the recovery of a
+Claude run that was cut off.
 

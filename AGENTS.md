@@ -62,7 +62,7 @@ agent workflows (`agents/`, skeleton only) so automation scales with the platfor
 | `scripts/*/db_backup.py` | Per tenant Neon DB backup |
 | `docs/reference/WORKFLOWS.md`, `docs/guides/MANUAL_SETUP.md` | Workflow catalog (inputs/secrets/callers) + manual setup runbook |
 | `kit/common/`, `scripts/kit_registry.json`, `scripts/distribute_kit.py` | The agentic workflow kit's canonical source, its sync registry and its engine, which opens owner reviewed PRs to every repo. The KDF Code Review Process is `kit/common/docs/agent/CODE_REVIEW_PROCESS.md` with its four templates |
-| `tools/claude-code/` | The KDF Code Review Process tooling, installed on the owner's machine and **not synced**. `kdf-guard.js` (the PreToolUse guard), `kdf-review.sh` (starts a fresh reviewer in the repo folder at a pinned commit, opens and closes the folder for Codex, and checks git afterward), `check-wiring.js`, `install.sh`, `guard-cases.json`. Tested by `scripts/tests/test_claude_code_tools.py`, see its `README.md` |
+| `tools/claude-code/` | The KDF Code Review Process tooling, installed on the owner's machine and **not synced**. `kdf-guard.js` (the PreToolUse guard), `kdf-review.sh` (starts a fresh reviewer in the repo folder at a pinned commit, opens and closes the folder for Codex, brings in a report Codex wrote in the cloud, and checks git afterward), `kdf-brief.js` (a brief's commit line and line counts, measured at the pin), `check-wiring.js`, `install.sh`, `guard-cases.json`. Tested by `scripts/tests/test_claude_code_tools.py`, see its `README.md` |
 | `agents/` | Skeleton for future AI driven agent workflows, **not yet implemented** |
 | `CONTRIBUTING.md` | Two tier model + breaking change governance |
 
@@ -84,7 +84,7 @@ agent workflows (`agents/`, skeleton only) so automation scales with the platfor
    (`arthurs-portfolio` and `kriegerdataforge-portfolio` use `github-pages`.) These keys must match `deployer_registry.json`.
 10. **Deploys fail closed.** A repo/env/actor not in `scripts/deployer_registry.json` is denied. When you
     onboard a tenant, add its registry entry *before* its first deploy.
-11. **`scripts/` is stdlib first** and unit-tested. Keep `make check-all` green before opening a PR.
+11. **`scripts/` is stdlib first** and unit-tested. Keep `make ci` green before opening a PR.
 12. **This repo is the reusable engine ONLY, nothing tenant specific lives here.** A tenant's app source,
     its E2E/browser spec, its Docker services, its seed data, or any per-tenant list/enum/`case` belongs in
     **that tenant's repo**, never here. **Litmus test.** *if onboarding a new tenant would require editing a
@@ -99,7 +99,7 @@ agent workflows (`agents/`, skeleton only) so automation scales with the platfor
 | --- | --- |
 | Lint workflows | `make lint` (actionlint) |
 | Run script unit tests | `make test` (pytest in `scripts/`, with coverage) |
-| **Full local CI (the gate)** | `make check-all` (runs `lint` + `test`), **there is no `make ci` target** |
+| **Full local CI (the gate)** | `make ci` (actionlint, kdf-fmt style, the unit tests and the version check, as `ci.yml` runs them). `make check-all` runs `lint` + `style` + `test` without the version check |
 | Type check | _none in this repo_ (workflow YAML + stdlib scripts, rely on `make lint` + tests) |
 | Version bump (patch / minor / major) | `make bump-patch` / `make bump-minor` / `make bump-major` |
 | CodeQL local scan (optional) | `make codeql-db` then `make codeql-scan-all` (or `*-csv` variants) |
@@ -128,8 +128,8 @@ Workflow inputs/secrets → `docs/reference/WORKFLOWS.md`, setup/secrets/PAT ste
 
 **Every task follows the tiered loop in [`WORKFLOW.md`](./WORKFLOW.md)**, pick a lane:
 
-- **Quick.** Tiny, no behavior change → implement → `make check-all` → PR.
-- **Standard.** A one repo feature → orient → **plan & owner approves** → implement → `make check-all`
+- **Quick.** Tiny, no behavior change → implement → `make ci` → PR.
+- **Standard.** A one repo feature → orient → **plan & owner approves** → implement → `make ci`
   green (+ version bump) → PR → **GitHub CI green** → **owner merges**.
 - **Epic.** Complex/novel design or anything that **spans repos** → the design gate + cross repo
   coordination below.
@@ -146,14 +146,14 @@ Don't skip the plan approval gate, don't self-merge. The supporting kit:
 - [`docs/agent/templates/`](docs/agent/templates/). Copy paste **design-spec**, **ADR**, and
   **epic tracker** templates. ADRs land in `docs/CHANGELOG_AND_DECISION_LOG.md` (create if absent).
 
-> **Note.** This repo is `workflow_call`-shaped, `make ci` maps to **`make check-all`** here (there is
-> no plain `ci` target). Because every workflow is consumed live from `@main`, a "one repo feature" here
+> **Note.** This repo is `workflow_call`-shaped. `make ci` runs the same lanes as its own `ci.yml`, and
+> the secret scan runs in GitHub only. Because every workflow is consumed live from `@main`, a "one repo feature" here
 > can still ripple into all consumers. When you touch a reusable workflow's interface, treat it as an
 > **Epic** (cross repo) and follow `CONTRIBUTING.md`'s breaking change rules.
 
 ### Before opening a PR (this repo)
 
-- [ ] `make check-all` is green locally (`make lint` actionlint + `make test` pytest in `scripts/`).
+- [ ] `make ci` is green locally (actionlint, kdf-fmt, pytest in `scripts/`, and the version check).
 - [ ] New/changed Python in `scripts/` has unit tests (`scripts/tests/`), stdlib first kept.
 - [ ] `VERSION` bumped via `make bump-<level>`, **exactly +1** (the strict `bump-version-check.yml` gate).
 - [ ] Workflow interface preserved (inputs/outputs/secrets unchanged) **or** all consumers coordinated,

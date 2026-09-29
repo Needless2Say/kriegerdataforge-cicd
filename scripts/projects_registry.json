@@ -31,7 +31,8 @@
 				"Needless2Say/kriegerdataforge-auth-ui",
 				"Needless2Say/kriegerdataforge-sdk",
 				"Needless2Say/kriegerdataforge-reports-sdk",
-				"Needless2Say/kriegerdataforge-report-form"
+				"Needless2Say/kriegerdataforge-report-form",
+				"Needless2Say/kriegerdataforge-fmt"
 			],
 			"collaborators": []
 		},

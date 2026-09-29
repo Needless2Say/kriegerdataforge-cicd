@@ -7,10 +7,13 @@
 #   Codex, or any reviewer the owner starts by hand, in the same folder
 #     bash kdf-review.sh --repo <root> --brief <file> --report <file> --codex-report <file> --pin <commit> --prepare
 #     bash kdf-review.sh --repo <root> --collect
+#   Codex in the cloud, which reads the pushed pin on GitHub and hands its report back on a branch
+#     bash kdf-review.sh --repo <root> --codex-report <file> --pin <commit> --collect-branch <branch>
 #
 # Every reviewer reads the repo folder itself, with no copy of it and no second environment. --pin first checks that
-# the folder is at the pinned commit and that no tracked file differs from it, so every reviewer of a scope reads the
-# same state. One review of a folder is open at a time, and nothing else changes the folder while it is.
+# the pin is pushed to origin, that the folder is at it with no tracked file changed, and that the brief's scope table
+# matches it (kdf-brief.js check), so every reviewer of a scope reads the same state. One review of a folder is open
+# at a time, and nothing else changes the folder while it is.
 #
 # Claude. The launcher checks the arguments and the guard, snapshots git, runs claude -p with KDF_ROLE=reviewer and
 # without the owner's self edit switch, snapshots again, and fails the run when anything but a new file under
@@ -22,6 +25,10 @@
 #
 # No reviewer sees another's report of the scope. While a review is open the other report waits in the repo's
 # .git/kdf-review folder, out of the working tree, and closing the review puts it back.
+#
+# Codex in the cloud. --collect-branch fetches the branch Codex's pull request came from, checks that it is built on
+# the pin and adds nothing but new files under docs/security, and writes the report into the folder. The owner closes
+# that pull request unmerged. Every collect warns when a report's header does not name the pin or what it read first.
 #
 # Exit codes. 0 clean. 2 bad arguments, the folder is not at the pin, or another review of it is open. 3 the reviewer
 # changed something it must not, nothing is reverted. 4 no report was written. 5 the guard is not installed or wired.
@@ -39,6 +46,7 @@ die() { local code=$1; shift; printf 'kdf-review: %s\n' "$*" >&2; exit "$code"; 
 usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"; }
 
 repo="" brief="" report="" model="" effort="" codex_report="" timeout_s=7200 dry=0 pin="" prepare=0 collect=0
+collect_branch=""
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--repo) repo="${2:-}"; shift 2 || die 2 "--repo needs a value" ;;
@@ -51,12 +59,18 @@ while [ $# -gt 0 ]; do
 		--pin) pin="${2:-}"; shift 2 || die 2 "--pin needs a value" ;;
 		--prepare) prepare=1; shift ;;
 		--collect) collect=1; shift ;;
+		--collect-branch) collect_branch="${2:-}"; shift 2 || die 2 "--collect-branch needs a value" ;;
 		--dry-run) dry=1; shift ;;
 		-h|--help) usage; exit 0 ;;
 		*) die 2 "unknown argument $1" ;;
 	esac
 done
-if [ "$collect" -eq 1 ]; then
+if [ -n "$collect_branch" ]; then
+	[ -n "$repo" ] && [ -n "$codex_report" ] && [ -n "$pin" ] \
+		|| die 2 "--collect-branch needs --repo, --codex-report and --pin. See --help."
+	[ -z "$brief$report$model$effort" ] && [ "$prepare$collect$dry" = 000 ] \
+		|| die 2 "--collect-branch takes only --repo, --codex-report and --pin"
+elif [ "$collect" -eq 1 ]; then
 	[ -n "$repo" ] || die 2 "--collect needs --repo. See --help."
 	[ -z "$brief$report$codex_report$pin$model$effort" ] && [ "$prepare$dry" = 00 ] \
 		|| die 2 "--collect takes only --repo, the open review names the rest"
@@ -180,6 +194,24 @@ close_review() {
 	rm -rf "$open"
 }
 
+# check_header <report file> <pin or nothing>, a warning when the header does not show what the reviewer read
+check_header() {
+	if [ -n "$2" ] && ! grep -q "${2:0:7}" "$1"; then
+		printf 'kdf-review: warning, %s does not name the pin %s it read. Check its header.\n' "$1" "${2:0:10}" >&2
+	fi
+	grep -qi 'read first' "$1" \
+		|| printf 'kdf-review: warning, %s does not list the files it read first. Check its header.\n' "$1" >&2
+}
+
+# pinned <commit>, the full sha of a commit origin holds, or a refusal
+pinned() {
+	local s
+	s="$(git -C "$repo" rev-parse --verify --quiet "$1^{commit}")" || die 2 "--pin $1 is not a commit in $repo"
+	[ -n "$(git -C "$repo" for-each-ref --contains "$s" --format='%(refname)' refs/remotes/origin)" ] \
+		|| die 2 "the pin ${s:0:10} is on no branch of origin. Push it first, every reviewer and Sol read a pushed commit"
+	printf '%s' "$s"
+}
+
 # ---- 3. collect, the end of a review the owner started by hand
 if [ "$collect" -eq 1 ]; then
 	[ -f "$open/meta" ] || die 2 "no review of $repo is open"
@@ -198,9 +230,42 @@ if [ "$collect" -eq 1 ]; then
 		die 3 "the review stays open. Put right what the reviewer changed, then run --collect again"
 	fi
 	[ -s "$repo/$codex_rel" ] || die 4 "no report at $codex_rel yet, the review stays open"
+	pin_read="$(meta pin)"
 	close_review
 	printf 'kdf-review: clean. Report %s, %s lines. The review of %s is closed\n' \
 		"$codex_rel" "$(wc -l <"$repo/$codex_rel" | tr -d ' ')" "$(basename "$repo")"
+	check_header "$repo/$codex_rel" "$pin_read"
+	exit 0
+fi
+
+# ---- 3b. collect a report Codex in the cloud wrote, from the branch its pull request came from
+if [ -n "$collect_branch" ]; then
+	[ ! -d "$open" ] || die 2 "a review of $repo is open. Close it with --collect before a cloud report comes in"
+	codex_rel="$(relative_inside "$codex_report")" || die 2 "the Codex report must be a path inside the repo"
+	case "$codex_rel" in
+		docs/security/*) ;;
+		*) die 2 "the Codex report must be under docs/security, not $codex_rel" ;;
+	esac
+	sha="$(pinned "$pin")" || exit 2
+	[ ! -e "$repo/$codex_rel" ] || die 2 "the report $codex_rel already exists in $repo, a report is never overwritten"
+	git -C "$repo" fetch --quiet origin "refs/heads/$collect_branch" 2>/dev/null \
+		|| die 2 "origin has no branch $collect_branch"
+	tip="$(git -C "$repo" rev-parse FETCH_HEAD)"
+	git -C "$repo" merge-base --is-ancestor "$sha" "$tip" \
+		|| die 2 "$collect_branch is not built on the pin ${sha:0:10}, so its reviewer read something else"
+	mapfile -t violations < <(git -C "$repo" diff --name-status --no-renames "$sha" "$tip" \
+		| awk -F '\t' '!($1 == "A" && $2 ~ /^docs\/security\//) { print $1 ", " $2 }')
+	if [ "${#violations[@]}" -gt 0 ]; then
+		printf 'kdf-review: CONTAMINATION. %s changes more than new files under docs/security.\n' "$collect_branch" >&2
+		printf '  %s\n' "${violations[@]}" >&2
+		die 3 "nothing was brought in. Close that pull request unmerged and look at what the reviewer changed"
+	fi
+	git -C "$repo" cat-file -e "$tip:$codex_rel" 2>/dev/null || die 4 "$collect_branch holds no report at $codex_rel"
+	mkdir -p "$(dirname "$repo/$codex_rel")" && git -C "$repo" show "$tip:$codex_rel" >"$repo/$codex_rel" \
+		|| die 2 "could not write $codex_rel"
+	printf 'kdf-review: clean. Report %s, %s lines, from %s at %s. Close its pull request unmerged.\n' \
+		"$codex_rel" "$(wc -l <"$repo/$codex_rel" | tr -d ' ')" "$collect_branch" "${tip:0:10}"
+	check_header "$repo/$codex_rel" "$sha"
 	exit 0
 fi
 
@@ -222,12 +287,16 @@ if [ -n "$codex_report" ]; then
 fi
 sha=""
 if [ -n "$pin" ]; then
-	sha="$(git -C "$repo" rev-parse --verify --quiet "$pin^{commit}")" || die 2 "--pin $pin is not a commit in $repo"
+	sha="$(pinned "$pin")" || exit 2
 	at="$(git -C "$repo" rev-parse HEAD)"
 	[ "$at" = "$sha" ] || die 2 "$(basename "$repo") is at ${at:0:10}, not at the pin ${sha:0:10}. Check the pin out first"
 	[ -z "$(git -C "$repo" status --porcelain --untracked-files=no)" ] \
 		|| die 2 "a tracked file differs from the pin. Commit it into the pin, or put it back, first"
 	git -C "$repo" cat-file -e "$sha:$brief_rel" 2>/dev/null || die 2 "the brief $brief_rel is not in the pin, commit it first"
+	if command -v node >/dev/null 2>&1; then
+		node "$here/kdf-brief.js" check --repo "$repo" --pin "$sha" "$brief_rel" >&2 \
+			|| die 2 "the brief's scope table does not match the pin. Measure it with kdf-brief.js counts, commit and pin again"
+	fi
 else
 	[ -f "$repo/$brief_rel" ] || die 2 "the brief $brief_rel does not exist"
 fi
@@ -313,6 +382,7 @@ fi
 [ -s "$repo/$report_rel" ] || die 4 "the reviewer wrote no report at $report_rel, see $log"
 
 printf 'kdf-review: clean. Report %s, %s lines, log %s\n' "$report_rel" "$(wc -l <"$repo/$report_rel" | tr -d ' ')" "$log"
+check_header "$repo/$report_rel" "$sha"
 if [ -n "$codex_rel" ] && [ ! -e "$repo/$codex_rel" ] && [ ! -e "$hold/held/$codex_rel" ]; then
 	printf 'kdf-review: next, open the folder for Codex at the same commit with\n'
 	printf '  bash %s --repo %s --brief %s --report %s --codex-report %s --pin %s --prepare\n' \

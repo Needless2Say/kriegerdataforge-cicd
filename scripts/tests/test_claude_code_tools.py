@@ -27,6 +27,7 @@ TOOLS     = Path(__file__).resolve().parents[2] / "tools" / "claude-code"
 GUARD     = TOOLS / "kdf-guard.js"
 CHECKER   = TOOLS / "check-wiring.js"
 LAUNCHER  = TOOLS / "kdf-review.sh"
+BRIEF     = TOOLS / "kdf-brief.js"
 INSTALLER = TOOLS / "install.sh"
 NODE      = shutil.which("node")
 BASH      = os.environ.get("KDF_TEST_BASH") or shutil.which("bash")
@@ -66,6 +67,15 @@ GUARD_RULES_IN_WORDS = (
     "docs/security/",
     "GitHub CLI",
     "connectors",
+    "`.env.dev`",
+    "`.env.local.bak`",
+    "GH_PACKAGES_PAT",
+    "GH_NPM_TOKEN",
+    "`.gitignore`",
+    "recursive `grep`",
+    "`rg -u`",
+    "`git grep --no-index`",
+    "`.git/kdf-review`",
 )
 
 # a stand in for claude, it writes what STUB_MODE says a reviewer did, and records how it was started
@@ -99,7 +109,7 @@ def _label(case: dict[str, object]) -> str:
     """
     A short readable id for one guard case.
     """
-    what = str(case.get("command") or case.get("file") or "")
+    what = str(case.get("command") or case.get("file") or json.dumps(case.get("input", "")))
     return f"{case['role']}-{case['tool']}-{case['expect']}-{what[:48]}".replace(" ", "_")
 
 
@@ -124,6 +134,8 @@ def _run_case(project: Path, case: dict[str, object]) -> tuple[int, str]:
         tool_input["file_path"] = str(case["file"]).replace("${PROJ}", project.as_posix())
     elif "command" in case:
         tool_input["command"] = str(case["command"])
+    for key, value in dict(case.get("input", {})).items():  # type: ignore[call-overload]
+        tool_input[key] = str(value).replace("${PROJ}", project.as_posix())
     argv = [str(NODE), str(GUARD)]
     if case["role"] == "reviewer" and case.get("via") != "env":
         argv.append("reviewer")
@@ -139,12 +151,36 @@ def _run_case(project: Path, case: dict[str, object]) -> tuple[int, str]:
     return done.returncode, done.stderr
 
 
+def _ignored_tree(project: Path) -> None:
+    """
+    A repo whose .gitignore covers a virtual environment, node_modules, logs and env files, with a .env.local that
+    holds no package token, one that does, and a report the launcher holds.
+    """
+    subprocess.run(["git", "init", "-q", str(project)], check = True, capture_output = True)
+    files = {
+        ".gitignore": ".venv/\nnode_modules/\n*.log\n.env*\n!.env.example\n",
+        ".venv/lib/site.py": "x = 1\n",
+        "node_modules/pkg/index.js": "module.exports = 1;\n",
+        "build.log": "log\n",
+        "src/app.py": "x = 1\n",
+        ".env.example": "GH_PACKAGES_PAT=\n",
+        ".env.local": "DB_PASSWORD=local-only\nGH_PACKAGES_PAT=\n",
+        "tokens/.env.local": "export GH_NPM_TOKEN=\"x\"\n",
+        ".git/kdf-review/held/docs/security/CODEX.md": "# held\n",
+    }
+    for name, text in files.items():
+        target = project / name
+        target.parent.mkdir(parents = True, exist_ok = True)
+        target.write_text(text, encoding = "utf-8", newline = "\n")
+
+
 @pytest.fixture(scope = "module")
 def guard_results(tmp_path_factory: pytest.TempPathFactory) -> list[tuple[int, str]]:
     """
     Every guard case run once, in parallel, so the per case tests only read an answer.
     """
     project = tmp_path_factory.mktemp("kdf-project")
+    _ignored_tree(project)
     with ThreadPoolExecutor(max_workers = 8) as pool:
         return list(pool.map(lambda case: _run_case(project, case), CASES))
 
@@ -284,7 +320,8 @@ def _write_settings(home: Path, settings: object) -> None:
 @pytest.fixture()
 def rig(tmp_path: Path) -> Rig:
     """
-    A repo with one commit and a brief, a home whose settings are exactly what the checker prints, and the stub.
+    A repo with one commit and a brief, pushed to a bare origin, a home whose settings are exactly what the checker
+    prints, and the stub.
     """
     home = tmp_path / "home"
     (home / ".claude" / "hooks").mkdir(parents = True)
@@ -302,6 +339,10 @@ def rig(tmp_path: Path) -> Rig:
     _git(repo, "config", "core.autocrlf", "false")
     _git(repo, "add", "-A")
     _git(repo, "commit", "-q", "-m", "start")
+    origin = tmp_path / "origin.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check = True, capture_output = True)
+    _git(repo, "remote", "add", "origin", origin.as_posix())
+    _git(repo, "push", "-q", "origin", "main")
 
     stub = tmp_path / "stub-claude"
     stub.write_text(STUB, encoding = "utf-8", newline = "\n")
@@ -764,6 +805,207 @@ def test_the_prepare_and_collect_arguments_are_checked_before_anything_runs(rig:
     assert not (_hold(rig) / "open").exists()
 
 
+def _commit_and_push(rig: Rig, message: str) -> None:
+    _git(rig.repo, "add", "-A")
+    _git(rig.repo, "commit", "-q", "-m", message)
+    _git(rig.repo, "push", "-q", "origin", "main")
+
+
+def test_a_pin_origin_does_not_hold_is_refused(rig: Rig) -> None:
+    """
+    Every reviewer, Codex in the cloud and Sol read a pushed commit, so a pin only this folder holds is exit 2.
+    """
+    (rig.repo / "src" / "app.py").write_text("x = 3\n", encoding = "utf-8")
+    _git(rig.repo, "commit", "-q", "-am", "not pushed")
+    refused = _launch(rig, "--pin", "HEAD")
+    assert refused.returncode == 2
+    assert "Push it first" in refused.stderr
+    assert not rig.log.exists()
+    _git(rig.repo, "push", "-q", "origin", "main")
+    assert _launch(rig, "--pin", "HEAD").returncode == 0
+
+
+def test_a_brief_whose_scope_table_differs_from_the_pin_is_refused(rig: Rig) -> None:
+    """
+    The launcher measures the brief's line counts at the pin before a reviewer starts, and a stale count is exit 2.
+    """
+    brief = rig.repo / "docs" / "security" / "BRIEF.md"
+    table = "# brief\n\n| Files | Lines |\n| --- | --- |\n| `src/app.py` | {n} |\n"
+    brief.write_text(table.replace("{n}", "7"), encoding = "utf-8", newline = "\n")
+    _commit_and_push(rig, "a brief with a stale count")
+    refused = _launch(rig, "--pin", "HEAD")
+    assert refused.returncode == 2
+    assert "DIFFERS src/app.py, the brief says 7, the pin has 1" in refused.stderr
+    assert not rig.log.exists()
+    brief.write_text(table.replace("{n}", "1"), encoding = "utf-8", newline = "\n")
+    _commit_and_push(rig, "the count measured")
+    assert _launch(rig, "--pin", "HEAD").returncode == 0
+
+
+def _cloud_branch(rig: Rig, branch: str, files: dict[str, str], base: str = "origin/main") -> None:
+    """
+    Push a branch the way Codex in the cloud hands its report back, the files committed on top of base in a clone.
+    """
+    cloud = rig.tmp / f"cloud-{branch.replace('/', '-')}"
+    subprocess.run(
+        ["git", "clone", "-q", (rig.tmp / "origin.git").as_posix(), str(cloud)],
+        check = True,
+        capture_output = True,
+    )
+    _git(cloud, "config", "user.email", "codex@example.com")
+    _git(cloud, "config", "user.name", "Codex")
+    _git(cloud, "config", "core.autocrlf", "false")
+    _git(cloud, "checkout", "-q", "-b", branch, base)
+    for name, text in files.items():
+        target = cloud / name
+        target.parent.mkdir(parents = True, exist_ok = True)
+        target.write_text(text, encoding = "utf-8", newline = "\n")
+    _git(cloud, "add", "-A")
+    _git(cloud, "commit", "-q", "-m", "codex report")
+    _git(cloud, "push", "-q", "origin", branch)
+
+
+def _collect_branch(rig: Rig, branch: str) -> subprocess.CompletedProcess[str]:
+    return _run(
+        rig,
+        "--repo",
+        rig.repo.as_posix(),
+        "--codex-report",
+        "docs/security/CODEX.md",
+        "--pin",
+        "HEAD",
+        "--collect-branch",
+        branch,
+    )
+
+
+def test_a_cloud_report_comes_in_from_its_branch(rig: Rig) -> None:
+    """
+    Codex in the cloud read the pushed pin and committed its report on a branch. Collect writes only the report in.
+    """
+    _cloud_branch(rig, "codex/report", {"docs/security/CODEX.md": "# codex report\n", "docs/security/notes.md": "n\n"})
+    done = _collect_branch(rig, "codex/report")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert (rig.repo / "docs" / "security" / "CODEX.md").read_text(encoding = "utf-8") == "# codex report\n"
+    assert not (rig.repo / "docs" / "security" / "notes.md").exists()
+    assert "Close its pull request unmerged" in done.stdout
+
+
+@pytest.mark.parametrize(
+    ("files", "code"),
+    [
+        ({"docs/security/CODEX.md": "# report\n", "stray.txt": "hi\n"}, 3),
+        ({"docs/security/CODEX.md": "# report\n", "src/app.py": "x = 2\n"}, 3),
+        ({"docs/security/OTHER.md": "# not the report\n"}, 4),
+    ],
+)
+def test_a_cloud_branch_that_does_more_than_report_brings_nothing_in(
+    rig: Rig,
+    files: dict[str, str],
+    code: int,
+) -> None:
+    """
+    A stray file or an edit on the branch is exit 3, a branch without the report is exit 4, and nothing is written.
+    """
+    _cloud_branch(rig, "codex/report", files)
+    done = _collect_branch(rig, "codex/report")
+    assert done.returncode == code, done.stdout + done.stderr
+    assert not (rig.repo / "docs" / "security" / "CODEX.md").exists()
+
+
+def test_a_cloud_branch_is_collected_only_onto_its_pin_and_never_over_a_report(rig: Rig) -> None:
+    """
+    A branch built on another commit, a missing branch, an open review and a report already in the folder are exit 2.
+    """
+    _cloud_branch(rig, "codex/old", {"docs/security/CODEX.md": "# old\n"})
+    (rig.repo / "src" / "app.py").write_text("x = 5\n", encoding = "utf-8")
+    _commit_and_push(rig, "the pin moved on")
+    assert _collect_branch(rig, "codex/old").returncode == 2
+    assert _collect_branch(rig, "codex/none").returncode == 2
+    _cloud_branch(rig, "codex/new", {"docs/security/CODEX.md": "# new\n"})
+    assert _prepare(rig).returncode == 0
+    assert _collect_branch(rig, "codex/new").returncode == 2
+    assert _collect(rig).returncode == 4
+    shutil.rmtree(_hold(rig) / "open")
+    (rig.repo / "docs" / "security" / "CODEX.md").write_text("# mine\n", encoding = "utf-8")
+    assert _collect_branch(rig, "codex/new").returncode == 2
+    assert (rig.repo / "docs" / "security" / "CODEX.md").read_text(encoding = "utf-8") == "# mine\n"
+
+
+def test_a_report_that_does_not_show_what_it_read_is_warned_about(rig: Rig) -> None:
+    """
+    A header that names the pin and the files read first passes quietly, one that does not draws two warnings.
+    """
+    pin    = subprocess.run(
+        ["git", "-C", str(rig.repo), "rev-parse", "HEAD"],
+        capture_output = True,
+        text = True,
+        check = True,
+    ).stdout.strip()
+    header = f"# report\n\nPin read, `{pin[:10]}`. Read first, AGENTS.md, WORKFLOW.md, the brief.\n"
+    _cloud_branch(rig, "codex/named", {"docs/security/CODEX.md": header})
+    named = _collect_branch(rig, "codex/named")
+    assert named.returncode == 0, named.stderr
+    assert "warning" not in named.stderr
+    (rig.repo / "docs" / "security" / "CODEX.md").unlink()
+    _cloud_branch(rig, "codex/bare", {"docs/security/CODEX.md": "# report\n"})
+    bare = _collect_branch(rig, "codex/bare")
+    assert bare.returncode == 0
+    assert "does not name the pin" in bare.stderr
+    assert "does not list the files it read first" in bare.stderr
+
+
+def _brief_tool(rig: Rig, command: str, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [str(NODE), str(BRIEF), command, "--repo", rig.repo.as_posix(), "--pin", "HEAD", *args],
+        capture_output = True,
+        text = True,
+        check = False,
+    )
+
+
+def test_the_brief_tool_counts_lines_at_the_pin_and_not_in_the_tree(rig: Rig) -> None:
+    """
+    A row per argument, the pin's line counts in the files' order, a last line without a newline counted, and an
+    uncommitted edit ignored.
+    """
+    (rig.repo / "src" / "two.py").write_text("a\nb", encoding = "utf-8", newline = "\n")
+    _commit_and_push(rig, "a second file")
+    (rig.repo / "src" / "app.py").write_text("x = 1\ny = 2\nz = 3\n", encoding = "utf-8")
+    done = _brief_tool(rig, "counts", "Code=src", "docs/**/*.md")
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.splitlines() == [
+        "| Code, `src/app.py`, `src/two.py` | 1, 2 |",
+        "| `docs/security/BRIEF.md` | 1 |",
+    ]
+    assert _brief_tool(rig, "counts", "nope/*.py").returncode == 1
+
+
+def test_the_brief_tool_checks_a_scope_table_and_states_the_commit(rig: Rig) -> None:
+    """
+    Matching rows pass, a stale count and a missing path fail, a placeholder row is skipped, and facts names the pin.
+    """
+    brief = rig.tmp / "brief.md"
+    good  = "| Files | Lines |\n| --- | --- |\n| `src/app.py` | 1 |\n| Tests, `src`, `docs` | 2 |\n| {`p`} | {n} |\n"
+    brief.write_text(good, encoding = "utf-8", newline = "\n")
+    passed = _brief_tool(rig, "check", brief.as_posix())
+    assert passed.returncode == 0, passed.stdout
+    assert "skip" in passed.stdout
+    brief.write_text(good + "| `src/gone.py` | 4 |\n| `docs/security/BRIEF.md` | 9 |\n", encoding = "utf-8")
+    failed = _brief_tool(rig, "check", brief.as_posix())
+    assert failed.returncode == 1
+    assert "MISSING at the pin, src/gone.py" in failed.stdout
+    assert "DIFFERS docs/security/BRIEF.md, the brief says 9, the pin has 1" in failed.stdout
+    pin   = subprocess.run(
+        ["git", "-C", str(rig.repo), "rev-parse", "HEAD"],
+        capture_output = True,
+        text = True,
+        check = True,
+    ).stdout.strip()
+    facts = _brief_tool(rig, "facts")
+    assert f"The pin is `{pin[:10]}` on branch `main`, which sits on `main` at `{pin[:10]}`." in facts.stdout
+
+
 def _checker(home: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [str(NODE), str(CHECKER), "--home", str(home)],
@@ -794,6 +1036,14 @@ def _narrow_matcher(settings: dict) -> None:
     settings["hooks"]["PreToolUse"][0]["matcher"] = "Bash|PowerShell"
 
 
+def _matcher_without_the_read_tools(settings: dict) -> None:
+    """
+    The matcher every machine carried before the guard read Read, Grep and Glob calls.
+    """
+    matcher = settings["hooks"]["PreToolUse"][0]["matcher"]
+    settings["hooks"]["PreToolUse"][0]["matcher"] = matcher.replace("Read|Grep|Glob|", "")
+
+
 def _without_hook(settings: dict) -> None:
     settings["hooks"] = {}
 
@@ -812,6 +1062,7 @@ def _hook_points_nowhere(settings: dict) -> None:
         (_without_shell, "defaultShell"),
         (_without_powershell_deny, "PowerShell tool is not denied"),
         (_narrow_matcher, "matcher misses"),
+        (_matcher_without_the_read_tools, "Read, Grep, Glob"),
         (_without_hook, "no PreToolUse hook"),
         (_hooks_off, "hooks are switched off"),
         (_hook_points_nowhere, "does not exist"),
