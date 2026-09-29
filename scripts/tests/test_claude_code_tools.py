@@ -71,6 +71,10 @@ GUARD_RULES_IN_WORDS = (
     "`.env.local.bak`",
     "GH_PACKAGES_PAT",
     "GH_NPM_TOKEN",
+    "KDF_OIDC_CLIENT_SECRET",
+    "`.env.kdf`",
+    "`.env.prod`",
+    "sources",
     "`.gitignore`",
     "recursive `grep`",
     "`rg -u`",
@@ -154,7 +158,8 @@ def _run_case(project: Path, case: dict[str, object]) -> tuple[int, str]:
 def _ignored_tree(project: Path) -> None:
     """
     A repo whose .gitignore covers a virtual environment, node_modules, logs and env files, with a .env.local that
-    holds no package token, one that does, and a report the launcher holds.
+    holds no credential, ones that do by the built in names or by their repo's .env.kdf.example, one already split,
+    and a report the launcher holds.
     """
     subprocess.run(["git", "init", "-q", str(project)], check = True, capture_output = True)
     files = {
@@ -166,12 +171,24 @@ def _ignored_tree(project: Path) -> None:
         ".env.example": "GH_PACKAGES_PAT=\n",
         ".env.local": "DB_PASSWORD=local-only\nGH_PACKAGES_PAT=\n",
         "tokens/.env.local": "export GH_NPM_TOKEN=\"x\"\n",
+        "hub/.env.local": "AUTH_RESEND_API_KEY=re_x\n",
+        "custom/.env.kdf.example": "MY_API_KEY=\n",
+        "custom/.env.local": "MY_API_KEY=abc\nPORT=3000\n",
+        "migrated/.env.kdf.example": "GH_PACKAGES_PAT=\nKDF_SERVICE_KEY=\n",
+        "migrated/.env.local": "PORT=3000\nDB_POSTGRES_PASSWORD=local\n",
+        "environments/dev/common.auto.tfvars": "region = \"x\"\n",
+        "environments/dev/credentials.auto.tfvars": "token = \"x\"\n",
         ".git/kdf-review/held/docs/security/CODEX.md": "# held\n",
     }
     for name, text in files.items():
         target = project / name
         target.parent.mkdir(parents = True, exist_ok = True)
         target.write_text(text, encoding = "utf-8", newline = "\n")
+    subprocess.run(
+        ["git", "-C", str(project), "add", "environments/dev/common.auto.tfvars"],
+        check = True,
+        capture_output = True,
+    )
 
 
 @pytest.fixture(scope = "module")

@@ -24,9 +24,13 @@ const MUST_MATCH = [
   'mcp__claude_ai_Google_Drive__share_file', 'Artifact', 'ArtifactData', 'SendUserFile', 'SendMessage',
   'PushNotification', 'RemoteTrigger', 'CronCreate', 'DesignSync', 'EnterWorktree', 'Workflow'
 ];
-// .env.local is not among them, the owner opened it on 2026-09-29 and the guard keeps one that holds a package token
-// closed.
-const SECRET_READ_DENIES = ['Read(**/.env.test)', 'Read(**/.env.github)', 'Read(**/*.tfvars)', 'Read(**/*.pem)'];
+// A second fence behind the guard, which never blocks when it crashes. .env.local is not among them, the owner opened
+// it on 2026-09-29 and the guard keeps one that still holds a credential closed. .env.kdf holds the credentials, and
+// .env.dev and .env.prod are the owner's admin files.
+const SECRET_READ_DENIES = [
+  'Read(**/.env.kdf)', 'Read(**/.env.dev)', 'Read(**/.env.prod)', 'Read(**/.env.test)', 'Read(**/.env.github)',
+  'Read(**/*.tfvars)', 'Read(**/*.pem)'
+];
 
 const argv = process.argv.slice(2);
 const flag = (name) => argv.includes(name);

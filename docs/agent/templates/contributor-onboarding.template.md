@@ -49,16 +49,22 @@ cd {repo-dir}
 
 ## 3. Environment & secrets
 
-Copy the tracked example file to the gitignored local file and fill in real values. **Real secret
-values live only in the gitignored file. Never in any tracked file, commit, or log.**
+Copy the tracked example files to the gitignored local files and fill in real values. **Real secret
+values live only in the gitignored files. Never in any tracked file, commit, or log.** The env standard in
+`skills.md` splits them in two. `.env.local` holds the values that work only on your machine and is open to AI
+models. `.env.kdf` holds your credentials, GitHub tokens and hub secrets, and stays closed to them.
 
 ```bash
-cp {.env.example / .env.local.example} {.env.development / .env.local}
+cp {.env.local.example / .env.example} .env.local
+cp .env.kdf.example .env.kdf
 ```
 
-| Variable | Required | Where the value comes from |
-| --- | --- | --- |
-| {VAR} | {yes/prod-only/optional} | {source. Owner, hub registration, your choice} |
+| Variable | File | Required | Where the value comes from |
+| --- | --- | --- | --- |
+| {VAR} | {.env.local / .env.kdf} | {yes/prod-only/optional} | {source. Owner, hub registration, your choice} |
+
+{An admin who runs scripts against the DEV or PROD database also keeps `.env.dev` and `.env.prod`, which never come
+from an example. Delete this line in a repo that has no such scripts.}
 
 ### Ecosystem access *(SSO client repos / private SDK consumers. Delete rows that don't apply)*
 

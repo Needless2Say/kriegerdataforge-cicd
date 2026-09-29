@@ -28,8 +28,24 @@ security audit (`PL-###` findings). The canonical audit lives in the `kriegerdat
 
 ## Scenario. Secrets, environment & config  *(every repo)*
 
-- Real secret **values** live ONLY in gitignored files (`*.secrets.auto.tfvars`, `.env.local`, `.env.github`,
-  `*.pem`). Never commit them. The tracked `*.example` files hold `""` / placeholders.
+- Real secret **values** live ONLY in gitignored files (`*.secrets.auto.tfvars`, `.env.local`, `.env.kdf`,
+  `.env.test`, `.env.dev`, `.env.prod`, `*.pem`). Never commit them. The tracked `*.example` files hold `""` /
+  placeholders.
+- **Local env files, the standard** (cicd ADR D-030). A repo keeps its local settings in two gitignored files, each
+  with a tracked `.example` that holds the names and placeholders.
+  - `.env.local`, every value that works only on this machine, the local database and MinIO passwords, local signing
+    keys, session secrets, ports and URLs. Open to every AI model, `docs/agent/AGENT_ROLES.md` rule 5.
+  - `.env.kdf`, every credential that works beyond this machine, the GitHub package tokens (`GH_PACKAGES_PAT`,
+    `GH_NPM_TOKEN`), the SSO client secret and service key a hub issued (`KDF_OIDC_CLIENT_SECRET`,
+    `KDF_SERVICE_KEY`), and third party keys such as Resend or Twilio. Closed to every model. It replaces
+    `.env.github`.
+  - The Makefile reads the tokens from `.env.kdf`, and compose passes a container only the `.env.kdf` values it needs
+    at run time, never a package token. A new credential goes in `.env.kdf`, and its name in `.env.kdf.example`.
+  - `.env.test` holds the test stack's settings. `.env.dev` and `.env.prod` are optional admin files, for an admin's
+    scripts against the DEV and PROD databases, and a tenant may keep its own. All three are closed, and a session
+    starts a stack or a test through the repo's make target.
+  - `.gitignore` covers `.env.kdf` and keeps `!.env.kdf.example` tracked, and `.dockerignore` keeps every `.env` file
+    out of the build context.
 - **Never print, echo, or paste a secret value**. Never read `.pem` private keys or recovery codes. Refer to
   a secret by its name + location.
 - `NEXT_PUBLIC_*` / client exposed env is **inlined into the shipped bundle**. Treat it as public, never put

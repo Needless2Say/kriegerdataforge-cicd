@@ -12,8 +12,9 @@
  * Guardrails are the owner's to change, so a session cannot edit its own settings, hooks, MCP list or git hooks.
  * Git settings that run commands or change where code goes are refused. So is a make target that reaches DEV or
  * PROD or applies, deploys or publishes, one of cicd's ops scripts outside its read only mode, and re-running,
- * cancelling or deleting a workflow run, which can redeploy. A .env.local is open to read, by the owner's decision,
- * unless it still holds a package token.
+ * cancelling or deleting a workflow run, which can redeploy. Secret files are closed to every session, no read,
+ * write, copy, source or pass to a command, only a check that one exists. .env.local is open, by the owner's decision,
+ * unless it still holds a credential that works beyond this machine, which the env standard keeps in .env.kdf.
  *
  * Reviewer rules, on top of those. Read only git, no GitHub CLI, no shell command that writes, installs or
  * downloads, no redirect into a file, no secret file, no connector, artifact, message, schedule or notification
@@ -69,24 +70,38 @@ const PROTECTED = [
 ];
 const GUARDRAIL_WHY =
   'Guardrails are the owner\'s to change. Settings, hooks, the MCP list and git hooks are edited by hand.';
-// Files that hold secrets. Every .env file is one, .env.dev, .env.prod and backups such as .env.local.bak too, but an
-// example is not, and .env.local has a rule of its own below.
+// Files that hold secrets, closed to every session. Every .env file is one, .env.kdf, .env.test, the admin files
+// .env.dev and .env.prod, and backups such as .env.local.bak, but an example is not, and .env.local is open unless it
+// still holds a credential. *.pem and keys/ are secrets too, and so is a *.tfvars git does not track. A tracked one,
+// terraform's common.auto.tfvars, holds no secret, since git shows it to everyone who reads the repo.
 const ENV_FILE = /(^|[\\/])\.env(\.[^\\/]*)?$/i;
-const KEY_FILE = /\.tfvars(\.json)?$|\.pem$|(^|[\\/])keys[\\/]/i;
+const TFVARS_FILE = /\.tfvars(\.json)?$/i;
+const KEY_FILE = /\.pem$|(^|[\\/])keys[\\/]/i;
+const LOCAL_ENV = /(^|[\\/])\.env\.local$/i;
+const ADMIN_ENV = /(^|[\\/])\.env\.(dev|prod)[^\\/]*$/i;
 function isSecretFile(p) {
   const s = String(p);
   if (ENV_FILE.test(s)) return !/\.example$/i.test(s) && !LOCAL_ENV.test(s);
+  if (TFVARS_FILE.test(s)) return !trackedByGit(s);
   return KEY_FILE.test(s);
 }
-const SECRET_WHY = 'Secret files are the owner\'s, a review never needs their values.';
-// .env.local holds the local stack's settings, and the owner lets any model read it. A package token is a real
-// GitHub credential that belongs in .env.github, so a .env.local that still holds one stays closed to every session.
-const LOCAL_ENV = /(^|[\\/])\.env\.local$/i;
-const PACKAGE_TOKEN_LINE = /^[ \t]*(export[ \t]+)?(GH_PACKAGES_PAT|GH_NPM_TOKEN)[ \t]*=[ \t]*["']?[^\s"'#]/m;
-const TOKEN_WHY = 'This .env.local still holds a package token, GH_PACKAGES_PAT or GH_NPM_TOKEN, a real GitHub '
-  + 'credential. It opens to reading once the token has moved to .env.github. Ask the owner.';
-// Programs that print what a file holds. The token rule applies to them, and a reviewer never points one at a path
-// git ignores.
+// Credentials that work beyond this machine. The env standard keeps them in .env.kdf, and a repo's .env.kdf.example
+// names its own on top of these.
+const KDF_CREDENTIALS = [
+  'GH_PACKAGES_PAT', 'GH_NPM_TOKEN', 'KDF_OIDC_CLIENT_SECRET', 'KDF_SERVICE_KEY', 'AUTH_RESEND_API_KEY',
+  'AUTH_TWILIO_AUTH_TOKEN', 'AUTH_ADMIN_EMAIL_PASSWORD'
+];
+const ENV_LINE = /^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*(.*)$/gm;
+const SECRET_WHY = 'Secret files are the owner\'s. No session reads, writes, copies, sources or passes one to a '
+  + 'command, it only checks that one exists. A stack or a test starts through the repo\'s make target, which reads the '
+  + 'file itself. Otherwise ask the owner.';
+const ADMIN_WHY = '.env.dev and .env.prod are the owner\'s admin files for the DEV and PROD databases. No session '
+  + 'touches them.';
+const CREDENTIAL_WHY = 'This .env.local still holds a credential that works beyond this machine, a GitHub token, a hub '
+  + 'secret or a third party key. The env standard keeps those in .env.kdf. Ask the owner to move it, and the file opens.';
+// Programs that only check that a file exists, the one thing a session may do with a secret file.
+const EXISTENCE_ONLY = new Set(['test', '[', '[[', 'ls', 'dir', 'stat']);
+// Programs that print what a file holds. A reviewer never points one at a path git ignores.
 const CONTENT_READERS = new Set([
   'cat', 'less', 'more', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'rg', 'sed', 'awk', 'gawk', 'bat', 'strings',
   'xxd', 'od', 'hexdump', 'base64', 'nl', 'tac', 'sort', 'uniq', 'cut', 'diff', 'cmp', 'jq', 'yq', 'type',
@@ -168,24 +183,83 @@ function insideSecurityDir(p) {
 
 function checkFileTool(target) {
   if (!SELF_EDIT_OK && isProtected(target)) deny(GUARDRAIL_WHY, target);
+  checkClosed(target, target);
   if (MODE === 'reviewer' && !insideSecurityDir(target)) {
     deny('Reviewers write only under docs/security. ' + target + ' is outside it.', target);
   }
 }
 
-// ------------------------------------------------------------ reading files
+// ------------------------------------------------------------ secret files, every session
 
-function holdsPackageToken(p) {
+// The variable names a .env.local holds no value for, the built in credentials and those its repo's .env.kdf.example
+// names.
+function credentialNames(dir) {
+  const names = new Set(KDF_CREDENTIALS);
   try {
-    return PACKAGE_TOKEN_LINE.test(fs.readFileSync(path.resolve(CWD, p), 'utf8'));
+    for (const m of fs.readFileSync(path.join(dir, '.env.kdf.example'), 'utf8').matchAll(ENV_LINE)) names.add(m[1]);
+  } catch (err) {
+    // no example, the built in names alone
+  }
+  return names;
+}
+
+// Whether a .env.local still holds a credential. The guard reads the file itself and never shows a value to anyone. A
+// file that cannot be read holds nothing to leak.
+function holdsCredential(p) {
+  const abs = path.resolve(CWD, p);
+  let text;
+  try {
+    text = fs.readFileSync(abs, 'utf8');
   } catch (err) {
     return false;
   }
+  const names = credentialNames(path.dirname(abs));
+  for (const m of text.matchAll(ENV_LINE)) {
+    const value = m[2].replace(/[ \t]#.*$/, '').trim().replace(/^(["'])(.*)\1$/, '$2');
+    if (names.has(m[1]) && value !== '') return true;
+  }
+  return false;
 }
 
-// Every session. A .env.local that still holds a package token stays closed.
-function checkLocalEnv(p, detail) {
-  if (LOCAL_ENV.test(p) && holdsPackageToken(p)) deny(TOKEN_WHY, detail);
+// A file no session reads, writes, copies, sources or passes to a command.
+function isClosed(p) {
+  const s = String(p || '');
+  if (!s) return false;
+  return LOCAL_ENV.test(s) ? holdsCredential(s) : isSecretFile(s);
+}
+
+function checkClosed(p, detail) {
+  if (!isClosed(p)) return;
+  const s = String(p);
+  deny(LOCAL_ENV.test(s) ? CREDENTIAL_WHY : ADMIN_ENV.test(s) ? ADMIN_WHY : SECRET_WHY, detail);
+}
+
+// A command names a secret file only to check that it exists. The words are the program, its arguments, the value
+// after an =, and a redirect's target, so --env-file=.env.prod and >.env.kdf count.
+function checkSecretWords(toks, prog, args, whole) {
+  if (EXISTENCE_ONLY.has(prog)) return;
+  if (prog === 'git' && gitSplit(args).sub === 'check-ignore') return;
+  for (const t of toks) {
+    const words = [t.t];
+    const eq = t.t.indexOf('=');
+    if (eq > 0) words.push(t.t.slice(eq + 1));
+    const redirect = /^\d*(?:<|>>?|&>>?)(.+)$/.exec(t.t);
+    if (redirect) words.push(redirect[1]);
+    for (const w of words) checkClosed(w, whole);
+  }
+}
+
+// ------------------------------------------------------------ reading files
+
+// A path git tracks, judged by the repo that holds it. Anything git cannot answer for counts as untracked.
+function trackedByGit(p) {
+  const abs = path.resolve(CWD, p);
+  try {
+    execFileSync('git', ['-C', path.dirname(abs), 'ls-files', '--error-unmatch', '--', abs], { stdio: 'ignore', timeout: 10000, windowsHide: true });
+    return true;
+  } catch (err) {
+    return false;
+  }
 }
 
 // A path git ignores, judged by the repo that holds it. A path that does not exist holds nothing to read.
@@ -206,17 +280,17 @@ function ignoredByGit(p) {
 }
 
 // Reviewers. The reports the launcher holds, a secret file, and a path git ignores stay closed. .env.local is the one
-// ignored file a reviewer may open, and the token rule decides it.
+// ignored file a reviewer may open, and the credential rule decides it.
 function checkReviewerOpens(p, detail) {
   if (/\/\.git\/kdf-review(\/|$)/.test(norm(path.resolve(CWD, p)))) deny(HELD_WHY, detail);
-  if (isSecretFile(p)) deny(SECRET_WHY, detail);
+  checkClosed(p, detail);
   if (!LOCAL_ENV.test(p) && ignoredByGit(p)) deny(IGNORED_WHY + ' ' + p + ' is ignored.', detail);
 }
 
-// The Read, Grep and Glob tools. Glob lists names and never content, so the token rule leaves it alone.
+// The Read, Grep and Glob tools. Glob lists names and never content, so only a reviewer's Glob is checked.
 function checkReadTool(tool, args) {
   const target = String((tool === 'Read' ? args.file_path : args.path) || '');
-  if (target && tool !== 'Glob') checkLocalEnv(target, tool + ' ' + target);
+  if (target && tool !== 'Glob') checkClosed(target, tool + ' ' + target);
   if (MODE !== 'reviewer') return;
   if (target) checkReviewerOpens(target, tool + ' ' + target);
   if (tool === 'Glob') {
@@ -377,6 +451,7 @@ function analyze(toks, depth, whole) {
     // a for, select or case header is a list or a pattern, its body is a segment of its own, but a redirect after
     // done, fi or esac still writes
     checkProtectedRedirects(toks, whole);
+    checkSecretWords(toks, toks[i].t, [], whole);
     if (MODE === 'reviewer') checkRedirects(toks, whole);
     return;
   }
@@ -388,7 +463,7 @@ function analyze(toks, depth, whole) {
     if (k >= 0 && k + 1 < toks.length) analyze(toks.slice(k + 1), depth, whole);
   }
   checkProtectedInShell(toks, prog, args, whole);
-  if (CONTENT_READERS.has(prog)) args.filter((a) => !a.startsWith('-')).forEach((a) => checkLocalEnv(a, whole));
+  checkSecretWords(toks, prog, args, whole);
   if (MODE === 'reviewer') checkRedirects(toks, whole);
   if (nestedShell(prog, args, depth)) return;
   if (prog === 'git') checkGit(args, whole);
@@ -741,7 +816,6 @@ const MAKE_WRITERS = /^(setup|clean.*|bump.*|docker.*|compile.*|release.*|publis
 function checkReviewerProgram(prog, args, whole) {
   const a = args.map((x) => x.toLowerCase());
   const refuse = () => deny('Reviewers only read and write their report. ' + prog + ' is refused.', whole);
-  if (args.some((x) => isSecretFile(x))) deny(SECRET_WHY, whole);
   if (CONTENT_READERS.has(prog)) args.filter((x) => !x.startsWith('-')).forEach((x) => checkReviewerOpens(x, whole));
   if (/^(grep|egrep|fgrep)$/.test(prog) && a.some((x, k) => /^-[a-z]*r/.test(x)
     || /^--(recursive|dereference-recursive|directories=recurse)$/.test(x)

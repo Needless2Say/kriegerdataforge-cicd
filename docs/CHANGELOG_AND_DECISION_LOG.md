@@ -1439,12 +1439,11 @@ review, in the backlog.
   reviewer is refused a path git ignores in those tools and in every shell program that prints a file, the reports the
   launcher holds, a recursive `grep`, `rg -u` and `--no-index`. The hook matcher adds `Read|Grep|Glob`, and every
   such call pays the guard's 65 ms, 83 ms for a reviewer's, which also asks git.
-- **`.env.local` is open to every model**, the owner's decision, since it holds the local stack's settings. A
-  `.env.local` that still holds `GH_PACKAGES_PAT` or `GH_NPM_TOKEN` stays closed, since both are real GitHub
-  credentials and the app repos still keep one there. The guard refuses it to Read, Grep and every shell program that
-  prints a file, in every session, and the charter tells every other model to check with `grep -q` before it opens
-  one. The guard's secret list now matches the charter's, every `.env` file but an example, where it had missed
-  `.env.dev` and the `.env.local.bak`, `.remote` and `.friend` copies found on the owner's machine.
+- **`.env.local` is open to every model**, the owner's decision, since it holds the local stack's settings, and
+  D-030 makes that safe by moving every credential to `.env.kdf`. A `.env.local` that still holds one stays closed in
+  every session, and the charter tells every other model to check with `grep -q` before it opens one. The guard's
+  secret list now matches the charter's, every `.env` file but an example, where it had missed `.env.dev` and the
+  `.env.local.bak`, `.remote` and `.friend` copies found on the owner's machine.
 - **The pin is pushed, and the brief's facts are measured.** `--pin` refuses a commit no branch of `origin` holds.
   `kdf-brief.js` prints the commit line and the scope table's line counts at the pin, and checks a written brief's
   table, and the launcher runs that check before every pinned review.
@@ -1494,10 +1493,65 @@ instructions, not enforcement, and what holds it is its own sandbox, collect for
 Every Read, Grep and Glob call now costs a guard run.
 
 **Consequences.** After this merges the owner reinstalls the guard, adds `Read|Grep|Glob` to the hook matcher, then
-removes `Read(**/.env.local)` from the deny list, in that order, and runs Distribute once, kit v1.6.0. The app repos
-that keep a package token in `.env.local` stay closed until the token moves to `.env.github`, the auth UI's pattern,
-which is the owner's call per repo. Every slice's step 2 pins, and the SDK plan's section 13 runs both reviewers in the
-SDK folder with no setup. The launcher's tests prove the pushed pin, the pin check, the brief check, one review of a
-folder at a time, the held report in both orders, collect's fence, the cloud branch's fence, and the recovery of a
-Claude run that was cut off.
+swaps `Read(**/.env.local)` in the deny list for `Read(**/.env.kdf)`, `Read(**/.env.dev)` and `Read(**/.env.prod)`, in
+that order, and runs Distribute once, kit v1.6.0. A `.env.local` that still holds a credential stays closed until it
+is split under D-030. Every slice's step 2 pins, and the SDK plan's section 13 runs both reviewers in the SDK folder
+with no setup. The launcher's tests prove the pushed pin, the pin check, the brief check, one review of a folder at a
+time, the held report in both orders, collect's fence, the cloud branch's fence, and the recovery of a Claude run that
+was cut off.
+
+## D-030. Two local env files, `.env.local` open to every model and `.env.kdf` closed, and secret files closed to every session
+
+- **Date.** 2026-09-29
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it, cicd #235. Each repo adopts
+  it in a pull request of its own.
+- **Tier / scope:** Epic · kit `skills.md`, `docs/agent/AGENT_ROLES.md` rule 5 and the contributor onboarding template ·
+  `tools/claude-code/kdf-guard.js` and `check-wiring.js` · then every repo's env examples, Makefile, compose,
+  `.gitignore` and onboarding doc
+
+**Context.** The owner opened `.env.local` to every model on 2026-09-29, for the local docker stack. The app repos
+also keep real credentials there, the GitHub package tokens and, for a collaborator without a hub checkout, the SSO
+client secret the DEV hub issued, and the hub's example adds third party keys. Moving secret files out of the folder
+while a reviewer reads it went to the backlog, #236. The owner's answer, "why not have 2 .env files for local",
+"`.env.local` for setup of the docker containers to run" and "`.env.kdf` for github tokens and the sso secrets that
+are sensitive", so it is "not spread out among alot of different files". The owner keeps `.env.dev` and `.env.prod`
+for admin scripts against the DEV and PROD databases, "leave those files alone", and a future tenant may keep its own.
+The owner also asked that secret files be protected in every session, not only in reviews, and settled the spelling,
+`.env.dev` and `.env.prod`.
+
+**Decision.**
+
+- **`.env.local`** holds every value that works only on this machine, local database and MinIO passwords, local
+  signing keys, session secrets, ports and URLs. It is open to every model.
+- **`.env.kdf`** holds every credential that works beyond this machine, `GH_PACKAGES_PAT`, `GH_NPM_TOKEN`, the hub's
+  `KDF_OIDC_CLIENT_SECRET` and `KDF_SERVICE_KEY`, and third party keys such as `AUTH_RESEND_API_KEY`,
+  `AUTH_TWILIO_AUTH_TOKEN` and `AUTH_ADMIN_EMAIL_PASSWORD`. It is closed, and it replaces `.env.github`. Each file has
+  a tracked example, and a repo's `.env.kdf.example` names its own credentials.
+- **`.env.test`, `.env.dev` and `.env.prod`** stay as they are, closed. A session starts a stack or a test through the
+  repo's make target. The spelling is `.env.dev` and `.env.prod` everywhere, the kit's onboarding template included.
+- **Secret files are closed to every session.** The guard refuses a read, write, copy, source or pass of one, in the
+  shell and to Read, Grep, Edit and Write, and allows only a check that one exists. A `.env.local` that still holds a
+  credential, by the built in names or its repo's `.env.kdf.example`, counts as one. `check-wiring.js` recommends Read
+  denies for `.env.kdf`, `.env.dev` and `.env.prod` as a second fence.
+
+**Alternatives considered.**
+
+- A file per kind of credential, `.env.github` for tokens and another for SSO secrets. Rejected, the owner wants one
+  closed file.
+- Moving the secret files out of the folder during a review. In the backlog, #236, a crash or a running stack makes it
+  unsafe.
+- Letting `source` and `--env-file` pass a secret file, since they print nothing. Rejected, a sourced file is one `env`
+  away from printed, and the make targets already read the files for the commands that need them.
+
+**Trade-offs.** Each repo needs one adoption pull request, its examples split, its Makefile reading the tokens from
+`.env.kdf`, compose handing a container only the `.env.kdf` values it needs, `.gitignore` covering `.env.kdf` and
+tracking `.env.kdf.example`, and its onboarding doc. Measured on 2026-09-29, the Next.js template and terraform do not
+ignore `.env.kdf` yet, and ten repos would ignore `.env.kdf.example`. Until a repo's `.env.local` is split, the guard
+keeps it closed while it holds a credential. A session can no longer create `.env.kdf` from its example, the owner
+fills it.
+
+**Consequences.** After #235 merges and the v1.6.0 sync lands, each repo gets one pull request carrying its env split
+and its `AGENTS.md` role pointer, the templates first so a new repo is born split. The owner splits their own
+`.env.local` files, moving the credential lines to `.env.kdf`, never a session. `.env.dev` and `.env.prod` are left
+alone.
 
