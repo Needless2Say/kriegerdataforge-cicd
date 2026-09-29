@@ -69,6 +69,10 @@ fresh session with an empty memory, briefed only by the brief, reading the pinne
 other reviewer's report exists. And two model families read everything reviewed, Claude and ChatGPT, because different
 models catch different things.
 
+Each role's limits are written for every model and tool in [`AGENT_ROLES.md`](AGENT_ROLES.md). Every brief states the
+reviewer's role in its own text, word for word from the template, so Codex, Sol or any other model is told the same
+limits that the guard enforces on Claude.
+
 ## 3. The artifacts, their names and where they live
 
 Everything is a file under `docs/security/` of the repo under review, so the record travels with the code.
@@ -267,7 +271,8 @@ to read whole. The orchestrator builds one Claude Artifact page per slice, or pe
 dispatch with a copy button, a settled list and a box per round. The owner pastes a dispatch into a fresh Sol session
 and pastes the answer back. The orchestrator adjudicates it as step 3 does, then refreshes the page for the next round
 with what the round settled and the new pin and line counts. The shape to copy is the auth UI's S1 page. A round is
-never run against a commit that is not pushed.
+never run against a commit that is not pushed. Each dispatch opens by naming Sol a chat reader, section 6 of
+`AGENT_ROLES.md`, that answers in the chat and writes nothing.
 
 ## 10. The process is secured, not trusted
 
@@ -283,6 +288,7 @@ So the rules of section 5 are enforced by machinery and not left to instruction.
 | A reviewer leaks a secret | `.env*`, `.tfvars`, `.pem` and `keys/` are refused to a reviewer, in the shell and to the Read tool, and a reviewer's copy never holds them |
 | A reviewer changes something and hides it | The launcher snapshots git before and after, in the repo or in the reviewer's copy, and fails the run when anything but a new file under `docs/security` moved |
 | A reviewer outside Claude Code, Codex, has no guard | It works in a copy of its own, and collect brings nothing home unless the only change is new files under `docs/security` and HEAD is still at the pin |
+| Another model does not know the rules Claude's guard enforces | `AGENT_ROLES.md` states them for every model and tool, reached through `AGENTS.md`, `WORKFLOW.md` and every brief's own text. What text cannot stop, the tool's own sandbox, the copy that holds no secret, collect and GitHub's rulesets hold |
 | A reviewer reads another's report, or a tree that moved under it | Every reviewer reads the pin in a copy of its own, and no report written after the pin is in it |
 | A reviewer is started without the guard | The launcher refuses to start a Claude reviewer unless the guard is wired and passes two canary calls |
 | A reviewer inherits the orchestrator's assumptions | It is a fresh session with an empty memory, briefed by the brief alone. The launcher also strips the owner's self edit switch from its environment |

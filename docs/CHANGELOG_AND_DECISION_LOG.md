@@ -1425,6 +1425,12 @@ which lives in the same `docs/security`. Separately, the owner's double submissi
 - **Distribute can run twice.** Both engines skip a file whose sync branch copy already matches, and look for an open
   pull request from the sync branch before opening one. A second run brings the branch up to date and prints "PR
   already open" in place of a 422.
+- **Roles for every model.** The owner asked that the limits the guard enforces on Claude also reach the models that
+  read only `AGENTS.md` and the kit. A new kit file, `docs/agent/AGENT_ROLES.md`, writes four roles for any model or
+  tool, implementer by default, orchestrator, reviewer and chat reader, and nine rules every role keeps, the guard's
+  owner rules in words. `WORKFLOW.md`, which every `AGENTS.md` sends an agent to for every task, opens with them, and
+  every review brief states the reviewer's role in its own text, since a reviewer of any model reads its brief. The
+  guard and the charter change together.
 
 **Alternatives considered.**
 
@@ -1436,10 +1442,15 @@ which lives in the same `docs/security`. Separately, the owner's double submissi
   `src`, so the tests would run the repo's code and not the pin's. Each copy builds its own, measured at 32 seconds.
 - Codex skipped at step 2 when it cannot run, and kept for step 5. Rejected, the owner's decision is that both models
   read every slice twice.
+- The roles written into each repo's `AGENTS.md`. Deferred, `AGENTS.md` is per repo and not synced, so it is eighteen
+  pull requests with a version bump each, and the SDK's bump cuts a release. `WORKFLOW.md` and the briefs reach every
+  agent through the sync today, and a one line pointer in each `AGENTS.md` can ride with that repo's next pull request.
 
 **Trade-offs.** A copy costs a worktree, its setup time and its disk until it is collected. The setup command is the
 orchestrator's to write per repo, and a repo whose tests need a private package needs a public stand in or a token
-free path. Refs made while a copy is out are only warned about, since the orchestrator makes branches meanwhile.
+free path. Refs made while a copy is out are only warned about, since the orchestrator makes branches meanwhile. For a
+model that does not run the guard the roles are instructions, not enforcement, and what holds it is its own sandbox,
+the copy that holds no secret, collect for a reviewer, and GitHub's rulesets.
 
 **Consequences.** After this merges the owner runs Distribute once, kit v1.6.0. The SDK plan's section 13 names its
 setup command, and every slice's step 2 pins. Measured on the SDK at `97d2fe9`, a copy set up from public packages

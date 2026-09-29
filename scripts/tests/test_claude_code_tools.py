@@ -31,6 +31,42 @@ INSTALLER = TOOLS / "install.sh"
 NODE      = shutil.which("node")
 BASH      = os.environ.get("KDF_TEST_BASH") or shutil.which("bash")
 CASES     = json.loads((TOOLS / "guard-cases.json").read_text(encoding = "utf-8"))
+KIT       = TOOLS.parents[1] / "kit" / "common"
+
+# what the guard refuses, in the words the role charter must keep, so a model that runs no guard is told the same
+GUARD_RULES_IN_WORDS = (
+    "merge",
+    "approve",
+    "mark ready",
+    "tag",
+    "release",
+    "publish",
+    "dispatch a workflow",
+    "re-run",
+    "DEV or PROD",
+    "vercel",
+    "terraform apply",
+    "`prod`",
+    "`dev` without `local`",
+    "ENVIRONMENT",
+    "push to `main`",
+    "force push",
+    "`origin`",
+    ".env",
+    "*.tfvars",
+    "*.pem",
+    "keys/",
+    ".claude/settings",
+    ".mcp.json",
+    "git hooks",
+    "`git -c`",
+    "deploy key",
+    "gist",
+    "KDF_ROLE=reviewer",
+    "docs/security/",
+    "GitHub CLI",
+    "connectors",
+)
 
 # a stand in for claude, it writes what STUB_MODE says a reviewer did, and records how it was started
 STUB = """#!/usr/bin/env bash
@@ -181,6 +217,30 @@ def test_the_tools_keep_lf_line_ends_on_every_machine() -> None:
     text = (TOOLS.parents[1] / ".gitattributes").read_text(encoding = "utf-8")
     for pattern in ("*.sh", "*.js", "*.json"):
         assert f"tools/claude-code/{pattern}" in text
+
+
+def test_the_role_charter_says_every_rule_the_guard_enforces() -> None:
+    """
+    Other models read AGENT_ROLES.md and run no guard, so the charter must keep naming every rule the guard holds.
+    """
+    text    = (KIT / "docs" / "agent" / "AGENT_ROLES.md").read_text(encoding = "utf-8")
+    missing = [rule for rule in GUARD_RULES_IN_WORDS if rule not in text]
+    assert not missing, f"AGENT_ROLES.md no longer names {missing}, change it together with the guard"
+
+
+def test_every_agent_meets_its_role_where_it_reads() -> None:
+    """
+    WORKFLOW.md, which every AGENTS.md sends an agent to, opens with the roles, and a reviewer's brief carries its own.
+    """
+    workflow = (KIT / "WORKFLOW.md").read_text(encoding = "utf-8")
+    assert "## Before anything, know your role" in workflow
+    assert workflow.index("## Before anything, know your role") < workflow.index("## Step 0.")
+    assert "docs/agent/AGENT_ROLES.md" in workflow
+    brief = (KIT / "docs" / "agent" / "templates" / "review-brief.template.md").read_text(encoding = "utf-8")
+    assert "**Your role.** You are a **reviewer**" in brief
+    assert "`docs/agent/AGENT_ROLES.md`" in brief
+    registry = json.loads((TOOLS.parents[1] / "scripts" / "kit_registry.json").read_text(encoding = "utf-8"))
+    assert "docs/agent/AGENT_ROLES.md" in registry["files"]
 
 
 @dataclass

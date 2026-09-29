@@ -180,6 +180,7 @@ contract. It isn't. The SDK is auth-only.
 | [`DEFINITION_OF_DONE.md`](DEFINITION_OF_DONE.md) | The real bar, scaled by change type | Before opening any PR |
 | [`skills.md`](../../skills.md) | Scenario indexed security playbook | Before any security relevant work |
 | [`DOCUMENTATION_STANDARD.md`](DOCUMENTATION_STANDARD.md) | How repo docs are organized, kept honest, and kept discoverable | Any documentation work |
+| [`AGENT_ROLES.md`](AGENT_ROLES.md) | Agent roles and limits for every model and tool, implementer, orchestrator, reviewer and chat reader, and the rules every role keeps | Before you act. `WORKFLOW.md` opens with it |
 | [`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md) | The KDF Code Review Process. Any scope, from one function to every repo, reviewed by more than one model at a pinned commit, with the scales, roles, cycle, rules, artifacts and security model | An independent review by more than one model, of any size |
 | [`templates/`](templates/) | Copy paste design spec, ADR, epic tracker, contributor onboarding and review campaign templates | When the design gate, an Epic, a review campaign, or a new repo's onboarding applies |
 | `docs/guides/CONTRIBUTOR_ONBOARDING.md` | Per repo human setup path (from the kit template) | Per repo and never synced. Update when commands/env change |
@@ -243,6 +244,8 @@ The standard does a lot, but a good prompt makes it sing:
   reproduced and every fix pinned, and the owner merges. See `CODE_REVIEW_PROCESS.md`.
 - **Pin.** The commit a review reads, pushed, named in the brief. Every reviewer reads it in a copy of the repo of its
   own, so a reviewer that runs later reads the same code and never another's report.
+- **Role.** What an agent may do on a task, implementer by default, reviewer for a review, orchestrator for the session
+  that runs one, chat reader in a chat. The same for every model and tool, see `AGENT_ROLES.md`.
 - **Orchestrator.** The one long running session that runs a review campaign, writes the briefs, launches the fresh
   reviewers, adjudicates and opens the pull requests. It never merges or deploys.
 - **`KDFUser`.** The verified identity principal the SDK returns from a valid JWT. `user.user_id`

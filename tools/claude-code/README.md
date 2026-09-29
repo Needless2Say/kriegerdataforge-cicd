@@ -63,6 +63,12 @@ mode. The owner runs the rest through the ops issue forms.
 git, no GitHub CLI, no shell command that writes, deletes, installs or downloads, no redirect into a file, no secret
 file, no connector, artifact, message, schedule or notification tool, and file edits only under `docs/security`.
 
+**The same rules for every other model.** The kit's `docs/agent/AGENT_ROLES.md` writes these roles and rules for any
+model or tool, and it reaches them through `AGENTS.md`, `WORKFLOW.md`, which opens with it, and every review brief,
+which states the reviewer's role in its own text. The guard is what makes the rules binding for Claude. For Codex the
+copy, collect, its own sandbox and GitHub's rulesets are. A new rule here is a new line there, in the same pull
+request.
+
 The role comes from the environment the session was started in, so it works in any repo with no settings file in it.
 
 ```bash
