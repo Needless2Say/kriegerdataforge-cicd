@@ -56,7 +56,7 @@ agent workflows (`agents/`, skeleton only) so automation scales with the platfor
 | `scripts/*/db_backup.py` | Per tenant Neon DB backup |
 | `docs/reference/WORKFLOWS.md`, `docs/guides/MANUAL_SETUP.md` | Workflow catalog (inputs/secrets/callers) + manual setup runbook |
 | `kit/common/`, `scripts/kit_registry.json`, `scripts/distribute_kit.py` | The agentic workflow kit's canonical source, its sync registry and its engine, which opens owner reviewed PRs to every repo. The KDF Code Review Process is `kit/common/docs/agent/CODE_REVIEW_PROCESS.md` with its four templates |
-| `tools/claude-code/` | The KDF Code Review Process tooling, installed on the owner's machine and **not synced**. `kdf-guard.js` (the PreToolUse guard), `kdf-review.sh` (starts a fresh reviewer and checks git afterward), `check-wiring.js`, `install.sh`, `guard-cases.json`. Tested by `scripts/tests/test_claude_code_tools.py`, see its `README.md` |
+| `tools/claude-code/` | The KDF Code Review Process tooling, installed on the owner's machine and **not synced**. `kdf-guard.js` (the PreToolUse guard), `kdf-review.sh` (starts a fresh reviewer, in the repo or in a worktree copy at a pinned commit, prepares and collects a copy for Codex, and checks git afterward), `check-wiring.js`, `install.sh`, `guard-cases.json`. Tested by `scripts/tests/test_claude_code_tools.py`, see its `README.md` |
 | `agents/` | Skeleton for future AI driven agent workflows, **not yet implemented** |
 | `CONTRIBUTING.md` | Two tier model + breaking change governance |
 

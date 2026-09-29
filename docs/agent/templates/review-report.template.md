@@ -1,14 +1,15 @@
-# The {campaign} review, slice {S1}, {slice name}. The fresh review's report
+# The {campaign} review, {slice {S1}, {slice name}, or the spot review of {scope}}. The fresh review's report
 
 > **How to use.** A reviewer copies this to the report path its brief names, `docs/security/{PFX}_REVIEW_{slice}_REPORT.md`
-> for Claude or `..._CODEX_REPORT.md` for Codex, fills every section, and deletes this box. Under 250 lines. It is
-> the only file a reviewer writes. The rules are [`../CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md) sections 5, 6
-> and 8. Name a secret's variable and never its value.
+> for Claude or `..._CODEX_REPORT.md` for Codex, and at spot scale `docs/security/{PFX}_REVIEW_REPORT.md`, fills every
+> section, and deletes this box. Under 250 lines. It is the only file a reviewer writes. The rules are
+> [`../CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md) sections 5, 6 and 8. Name a secret's variable and never its
+> value.
 
 ## 1. Header
 
-- **Tip read.** {sha}, {branch}.
-- **The tree.** {clean, or uncommitted with `git status --porcelain` counts.}
+- **Pin read.** {sha}, as `git rev-parse HEAD` printed it, on branch {branch}. {If it differs from the brief's pin,
+  say so first, and stop.}
 - **Baseline reproduced.** {lint, type check, tests, the counts.} {A red baseline goes here first.}
 - **Time spent.** {hours.}
 - **Reviewer.** {model and effort.}

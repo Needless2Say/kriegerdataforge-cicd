@@ -1,13 +1,16 @@
-# {repo}. Slice {S1} of the {campaign} review, {slice name} (one fresh session)
+# {repo}. {Slice S1 of the {campaign} review, {slice name}, or at spot scale, a review of {scope}} (one fresh session)
 
-> **How to use.** Copy this to `docs/security/{PFX}_REVIEW_{slice}_PROMPT.md`, fill every `{...}`, and delete this
-> box. One brief serves the fresh Claude reviewer and Codex, and the same text with the closing line changed is the
-> final brief, `{PFX}_REVIEW_{slice}_FINAL_PROMPT.md`. The process is
-> [`../CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md), sections 6, 7 and 8 define what this brief must hold. The
-> reviewer starts from one line, `Read <this file> and run the review, write your report to <report>, edit nothing
-> else.` A brief that needs more than that line to start a reviewer is missing something from its own text.
+> **How to use.** Copy this to `docs/security/{PFX}_REVIEW_{slice}_PROMPT.md`, or at spot scale to
+> `docs/security/{PFX}_REVIEW_PROMPT.md`, fill every `{...}`, and delete this box. One brief serves the fresh Claude
+> reviewer and Codex, and the same text with the closing line changed is the final brief,
+> `{PFX}_REVIEW_{slice}_FINAL_PROMPT.md`. The process is [`../CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md),
+> sections 6, 7 and 8 define what this brief must hold. The reviewer starts from one line, `Read <this file> and run
+> the review, write your report to <report>, edit nothing else.` A brief that needs more than that line to start a
+> reviewer is missing something from its own text.
 >
-> Keep it under about 250 lines. Line counts in the slice table are measured from the tree, never remembered.
+> Commit the brief with the scope's state on the review's branch and push it before any reviewer starts. That commit
+> is the pin, name it below. At spot scale the brief is the plan, so it also carries the owner's question. Keep it
+> under about 250 lines. Line counts in the scope table are measured at the pin, never remembered.
 
 **Context.** {The owner's own words about what this repo is for, quoted. Then what the repo is, its stack, where it
 runs, who reaches it, and what it has already been through, earlier reviews, test campaigns, rounds.}
@@ -16,12 +19,14 @@ runs, who reaches it, and what it has already been through, earlier reviews, tes
 {n} and {n}. One session, you. The session that adjudicated the earlier rounds read the slice and fixed what it
 found, its record is `docs/security/{PFX}_REVIEW_{slice}_ADJUDICATION.md`. Your job is to read the slice as it
 stands, attack those fixes, and find what that session missed. You review, you do not fix. Your report goes to the
-owner, who hands it to that session, and that session reproduces each finding before it agrees.}
+owner, who hands it to that session, and that session reproduces each finding before it agrees.} {At spot scale, the
+owner's question in the owner's words, and what a good answer settles.}
 
-**The tree.** {`main` at `{sha}`, plus either the uncommitted working tree that carries the slice's step 1 or the
-owner's commit on top of it. Say how the reviewer tells which, for example `git status --porcelain -- {paths}`.
-Either is fine, the reviewer says which it read. Size the delta with `git diff --stat` and
-`git ls-files --others --exclude-standard`, never with a log range.}
+**The commit.** The pin is `{sha}` on branch `{branch}`, which sits on `main` at `{tip}`. You read it in a copy of the
+repo of your own. Confirm first that `git rev-parse HEAD` prints the pin, and say so in your header. Size the delta
+with `git diff --stat {tip} HEAD`, never with a log range. Another reviewer reads the same pin in a copy of its own.
+Never open its report or the adjudication log's rows about it, they are not in your copy and must not be sought
+elsewhere.
 
 **The stopping rule.** Every finding carries Blocks yes or no. Yes is a P, or an M that reaches an account, a token,
 a credential, a privilege or someone else's data. Only yes gets fixed first and earns a narrow second read of its
@@ -33,9 +38,10 @@ reach. M is a real defect with bounded impact, or a state or message that is ine
 would act on. L is a real defect whose reach or impact is narrow. E is hygiene, dead surface, or a doc that has
 drifted. Rank within each grade.
 
-## The slice
+## The scope
 
-{The unit of review, the files below and nothing else. Line counts are from the working tree after step 1.}
+{The unit of review, the files below and nothing else. Line counts are measured at the pin. At spot scale name the
+function or the files with their line ranges, and the callers or neighbours read only for context.}
 
 | Files | Lines |
 | --- | --- |

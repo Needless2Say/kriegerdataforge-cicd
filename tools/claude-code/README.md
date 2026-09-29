@@ -9,7 +9,7 @@ machine installs them from a clone of this repo.
 | --- | --- |
 | `kdf-guard.js` | A Claude Code PreToolUse hook. It reads each Bash and PowerShell command the way a shell does, and each file edit and outward facing tool call, and exits 2 to refuse with the reason. No dependencies, one file |
 | `guard-cases.json` | The table the guard is held to, one case per tool call with its role and whether it is allowed or refused. Every rule change adds cases |
-| `kdf-review.sh` | Starts one fresh Claude reviewer in a repo with the reviewer role, then compares git before and after and fails the run if the reviewer changed anything but a new file under `docs/security` |
+| `kdf-review.sh` | Starts one fresh Claude reviewer with the reviewer role, in the repo or in a copy of its own at a pinned commit, or prepares such a copy for Codex and collects it. Compares git before and after and fails the run if the reviewer changed anything but a new file under `docs/security` |
 | `check-wiring.js` | Read only. Says whether this machine's settings wire the guard as the process needs, and prints the block to add when they do not |
 | `install.sh` | Copies the guard to `~/.claude/hooks/`, smoke tests it, and prints the settings block. It edits no settings and refuses to run inside a Claude Code session |
 
@@ -78,22 +78,49 @@ test from the process, section 10, in the first session it opens.
 
 ## The launcher
 
-`kdf-review.sh` checks its arguments, refuses to start unless `check-wiring.js` passes and the installed guard passes
-two canary calls, snapshots git, runs `claude -p` in the repo with `KDF_ROLE=reviewer` and without the owner's self
-edit switch, and snapshots again. The snapshot holds HEAD, the branch, every ref, the stash count, the index and the
-hash of every modified or untracked file.
+`kdf-review.sh` checks its arguments, refuses to start a Claude reviewer unless `check-wiring.js` passes and the
+installed guard passes two canary calls, snapshots git, runs `claude -p` with `KDF_ROLE=reviewer` and without the
+owner's self edit switch, and snapshots again. The snapshot holds HEAD, the branch, the index and the hash of every
+modified or untracked file, and in the repo itself every ref and the stash count too.
+
+**At a pinned commit**, the way the process runs every review.
+
+```bash
+# Claude, in a copy of its own at the pin
+bash kdf-review.sh --repo <repo> --brief docs/security/<brief> --report docs/security/<report> \
+     --at <pin> --setup "<setup>" --model <model> --effort max --codex-report docs/security/<codex report>
+# Codex, the owner starts it by hand in a copy of its own at the same pin
+bash kdf-review.sh --repo <repo> --brief docs/security/<brief> --report docs/security/<codex report> \
+     --at <pin> --prepare --setup "<setup>"
+bash kdf-review.sh --repo <repo> --report docs/security/<codex report> --collect <the folder prepare printed>
+```
+
+`--at` makes a git worktree of the repo at the pin in a `.kdf-review` folder beside the repo, named for the repo, the
+pin and the report. The brief must be in the pin, and the report must be in neither the pin nor the repo. `--setup`
+runs in the copy before the reviewer starts, with `KDF_MAIN_REPO` naming the repo, and whatever it leaves is part of
+the starting point, not held against the reviewer. It installs what the reviewer needs to run the tests, from public
+packages, never with the owner's tokens. A copy holds only tracked files, so no `.env*` file, which the repos never
+track. A clean run copies
+the new files under `docs/security` into the repo, never over an existing one, and removes the copy. A run that is not
+clean keeps its copy for a look. `--prepare` stops before the reviewer and prints the folder to open, the one line and
+the collect command. Collect runs the same check, and since Codex has no guard, it is Codex's fence. Refs made while a
+copy is out are listed as a warning, not a failure, because the orchestrator makes branches meanwhile.
+
+Each copy is a folder Claude Code has never seen, so its session starts with an empty memory, and Claude Code keeps a
+small project folder for it under `~/.claude/projects/`. `claude project purge <folder>` clears one.
 
 | Exit | Meaning |
 | --- | --- |
 | 0 | Clean. Only the report, and any new file under `docs/security`, changed |
-| 2 | Bad arguments. The report must be a new file under `docs/security`, the brief must exist inside the repo |
-| 3 | Contamination. The reviewer changed something it must not, every path is listed, nothing is reverted |
+| 2 | Bad arguments, a brief the pin lacks, or a file the repo already has that would be overwritten |
+| 3 | Contamination. The reviewer changed something it must not, every path is listed, nothing is reverted, a copy is kept |
 | 4 | The reviewer wrote no report |
 | 5 | The guard is not wired, or the installed guard failed its canary |
 | 6 | `claude` itself failed |
+| 7 | The setup command failed, its copy is removed |
 
-`--dry-run` prints the one line prompt for Claude and for Codex and starts nothing. `KDF_CLAUDE_BIN` and `KDF_HOME`
-override the claude program and the home directory, the tests use them.
+`--dry-run` prints the one line prompt for Claude and for Codex, and with `--at` the copy's folder, and starts
+nothing. `KDF_CLAUDE_BIN` and `KDF_HOME` override the claude program and the home directory, the tests use them.
 
 ## What the guard cannot stop
 
@@ -129,3 +156,6 @@ tried. To switch the guard off, remove its hook from `settings.json`.
 - Line ends are pinned to LF for these files by `.gitattributes`. A carriage return breaks a shell script.
 - Node is the runtime because it is present wherever Claude Code and the Next.js repos run. A Python guard would need
   an interpreter path on every machine.
+- A setup command that makes a virtual environment names a real interpreter, for example
+  `"$KDF_MAIN_REPO/.venv/Scripts/python.exe" -m venv .venv` on Windows, never a bare `python`, which on Windows can be
+  the store alias that installs CPython.

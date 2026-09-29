@@ -1,13 +1,16 @@
-# The {repo} review, slice by slice, then the whole repo. The plan
+# The {scope} review, slice by slice, then the whole scope. The plan
 
-> **How to use.** Copy this to `docs/security/{PFX}_REVIEW_PLAN.md`, fill it from the repo's `AGENTS.md`, its code and
-> its tests, and delete this box and every hint in braces. The process it plans is
+> **How to use.** Copy this to `docs/security/{PFX}_REVIEW_PLAN.md` of the lead repo, fill it from the repos'
+> `AGENTS.md`, their code and their tests, and delete this box and every hint in braces. The process it plans is
 > [`../CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md), so the plan does not restate the cycle or the rules, it
-> holds what is particular to this repo. The owner approves it before slice 1 starts. Section 2 is measured, never
-> read or remembered. Keep the progress table current, it is the state a fresh session reads first.
+> holds what is particular to this scope. A spot review has no plan, its brief is the plan. At feature scale keep
+> sections 1, 2, 4, 6, 10 and 11 and the appendix, and drop the rest. Across repos, one plan in the lead repo, the
+> one that owns the contract, and a seam slice for each contract between the repos. The owner approves it before
+> slice 1 starts. Section 2 is measured, never read or remembered. Keep the progress table current, it is the state a
+> fresh session reads first.
 
-> **Status.** {Draft, or Approved by the owner {date} with the decisions of section {n} answered. Which slice is
-> next. Anything uncommitted in the tree.}
+> **Status.** {Draft, or Approved by the owner {date} with the decisions of section {n} answered. The scale, feature,
+> repo, multi repo or ecosystem. Which slice is next. Anything uncommitted in the tree.}
 
 ## Progress
 
@@ -62,7 +65,8 @@ whole of it.
 A slice is a feature, the files that implement it, the tests that pin it, the docs that describe it and the
 constants it owns. Each slice is reviewed in full once. A file two slices read is owned by the earlier one and read as
 reference by the later. The order puts the foundation first, then the trust path from the outside in, so each later
-slice reviews against fixed ground.
+slice reviews against fixed ground. {Across repos, name each slice's repo, and add a seam slice, `X1` and on, for each
+contract between them, both ends read together, its files in the lead repo.}
 
 ### {S1. Slice name}, about {n} lines of source
 
@@ -131,7 +135,8 @@ Each with a recommendation. The owner answers in this section and the date, and 
 
 The runbook is [`CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md) section 11. Here, in particular, {the folder the
 orchestrator starts in, the models the owner picked for the orchestrator and the reviewers, the repo's own commands
-the brief lists, and anything a fresh session needs that the runbook does not say}.
+the brief lists, the setup command that makes a reviewer's copy runnable without the owner's tokens, where Codex runs,
+and anything a fresh session needs that the runbook does not say}.
 
 ## Appendix A. Every tracked file and the slice that reviews it
 

@@ -57,6 +57,7 @@ from common.repo_sync import (  # noqa: F401  (re-exported for tests/callers)
     _get_remote_file,
     _github_headers,
     _normalize,
+    _open_pr_url,
     _put_file,
     _select_repos,
 )
@@ -179,8 +180,9 @@ def cmd_distribute(registry: dict, token: str, only: str | None, repos_arg: str 
     sync_branch = f"chore/kit-sync-{version}"
     title       = f"chore(kit): sync agentic-workflow kit {version}"
 
-    opened: list[str] = []
-    errors: list[str] = []
+    opened:  list[str]  = []
+    already: list[str] = []
+    errors:  list[str]  = []
     print(f"Distributing kit {version} ({len(files)} file(s)) to {len(repos)} repo(s):")
     for entry in repos:
         repo, branch = entry["repo"], entry.get("branch", "main")
@@ -192,16 +194,24 @@ def cmd_distribute(registry: dict, token: str, only: str | None, repos_arg: str 
             base_sha = _get_branch_sha(token, repo, branch)
             _create_branch(token, repo, sync_branch, base_sha)
             for rel in drift:
-                _remote, blob_sha = _get_remote_file(token, repo, sync_branch, rel)
+                remote, blob_sha = _get_remote_file(token, repo, sync_branch, rel)
+                content = _read_local(rel)
+                if remote is not None and _normalize(remote) == _normalize(content):
+                    continue  # the sync branch already carries it, a re-run
                 _put_file(
                     token,
                     repo,
                     sync_branch,
                     rel,
-                    _read_local(rel),
+                    content,
                     blob_sha,
                     f"chore(kit): sync {rel} to {version}",
                 )
+            existing = _open_pr_url(token, repo, sync_branch, branch)
+            if existing:
+                print(f"  {repo}: PR already open — {existing}")
+                already.append(existing)
+                continue
             body = (
                 f"Automated sync of the agentic-workflow kit to **{version}** from "
                 f"`kriegerdataforge-cicd/kit/common/`.\n\n"
@@ -217,6 +227,8 @@ def cmd_distribute(registry: dict, token: str, only: str | None, repos_arg: str 
 
     print()
     print(f"Opened {len(opened)} PR(s).")
+    if already:
+        print(f"{len(already)} PR(s) were already open, their branches are up to date.")
     if errors:
         print(f"{len(errors)} repo(s) failed:")
         for e in errors:

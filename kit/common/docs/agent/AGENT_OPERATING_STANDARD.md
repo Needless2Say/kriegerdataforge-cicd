@@ -180,7 +180,7 @@ contract. It isn't. The SDK is auth-only.
 | [`DEFINITION_OF_DONE.md`](DEFINITION_OF_DONE.md) | The real bar, scaled by change type | Before opening any PR |
 | [`skills.md`](../../skills.md) | Scenario indexed security playbook | Before any security relevant work |
 | [`DOCUMENTATION_STANDARD.md`](DOCUMENTATION_STANDARD.md) | How repo docs are organized, kept honest, and kept discoverable | Any documentation work |
-| [`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md) | The KDF Code Review Process. A repo reviewed one slice at a time by more than one model, with the roles, cycle, rules, artifacts and security model | Reviewing a whole repo or package for production readiness |
+| [`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md) | The KDF Code Review Process. Any scope, from one function to every repo, reviewed by more than one model at a pinned commit, with the scales, roles, cycle, rules, artifacts and security model | An independent review by more than one model, of any size |
 | [`templates/`](templates/) | Copy paste design spec, ADR, epic tracker, contributor onboarding and review campaign templates | When the design gate, an Epic, a review campaign, or a new repo's onboarding applies |
 | `docs/guides/CONTRIBUTOR_ONBOARDING.md` | Per repo human setup path (from the kit template) | Per repo and never synced. Update when commands/env change |
 | `docs/prompts/` | Per repo documentation authoring toolkit (tailored. The static portfolios don't carry one) | When authoring docs. Per repo and never synced |
@@ -238,9 +238,11 @@ The standard does a lot, but a good prompt makes it sing:
   releasable until the feature is enabled last.
 - **Expand / contract migration.** A backward compatible schema change. Add the new shape (expand),
   migrate, then remove the old shape (contract). `main` works against both at every step.
-- **KDF Code Review Process.** How a repo is reviewed one slice at a time. The orchestrator fixes, fresh Claude and
-  Codex sessions review from one brief, Sol reads in rounds, every finding is reproduced and every fix pinned, and
-  the owner merges. See `CODE_REVIEW_PROCESS.md`.
+- **KDF Code Review Process.** How any code is reviewed, one function to every repo. The orchestrator fixes, fresh
+  Claude and Codex sessions review from one brief at one pinned commit, Sol reads in rounds, every finding is
+  reproduced and every fix pinned, and the owner merges. See `CODE_REVIEW_PROCESS.md`.
+- **Pin.** The commit a review reads, pushed, named in the brief. Every reviewer reads it in a copy of the repo of its
+  own, so a reviewer that runs later reads the same code and never another's report.
 - **Orchestrator.** The one long running session that runs a review campaign, writes the briefs, launches the fresh
   reviewers, adjudicates and opens the pull requests. It never merges or deploys.
 - **`KDFUser`.** The verified identity principal the SDK returns from a valid JWT. `user.user_id`

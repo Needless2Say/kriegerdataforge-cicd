@@ -25,6 +25,15 @@ def registry():
     }
 
 
+@pytest.fixture(autouse = True)
+def no_open_pr():
+    """
+    No sync pull request is open unless a test says so, and no test reaches GitHub for it.
+    """
+    with patch.object(dk, "_open_pr_url", return_value = None) as open_pr:
+        yield open_pr
+
+
 # ── Pure helpers ─────────────────────────────────────────────────────────────────
 def test_normalize_ignores_crlf():
     assert dk._normalize("a\r\nb\r\n") == "a\nb\n"
@@ -228,6 +237,50 @@ def test_cmd_distribute_reports_failure_rc():
     ):
         rc = dk.cmd_distribute(reg, "tok", None)
     assert rc == 1
+
+
+def test_cmd_distribute_rerun_updates_the_open_pr_and_opens_no_second_one(no_open_pr, capsys):
+    """
+    A second run over the same sync branch brings the branch up to date and does not ask GitHub for the PR again.
+    """
+    reg                     = {"files": ["skills.md"], "repos": [{"repo": "Needless2Say/repo-a", "branch": "main"}]}
+    no_open_pr.return_value = "https://github.com/Needless2Say/repo-a/pull/7"
+    with (
+        patch.object(dk, "compute_drift", return_value = ["skills.md"]),
+        patch.object(dk, "_read_local", return_value = "new"),
+        patch.object(dk, "_get_branch_sha", return_value = "basesha"),
+        patch.object(dk, "_create_branch"),
+        patch.object(dk, "_get_remote_file", return_value = ("old", "blobsha")),
+        patch.object(dk, "_put_file") as put_file,
+        patch.object(dk, "_create_pr") as create_pr,
+    ):
+        rc = dk.cmd_distribute(reg, "tok", None)
+    assert rc == 0
+    put_file.assert_called_once()
+    create_pr.assert_not_called()
+    out = capsys.readouterr().out
+    assert "PR already open — https://github.com/Needless2Say/repo-a/pull/7" in out
+    assert "1 PR(s) were already open" in out
+
+
+def test_cmd_distribute_skips_a_file_the_sync_branch_already_carries():
+    """
+    A file whose sync branch copy already matches the kit is not written again, so a re-run adds no commits.
+    """
+    reg = {"files": ["skills.md"], "repos": [{"repo": "Needless2Say/repo-a", "branch": "main"}]}
+    with (
+        patch.object(dk, "compute_drift", return_value = ["skills.md"]),
+        patch.object(dk, "_read_local", return_value = "same\r\n"),
+        patch.object(dk, "_get_branch_sha", return_value = "basesha"),
+        patch.object(dk, "_create_branch"),
+        patch.object(dk, "_get_remote_file", return_value = ("same\n", "blobsha")),
+        patch.object(dk, "_put_file") as put_file,
+        patch.object(dk, "_create_pr", return_value = "https://pr") as create_pr,
+    ):
+        rc = dk.cmd_distribute(reg, "tok", None)
+    assert rc == 0
+    put_file.assert_not_called()
+    create_pr.assert_called_once()
 
 
 # ── version-marker consistency ───────────────────────────────────────────────────

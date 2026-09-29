@@ -1391,3 +1391,57 @@ that the version check exempts. Each machine runs `install.sh`, adds the printed
 the cycle, and the SDK's plan and the auth UI's files are the worked examples. See
 [`tools/claude-code/README.md`](../tools/claude-code/README.md).
 
+## D-029. The review process scales from one function to the ecosystem, and every review reads a pinned commit
+
+- **Date.** 2026-09-29
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Extends D-028.
+- **Tier / scope:** Epic · `kit/common/docs/agent/CODE_REVIEW_PROCESS.md` and its four templates, kit v1.6.0 ·
+  `tools/claude-code/kdf-review.sh` · `scripts/common/repo_sync.py`, `scripts/distribute_kit.py` · every kit repo
+  receives Markdown only, through the existing sync
+
+**Context.** The owner wants the KDF Code Review Process to serve any size of review, a function, a file, several
+files, a feature, a repo, several repos, or more. D-028's standard was written for a repo and told the reader not to
+use it for a single pull request. The owner also could not reach Codex from a phone, so a Codex review can start only
+hours after the Claude review of the same slice. Under D-028 both reviewers read the working tree "at the same time".
+A late reviewer would read a tree the orchestrator had changed since, and could open the first reviewer's report,
+which lives in the same `docs/security`. Separately, the owner's double submission of the Distribute form on
+2026-09-29 made every repo answer 422, an open pull request already existed, which read as sixteen failures.
+
+**Decision.**
+
+- **Scales.** The standard opens with the scale, spot (one function, a few files or a pull request's diff, no plan,
+  the brief is the plan), feature, repo, multi repo (one plan in the lead repo, a seam slice per contract), and
+  ecosystem (a program of campaigns in the hub). The rules, the severity scale and the security model are the same at
+  every scale, the plan, the slices, the Sol rounds and Phase B scale with it.
+- **The pin.** At step 2 and step 5 the orchestrator commits the slice's state with the brief and pushes it. The brief
+  names that commit. Every reviewer reads it in a worktree copy of its own, `kdf-review.sh --at <pin>`, set up by a
+  `--setup` command from public packages, never with the owner's tokens. A copy at the pin holds no report written
+  after it, so neither reviewer sees the other's, and the orchestrator keeps working in the repo meanwhile.
+- **Codex.** `--prepare` makes Codex's copy and prints the folder and the one line. `--collect` brings the report home
+  only when the copy changed nothing but new files under `docs/security` and HEAD is still at the pin. Codex runs
+  outside Claude Code with no guard, so collect is its fence.
+- **Both families, always**, rule 15. When one model family cannot run for a while, the other goes ahead and the
+  missing review waits for its pin. It is never skipped, and the slice does not close without it.
+- **Distribute can run twice.** Both engines skip a file whose sync branch copy already matches, and look for an open
+  pull request from the sync branch before opening one. A second run brings the branch up to date and prints "PR
+  already open" in place of a 422.
+
+**Alternatives considered.**
+
+- Reviewers read the working tree, and the orchestrator freezes it until the late reviewer has run. Rejected, it stalls
+  the campaign for as long as Codex waits for the owner, a day a slice.
+- The late reviewer reads the moved tree and is told not to open the other report. Rejected, independence would rest
+  on an instruction, and the late reviewer would read code the first never saw.
+- A copy that borrows the repo's virtual environment. Rejected for the SDK, its editable install points at the repo's
+  `src`, so the tests would run the repo's code and not the pin's. Each copy builds its own, measured at 32 seconds.
+- Codex skipped at step 2 when it cannot run, and kept for step 5. Rejected, the owner's decision is that both models
+  read every slice twice.
+
+**Trade-offs.** A copy costs a worktree, its setup time and its disk until it is collected. The setup command is the
+orchestrator's to write per repo, and a repo whose tests need a private package needs a public stand in or a token
+free path. Refs made while a copy is out are only warned about, since the orchestrator makes branches meanwhile.
+
+**Consequences.** After this merges the owner runs Distribute once, kit v1.6.0. The SDK plan's section 13 names its
+setup command, and every slice's step 2 pins. Measured on the SDK at `97d2fe9`, a copy set up from public packages
+ran all 887 tests and `mypy` clean in the copy, and collect found nothing but the missing report.
+

@@ -282,6 +282,34 @@ def _create_pr(
     resp.raise_for_status()
     return resp.json()["html_url"]
 
+
+def _open_pr_url(token: str, owner_repo: str, head: str, base: str) -> str | None:
+    """
+    The open pull request from one branch into another, when there is one.
+
+    A second distribute run over the same sync branch would otherwise ask GitHub for the same pull request again,
+    and GitHub's 422 for it reads as a failure of every repo.
+
+    Args:
+        token: GitHub token (pull-requests:read)
+        owner_repo: full ``owner/repo`` slug
+        head: source branch of the PR
+        base: target branch of the PR
+
+    Returns:
+        str | None: the open pull request's html_url, or None when there is none
+    """
+    owner, repo = owner_repo.split("/", 1)
+    resp = _SESSION.get(
+        f"{GITHUB_API}/repos/{owner}/{repo}/pulls",
+        headers = _github_headers(token),
+        params = {"head": f"{owner}:{head}", "base": base, "state": "open", "per_page": 1},
+        timeout = 30,
+    )
+    resp.raise_for_status()
+    pulls = resp.json()
+    return pulls[0]["html_url"] if pulls else None
+
 # ======================================================================================================================
 # Shared pure helpers
 # ======================================================================================================================
@@ -463,8 +491,9 @@ def run_distribute(
     Returns:
         int: 0 when every repo synced or was already in sync; 1 when any repo failed or needs manual attention
     """
-    opened: list[str] = []
-    errors: list[str] = []
+    opened:  list[str]  = []
+    already: list[str] = []
+    errors:  list[str]  = []
     for entry in repos:
         repo, branch = entry["repo"], entry.get("branch", "main")
         try:
@@ -484,6 +513,11 @@ def run_distribute(
                 if remote is not None and _normalize(remote) == _normalize(desired):
                     continue  # sync branch already carries this item (re-run)
                 _put_file(token, repo, sync_branch, item.dest, desired, blob_sha, commit_msg_fn(item))
+            existing = _open_pr_url(token, repo, sync_branch, branch)
+            if existing:
+                print(f"  {repo}: PR already open — {existing}")
+                already.append(existing)
+                continue
             url = _create_pr(token, repo, sync_branch, branch, pr_title, pr_body_fn(drift))
             print(f"  {repo}: PR opened — {url}")
             opened.append(url)
@@ -496,6 +530,8 @@ def run_distribute(
 
     print()
     print(f"Opened {len(opened)} PR(s).")
+    if already:
+        print(f"{len(already)} PR(s) were already open, their branches are up to date.")
     if errors:
         print(f"{len(errors)} repo(s) failed or need manual attention:")
         for err in errors:

@@ -4,7 +4,9 @@
 > the slice starts, and appends a section as each source arrives. One row per finding from every source, with the
 > verdict, the fix, the test and the mutant. Never delete a row, a wrong verdict is corrected by a new row that says
 > so. The process is [`../CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md), sections 4, 6 and 8. Delete this box
-> and every hint in braces when you fill a section.
+> and every hint in braces when you fill a section. At spot scale the file is `{PFX}_REVIEW_ADJUDICATION.md` and keeps
+> sections 0, 1, 5, 6, 7 and 11, and 8 to 10 when Sol runs. Each reviewer's section names the pin it read, and a
+> report is adjudicated when it arrives, even if the other model family's is still to come.
 
 > **Status.** {Steps done, with dates and the commit or pull request that carries each. Next step.}
 
