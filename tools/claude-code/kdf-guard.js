@@ -41,7 +41,7 @@ const SELF_EDIT_OK = process.env.KDF_GUARD_ALLOW_SELF_EDIT === '1';
 const MAX_DEPTH = 5;
 const FILE_TOOLS = /^(Edit|Write|MultiEdit|NotebookEdit)$/;
 // Tools that reach outside the repo. A reviewer uses none of them. The IDE diagnostics tool stays allowed.
-const OUTWARD_TOOLS = /^(mcp__(?!ide__)|Artifact|SendUserFile$|SendMessage$|PushNotification$|RemoteTrigger$|Cron|DesignSync$|EnterWorktree$|Workflow$)/;
+const OUTWARD_TOOLS = /^(mcp__(?!ide__)|Artifact|SendUserFile$|SendMessage$|PushNotification$|RemoteTrigger$|Cron|DesignSync$|EnterWorktree$|Workflow$|WebFetch$|WebSearch$)/;
 const WRAPPERS = new Set([
   'env', 'command', 'sudo', 'nohup', 'time', 'exec', 'builtin', 'nice', 'timeout', 'xargs', 'setsid', 'stdbuf',
   'ionice', 'winpty'
@@ -97,8 +97,9 @@ const SECRET_WHY = 'Secret files are the owner\'s. No session reads, writes, cop
   + 'file itself. Otherwise ask the owner.';
 const ADMIN_WHY = '.env.dev and .env.prod are the owner\'s admin files for the DEV and PROD databases. No session '
   + 'touches them.';
-const CREDENTIAL_WHY = 'This .env.local still holds a credential that works beyond this machine, a GitHub token, a hub '
-  + 'secret or a third party key. The env standard keeps those in .env.kdf. Ask the owner to move it, and the file opens.';
+const CREDENTIAL_WHY = 'This .env.local is closed. It opens once its repo has adopted the env standard, a tracked '
+  + '.env.kdf.example beside it, and it holds none of the credentials that work beyond this machine, which the '
+  + 'standard keeps in .env.kdf. Ask the owner.';
 // Programs that only check that a file exists, the one thing a session may do with a secret file.
 const EXISTENCE_ONLY = new Set(['test', '[', '[[', 'ls', 'dir', 'stat']);
 // Programs that print what a file holds. A reviewer never points one at a path git ignores.
@@ -187,6 +188,10 @@ function checkFileTool(target) {
   if (MODE === 'reviewer' && !insideSecurityDir(target)) {
     deny('Reviewers write only under docs/security. ' + target + ' is outside it.', target);
   }
+  if (MODE === 'reviewer' && trackedByGit(target)) {
+    deny('Reviewers write only new files, their report and notes. ' + target + ' is tracked, a brief, a plan or a log.',
+      target);
+  }
 }
 
 // ------------------------------------------------------------ secret files, every session
@@ -221,11 +226,19 @@ function holdsCredential(p) {
   return false;
 }
 
+// A .env.local is open only in a repo that has adopted the env standard, a tracked .env.kdf.example beside it, and
+// only while it holds none of the credentials that example and the built in list name. Until then it may hold anything,
+// a file vercel env pull wrote for example, so it stays closed.
+function localEnvOpen(p) {
+  const abs = path.resolve(CWD, p);
+  return trackedByGit(path.join(path.dirname(abs), '.env.kdf.example')) && !holdsCredential(p);
+}
+
 // A file no session reads, writes, copies, sources or passes to a command.
 function isClosed(p) {
   const s = String(p || '');
   if (!s) return false;
-  return LOCAL_ENV.test(s) ? holdsCredential(s) : isSecretFile(s);
+  return LOCAL_ENV.test(s) ? !localEnvOpen(s) : isSecretFile(s);
 }
 
 function checkClosed(p, detail) {
@@ -234,17 +247,32 @@ function checkClosed(p, detail) {
   deny(LOCAL_ENV.test(s) ? CREDENTIAL_WHY : ADMIN_ENV.test(s) ? ADMIN_WHY : SECRET_WHY, detail);
 }
 
+// Programs whose first word is a pattern, which may spell .env with a backslash or a caret, '^\.env' for example.
+const PATTERN_FIRST = new Set(['grep', 'egrep', 'fgrep', 'rg', 'sed', 'awk', 'gawk', 'select-string', 'sls']);
+
+// A search pattern, not a path. It has a regex or escape character and names no file on disk, so it holds nothing.
+function isPattern(prog, word) {
+  return PATTERN_FIRST.has(prog) && /[\\^$|()[\]*+?{}]/.test(word) && !fs.existsSync(path.resolve(CWD, word));
+}
+
 // A command names a secret file only to check that it exists. The words are the program, its arguments, the value
-// after an =, and a redirect's target, so --env-file=.env.prod and >.env.kdf count.
+// after an =, a curl style @file, and a redirect's target, so --env-file=.env.prod, -d @.env.kdf and >.env.kdf count.
+// A redirect reads or writes its target whatever the program, so it is checked before the existence checks pass.
 function checkSecretWords(toks, prog, args, whole) {
+  for (let k = 0; k < toks.length; k++) {
+    const m = toks[k].q ? null : /^\d*(?:<|>>?|&>>?)(.*)$/.exec(toks[k].t);
+    if (m) checkClosed(m[1] || (toks[k + 1] ? toks[k + 1].t : ''), whole);
+  }
   if (EXISTENCE_ONLY.has(prog)) return;
   if (prog === 'git' && gitSplit(args).sub === 'check-ignore') return;
   for (const t of toks) {
+    if (isPattern(prog, t.t)) continue;
     const words = [t.t];
     const eq = t.t.indexOf('=');
     if (eq > 0) words.push(t.t.slice(eq + 1));
     const redirect = /^\d*(?:<|>>?|&>>?)(.+)$/.exec(t.t);
     if (redirect) words.push(redirect[1]);
+    for (const w of words.filter((x) => x.startsWith('@'))) words.push(w.slice(1));
     for (const w of words) checkClosed(w, whole);
   }
 }

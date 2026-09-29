@@ -1455,6 +1455,14 @@ review, in the backlog.
 - **cicd's housekeeping.** cicd's own CI runs the secret scan it offers every other repo, and its root copies of the
   kit, which had fallen behind, are synced and held equal to `kit/common` by a test. `kriegerdataforge-fmt` joins the
   kit registry and the Platform board. `AGENTS.md` names `make ci`, which exists.
+- **A fresh review before merging.** Two fresh sessions read the kit and the tooling on 2026-09-29, and every
+  finding was reproduced before it was fixed. A reviewer's edit to a tracked file under `docs/security`, a brief, a
+  plan or a log, now fails the review, and the guard refuses a reviewer that write. The orchestrator writes a report's
+  adjudication rows only once both reports of the pin are in, so the second reviewer never reads them. A reviewer never
+  starts, stops or resets the running stack and probes it through the tests or a script. A mutant the brief names is
+  the one edit a reviewer may make, restored with `git status --porcelain` unchanged. A cloud reviewer's commit of its
+  report is its one git write. A late pin under rule 15 carries the first family's report, so its brief names what to
+  skip. The template links resolve where the templates are copied to.
 - **Distribute can run twice.** Both engines skip a file whose sync branch copy already matches, and look for an open
   pull request from the sync branch before opening one. A second run brings the branch up to date and prints "PR
   already open" in place of a 422.
@@ -1522,7 +1530,10 @@ The owner also asked that secret files be protected in every session, not only i
 **Decision.**
 
 - **`.env.local`** holds every value that works only on this machine, local database and MinIO passwords, local
-  signing keys, session secrets, ports and URLs. It is open to every model.
+  signing keys, session secrets, ports and URLs. It is open to every model once its repo has adopted the standard, a
+  tracked `.env.kdf.example` beside it, and only while it holds none of the credentials named there or built in.
+  Until then it fails closed, since it may hold anything. The fresh review found why, the hub's `vercel_api/.env.local`,
+  which `vercel env pull` wrote, holds Vercel and database credentials no built in name covered.
 - **`.env.kdf`** holds every credential that works beyond this machine, `GH_PACKAGES_PAT`, `GH_NPM_TOKEN`, the hub's
   `KDF_OIDC_CLIENT_SECRET` and `KDF_SERVICE_KEY`, and third party keys such as `AUTH_RESEND_API_KEY`,
   `AUTH_TWILIO_AUTH_TOKEN` and `AUTH_ADMIN_EMAIL_PASSWORD`. It is closed, and it replaces `.env.github`. Each file has
@@ -1530,9 +1541,11 @@ The owner also asked that secret files be protected in every session, not only i
 - **`.env.test`, `.env.dev` and `.env.prod`** stay as they are, closed. A session starts a stack or a test through the
   repo's make target. The spelling is `.env.dev` and `.env.prod` everywhere, the kit's onboarding template included.
 - **Secret files are closed to every session.** The guard refuses a read, write, copy, source or pass of one, in the
-  shell and to Read, Grep, Edit and Write, and allows only a check that one exists. A `.env.local` that still holds a
-  credential, by the built in names or its repo's `.env.kdf.example`, counts as one. `check-wiring.js` recommends Read
-  denies for `.env.kdf`, `.env.dev` and `.env.prod` as a second fence.
+  shell and to Read, Grep, Edit and Write, and allows only a check that one exists. A redirect counts whatever the
+  program, since the fresh review found `ls . > .env.kdf` passing, and so does a curl style `@file`. A search pattern
+  that names no file, `'^\.env'`, is not a path. A `.env.local` that is not open counts as a secret file.
+  `check-wiring.js` recommends Read denies for `.env.kdf`, `.env.dev` and `.env.prod` as a second fence, and adds
+  `WebFetch|WebSearch` to the matcher, so a reviewer, who downloads nothing, is refused the web too.
 
 **Alternatives considered.**
 

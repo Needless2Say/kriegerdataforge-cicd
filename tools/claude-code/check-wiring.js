@@ -18,9 +18,9 @@ const path = require('path');
 
 // The tools the guard must see. A hook only runs for tools its matcher names, so a gap here is a hole. Read, Grep
 // and Glob carry the .gitignore rule for reviewers and the package token rule for .env.local.
-const MATCHER = 'Bash|PowerShell|Read|Grep|Glob|Edit|Write|MultiEdit|NotebookEdit|mcp__.*|Artifact.*|SendUserFile|SendMessage|PushNotification|RemoteTrigger|Cron.*|DesignSync|EnterWorktree|Workflow';
+const MATCHER = 'Bash|PowerShell|Read|Grep|Glob|Edit|Write|MultiEdit|NotebookEdit|WebFetch|WebSearch|mcp__.*|Artifact.*|SendUserFile|SendMessage|PushNotification|RemoteTrigger|Cron.*|DesignSync|EnterWorktree|Workflow';
 const MUST_MATCH = [
-  'Bash', 'PowerShell', 'Read', 'Grep', 'Glob', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit',
+  'Bash', 'PowerShell', 'Read', 'Grep', 'Glob', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'WebFetch', 'WebSearch',
   'mcp__claude_ai_Google_Drive__share_file', 'Artifact', 'ArtifactData', 'SendUserFile', 'SendMessage',
   'PushNotification', 'RemoteTrigger', 'CronCreate', 'DesignSync', 'EnterWorktree', 'Workflow'
 ];

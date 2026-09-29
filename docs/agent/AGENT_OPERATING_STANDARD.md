@@ -55,7 +55,8 @@ Every repo carries the same entry contract. Whatever tool opens the repo, the re
    **Critical rules**, **Required reading**, and commands. *Read it first.*
 3. **`AGENTS.md` → Required reading.** The README and the `docs/` that explain architecture and
    conventions. Read these before writing code.
-4. **[`WORKFLOW.md`](../../WORKFLOW.md).** Pick a lane and follow the loop.
+4. **[`WORKFLOW.md`](../../WORKFLOW.md).** Know your role, [`AGENT_ROLES.md`](AGENT_ROLES.md), then pick a lane and
+   follow the loop.
 5. **[`skills.md`](../../skills.md).** Before any security relevant work, follow the matching
    scenario. This is non-optional for auth/OIDC/tokens, BFF/proxy/CSP/cookies, backend authz,
    secrets/config, Terraform/infra, CI/CD, or dependency changes.
@@ -192,8 +193,9 @@ contract. It isn't. The SDK is auth-only.
 
 ## How the standard is maintained (the kit + engine)
 
-This whole standard (`WORKFLOW.md`, `DESIGN_AND_EPICS.md`, `DEFINITION_OF_DONE.md`,
-`DOCUMENTATION_STANDARD.md`, the templates, `skills.md`, and this doc) is the **agentic workflow kit**. Its single source of truth is
+This whole standard (`WORKFLOW.md`, `AGENT_ROLES.md`, `DESIGN_AND_EPICS.md`, `DEFINITION_OF_DONE.md`,
+`DOCUMENTATION_STANDARD.md`, `REPORTS_STANDARD.md`, `CODE_REVIEW_PROCESS.md`, the templates, `skills.md`, and this doc)
+is the **agentic workflow kit**. Its single source of truth is
 `kriegerdataforge-cicd/kit/common/`. A registry driven sync engine (`scripts/distribute_kit.py`,
 driven by `scripts/kit_registry.json`) propagates the kit to every repo as **owner reviewed PRs**
 (never auto merged), a weekly job alarms on drift, and new repos are seeded from the four
@@ -243,8 +245,9 @@ The standard does a lot, but a good prompt makes it sing:
   Claude and Codex sessions review from one brief at one pinned commit, Sol reads in rounds, every finding is
   reproduced and every fix pinned, and the owner merges. See `CODE_REVIEW_PROCESS.md`.
 - **Pin.** The commit a review reads, pushed, named in the brief. Every reviewer reads it in the repo folder in its own
-  turn, and the folder stays at the pin until every reviewer has reported, so a reviewer that runs later reads the same
-  code and never another's report.
+  turn, or Codex in the cloud on a review branch that never moves off it, and the folder stays at the pin until every
+  reviewer has reported, so a reviewer that runs later reads the same code and never another's report. When rule 15
+  lets one family go first, the late reviewer reads a later pin and its brief says what to skip.
 - **Role.** What an agent may do on a task, implementer by default, reviewer for a review, orchestrator for the session
   that runs one, chat reader in a chat. The same for every model and tool, see `AGENT_ROLES.md`.
 - **Orchestrator.** The one long running session that runs a review campaign, writes the briefs, launches the fresh

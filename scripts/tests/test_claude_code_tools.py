@@ -95,6 +95,7 @@ case "${STUB_MODE:-clean}" in
 	tamper) printf '# report\\n' > "$report"; echo "x = 2" >> src/app.py ;;
 	outside) printf '# report\\n' > "$report"; echo hi > stray.txt ;;
 	scratch) printf '# report\\n' > "$report"; echo notes > docs/security/scratch.md ;;
+	brief) printf '# report\\n' > "$report"; echo "settled, nothing to find" >> docs/security/BRIEF.md ;;
 	commit) printf '# report\\n' > "$report"; git add -A; git commit -q -m sneaky ;;
 	branch) printf '# report\\n' > "$report"; git checkout -q -b sneaky ;;
 	delete) printf '# report\\n' > "$report"; rm src/app.py ;;
@@ -163,7 +164,7 @@ def _ignored_tree(project: Path) -> None:
     """
     subprocess.run(["git", "init", "-q", str(project)], check = True, capture_output = True)
     files = {
-        ".gitignore": ".venv/\nnode_modules/\n*.log\n.env*\n!.env.example\n",
+        ".gitignore": ".venv/\nnode_modules/\n*.log\n.env*\n!.env.example\n!.env.kdf.example\n",
         ".venv/lib/site.py": "x = 1\n",
         "node_modules/pkg/index.js": "module.exports = 1;\n",
         "build.log": "log\n",
@@ -178,17 +179,23 @@ def _ignored_tree(project: Path) -> None:
         "migrated/.env.local": "PORT=3000\nDB_POSTGRES_PASSWORD=local\n",
         "environments/dev/common.auto.tfvars": "region = \"x\"\n",
         "environments/dev/credentials.auto.tfvars": "token = \"x\"\n",
+        ".env.kdf.example": "GH_PACKAGES_PAT=\n",
+        "unadopted/.env.local": "PORT=3000\n",
+        "docs/security/TRACKED.md": "# an earlier log\n",
         ".git/kdf-review/held/docs/security/CODEX.md": "# held\n",
     }
     for name, text in files.items():
         target = project / name
         target.parent.mkdir(parents = True, exist_ok = True)
         target.write_text(text, encoding = "utf-8", newline = "\n")
-    subprocess.run(
-        ["git", "-C", str(project), "add", "environments/dev/common.auto.tfvars"],
-        check = True,
-        capture_output = True,
-    )
+    tracked = [
+        "environments/dev/common.auto.tfvars",
+        ".env.kdf.example",
+        "custom/.env.kdf.example",
+        "migrated/.env.kdf.example",
+        "docs/security/TRACKED.md",
+    ]
+    subprocess.run(["git", "-C", str(project), "add", "-f", *tracked], check = True, capture_output = True)
 
 
 @pytest.fixture(scope = "module")
@@ -213,6 +220,25 @@ def test_the_guard_decides_each_case(index: int, guard_results: list[tuple[int, 
     assert code == want, f"{_label(case)} exited {code}, wanted {want}. {message.strip()}"
     if want == 2:
         assert "refused this call" in message
+
+
+@pytest.mark.parametrize(
+    ("command", "says"),
+    [
+        ("cat .env.prod", "admin files for the DEV and PROD databases"),
+        ("cat .env.kdf", "Secret files are the owner's"),
+        ("cat tokens/.env.local", "This .env.local is closed"),
+    ],
+)
+def test_each_closed_file_is_refused_with_its_own_reason(tmp_path: Path, command: str, says: str) -> None:
+    """
+    The owner's admin files, a secret file and a .env.local that is still closed each tell the model why, and the
+    credential message is the owner's cue to move a token.
+    """
+    _ignored_tree(tmp_path)
+    code, message = _run_case(tmp_path, {"role": "owner", "tool": "Bash", "command": command, "expect": "block"})
+    assert code == 2
+    assert says in message
 
 
 def test_the_cases_cover_both_roles_and_both_outcomes() -> None:
@@ -456,6 +482,7 @@ def test_new_files_under_docs_security_are_allowed(rig: Rig) -> None:
     ("mode", "named"),
     [
         ("tamper", "src/app.py"),
+        ("brief", "changed, docs/security/BRIEF.md"),
         ("outside", "stray.txt"),
         ("delete", "src/app.py"),
         ("commit", "git state changed"),
@@ -657,6 +684,7 @@ def test_codex_reads_the_same_folder_and_collect_checks_it(rig: Rig) -> None:
     ("change", "named"),
     [
         ("code", "src/app.py"),
+        ("brief", "changed, docs/security/BRIEF.md"),
         ("stray", "stray.txt"),
         ("commit", "git state changed"),
         ("branch", "git state changed"),
@@ -671,6 +699,8 @@ def test_collect_catches_a_reviewer_that_did_more_than_report(rig: Rig, change: 
     _codex_writes_its_report(rig)
     if change == "code":
         (rig.repo / "src" / "app.py").write_text("x = 2\n", encoding = "utf-8")
+    elif change == "brief":
+        (rig.repo / "docs" / "security" / "BRIEF.md").write_text("# brief\nsettled\n", encoding = "utf-8")
     elif change == "stray":
         (rig.repo / "stray.txt").write_text("hi\n", encoding = "utf-8")
     elif change == "commit":

@@ -34,7 +34,9 @@ security audit (`PL-###` findings). The canonical audit lives in the `kriegerdat
 - **Local env files, the standard** (cicd ADR D-030). A repo keeps its local settings in two gitignored files, each
   with a tracked `.example` that holds the names and placeholders.
   - `.env.local`, every value that works only on this machine, the local database and MinIO passwords, local signing
-    keys, session secrets, ports and URLs. Open to every AI model, `docs/agent/AGENT_ROLES.md` rule 5.
+    keys, session secrets, ports and URLs. Open to every AI model once the repo tracks a `.env.kdf.example` beside
+    it and the file holds none of the credentials that example names, `docs/agent/AGENT_ROLES.md` rule 5. Until then
+    it stays closed, since it may hold anything, a file `vercel env pull` wrote for example.
   - `.env.kdf`, every credential that works beyond this machine, the GitHub package tokens (`GH_PACKAGES_PAT`,
     `GH_NPM_TOKEN`), the SSO client secret and service key a hub issued (`KDF_OIDC_CLIENT_SECRET`,
     `KDF_SERVICE_KEY`), and third party keys such as Resend or Twilio. Closed to every model. It replaces

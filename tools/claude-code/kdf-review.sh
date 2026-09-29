@@ -127,9 +127,11 @@ snapshot() {
 	} | LC_ALL=C sort
 }
 
-# compare <before> <after>, one line per thing the reviewer must not have done
+# compare <before> <after>, one line per thing the reviewer must not have done. Only a NEW file under docs/security is
+# allowed, so a tracked file there, a brief, a plan, a log or an earlier report, counts as changed like any other.
 compare() {
-	local before=$1 after=$2 line f
+	local before=$1 after=$2 line f head
+	head="$(sed -n 's/^HEAD|//p' "$before")"
 	while IFS= read -r line; do
 		case "$line" in
 			FILE\|*) ;;
@@ -139,7 +141,7 @@ compare() {
 	while IFS= read -r line; do
 		f="${line#FILE|}"
 		f="${f%|*}"
-		if grep -qF -- "FILE|$f|" "$before"; then
+		if grep -qF -- "FILE|$f|" "$before" || git -C "$repo" cat-file -e "$head:$f" 2>/dev/null; then
 			printf 'changed, %s\n' "$f"
 		else
 			case "$f" in
@@ -293,10 +295,9 @@ if [ -n "$pin" ]; then
 	[ -z "$(git -C "$repo" status --porcelain --untracked-files=no)" ] \
 		|| die 2 "a tracked file differs from the pin. Commit it into the pin, or put it back, first"
 	git -C "$repo" cat-file -e "$sha:$brief_rel" 2>/dev/null || die 2 "the brief $brief_rel is not in the pin, commit it first"
-	if command -v node >/dev/null 2>&1; then
-		node "$here/kdf-brief.js" check --repo "$repo" --pin "$sha" "$brief_rel" >&2 \
-			|| die 2 "the brief's scope table does not match the pin. Measure it with kdf-brief.js counts, commit and pin again"
-	fi
+	command -v node >/dev/null 2>&1 || die 5 "node is not on PATH, and a pinned review checks the brief with kdf-brief.js"
+	node "$here/kdf-brief.js" check --repo "$repo" --pin "$sha" "$brief_rel" >&2 \
+		|| die 2 "the brief's scope table does not match the pin. Measure it with kdf-brief.js counts, commit and pin again"
 else
 	[ -f "$repo/$brief_rel" ] || die 2 "the brief $brief_rel does not exist"
 fi

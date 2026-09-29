@@ -41,9 +41,12 @@ replace the canonical docs. Read those first:
 ```bash
 git clone {repo-url}
 cd {repo-dir}
-{install command — e.g. `make install` / `GH_PACKAGES_PAT=<pat> make setup`}
-{pre-commit install   # gitleaks hook — ONLY in repos with a .pre-commit-config.yaml; delete otherwise}
+{install command, e.g. `make install` or `make setup`}
+{pre-commit install   # gitleaks hook, ONLY in repos with a .pre-commit-config.yaml, delete otherwise}
 ```
+
+{In a repo that installs a private package, fill `.env.kdf` first, section 3, since the install reads the package token
+from it. Never put a token on the command line or export it in your shell, it would land in your shell history.}
 
 ---
 
@@ -52,7 +55,8 @@ cd {repo-dir}
 Copy the tracked example files to the gitignored local files and fill in real values. **Real secret
 values live only in the gitignored files. Never in any tracked file, commit, or log.** The env standard in
 `skills.md` splits them in two. `.env.local` holds the values that work only on your machine and is open to AI
-models. `.env.kdf` holds your credentials, GitHub tokens and hub secrets, and stays closed to them.
+models. `.env.kdf` holds your credentials, GitHub tokens and hub secrets, and stays closed to them, so a person fills
+it, never an AI session.
 
 ```bash
 cp {.env.local.example / .env.example} .env.local
@@ -71,7 +75,7 @@ from an example. Delete this line in a repo that has no such scripts.}
 | You need | How you get it |
 | --- | --- |
 | **Your own local dev OIDC client** | Issued **per developer** from a hub checkout. `python -m api.seed.dev_clients register-dev --username <your-kdf-username> --yes-dev` (dev only, refuses prod and forces a localhost redirect URI. `list-dev` / `revoke-dev` manage it). The returned `client_id` is this app's expected audience (`KDF_JWT_AUDIENCE` / `AUTH_AUDIENCE`). The issuer is the hub auth-UI URL. |
-| **Private Python SDK (`kdf_sdk`)** | Installs via `git+https://github.com/Needless2Say/kriegerdataforge-sdk.git@vX.Y.Z`. Needs a **fine grained GitHub PAT with Contents. Read on `kriegerdataforge-sdk` only**, set as `GH_PACKAGES_PAT`. Install time only, not needed at runtime. There is **no public PyPI package**. Never add one. |
+| **Private Python SDK (`kdf_sdk`)** | Installs via `git+https://github.com/Needless2Say/kriegerdataforge-sdk.git@vX.Y.Z`. Needs a **fine grained GitHub PAT with Contents. Read on `kriegerdataforge-sdk` only**, set as `GH_PACKAGES_PAT` in `.env.kdf`. Install time only, not needed at runtime. There is **no public PyPI package**. Never add one. |
 
 ---
 
@@ -139,7 +143,7 @@ type. For anything security sensitive, follow the matching scenario in
 
 | Symptom | Cause / fix |
 | --- | --- |
-| SDK install fails 403 / `Authentication failed` | `GH_PACKAGES_PAT` missing, expired, or lacking *Contents. Read* on `kriegerdataforge-sdk`. Set it and re-run the install. |
+| SDK install fails 403 / `Authentication failed` | `GH_PACKAGES_PAT` missing, expired, or lacking *Contents. Read* on `kriegerdataforge-sdk`. Set it in `.env.kdf` and re-run the install. |
 | **Pushes suddenly 403 across ALL repos** | A stale PAT in a global `.gitconfig` `insteadOf` rewrite. The SDK consumer backend Makefiles inject the PAT via **process scoped `GIT_CONFIG_*` env vars** precisely to avoid this. Remove any `insteadOf` you added by hand. |
 | {repo specific symptom} | {cause / fix} |
 

@@ -86,7 +86,7 @@ appendix, and a file that appeared since is assigned before the phase starts.
 
 ## 5. The cycle and the rules
 
-The cycle is [`CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md) section 4 and the rules are its section 5. This
+The cycle is [`CODE_REVIEW_PROCESS.md`](../agent/CODE_REVIEW_PROCESS.md) section 4 and the rules are its section 5. This
 repo adds {the deviations and the repo's own rules, or "nothing"}.
 
 ## 6. What each slice looks for
@@ -133,7 +133,7 @@ Each with a recommendation. The owner answers in this section and the date, and 
 
 ## 12. How the sessions run here
 
-The runbook is [`CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md) section 11. Here, in particular, {the folder the
+The runbook is [`CODE_REVIEW_PROCESS.md`](../agent/CODE_REVIEW_PROCESS.md) section 11. Here, in particular, {the folder the
 orchestrator starts in, the models the owner picked for the orchestrator and the reviewers, the repo's own commands
 the brief lists and the environment they run in, where Codex runs, and anything a fresh session needs that the
 runbook does not say}.

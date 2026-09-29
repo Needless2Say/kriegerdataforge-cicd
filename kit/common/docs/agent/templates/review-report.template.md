@@ -2,7 +2,8 @@
 
 > **How to use.** A reviewer copies this to the report path its brief names, `docs/security/{PFX}_REVIEW_{slice}_REPORT.md`
 > for Claude or `..._CODEX_REPORT.md` for Codex, and at spot scale `docs/security/{PFX}_REVIEW_REPORT.md`, fills every
-> section, and deletes this box. Under 250 lines. It is the only file a reviewer writes. The rules are
+> section, and deletes this box. Under 250 lines. It is the file a reviewer writes, with any scratch note beside it
+> under `docs/security`, both new files. The rules are
 > [`../CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md) sections 5, 6 and 8. Name a secret's variable and never its
 > value.
 
@@ -23,7 +24,9 @@
 ## 3. Findings
 
 Severity is P, M, L or E as the process defines them. Blocks is yes for a P, or an M that reaches an account, a token,
-a credential, a privilege or someone else's data. Most severe first.
+a credential, a privilege or someone else's data. Most severe first. Ids are `{PFX}-{slice}-1` from Claude and
+`{PFX}-{slice}-C1` from Codex, `{PFX}-{slice}-FIN-1` and `-FIN-C1` in a final review, and `{PFX}-1` and `{PFX}-C1` at
+spot scale.
 
 | Id | Sev | Blocks | `file:line` | What | Proof, probe or read | Fix I would make |
 | --- | --- | --- | --- | --- | --- | --- |

@@ -24,9 +24,10 @@ Once per machine, by the owner, in a terminal. Git Bash on Windows.
 3. Merge the block into `~/.claude/settings.json` by hand. `defaultShell` and `hooks` are top level keys. The
    `permissions.deny` list merges with yours, so keep your existing rules and add the new entries beside them. The
    block sets Git Bash as the default shell, denies the PowerShell tool, hooks the guard on the tools it must see, and
-   denies the Read tool the usual secret files. A machine set up before 2026-09-29 adds `Read|Grep|Glob` to its
-   matcher first, then swaps `Read(**/.env.local)` in its deny list for `Read(**/.env.kdf)`, `Read(**/.env.dev)` and
-   `Read(**/.env.prod)`, in that order, so the guard's credential rule is in place before the old deny rule goes.
+   denies the Read tool the usual secret files. A machine set up before 2026-09-29 adds `Read|Grep|Glob` and
+   `WebFetch|WebSearch` to its matcher first, then swaps `Read(**/.env.local)` in its deny list for
+   `Read(**/.env.kdf)`, `Read(**/.env.dev)` and `Read(**/.env.prod)`, in that order, so the guard's `.env.local` rule
+   is in place before the old deny rule goes.
 4. `bash tools/claude-code/install.sh --check`. Every line should pass. Then restart every session and every
    `claude rc` server, a running session keeps the settings it started with.
 5. In each repo the owner reviews, set the ruleset's bypass to "For pull requests only" and require the repo's CI gate
@@ -55,16 +56,19 @@ copies, sources or passes one to a command, in the shell or to Read, Grep, Edit 
 and `git check-ignore` may name one, since they only show that it exists. A secret file is every `.env` file but an
 example and `.env.local`, backups such as `.env.local.bak` included, a `*.tfvars` git does not track, `*.pem` and
 `keys/`. Terraform's committed `common.auto.tfvars` stays readable. The words
-checked are the program, its arguments, the value after an `=` and a redirect's target, so `--env-file=.env.prod` and
-`>>.env.kdf` count. The owner's `.env.dev` and `.env.prod` get a message of their own. A stack or a test starts
+checked are the program, its arguments, the value after an `=`, a curl style `@file`, and a redirect's target, whatever
+the program, so `--env-file=.env.prod`, `-d @.env.kdf` and `ls >.env.kdf` count. A search pattern such as `'^\.env'`
+that names no file on disk is not a path. The owner's `.env.dev` and `.env.prod` get a message of their own. A stack or a test starts
 through the repo's make target, which reads the file itself.
 
-**`.env.local` is open to every session**, the owner's decision too, since the env standard (`skills.md`, ADR D-030)
-keeps only values that work on this machine there and every credential in `.env.kdf`. A `.env.local` that still holds
-a credential stays closed like any secret file, until the owner moves it. The guard reads the file itself, never
-showing a value, and a credential is a non empty `GH_PACKAGES_PAT`, `GH_NPM_TOKEN`, `KDF_OIDC_CLIENT_SECRET`,
-`KDF_SERVICE_KEY`, `AUTH_RESEND_API_KEY`, `AUTH_TWILIO_AUTH_TOKEN` or `AUTH_ADMIN_EMAIL_PASSWORD`, or any name the
-repo's own `.env.kdf.example` lists.
+**`.env.local` opens to every session once its repo has adopted the env standard**, the owner's decision too, since
+the standard (`skills.md`, ADR D-030) keeps only values that work on this machine there and every credential in
+`.env.kdf`. It fails closed. A `.env.local` is open only where git tracks a `.env.kdf.example` beside it, and only
+while it holds none of the credentials named there or built in, a non empty `GH_PACKAGES_PAT`, `GH_NPM_TOKEN`,
+`KDF_OIDC_CLIENT_SECRET`, `KDF_SERVICE_KEY`, `AUTH_RESEND_API_KEY`, `AUTH_TWILIO_AUTH_TOKEN` or
+`AUTH_ADMIN_EMAIL_PASSWORD`. Anywhere else it stays closed, since it may hold anything. The hub's
+`vercel_api/.env.local`, which `vercel env pull` wrote, holds Vercel and database credentials no built in name covers.
+The guard reads the file itself and never shows a value.
 
 **Make targets that reach DEV or PROD are the owner's.** A target whose name holds `prod`, `production`, `deploy`,
 `apply`, `destroy`, `publish`, `release`, `promote` or `rollout` is refused, and so is one that holds `dev` unless it
@@ -80,9 +84,10 @@ mode. The owner runs the rest through the ops issue forms.
 
 **Reviewer rules** apply on top when `KDF_ROLE=reviewer` is set, or the guard is started with `reviewer`. Read only
 git, no GitHub CLI, no shell command that writes, deletes, installs or downloads, no docker, no redirect into a file,
-no connector, artifact, message, schedule or notification tool, and file edits only under `docs/security`. A reviewer
-follows `.gitignore`, so Read, Grep, Glob and every shell program that
-prints a file are refused a path git ignores, `.env.local` aside, and the reports the launcher holds in
+no connector, artifact, message, schedule, notification, web fetch or web search tool, and file edits only for new
+files under `docs/security`, never a tracked brief, plan, log or earlier report there. A reviewer follows
+`.gitignore`, so Read, Grep, Glob and every shell program that prints a file are refused a path git ignores,
+`.env.local` aside, and the reports the launcher holds in
 `.git/kdf-review`. A recursive `grep`, `rg -u` or `--no-ignore`, and `git grep` or `git diff` with `--no-index` are
 refused too, `git grep` and `rg` honour `.gitignore`. Glob still lists ignored names, which hold no value.
 
@@ -152,7 +157,7 @@ first.
 | 2 | Bad arguments, a pin no branch of `origin` holds, a folder not at the pin, a brief the pin lacks or whose counts differ from it, a report that already exists, a cloud branch not built on the pin, or another review of the folder open |
 | 3 | Contamination. The reviewer changed something it must not, every path is listed, nothing is reverted |
 | 4 | The reviewer wrote no report |
-| 5 | The guard is not wired, or the installed guard failed its canary |
+| 5 | The guard is not wired, the installed guard failed its canary, or node, which a pinned review needs for the brief check, is missing |
 | 6 | `claude` itself failed, or a Claude run was cut off before it closed its review |
 
 `--dry-run` prints the one line prompt for Claude and for Codex, and the pin, and starts nothing. Without `--pin` a
