@@ -9,7 +9,7 @@ machine installs them from a clone of this repo.
 | --- | --- |
 | `kdf-guard.js` | A Claude Code PreToolUse hook. It reads each Bash and PowerShell command the way a shell does, and each file edit and outward facing tool call, and exits 2 to refuse with the reason. No dependencies, one file |
 | `guard-cases.json` | The table the guard is held to, one case per tool call with its role and whether it is allowed or refused. Every rule change adds cases |
-| `kdf-review.sh` | Starts one fresh Claude reviewer with the reviewer role, in the repo or in a copy of its own at a pinned commit, or prepares such a copy for Codex and collects it. Compares git before and after and fails the run if the reviewer changed anything but a new file under `docs/security` |
+| `kdf-review.sh` | Starts one fresh Claude reviewer with the reviewer role in the repo folder itself, or opens and closes the folder for Codex, checking first that it is at the pinned commit. Compares git before and after and fails the review if the reviewer changed anything but a new file under `docs/security` |
 | `check-wiring.js` | Read only. Says whether this machine's settings wire the guard as the process needs, and prints the block to add when they do not |
 | `install.sh` | Copies the guard to `~/.claude/hooks/`, smoke tests it, and prints the settings block. It edits no settings and refuses to run inside a Claude Code session |
 
@@ -66,8 +66,8 @@ file, no connector, artifact, message, schedule or notification tool, and file e
 **The same rules for every other model.** The kit's `docs/agent/AGENT_ROLES.md` writes these roles and rules for any
 model or tool, and it reaches them through `AGENTS.md`, `WORKFLOW.md`, which opens with it, and every review brief,
 which states the reviewer's role in its own text. The guard is what makes the rules binding for Claude. For Codex the
-copy, collect, its own sandbox and GitHub's rulesets are. A new rule here is a new line there, in the same pull
-request.
+launcher's prepare and collect, its own sandbox and GitHub's rulesets are, and nothing but that page keeps it from
+reading a file in the folder. A new rule here is a new line there, in the same pull request.
 
 The role comes from the environment the session was started in, so it works in any repo with no settings file in it.
 
@@ -76,7 +76,7 @@ cd <workspace>/<repo>
 KDF_ROLE=reviewer claude rc --spawn=same-dir      # sessions opened from a phone
 bash <workspace>/kriegerdataforge-cicd/tools/claude-code/kdf-review.sh --repo . \
      --brief docs/security/SDK_REVIEW_S1_PROMPT.md --report docs/security/SDK_REVIEW_S1_REPORT.md \
-     --model <model> --effort max --codex-report docs/security/SDK_REVIEW_S1_CODEX_REPORT.md
+     --codex-report docs/security/SDK_REVIEW_S1_CODEX_REPORT.md --pin <pin> --model <model> --effort max
 ```
 
 Whether a `claude rc` server passes the variable on to the sessions it spawns is not documented, so run the permission
@@ -86,47 +86,46 @@ test from the process, section 10, in the first session it opens.
 
 `kdf-review.sh` checks its arguments, refuses to start a Claude reviewer unless `check-wiring.js` passes and the
 installed guard passes two canary calls, snapshots git, runs `claude -p` with `KDF_ROLE=reviewer` and without the
-owner's self edit switch, and snapshots again. The snapshot holds HEAD, the branch, the index and the hash of every
-modified or untracked file, and in the repo itself every ref and the stash count too.
+owner's self edit switch, and snapshots again. The snapshot holds HEAD, the branch, every local ref, the stash count,
+the index and the hash of every modified or untracked file. Remote tracking refs are left out, an editor's background
+fetch moves them.
 
-**At a pinned commit**, the way the process runs every review.
+Every reviewer reads the repo folder itself, with no copy and no second environment, and runs the tests with the
+repo's own environment. At a pinned commit, the way the process runs every review.
 
 ```bash
-# Claude, in a copy of its own at the pin
+# Claude
 bash kdf-review.sh --repo <repo> --brief docs/security/<brief> --report docs/security/<report> \
-     --at <pin> --setup "<setup>" --model <model> --effort max --codex-report docs/security/<codex report>
-# Codex, the owner starts it by hand in a copy of its own at the same pin
-bash kdf-review.sh --repo <repo> --brief docs/security/<brief> --report docs/security/<codex report> \
-     --at <pin> --prepare --setup "<setup>"
-bash kdf-review.sh --repo <repo> --report docs/security/<codex report> --collect <the folder prepare printed>
+     --codex-report docs/security/<codex report> --pin <pin> --model <model> --effort max
+# Codex, the owner starts it by hand in the same folder
+bash kdf-review.sh --repo <repo> --brief docs/security/<brief> --report docs/security/<report> \
+     --codex-report docs/security/<codex report> --pin <pin> --prepare
+bash kdf-review.sh --repo <repo> --collect
 ```
 
-`--at` makes a git worktree of the repo at the pin in a `.kdf-review` folder beside the repo, named for the repo, the
-pin and the report. The brief must be in the pin, and the report must be in neither the pin nor the repo. `--setup`
-runs in the copy before the reviewer starts, with `KDF_MAIN_REPO` naming the repo, and whatever it leaves is part of
-the starting point, not held against the reviewer. It installs what the reviewer needs to run the tests, from public
-packages, never with the owner's tokens. A copy holds only tracked files, so no `.env*` file, which the repos never
-track. A clean run copies
-the new files under `docs/security` into the repo, never over an existing one, and removes the copy. A run that is not
-clean keeps its copy for a look. `--prepare` stops before the reviewer and prints the folder to open, the one line and
-the collect command. Collect runs the same check, and since Codex has no guard, it is Codex's fence. Refs made while a
-copy is out are listed as a warning, not a failure, because the orchestrator makes branches meanwhile.
+`--pin` checks that the folder is at the pinned commit with no tracked file changed and that the brief is in the pin.
+One review of a folder is open at a time. A Claude run opens its review when claude starts and closes it when it ends.
+`--prepare` opens the review, snapshots git, and prints the folder to open, the one line and the collect command.
+`--collect` runs the same check, and since Codex has no guard, it is Codex's fence. A failed collect leaves the review
+open, so the orchestrator puts right what the reviewer changed and collects again.
 
-Each copy is a folder Claude Code has never seen, so its session starts with an empty memory, and Claude Code keeps a
-small project folder for it under `~/.claude/projects/`. `claude project purge <folder>` clears one.
+While a review is open, the other report of the scope waits in the repo's `.git/kdf-review/held` folder, out of the
+working tree, and closing the review puts it back, never over a file. So Codex never sees Claude's report and Claude
+never sees Codex's, whichever goes first. A Claude run cut off before it closed its review leaves it open, and
+`--collect` closes it with exit 6 and puts the held report back.
 
 | Exit | Meaning |
 | --- | --- |
 | 0 | Clean. Only the report, and any new file under `docs/security`, changed |
-| 2 | Bad arguments, a brief the pin lacks, or a file the repo already has that would be overwritten |
-| 3 | Contamination. The reviewer changed something it must not, every path is listed, nothing is reverted, a copy is kept |
+| 2 | Bad arguments, a folder not at the pin, a brief the pin lacks, a report that already exists, or another review of the folder open |
+| 3 | Contamination. The reviewer changed something it must not, every path is listed, nothing is reverted |
 | 4 | The reviewer wrote no report |
 | 5 | The guard is not wired, or the installed guard failed its canary |
-| 6 | `claude` itself failed |
-| 7 | The setup command failed, its copy is removed |
+| 6 | `claude` itself failed, or a Claude run was cut off before it closed its review |
 
-`--dry-run` prints the one line prompt for Claude and for Codex, and with `--at` the copy's folder, and starts
-nothing. `KDF_CLAUDE_BIN` and `KDF_HOME` override the claude program and the home directory, the tests use them.
+`--dry-run` prints the one line prompt for Claude and for Codex, and the pin, and starts nothing. Without `--pin` a
+Claude reviewer reads the folder as it stands. `KDF_CLAUDE_BIN` and `KDF_HOME` override the claude program and the
+home directory, the tests use them.
 
 ## What the guard cannot stop
 
@@ -162,6 +161,3 @@ tried. To switch the guard off, remove its hook from `settings.json`.
 - Line ends are pinned to LF for these files by `.gitattributes`. A carriage return breaks a shell script.
 - Node is the runtime because it is present wherever Claude Code and the Next.js repos run. A Python guard would need
   an interpreter path on every machine.
-- A setup command that makes a virtual environment names a real interpreter, for example
-  `"$KDF_MAIN_REPO/.venv/Scripts/python.exe" -m venv .venv` on Windows, never a bare `python`, which on Windows can be
-  the store alias that installs CPython.

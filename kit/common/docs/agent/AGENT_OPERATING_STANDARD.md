@@ -242,8 +242,9 @@ The standard does a lot, but a good prompt makes it sing:
 - **KDF Code Review Process.** How any code is reviewed, one function to every repo. The orchestrator fixes, fresh
   Claude and Codex sessions review from one brief at one pinned commit, Sol reads in rounds, every finding is
   reproduced and every fix pinned, and the owner merges. See `CODE_REVIEW_PROCESS.md`.
-- **Pin.** The commit a review reads, pushed, named in the brief. Every reviewer reads it in a copy of the repo of its
-  own, so a reviewer that runs later reads the same code and never another's report.
+- **Pin.** The commit a review reads, pushed, named in the brief. Every reviewer reads it in the repo folder in its own
+  turn, and the folder stays at the pin until every reviewer has reported, so a reviewer that runs later reads the same
+  code and never another's report.
 - **Role.** What an agent may do on a task, implementer by default, reviewer for a review, orchestrator for the session
   that runs one, chat reader in a chat. The same for every model and tool, see `AGENT_ROLES.md`.
 - **Orchestrator.** The one long running session that runs a review campaign, writes the briefs, launches the fresh

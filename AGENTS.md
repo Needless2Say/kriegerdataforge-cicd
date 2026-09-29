@@ -6,6 +6,12 @@
 > security sensitive work. Unfamiliar term, acronym, or ID prefix? Resolve it in
 > [`docs/reference/GLOSSARY.md`](docs/reference/GLOSSARY.md) before acting on it.
 
+> **Know your role before you act, whatever model or tool you are.**
+> [`docs/agent/AGENT_ROLES.md`](docs/agent/AGENT_ROLES.md) says what each role may do. A review task makes you a
+> reviewer, read only, writing only your report under `docs/security/` and reviewing only what git tracks. In every
+> role, never merge, approve, tag, release, deploy, touch DEV or PROD, push to `main`, read a secret, or edit a
+> guardrail file, and never search, open or quote a path `.gitignore` covers except as that page's rule 6 allows.
+
 ## Vision & purpose. What you're building toward
 
 `kriegerdataforge-cicd` is the **centralized CI/CD platform library** for the KriegerDataForge (KDF)
@@ -56,7 +62,7 @@ agent workflows (`agents/`, skeleton only) so automation scales with the platfor
 | `scripts/*/db_backup.py` | Per tenant Neon DB backup |
 | `docs/reference/WORKFLOWS.md`, `docs/guides/MANUAL_SETUP.md` | Workflow catalog (inputs/secrets/callers) + manual setup runbook |
 | `kit/common/`, `scripts/kit_registry.json`, `scripts/distribute_kit.py` | The agentic workflow kit's canonical source, its sync registry and its engine, which opens owner reviewed PRs to every repo. The KDF Code Review Process is `kit/common/docs/agent/CODE_REVIEW_PROCESS.md` with its four templates |
-| `tools/claude-code/` | The KDF Code Review Process tooling, installed on the owner's machine and **not synced**. `kdf-guard.js` (the PreToolUse guard), `kdf-review.sh` (starts a fresh reviewer, in the repo or in a worktree copy at a pinned commit, prepares and collects a copy for Codex, and checks git afterward), `check-wiring.js`, `install.sh`, `guard-cases.json`. Tested by `scripts/tests/test_claude_code_tools.py`, see its `README.md` |
+| `tools/claude-code/` | The KDF Code Review Process tooling, installed on the owner's machine and **not synced**. `kdf-guard.js` (the PreToolUse guard), `kdf-review.sh` (starts a fresh reviewer in the repo folder at a pinned commit, opens and closes the folder for Codex, and checks git afterward), `check-wiring.js`, `install.sh`, `guard-cases.json`. Tested by `scripts/tests/test_claude_code_tools.py`, see its `README.md` |
 | `agents/` | Skeleton for future AI driven agent workflows, **not yet implemented** |
 | `CONTRIBUTING.md` | Two tier model + breaking change governance |
 

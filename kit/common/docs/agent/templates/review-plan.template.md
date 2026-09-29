@@ -135,8 +135,8 @@ Each with a recommendation. The owner answers in this section and the date, and 
 
 The runbook is [`CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md) section 11. Here, in particular, {the folder the
 orchestrator starts in, the models the owner picked for the orchestrator and the reviewers, the repo's own commands
-the brief lists, the setup command that makes a reviewer's copy runnable without the owner's tokens, where Codex runs,
-and anything a fresh session needs that the runbook does not say}.
+the brief lists and the environment they run in, where Codex runs, and anything a fresh session needs that the
+runbook does not say}.
 
 ## Appendix A. Every tracked file and the slice that reviews it
 

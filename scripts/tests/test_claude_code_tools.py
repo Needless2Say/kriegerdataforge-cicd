@@ -231,6 +231,7 @@ def test_the_role_charter_says_every_rule_the_guard_enforces() -> None:
 def test_every_agent_meets_its_role_where_it_reads() -> None:
     """
     WORKFLOW.md, which every AGENTS.md sends an agent to, opens with the roles, and a reviewer's brief carries its own.
+    The charter, WORKFLOW.md and the brief each tell every model to follow .gitignore.
     """
     workflow = (KIT / "WORKFLOW.md").read_text(encoding = "utf-8")
     assert "## Before anything, know your role" in workflow
@@ -241,6 +242,10 @@ def test_every_agent_meets_its_role_where_it_reads() -> None:
     assert "`docs/agent/AGENT_ROLES.md`" in brief
     registry = json.loads((TOOLS.parents[1] / "scripts" / "kit_registry.json").read_text(encoding = "utf-8"))
     assert "docs/agent/AGENT_ROLES.md" in registry["files"]
+    charter = (KIT / "docs" / "agent" / "AGENT_ROLES.md").read_text(encoding = "utf-8")
+    assert "**Follow `.gitignore`.**" in charter
+    assert "Follow `.gitignore`." in brief
+    assert "`.gitignore` covers" in workflow
 
 
 @dataclass
@@ -491,223 +496,272 @@ def test_a_guard_that_allows_everything_is_caught_by_the_canary(rig: Rig) -> Non
     assert not rig.log.exists()
 
 
-def _copies(rig: Rig) -> list[str]:
+def _hold(rig: Rig) -> Path:
     """
-    What is left in the folder beside the repo where the launcher keeps its copies.
+    The folder in the rig's git directory where an open review keeps its state and the reports it holds.
     """
-    folder = rig.tmp / ".kdf-review"
-    return sorted(entry.name for entry in folder.iterdir()) if folder.is_dir() else []
+    return rig.repo / ".git" / "kdf-review"
 
 
-def _prepare(rig: Rig, report: str, *extra: str) -> tuple[subprocess.CompletedProcess[str], Path]:
+def _prepare(rig: Rig) -> subprocess.CompletedProcess[str]:
     """
-    Prepare a copy at HEAD for a reviewer the owner starts by hand, and return the run and the copy.
+    Open the rig's folder at HEAD for Codex, the reviewer the owner starts by hand.
     """
-    done   = _run(
+    return _run(
         rig,
         "--repo",
         rig.repo.as_posix(),
         "--brief",
         "docs/security/BRIEF.md",
         "--report",
-        report,
-        "--at",
+        "docs/security/REPORT.md",
+        "--codex-report",
+        "docs/security/CODEX.md",
+        "--pin",
         "HEAD",
         "--prepare",
-        *extra,
     )
-    copies = [entry for entry in (rig.tmp / ".kdf-review").iterdir() if not entry.name.endswith(".kdf-pin")]
-    return done, copies[0]
 
 
-def _collect(rig: Rig, report: str, copy: Path) -> subprocess.CompletedProcess[str]:
-    return _run(rig, "--repo", rig.repo.as_posix(), "--report", report, "--collect", copy.as_posix())
+def _collect(rig: Rig) -> subprocess.CompletedProcess[str]:
+    return _run(rig, "--repo", rig.repo.as_posix(), "--collect")
 
 
-def test_a_pinned_review_runs_in_a_copy_of_its_own_and_brings_the_report_home(rig: Rig) -> None:
+def _codex_writes_its_report(rig: Rig) -> None:
+    (rig.repo / "docs" / "security" / "CODEX.md").write_text("# codex report\n", encoding = "utf-8")
+
+
+def test_a_pinned_review_reads_the_folder_itself(rig: Rig) -> None:
     """
-    With --at the reviewer works in a worktree at the commit, its report lands in the repo and the copy is removed.
+    With --pin the reviewer works in the repo folder, no copy is made, and the review closes when the run ends.
     """
-    done = _launch(rig, "--at", "HEAD")
+    done = _launch(rig, "--pin", "HEAD")
     assert done.returncode == 0, done.stdout + done.stderr
     assert (rig.repo / "docs" / "security" / "REPORT.md").is_file()
     log = rig.log.read_text(encoding = "utf-8")
-    assert ".kdf-review" in log.split("pwd=")[1].splitlines()[0]
+    assert log.split("pwd=")[1].splitlines()[0].endswith("repo")
     assert "role=reviewer" in log
-    assert _copies(rig) == []
+    assert not (_hold(rig) / "open").exists()
+    assert not (rig.tmp / ".kdf-review").exists()
 
 
-def test_a_pinned_copy_reads_the_commit_and_not_the_moving_tree(rig: Rig) -> None:
+def test_a_folder_that_is_not_at_the_pin_is_never_reviewed(rig: Rig) -> None:
     """
-    What the orchestrator changed and did not commit is not in the reviewer's copy, and stays in the repo.
+    A tracked file changed since the pin, HEAD moved past it, a pin that is no commit, and a brief the pin lacks are
+    all exit 2, and claude never runs.
     """
-    (rig.repo / "src" / "app.py").write_text("x = 99\n", encoding = "utf-8")
-    assert _launch(rig, "--at", "HEAD").returncode == 0
-    assert "app=x = 1" in rig.log.read_text(encoding = "utf-8")
-    assert (rig.repo / "src" / "app.py").read_text(encoding = "utf-8") == "x = 99\n"
-
-
-@pytest.mark.parametrize(
-    ("mode", "named"),
-    [
-        ("tamper", "src/app.py"),
-        ("outside", "stray.txt"),
-        ("commit", "git state changed"),
-        ("branch", "git state changed"),
-    ],
-)
-def test_a_pinned_reviewer_that_changes_anything_else_is_caught_and_its_copy_kept(
-    rig: Rig,
-    mode: str,
-    named: str,
-) -> None:
-    """
-    An edit, a stray file, a commit or a branch in the copy is exit 3, nothing reaches the repo, the copy stays.
-    """
-    done = _launch(rig, "--at", "HEAD", mode = mode)
-    assert done.returncode == 3, done.stdout + done.stderr
-    assert "CONTAMINATION" in done.stderr
-    assert named in done.stderr
-    assert not (rig.repo / "docs" / "security" / "REPORT.md").exists()
-    assert (rig.repo / "src" / "app.py").read_text(encoding = "utf-8") == "x = 1\n"
-    assert len(_copies(rig)) == 2
-
-
-def test_a_pinned_run_without_a_report_or_with_a_failing_claude_keeps_its_copy(rig: Rig) -> None:
-    """
-    No report is exit 4 and a failing claude exit 6, and either way the copy is left for a look.
-    """
-    assert _launch(rig, "--at", "HEAD", mode = "noreport").returncode == 4
-    assert len(_copies(rig)) == 2
-    (rig.repo / "docs" / "security" / "OTHER.md").write_text("# brief two\n", encoding = "utf-8")
-    _git(rig.repo, "add", "docs/security/OTHER.md")
-    _git(rig.repo, "commit", "-q", "-m", "second brief")
-    failed = _run(
+    pinned = subprocess.run(
+        ["git", "-C", str(rig.repo), "rev-parse", "HEAD"],
+        capture_output = True,
+        text = True,
+        check = True,
+    ).stdout.strip()
+    (rig.repo / "src" / "app.py").write_text("x = 2\n", encoding = "utf-8")
+    assert _launch(rig, "--pin", "HEAD").returncode == 2
+    _git(rig.repo, "commit", "-q", "-am", "moved on")
+    assert _launch(rig, "--pin", pinned).returncode == 2
+    assert _launch(rig, "--pin", "no-such-commit").returncode == 2
+    (rig.repo / "docs" / "security" / "NEW.md").write_text("# not committed\n", encoding = "utf-8")
+    uncommitted = _run(
         rig,
         "--repo",
         rig.repo.as_posix(),
         "--brief",
-        "docs/security/OTHER.md",
+        "docs/security/NEW.md",
         "--report",
-        "docs/security/OTHER_REPORT.md",
-        "--at",
+        "docs/security/REPORT.md",
+        "--pin",
         "HEAD",
-        mode = "fail",
     )
-    assert failed.returncode == 6
-    assert len(_copies(rig)) == 4
+    assert uncommitted.returncode == 2
+    assert not rig.log.exists()
 
 
-def test_a_reviewer_started_by_hand_gets_a_copy_and_its_report_is_collected(rig: Rig) -> None:
+def test_codex_reads_the_same_folder_and_collect_checks_it(rig: Rig) -> None:
     """
-    --prepare makes the copy and prints the one line and the collect command, claude is not run, collect brings it home.
+    --prepare opens the folder, prints the one line and the collect command, and runs no claude. Collect closes it.
     """
-    done, copy = _prepare(rig, "docs/security/CODEX.md")
+    done = _prepare(rig)
     assert done.returncode == 0, done.stderr
     assert "Read docs/security/BRIEF.md and run the review, write your report to docs/security/CODEX.md" in done.stdout
     assert "--collect" in done.stdout
     assert not rig.log.exists()
-    (copy / "docs" / "security" / "CODEX.md").write_text("# codex report\n", encoding = "utf-8")
-    collected = _collect(rig, "docs/security/CODEX.md", copy)
+    assert (_hold(rig) / "open").is_dir()
+    _codex_writes_its_report(rig)
+    collected = _collect(rig)
     assert collected.returncode == 0, collected.stderr
-    assert (rig.repo / "docs" / "security" / "CODEX.md").read_text(encoding = "utf-8") == "# codex report\n"
-    assert _copies(rig) == []
+    assert "clean" in collected.stdout
+    assert not (_hold(rig) / "open").exists()
+    assert (rig.repo / "docs" / "security" / "CODEX.md").is_file()
 
 
-@pytest.mark.parametrize("extra", ["code", "stray", "commit"])
-def test_collect_refuses_a_copy_where_the_reviewer_did_more_than_report(rig: Rig, extra: str) -> None:
+@pytest.mark.parametrize(
+    ("change", "named"),
+    [
+        ("code", "src/app.py"),
+        ("stray", "stray.txt"),
+        ("commit", "git state changed"),
+        ("branch", "git state changed"),
+    ],
+)
+def test_collect_catches_a_reviewer_that_did_more_than_report(rig: Rig, change: str, named: str) -> None:
     """
-    A reviewer outside Claude Code has no guard, so collect is its check. Anything but the report is exit 3.
+    A reviewer outside Claude Code has no guard, so collect is its check. Anything but the report is exit 3, and the
+    review stays open.
     """
-    _, copy = _prepare(rig, "docs/security/CODEX.md")
-    (copy / "docs" / "security" / "CODEX.md").write_text("# report\n", encoding = "utf-8")
-    if extra == "code":
-        (copy / "src" / "app.py").write_text("x = 2\n", encoding = "utf-8")
-    elif extra == "stray":
-        (copy / "stray.txt").write_text("hi\n", encoding = "utf-8")
+    assert _prepare(rig).returncode == 0
+    _codex_writes_its_report(rig)
+    if change == "code":
+        (rig.repo / "src" / "app.py").write_text("x = 2\n", encoding = "utf-8")
+    elif change == "stray":
+        (rig.repo / "stray.txt").write_text("hi\n", encoding = "utf-8")
+    elif change == "commit":
+        _git(rig.repo, "add", "-A")
+        _git(rig.repo, "commit", "-q", "-m", "sneaky")
     else:
-        _git(copy, "add", "-A")
-        _git(copy, "commit", "-q", "-m", "sneaky")
-    collected = _collect(rig, "docs/security/CODEX.md", copy)
+        _git(rig.repo, "checkout", "-q", "-b", "sneaky")
+    collected = _collect(rig)
     assert collected.returncode == 3, collected.stdout + collected.stderr
-    assert not (rig.repo / "docs" / "security" / "CODEX.md").exists()
-    assert copy.is_dir()
+    assert "CONTAMINATION" in collected.stderr
+    assert named in collected.stderr
+    assert (_hold(rig) / "open").is_dir()
 
 
-def test_collect_needs_the_report_and_never_overwrites(rig: Rig) -> None:
+def test_collect_waits_for_the_report_and_closes_once_the_folder_is_put_right(rig: Rig) -> None:
     """
-    No report is exit 4. A file the repo already has is exit 2 and nothing is copied.
+    No report yet is exit 4 and the review stays open. A change the reviewer made is exit 3 until it is put back.
     """
-    _, copy = _prepare(rig, "docs/security/CODEX.md")
-    assert _collect(rig, "docs/security/CODEX.md", copy).returncode == 4
-    (copy / "docs" / "security" / "CODEX.md").write_text("# report\n", encoding = "utf-8")
-    (copy / "docs" / "security" / "notes.md").write_text("theirs\n", encoding = "utf-8")
-    (rig.repo / "docs" / "security" / "notes.md").write_text("mine\n", encoding = "utf-8")
-    assert _collect(rig, "docs/security/CODEX.md", copy).returncode == 2
-    assert (rig.repo / "docs" / "security" / "notes.md").read_text(encoding = "utf-8") == "mine\n"
-    assert not (rig.repo / "docs" / "security" / "CODEX.md").exists()
+    assert _prepare(rig).returncode == 0
+    assert _collect(rig).returncode == 4
+    assert (_hold(rig) / "open").is_dir()
+    (rig.repo / "src" / "app.py").write_text("x = 2\n", encoding = "utf-8")
+    _codex_writes_its_report(rig)
+    assert _collect(rig).returncode == 3
+    _git(rig.repo, "checkout", "--", "src/app.py")
+    assert _collect(rig).returncode == 0
+    assert not (_hold(rig) / "open").exists()
 
 
-def test_a_second_reviewer_never_sees_the_first_report(rig: Rig) -> None:
+def test_collect_never_passes_a_review_it_has_no_snapshot_for(rig: Rig) -> None:
     """
-    Claude's report is in the repo once collected, but Codex's copy at the same commit does not hold it.
+    An open review whose snapshot is gone is exit 2 and stays open, never a clean collect.
     """
-    assert _launch(rig, "--at", "HEAD").returncode == 0
-    done, copy = _prepare(rig, "docs/security/CODEX.md")
+    assert _prepare(rig).returncode == 0
+    _codex_writes_its_report(rig)
+    (_hold(rig) / "open" / "before").unlink()
+    assert _collect(rig).returncode == 2
+    assert (_hold(rig) / "open").is_dir()
+
+
+def test_claude_first_its_report_waits_outside_the_tree_while_codex_reads(rig: Rig) -> None:
+    """
+    Codex never sees Claude's report of the scope, and closing the review puts it back beside Codex's.
+    """
+    security = rig.repo / "docs" / "security"
+    first    = _launch(rig, "--pin", "HEAD", "--codex-report", "docs/security/CODEX.md")
+    assert first.returncode == 0, first.stdout + first.stderr
+    assert "--prepare" in first.stdout
+    assert _prepare(rig).returncode == 0
+    assert not (security / "REPORT.md").exists()
+    assert (_hold(rig) / "held" / "docs" / "security" / "REPORT.md").is_file()
+    _codex_writes_its_report(rig)
+    assert _collect(rig).returncode == 0
+    assert (security / "REPORT.md").is_file()
+    assert (security / "CODEX.md").is_file()
+
+
+def test_codex_first_its_report_waits_outside_the_tree_while_claude_reads(rig: Rig) -> None:
+    """
+    Claude never sees Codex's report of the scope, and the run puts it back when it ends, clean or not.
+    """
+    assert _prepare(rig).returncode == 0
+    _codex_writes_its_report(rig)
+    assert _collect(rig).returncode == 0
+    done = _launch(rig, "--pin", "HEAD", "--codex-report", "docs/security/CODEX.md")
+    assert done.returncode == 0, done.stdout + done.stderr
+    saw = rig.log.read_text(encoding = "utf-8").split("saw=")[1].splitlines()[0]
+    assert "BRIEF.md" in saw
+    assert "CODEX.md" not in saw
+    assert "--prepare" not in done.stdout
+    assert (rig.repo / "docs" / "security" / "CODEX.md").is_file()
+    (rig.repo / "docs" / "security" / "REPORT.md").unlink()
+    assert _launch(rig, "--codex-report", "docs/security/CODEX.md", mode = "tamper").returncode == 3
+    assert (rig.repo / "docs" / "security" / "CODEX.md").is_file()
+    assert not (_hold(rig) / "open").exists()
+
+
+def test_one_review_of_a_folder_at_a_time(rig: Rig) -> None:
+    """
+    While Codex's review is open, a Claude run and a second prepare are both exit 2, and claude never runs.
+    """
+    assert _prepare(rig).returncode == 0
+    refused = _launch(rig, "--pin", "HEAD")
+    assert refused.returncode == 2
+    assert "one review of a folder at a time" in refused.stderr
+    assert not rig.log.exists()
+    assert _prepare(rig).returncode == 2
+
+
+def test_collect_closes_a_claude_run_that_was_cut_off(rig: Rig) -> None:
+    """
+    A Claude run killed before it closed its review leaves it open. Collect puts the held report back and says so.
+    """
+    dead = subprocess.run(
+        [str(BASH), "-c", "sleep 0 & child=$!; wait $child; echo $child"],
+        capture_output = True,
+        text = True,
+        check = True,
+    ).stdout.strip()
+    held = _hold(rig) / "held" / "docs" / "security"
+    held.mkdir(parents = True)
+    (held / "CODEX.md").write_text("# codex report\n", encoding = "utf-8")
+    opened = _hold(rig) / "open"
+    opened.mkdir()
+    meta = f"reviewer=claude\nreport=docs/security/REPORT.md\npid={dead}\n"
+    (opened / "meta").write_text(meta, encoding = "utf-8", newline = "\n")
+    (opened / "held").write_text("docs/security/CODEX.md\n", encoding = "utf-8", newline = "\n")
+    done = _collect(rig)
+    assert done.returncode == 6, done.stdout + done.stderr
+    assert "cut off" in done.stderr
+    assert (rig.repo / "docs" / "security" / "CODEX.md").is_file()
+    assert not opened.exists()
+
+
+def test_a_fetch_during_a_review_is_not_held_against_the_reviewer(rig: Rig) -> None:
+    """
+    An editor's background fetch moves the remote tracking refs, which is not the reviewer's doing.
+    """
+    assert _prepare(rig).returncode == 0
+    _codex_writes_its_report(rig)
+    _git(rig.repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    assert _collect(rig).returncode == 0
+
+
+def test_a_pinned_dry_run_names_the_pin_and_opens_nothing(rig: Rig) -> None:
+    """
+    The dry run prints both lines and the pin, and opens no review.
+    """
+    done = _launch(rig, "--pin", "HEAD", "--codex-report", "docs/security/CODEX.md", "--dry-run")
     assert done.returncode == 0, done.stderr
-    assert (rig.repo / "docs" / "security" / "REPORT.md").is_file()
-    assert not (copy / "docs" / "security" / "REPORT.md").exists()
-
-
-def test_the_setup_runs_in_the_copy_and_is_not_held_against_the_reviewer(rig: Rig) -> None:
-    """
-    The setup command runs in the copy with KDF_MAIN_REPO set, and what it leaves is part of the starting point.
-    """
-    done, copy = _prepare(rig, "docs/security/CODEX.md", "--setup", 'printf "%s" "$KDF_MAIN_REPO" > setup-ran.txt')
-    assert done.returncode == 0, done.stderr
-    assert (copy / "setup-ran.txt").read_text(encoding = "utf-8").endswith("repo")
-    (copy / "docs" / "security" / "CODEX.md").write_text("# report\n", encoding = "utf-8")
-    assert _collect(rig, "docs/security/CODEX.md", copy).returncode == 0
-
-
-def test_a_failing_setup_removes_its_copy(rig: Rig) -> None:
-    """
-    A setup that fails is exit 7, the copy is removed and claude never runs.
-    """
-    done = _launch(rig, "--at", "HEAD", "--setup", "exit 3")
-    assert done.returncode == 7, done.stdout + done.stderr
-    assert _copies(rig) == []
+    assert "Pin, " in done.stdout
+    assert "Codex prompt, " in done.stdout
+    assert not (_hold(rig) / "open").exists()
     assert not rig.log.exists()
 
 
-def test_a_pinned_dry_run_names_the_copy_and_makes_nothing(rig: Rig) -> None:
+def test_the_prepare_and_collect_arguments_are_checked_before_anything_runs(rig: Rig) -> None:
     """
-    The dry run prints where the copy would go, and makes no copy.
+    --prepare without the pin or the Codex report, one file for both reports, --collect with more than the repo, and
+    --collect with no review open are all exit 2.
     """
-    done = _launch(rig, "--at", "HEAD", "--dry-run")
-    assert done.returncode == 0, done.stderr
-    assert "Copy, " in done.stdout
-    assert ".kdf-review" in done.stdout
-    assert _copies(rig) == []
-
-
-def test_the_pinned_arguments_are_checked_before_anything_runs(rig: Rig) -> None:
-    """
-    A commit that is not one, a brief the commit lacks, --prepare or --setup without --at, and a collect of a folder
-    the launcher did not make are all exit 2.
-    """
-    base = ["--repo", rig.repo.as_posix(), "--brief", "docs/security/BRIEF.md", "--report", "docs/security/R.md"]
-    assert _run(rig, *base, "--at", "no-such-commit").returncode == 2
-    assert _run(rig, *base, "--prepare").returncode == 2
-    assert _run(rig, *base, "--setup", "true").returncode == 2
-    (rig.repo / "docs" / "security" / "NEW.md").write_text("# not committed\n", encoding = "utf-8")
-    uncommitted = ["--repo", rig.repo.as_posix(), "--brief", "docs/security/NEW.md", "--report", "docs/security/R.md"]
-    assert _run(rig, *uncommitted, "--at", "HEAD").returncode == 2
-    collect = ["--repo", rig.repo.as_posix(), "--report", "docs/security/R.md", "--collect", rig.tmp.as_posix()]
-    assert _run(rig, *collect).returncode == 2
-    assert _run(rig, *collect, "--at", "HEAD").returncode == 2
+    base = ["--repo", rig.repo.as_posix(), "--brief", "docs/security/BRIEF.md", "--report", "docs/security/REPORT.md"]
+    assert _run(rig, *base, "--codex-report", "docs/security/CODEX.md", "--prepare").returncode == 2
+    assert _run(rig, *base, "--pin", "HEAD", "--prepare").returncode == 2
+    assert _run(rig, *base, "--codex-report", "docs/security/REPORT.md", "--pin", "HEAD", "--prepare").returncode == 2
+    assert _run(rig, "--repo", rig.repo.as_posix(), "--collect", "--pin", "HEAD").returncode == 2
+    assert _collect(rig).returncode == 2
     assert not rig.log.exists()
-    assert _copies(rig) == []
+    assert not (_hold(rig) / "open").exists()
 
 
 def _checker(home: Path) -> subprocess.CompletedProcess[str]:

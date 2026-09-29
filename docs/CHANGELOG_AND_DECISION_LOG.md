@@ -1405,7 +1405,10 @@ use it for a single pull request. The owner also could not reach Codex from a ph
 hours after the Claude review of the same slice. Under D-028 both reviewers read the working tree "at the same time".
 A late reviewer would read a tree the orchestrator had changed since, and could open the first reviewer's report,
 which lives in the same `docs/security`. Separately, the owner's double submission of the Distribute form on
-2026-09-29 made every repo answer 422, an open pull request already existed, which read as sixteen failures.
+2026-09-29 made every repo answer 422, an open pull request already existed, which read as sixteen failures. Before
+merging, the owner turned down a copy of the repo per reviewer, "this does not scale well. I want the other models to
+be able to review the repo itself without me creating these environments", and asked that every model follow
+`.gitignore` the way Claude's search does.
 
 **Decision.**
 
@@ -1414,45 +1417,56 @@ which lives in the same `docs/security`. Separately, the owner's double submissi
   ecosystem (a program of campaigns in the hub). The rules, the severity scale and the security model are the same at
   every scale, the plan, the slices, the Sol rounds and Phase B scale with it.
 - **The pin.** At step 2 and step 5 the orchestrator commits the slice's state with the brief and pushes it. The brief
-  names that commit. Every reviewer reads it in a worktree copy of its own, `kdf-review.sh --at <pin>`, set up by a
-  `--setup` command from public packages, never with the owner's tokens. A copy at the pin holds no report written
-  after it, so neither reviewer sees the other's, and the orchestrator keeps working in the repo meanwhile.
-- **Codex.** `--prepare` makes Codex's copy and prints the folder and the one line. `--collect` brings the report home
-  only when the copy changed nothing but new files under `docs/security` and HEAD is still at the pin. Codex runs
-  outside Claude Code with no guard, so collect is its fence.
+  names that commit. Every reviewer reads the repo folder itself at the pin, with the repo's own environment, one
+  review of a folder open at a time, and the orchestrator changes nothing in that folder until both reports are in.
+  `kdf-review.sh --pin` checks that the folder is at the pin with no tracked file changed. While a review is open the
+  other report of the scope waits in the repo's `.git/kdf-review` folder, out of the working tree, so neither reviewer
+  sees the other's, whichever goes first.
+- **Codex.** `--prepare` opens Codex's turn in the same folder and prints the one line. `--collect` closes it only when
+  nothing but new files under `docs/security` changed and HEAD is still at the pin, and otherwise leaves it open for
+  the orchestrator to put right. Codex runs outside Claude Code with no guard, so collect is its fence. Remote tracking
+  refs are left out of the check, an editor's background fetch moves them.
 - **Both families, always**, rule 15. When one model family cannot run for a while, the other goes ahead and the
-  missing review waits for its pin. It is never skipped, and the slice does not close without it.
+  missing review reads a later pin when it can run. It is never skipped, and the slice does not close without it.
+- **Follow `.gitignore`**, rule 6 of `AGENT_ROLES.md` for every role. What git ignores is not the project, so no model
+  searches, opens or quotes it, and a reviewer reviews only what git tracks. `WORKFLOW.md`, every brief and the
+  `AGENTS.md` pointer say so. Measured on 2026-09-29, Claude Code's Grep skips ignored paths while its Glob and Read do
+  not, so beyond the secret files the guard refuses, the rule holds Claude by instruction too.
 - **Distribute can run twice.** Both engines skip a file whose sync branch copy already matches, and look for an open
   pull request from the sync branch before opening one. A second run brings the branch up to date and prints "PR
   already open" in place of a 422.
 - **Roles for every model.** The owner asked that the limits the guard enforces on Claude also reach the models that
   read only `AGENTS.md` and the kit. A new kit file, `docs/agent/AGENT_ROLES.md`, writes four roles for any model or
-  tool, implementer by default, orchestrator, reviewer and chat reader, and nine rules every role keeps, the guard's
-  owner rules in words. `WORKFLOW.md`, which every `AGENTS.md` sends an agent to for every task, opens with them, and
+  tool, implementer by default, orchestrator, reviewer and chat reader, and ten rules every role keeps, the guard's
+  owner rules in words and `.gitignore`. `WORKFLOW.md`, which every `AGENTS.md` sends an agent to for every task, opens with them, and
   every review brief states the reviewer's role in its own text, since a reviewer of any model reads its brief. The
   guard and the charter change together.
 
 **Alternatives considered.**
 
-- Reviewers read the working tree, and the orchestrator freezes it until the late reviewer has run. Rejected, it stalls
-  the campaign for as long as Codex waits for the owner, a day a slice.
+- A git worktree copy per reviewer at the pin, set up by a command per repo. Built first, and measured on the SDK at
+  `97d2fe9`, a copy set up from public packages in 32 seconds ran all 887 tests and `mypy` clean. Rejected by the
+  owner, each review needs an environment of its own, a virtual environment or `node_modules`, and Codex would be
+  opened in a folder made for it. Its two gains, a copy holds no secret and the orchestrator works on meanwhile, are
+  traded for the folder the owner already uses.
 - The late reviewer reads the moved tree and is told not to open the other report. Rejected, independence would rest
   on an instruction, and the late reviewer would read code the first never saw.
-- A copy that borrows the repo's virtual environment. Rejected for the SDK, its editable install points at the repo's
-  `src`, so the tests would run the repo's code and not the pin's. Each copy builds its own, measured at 32 seconds.
 - Codex skipped at step 2 when it cannot run, and kept for step 5. Rejected, the owner's decision is that both models
   read every slice twice.
 - The roles written into each repo's `AGENTS.md`. Deferred, `AGENTS.md` is per repo and not synced, so it is eighteen
   pull requests with a version bump each, and the SDK's bump cuts a release. `WORKFLOW.md` and the briefs reach every
-  agent through the sync today, and a one line pointer in each `AGENTS.md` can ride with that repo's next pull request.
+  agent through the sync today. This repo's `AGENTS.md` carries the pointer now, the SDK's rides with its review's
+  first slice, and each other repo's can ride with that repo's next pull request.
 
-**Trade-offs.** A copy costs a worktree, its setup time and its disk until it is collected. The setup command is the
-orchestrator's to write per repo, and a repo whose tests need a private package needs a public stand in or a token
-free path. Refs made while a copy is out are only warned about, since the orchestrator makes branches meanwhile. For a
-model that does not run the guard the roles are instructions, not enforcement, and what holds it is its own sandbox,
-the copy that holds no secret, collect for a reviewer, and GitHub's rulesets.
+**Trade-offs.** A review freezes its folder. The orchestrator reads, plans and works in other repos meanwhile, and a
+slice waits for Codex as long as Codex waits for the owner. Codex on the owner's machine reads the folder that holds
+the owner's local secret files, and its sandbox limits what it writes, not what it reads, so rule 6 and the secret
+rule alone keep it from them. Codex in the cloud reads GitHub, where no ignored file exists. For a model that does not
+run the guard the roles are instructions, not enforcement, and what holds it is its own sandbox, collect for a
+reviewer, and GitHub's rulesets.
 
-**Consequences.** After this merges the owner runs Distribute once, kit v1.6.0. The SDK plan's section 13 names its
-setup command, and every slice's step 2 pins. Measured on the SDK at `97d2fe9`, a copy set up from public packages
-ran all 887 tests and `mypy` clean in the copy, and collect found nothing but the missing report.
+**Consequences.** After this merges the owner runs Distribute once, kit v1.6.0. Every slice's step 2 pins, and the
+SDK plan's section 13 runs both reviewers in the SDK folder with no setup. The launcher's tests prove the pin check,
+one review of a folder at a time, the held report in both orders, collect's fence, and its recovery of a Claude run
+that was cut off.
 
