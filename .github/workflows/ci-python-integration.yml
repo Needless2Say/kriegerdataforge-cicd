@@ -85,7 +85,9 @@ jobs:
       # KDF_TEST_DATABASE_URL for the pytest conftest gate.
       DB_DATABASE_URL: postgresql+psycopg2://kdf:kdf@localhost:5432/kdf_test
       KDF_TEST_DATABASE_URL: postgresql+psycopg2://kdf:kdf@localhost:5432/kdf_test
-      ENVIRONMENT: development
+      # the DEV state in the short spelling, local, dev and prod are the only names (owner, 2026-09-29), and every
+      # caller resolves it through the SDK's deployment_environment(), which reads dev and development alike
+      ENVIRONMENT: dev
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
