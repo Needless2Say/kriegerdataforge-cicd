@@ -1,0 +1,1779 @@
+[
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git status --short",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git -C kriegerdataforge-sdk status",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git checkout -b feature/sdk-review-s1",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git add -A && git commit -m \"docs: explain why gh pr merge is the owner only\"",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push -u origin feature/sdk-review-s1",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git -C ../kriegerdataforge push -u origin docs/register-rows",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push origin fix/maintenance-window",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push --set-upstream origin feature/x 2>&1 | tail -3",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push origin HEAD:refs/heads/feature/from-head",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh pr create --base main --head feature/x --title \"S1\" --body \"Merge gate. The owner merges.\"",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh pr checks 12 --watch",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh run view 123 --log-failed",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh pr view 12 --json state,statusCheckRollup",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh pr comment 12 --body \"@codex review\"",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh api repos/Needless2Say/kriegerdataforge-sdk/pulls/12",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh auth status",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "make ci",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git tag --list",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git tag",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "terraform plan",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "terraform -chdir=infra plan",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "echo \"never run terraform apply\"",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "cat <<'EOF' > notes.md\ngh pr merge 5\nterraform apply\nEOF",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git commit -m \"$(cat <<'EOF'\nfeat: x\n\nrun gh pr merge later\nEOF\n)\"",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "docker compose up -d",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "docker ps",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git fetch origin main && git merge origin/main",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git pull origin main",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git log --oneline -5 | head -3",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "grep -rn \"gh pr merge\" docs",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git diff main...HEAD --stat",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git branch -D old-feature",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git stash list",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "export PATH=\"$PATH:/c/Program Files/GitHub CLI\" && gh pr list",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "npm run build",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "npx tsc --noEmit",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": ".venv/Scripts/python.exe -m pytest tests -q",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "& \"C:\\Program Files\\GitHub CLI\\gh.exe\" pr checks 3",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "git status; git log --oneline -3",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "git push -u origin feature/x",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh pr merge 5",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh pr merge 5 --admin --squash",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh pr review 5 --approve",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh pr ready 5",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh -R Needless2Say/x pr merge 5",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh.exe pr merge 5",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "GH_PAGER=cat gh pr merge 5",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "echo x | gh pr merge 5",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "bash -c \"gh pr merge 5\"",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "sh -c 'git push origin main'",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "pwsh -Command \"git push origin main\"",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "powershell -NoProfile -Command \"gh pr merge 5\"",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "cmd /c gh pr merge 5",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "eval \"gh pr merge 5\"",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "env -u CLAUDECODE gh pr merge 5",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "echo $(gh pr merge 5)",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh release create v1",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh workflow run deploy.yml",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh secret set X",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh variable set X",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh repo delete x --yes",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh auth token",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh alias set m \"pr merge\"",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh extension install x/y",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh api -X PUT repos/o/r/pulls/1/merge",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh api repos/o/r/releases -f tag_name=v1",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh api graphql -f query=x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh api --method DELETE repos/o/r",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh api repos/o/r/actions/workflows/1/dispatches",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh api repos/o/r/rulesets/1",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh api repos/o/r/git/refs",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push origin main",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push -u origin main",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push origin HEAD:main",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push origin HEAD",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push origin",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push -f origin feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push --force-with-lease origin f",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push origin +feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push --tags",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push origin v1.0.0",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push --delete origin feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push origin :feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git -C repo push origin master",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "cd x && git push origin main",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push origin main && echo ok",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push --mirror",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push --all",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push --no-verify origin feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push origin feature/x:main",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push origin feature/x:refs/heads/main",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push origin tag v1",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push origin refs/tags/v1",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push origin origin/main",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git tag v1.0.0",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git tag -a v1 -m x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git tag -d v1",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git -C repo tag v2",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git update-ref refs/heads/main HEAD",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "terraform apply",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "terraform apply -auto-approve",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "terraform -chdir=infra apply",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "terraform destroy",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "terraform import a b",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "terraform state rm x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "vercel --prod",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "npx vercel deploy",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "npm publish",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "docker push img",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "twine upload dist/*",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "python -m twine upload dist/*",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gcloud run deploy x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "sudo -u root git push origin main",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "timeout 5 git push origin main",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "timeout -s KILL 5 gh pr merge 5",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "nice -n 5 gh pr merge 5",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "command git push origin main",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "\"C:\\Program Files\\Git\\cmd\\git.exe\" push origin main",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "/usr/bin/git push origin main",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "find . -name x -exec gh pr merge {} \\;",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "xargs git push origin",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "echo 5 | xargs -I {} gh pr merge {}",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "timeout 30 gh pr checks 5",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "env GH_PAGER=cat gh pr checks 5",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "find . -name \"*.py\" -exec grep -l foo {} \\;",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "cat .env.local",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "grep KEY .env",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "head -3 keys/private.pem",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "cat infra/prod.tfvars",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "cat ../kriegerdataforge/.env.test",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "cat .env.example",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "ls -a",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "find . -delete",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "find . -name x -exec rm {} \\;",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "find src -name \"*.py\" | head",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "& \"C:\\Program Files\\GitHub CLI\\gh.exe\" pr merge 5",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "git push origin main",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "git -C x push origin main; echo done",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "gh pr merge 5 --squash",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "powershell -EncodedCommand ZQBjAGgAbwA=",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git status",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git diff HEAD~1",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git log --oneline -5",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git show HEAD:README.md",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git ls-files",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git -C ../kriegerdataforge log -3",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git branch",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git branch --show-current",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git branch -a",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git branch -vv",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git tag --list",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git stash list",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git remote -v",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git config --get user.name",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "./.venv/Scripts/python.exe -m pytest tests -q",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": ".venv/Scripts/python.exe -c \"print(1)\"",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "make ci-unit-tests",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "grep -rn foo src | head",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "echo hi > /dev/null",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "pytest 2>&1 | tail -3",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "ls docs",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "wc -l src/kdf_sdk/*.py",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "cat README.md",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "sed -n 1,20p README.md",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "python -m pip list",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git log 2>/dev/null | head",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "cat a > docs/security/scratch.txt",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "PowerShell",
+  "command": "Get-Content README.md | Select-Object -First 5",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git add .",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git commit -m x",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git checkout main",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git switch -c x",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git stash",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git stash pop",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git reset --hard",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git restore x",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git branch newname",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git branch -D x",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git tag v1",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git config user.name x",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git fetch",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git pull",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git clone x",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git merge x",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git rebase main",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git push origin feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "gh pr list",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "gh auth status",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "rm -rf src",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "mv a b",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "cp a b",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "echo hi > src/x.py",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "echo hi >> README.md",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "curl https://x",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "wget x",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "pip install x",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "python -m pip install x",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "npm install",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "make setup",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "make clean-deep",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "make bump-patch",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "docker ps",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "sed -i s/a/b/ file",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "tee file",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "touch f",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "mkdir d",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "echo hi > ../x.txt",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git diff > out.patch",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git log > /tmp/x",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "PowerShell",
+  "command": "Remove-Item x",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "PowerShell",
+  "command": "Set-Content a.txt hi",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "PowerShell",
+  "command": "Invoke-WebRequest x",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "PowerShell",
+  "command": "Get-Content a | Out-File b.txt",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Write",
+  "file": "${PROJ}/docs/security/SDK_REVIEW_S1_REPORT.md",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Write",
+  "file": "${PROJ}/docs/security/x.md",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Write",
+  "file": "docs/security/y.md",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Write",
+  "file": "${PROJ}/docs/README.md",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Write",
+  "file": "${PROJ}/src/kdf_sdk/x.py",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Write",
+  "file": "${PROJ}/../other-repo/x.md",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Write",
+  "file": "${PROJ}/docs/security/../../src/x.py",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Write",
+  "file": "${PROJ}/.claude/settings.local.json",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Write",
+  "file": "${PROJ}/docs/securityx/a.md",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Edit",
+  "file": "${PROJ}/docs/security/a.md",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git config --get user.name",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git config --list",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git config user.email dev@example.com",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git remote -v",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push -u upstream feature/x",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "cat ~/.claude/settings.json",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "ls ~/.claude/hooks",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "grep -n hooks ~/.claude/settings.json",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git diff -- .claude/settings.local.json",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git log -1 -- .claude/settings.local.json",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "echo settings > /dev/null",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "node tools/claude-code/kdf-guard.js",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh pr create --title x --body \"text that mentions gh gist create\"",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Write",
+  "file": "${PROJ}/src/app.py",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Edit",
+  "file": "${PROJ}/docs/security/REPORT.md",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Read",
+  "file": "${PROJ}/.env.local",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "PushNotification",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Artifact",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude_ai_Google_Drive__search_files",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "CronCreate",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push origin2 feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push https://github.com/x/y.git feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git config alias.m \"!gh pr merge\"",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git config core.hooksPath /tmp/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git config remote.origin.url https://evil.example/x.git",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git config --global url.x.insteadOf y",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git remote add x https://evil.example",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git remote set-url origin https://evil.example",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh gist create f.txt",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "echo x > ~/.claude/settings.json",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "echo x >> C:/Users/dev/.claude/settings.json",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "sed -i s/a/b/ ~/.claude/settings.json",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "rm ~/.claude/hooks/kdf-guard.js",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "cp evil.js ~/.claude/hooks/kdf-guard.js",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "mv x .claude/settings.local.json",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "tee ~/.claude/settings.json",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git checkout -- .claude/settings.local.json",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "bash -c \"echo x > ~/.claude/settings.json\"",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "echo x > .mcp.json",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "echo x > .git/hooks/pre-push",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Write",
+  "file": "C:/Users/dev/.claude/settings.json",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Edit",
+  "file": "C:/Users/dev/.claude/hooks/kdf-guard.js",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Write",
+  "file": "${PROJ}/.claude/settings.local.json",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Write",
+  "file": "${PROJ}/.claude/settings.json",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Write",
+  "file": "${PROJ}/.mcp.json",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Write",
+  "file": "${PROJ}/.git/hooks/pre-push",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Write",
+  "file": "${PROJ}/.git/config",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "MultiEdit",
+  "file": "C:/Users/dev/.claude.json",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Write",
+  "file": "C:/Users/dev/.claude/settings.json",
+  "env": {
+   "KDF_GUARD_ALLOW_SELF_EDIT": "1"
+  },
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "echo x > ~/.claude/settings.json",
+  "env": {
+   "KDF_GUARD_ALLOW_SELF_EDIT": "1"
+  },
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "mcp__ide__getDiagnostics",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Read",
+  "file": "${PROJ}/src/x.py",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git status",
+  "via": "env",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Write",
+  "file": "${PROJ}/docs/security/REPORT.md",
+  "via": "env",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "mcp__claude_ai_Google_Drive__share_file",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "mcp__claude_ai_Gmail__authenticate",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Artifact",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "ArtifactData",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "PushNotification",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "SendMessage",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "SendUserFile",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "CronCreate",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "RemoteTrigger",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "DesignSync",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "EnterWorktree",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Workflow",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Read",
+  "file": "${PROJ}/.env.local",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Read",
+  "file": "${PROJ}/keys/id.pem",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Write",
+  "file": "${PROJ}/.claude/settings.local.json",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "git add .",
+  "via": "env",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "gh pr list",
+  "via": "env",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "echo hi > src/x.py",
+  "via": "env",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Write",
+  "file": "${PROJ}/src/x.py",
+  "via": "env",
+  "expect": "block"
+ }
+]

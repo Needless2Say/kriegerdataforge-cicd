@@ -26,10 +26,15 @@ deep dives (`<slug>.md`) may live alongside these files and are repo-owned.
 | [`DESIGN_AND_EPICS.md`](DESIGN_AND_EPICS.md) | The design gate + cross repo Epic playbook (design doc → ADR → approval → vertical slices) | Anything complex, novel, or spanning repos |
 | [`DOCUMENTATION_STANDARD.md`](DOCUMENTATION_STANDARD.md) | How repo docs are organized, kept honest, and kept discoverable (taxonomy, README front door, deprecate with banner) | Any documentation work |
 | [`REPORTS_STANDARD.md`](REPORTS_STANDARD.md) | The reports standard. The six Projects boards + the AI bug reporter. Certified packages, adoption recipes, security posture, per repo type applicability | Touching reports/boards/triage, or adopting the feature in an app |
+| [`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md) | The KDF Code Review Process. A repo reviewed one slice at a time by fresh Claude and Codex sessions and Sol rounds. The roles, the cycle, the rules, severity, the artifacts and the security model | Reviewing a whole repo or package for production readiness |
 | [`templates/design-spec.template.md`](templates/design-spec.template.md) | Copy me 10-section design spec → `docs/design/{feature}.md` | The design gate applies |
 | [`templates/adr-entry.template.md`](templates/adr-entry.template.md) | Copy me ADR block → `docs/CHANGELOG_AND_DECISION_LOG.md` | Recording an architectural decision (`D-NNN`) |
 | [`templates/epic-tracker.template.md`](templates/epic-tracker.template.md) | Copy me tracker → `kriegerdataforge/docs/epics/{name}.md` (the hub) | Coordinating a cross repo Epic |
 | [`templates/contributor-onboarding.template.md`](templates/contributor-onboarding.template.md) | Copy me onboarding spine → `docs/guides/CONTRIBUTOR_ONBOARDING.md` | Creating/refreshing a repo's contributor onboarding |
+| [`templates/review-plan.template.md`](templates/review-plan.template.md) | Copy me review campaign plan → `docs/security/<PFX>_REVIEW_PLAN.md` | Starting a review campaign |
+| [`templates/review-brief.template.md`](templates/review-brief.template.md) | Copy me reviewer brief, one for Claude and Codex → `docs/security/<PFX>_REVIEW_<slice>_PROMPT.md` | Step 2 of a slice, and the final review |
+| [`templates/review-report.template.md`](templates/review-report.template.md) | Copy me report format for a fresh reviewer | A reviewer writing its report |
+| [`templates/review-adjudication.template.md`](templates/review-adjudication.template.md) | Copy me adjudication log → `docs/security/<PFX>_REVIEW_<slice>_ADJUDICATION.md` | Step 0 of a slice |
 | [`KIT_VERSION`](KIT_VERSION) | The kit version this repo carries | Checking sync state / reporting drift |
 
 ## How to use the kit to work well here
@@ -42,6 +47,8 @@ deep dives (`<slug>.md`) may live alongside these files and are repo-owned.
   first and follow the matching scenario. When unsure, choose the fail closed option.
 - **Docs work**. Follow `DOCUMENTATION_STANDARD.md`. Code is ground truth. Update the doc in the
   same PR as the behavior. Deprecate with a banner, don't delete.
+- **Reviewing a whole repo or package**. Follow `CODE_REVIEW_PROCESS.md`. The plan comes from the template, the owner
+  approves it, and each slice runs the cycle before its pull request opens.
 - **To improve the kit itself**. Propose the change in `kriegerdataforge-cicd` (`kit/common/` +
   both `KIT_VERSION` markers), per *How the standard is maintained* in
   [`AGENT_OPERATING_STANDARD.md`](AGENT_OPERATING_STANDARD.md).

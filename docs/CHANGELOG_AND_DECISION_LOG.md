@@ -1324,3 +1324,70 @@ four tenant repos so their lanes stop depending on it. When a deploy target runs
 the `docker-build` job of that repo's `ci.yml` and the gate builds it. See
 [`docs/guides/PROD_GATE.md`](guides/PROD_GATE.md).
 
+## D-028. The KDF Code Review Process is a kit standard, and its guard and launcher live here, unsynced
+
+- **Date.** 2026-09-28
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Epic · `kit/common/docs/agent/` (`CODE_REVIEW_PROCESS.md` and four templates, kit v1.5.0) ·
+  `scripts/kit_registry.json` · `tools/claude-code/` · `scripts/tests/test_claude_code_tools.py` · every kit repo
+  receives Markdown only, through the existing sync
+
+**Context.** The owner has had the hub, the auth UI and the SDK reviewed the same way, the repo cut into slices, each
+slice read by the session that fixes it, then by fresh Claude and ChatGPT sessions from one brief, then by Sol in
+rounds, every finding reproduced and every fix pinned, the whole run kept in files under `docs/security/`. The owner
+will run that process often and wants it to be a staple of the ecosystem, templated and as secure as it can be. Until
+now it lived in three plan documents and in the habits of the sessions that ran it. Preparing the SDK campaign
+measured three gaps in how a session is kept inside its role. A Bash deny rule does not cover the PowerShell tool,
+`git tag --list` was refused through one and ran through the other, and PowerShell was this machine's default shell.
+Pattern rules miss `git -C repo push origin main`, the spelling an orchestrator working across repos uses all day.
+And every session runs under the owner's own GitHub login, so the repository ruleset's admin bypass covers a session
+as it covers the owner, and GitHub cannot separate them.
+
+**Decision.**
+
+- **The process is a kit standard.** `docs/agent/CODE_REVIEW_PROCESS.md` holds the roles, the cycle, the rules, the
+  severity scale and the Blocks rule, the artifacts and their names, the security model, the runbook and the campaign
+  checklist. Four templates hold the shapes that worked, `review-plan`, `review-brief`, `review-report` and
+  `review-adjudication`. The kit version is v1.5.0, a minor bump as D-009 did for added files. The five files join
+  `kit_registry.json`, and the existing engine carries them to every repo as owner reviewed pull requests.
+- **The tooling is not in the kit.** The kit is language agnostic Markdown (D-001), and vendored code trips the
+  tenants' own linters (D-014). The guard, the launcher, the wiring checker and the installer live in
+  `tools/claude-code/` of this repo and each machine installs them from a clone.
+- **The guard is a PreToolUse hook that reads commands like a shell.** It replaces pattern rules as the primary fence
+  and leaves them as the second. The owner rules apply in every session, nothing merges, approves, tags, releases,
+  deploys or reaches `main`, a push names its branch and goes to `origin`, and settings, hooks, the MCP list and git
+  hooks are protected files a session cannot edit. The reviewer role adds read only git, no GitHub CLI, no writing
+  shell command, no redirect into a file, no secret file, no outward facing tool and file edits only under
+  `docs/security`. The role is chosen by `KDF_ROLE=reviewer` when the session is launched, so no repo needs a settings
+  file of its own.
+- **The launcher fails closed.** `kdf-review.sh` refuses to start unless the guard is wired and passes two canary calls,
+  starts the reviewer with the role and without the owner's self edit switch, and compares a git snapshot taken
+  before and after. Anything but a new file under `docs/security` is contamination, exit 3.
+- **The owner keeps three acts.** Adding the settings block by hand, the installer never edits settings and the guard
+  refuses a session that tries. Setting each reviewed repo's ruleset bypass to "For pull requests only". Merging.
+- **Git Bash is the shell.** `defaultShell` is `bash` and the PowerShell tool is denied, so one shell means one rule
+  surface. The guard still reads PowerShell commands.
+
+**Alternatives considered.**
+
+- Deny rules alone. Measured insufficient, see the context.
+- The tooling in the kit. Rejected, it breaks the Markdown only premise and lands Node and shell in Python repos.
+- A reviewer settings file in each repo. Rejected, its edit fences are layout specific, it is one more file per repo,
+  and `claude rc` refuses `--settings`, so a phone session could not be given a shared one.
+- A `dontAsk` mode with an allow list for reviewers. Rejected, it stalls an unattended review on the first command the
+  list forgot, and a probe that runs a script writes wherever the script says anyway.
+- A Python guard. Rejected, it needs an interpreter path on every machine, and Node runs wherever Claude Code and the
+  Next.js repos do.
+- A repo of its own for the tooling. Rejected as more than a few files need, this repo already holds the kit.
+
+**Trade-offs.** The guard adds about 65 ms to each call its matcher names. It needs Node. It reads command text, so a
+determined program in a one line script can still write anywhere, which is why the launcher checks git afterward. It
+guards a session against its own mistakes and against text that leads it astray, it is not a sandbox. The ruleset
+setting is the owner's, no file in a repo can make it.
+
+**Consequences.** After this merges the owner runs Distribute, and each kit repo gets a Markdown only sync pull request
+that the version check exempts. Each machine runs `install.sh`, adds the printed block to its settings, and runs
+`install.sh --check`. A rule change adds cases to `guard-cases.json` first. A campaign copies the plan template and runs
+the cycle, and the SDK's plan and the auth UI's files are the worked examples. See
+[`tools/claude-code/README.md`](../tools/claude-code/README.md).
+

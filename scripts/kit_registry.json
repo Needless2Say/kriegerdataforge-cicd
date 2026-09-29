@@ -9,12 +9,17 @@
 		"docs/agent/DEFINITION_OF_DONE.md",
 		"docs/agent/DOCUMENTATION_STANDARD.md",
 		"docs/agent/REPORTS_STANDARD.md",
+		"docs/agent/CODE_REVIEW_PROCESS.md",
 		"docs/agent/README.md",
 		"docs/agent/KIT_VERSION",
 		"docs/agent/templates/design-spec.template.md",
 		"docs/agent/templates/adr-entry.template.md",
 		"docs/agent/templates/epic-tracker.template.md",
-		"docs/agent/templates/contributor-onboarding.template.md"
+		"docs/agent/templates/contributor-onboarding.template.md",
+		"docs/agent/templates/review-plan.template.md",
+		"docs/agent/templates/review-brief.template.md",
+		"docs/agent/templates/review-report.template.md",
+		"docs/agent/templates/review-adjudication.template.md"
 	],
 	"repos": [
 		{ "repo": "Needless2Say/kriegerdataforge", "branch": "main" },
