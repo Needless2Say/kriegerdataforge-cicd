@@ -1,0 +1,5 @@
+# The Claude Code tooling runs under bash and node on every machine. Git on Windows converts line ends
+# on checkout, and a carriage return breaks a shell script, so these files keep LF everywhere.
+tools/claude-code/*.sh   text eol=lf
+tools/claude-code/*.js   text eol=lf
+tools/claude-code/*.json text eol=lf

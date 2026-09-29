@@ -56,7 +56,8 @@ Approved design specs (each `*-LOG.md` is the paired implementation log). See [`
 
 Centrally kit synced from `kriegerdataforge-cicd`, **do not edit locally** (a local edit is drift, see `docs/agent/KIT_VERSION`).
 
-- [`docs/agent/`](agent/). `AGENT_OPERATING_STANDARD`, `DEFINITION_OF_DONE`, `DESIGN_AND_EPICS`, `DOCUMENTATION_STANDARD`, and `templates/` (ADR / design-spec / epic tracker / contributor onboarding). Its [`README`](agent/README.md) explains every kit file and the reading order.
+- [`docs/agent/`](agent/). `AGENT_OPERATING_STANDARD`, `DEFINITION_OF_DONE`, `DESIGN_AND_EPICS`, `DOCUMENTATION_STANDARD`, `CODE_REVIEW_PROCESS` (the KDF Code Review Process), and `templates/` (ADR / design-spec / epic tracker / contributor onboarding / review plan, brief, report and adjudication).
+- [`tools/claude-code/README.md`](../tools/claude-code/README.md). The Code Review Process tooling for the owner's machine, the guard, the fresh reviewer launcher and the installer. Not kit synced. Its [`README`](agent/README.md) explains every kit file and the reading order.
 
 ## Prompts
 

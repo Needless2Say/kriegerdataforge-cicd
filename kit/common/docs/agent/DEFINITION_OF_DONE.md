@@ -70,7 +70,8 @@ Skip those sections rather than inventing the ceremony.
 - [ ] **OIDC/auth-protocol change** carried a design note and stays backward compatible through the transition.
 - [ ] **Adversarial review before handback**. A pass that tries to *refute* the change (missing
       authz, broken contract, violated rule). Use `/code-review ultra` or reviewer sub-agents if your
-      tool supports them. Otherwise do the refutation pass manually.
+      tool supports them. Otherwise do the refutation pass manually. To review a whole repo or package before a launch,
+      follow [`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md).
 
 ## If it touches a cross repo contract (API / OpenAPI / SDK)
 

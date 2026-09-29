@@ -157,7 +157,8 @@ Standard lane PRs. Full detail. [`docs/agent/DESIGN_AND_EPICS.md`](docs/agent/DE
    those standalone) and does a final review (consider
    **`/code-review ultra`**). The **owner** merges the infra/flag-wiring slice that enables the
    production flag and authorizes the production cross repo check. Then update the decision log and
-   close the epic.
+   close the epic. A review of a whole repo or package is its own campaign, follow
+   [`docs/agent/CODE_REVIEW_PROCESS.md`](docs/agent/CODE_REVIEW_PROCESS.md).
 
 ---
 

@@ -27,6 +27,13 @@ and the doc or file where the concept lives.
 | **`KIT_VERSION`** | The kit version marker, the sync engine refuses to run when the repo marker and kit marker disagree. |
 | **`kit_registry.json`** | The list of sync target repos for kit distribution. |
 | **Kit drift** | A local edit to a synced kit file. Never edit synced copies, change them here and redistribute. |
+| **KDF Code Review Process** | How a repo is reviewed one slice at a time. The orchestrator fixes, fresh Claude and Codex sessions review from one brief, ChatGPT Sol reads in rounds, every finding is reproduced and every fix pinned, and the owner merges. The standard is `kit/common/docs/agent/CODE_REVIEW_PROCESS.md`, D-028. |
+| **Orchestrator** | The one long running session that runs a review campaign, writes the briefs, launches the fresh reviewers, adjudicates and opens the pull requests. It never merges, tags or deploys. |
+| **Fresh review** | A review by a new session started in the repo with an empty memory and briefed only by the brief, so it cannot inherit the orchestrator's assumptions. Claude and Codex each do one per slice. |
+| **Sol dispatch** | One self contained prompt over one area of a slice, pasted by the owner into a fresh ChatGPT Sol session. A slice runs one round of them, or three for a trust slice. |
+| **The guard** | `tools/claude-code/kdf-guard.js`, a Claude Code PreToolUse hook. Exit 2 refuses a tool call and says why. It enforces the owner rules in every session and the reviewer rules where `KDF_ROLE=reviewer`. |
+| **`KDF_ROLE`** | The environment variable that sets a session's role for the guard. `reviewer` means read only git, no GitHub CLI, no writes outside `docs/security`, no secret files and no outward facing tools. |
+| **Blocks** | A finding's yes or no field. Yes is a P, or an M that reaches an account, a token, a credential, a privilege or someone else's data. Only yes is fixed first. |
 
 ## Secrets and ops
 
@@ -53,5 +60,6 @@ and the doc or file where the concept lives.
 
 | Prefix | Meaning |
 | --- | --- |
+| **`<PFX>-<slice>-n`** | A finding id in a review campaign. `SDK-S1-3` is the third finding of the fresh Claude review of slice S1 of the SDK campaign, `-C3` is Codex, `-D2-R1-3` a Sol finding of dispatch 2 round 1, `-FIN-3` a final review. |
 | **`D-NNN`** | An Architecture Decision Record in `docs/CHANGELOG_AND_DECISION_LOG.md`. Numbering is per repo across the ecosystem, qualify with the repo. |
 | **`PL-###`** | A finding id from the ecosystem's 2026 production launch security audit, cited in this repo's workflows and docs wherever a control exists because of that finding. The register itself is private, ask the owner for the detail behind a specific id. |
