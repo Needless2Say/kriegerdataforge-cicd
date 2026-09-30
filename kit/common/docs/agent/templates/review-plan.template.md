@@ -1,6 +1,7 @@
 # The {scope} review, slice by slice, then the whole scope. The plan
 
-> **How to use.** Copy this to `docs/security/{PFX}_REVIEW_PLAN.md` of the lead repo, fill it from the repos'
+> **How to use.** Copy this to `{PFX}_REVIEW_PLAN.md` at the root of the review folder of the lead repo,
+> `docs/security/reviews/{YYYY-MM-DD}-{scope}/`, beside its `README.md`, and fill it from the repos'
 > `AGENTS.md`, their code and their tests, and delete this box and every hint in braces. The process it plans is
 > [`../CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md), so the plan does not restate the cycle or the rules, it
 > holds what is particular to this scope. A spot review has no plan, its brief is the plan. At feature scale keep
@@ -123,10 +124,17 @@ Each with a recommendation. The owner answers in this section and the date, and 
 
 ## 11. Deliverables and where they live
 
+Everything the review writes is archived in its folder, `docs/security/reviews/{YYYY-MM-DD}-{scope}/`, laid out as
+[`CODE_REVIEW_PROCESS.md`](../agent/CODE_REVIEW_PROCESS.md) section 3 says.
+
 | Deliverable | Where |
 | --- | --- |
-| This plan | `docs/security/{PFX}_REVIEW_PLAN.md` |
-| Briefs, reports and adjudication logs | `docs/security/{PFX}_REVIEW_<slice>_{PROMPT,REPORT,CODEX_REPORT,ADJUDICATION}.md` and the final trio `..._FINAL_{PROMPT,REPORT,CODEX_REPORT}.md` |
+| The index | `README.md` in the review folder |
+| This plan | `{PFX}_REVIEW_PLAN.md` in the review folder |
+| Each slice's record | `<slice folder>/{PFX}_REVIEW_<slice>_ADJUDICATION.md`, one folder per slice, `s1-{name}` and on, then `phase-b` |
+| Briefs and reports | `<slice folder>/step-2-review/{PFX}_REVIEW_<slice>_{PROMPT,REPORT,CODEX_REPORT}.md` |
+| Sol dispatches and answers | `<slice folder>/step-4-sol/round-<n>/{PFX}_REVIEW_<slice>_SOL_R<n>_D<m>_{PROMPT,ANSWER}.md` |
+| Final briefs and reports | `<slice folder>/step-5-final/{PFX}_REVIEW_<slice>_FINAL_{PROMPT,REPORT,CODEX_REPORT}.md` |
 | Decisions | `docs/CHANGELOG_AND_DECISION_LOG.md`, from D-{next} |
 | Deferred items | `docs/security/DEFERRED_ITEMS.md` |
 | Progress | The Progress table at the top of this plan |

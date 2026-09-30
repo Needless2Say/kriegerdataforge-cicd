@@ -110,10 +110,15 @@ The role comes from the environment the session was started in, so it works in a
 ```bash
 cd <workspace>/<repo>
 KDF_ROLE=reviewer claude rc --spawn=same-dir      # sessions opened from a phone
+step=docs/security/reviews/2026-09-28-sdk/s1-foundation/step-2-review
 bash <workspace>/kriegerdataforge-cicd/tools/claude-code/kdf-review.sh --repo . \
-     --brief docs/security/SDK_REVIEW_S1_PROMPT.md --report docs/security/SDK_REVIEW_S1_REPORT.md \
-     --codex-report docs/security/SDK_REVIEW_S1_CODEX_REPORT.md --pin <pin> --model <model> --effort max
+     --brief "$step/SDK_REVIEW_S1_PROMPT.md" --report "$step/SDK_REVIEW_S1_REPORT.md" \
+     --codex-report "$step/SDK_REVIEW_S1_CODEX_REPORT.md" --pin <pin> --model <model> --effort max
 ```
+
+Every review is archived in its own dated folder, `docs/security/reviews/<YYYY-MM-DD>-<scope>/`, with a folder per
+slice and per step inside, as the process's section 3 lays out. `<step>` below is such a step folder, where the brief
+sits and both reports land beside it. The launcher takes any path under `docs/security`, at any depth.
 
 Whether a `claude rc` server passes the variable on to the sessions it spawns is not documented, so run the permission
 test from the process, section 10, in the first session it opens.
@@ -131,14 +136,14 @@ repo's own environment. At a pinned commit, the way the process runs every revie
 
 ```bash
 # Claude
-bash kdf-review.sh --repo <repo> --brief docs/security/<brief> --report docs/security/<report> \
-     --codex-report docs/security/<codex report> --pin <pin> --model <model> --effort max
+bash kdf-review.sh --repo <repo> --brief <step>/<brief> --report <step>/<report> \
+     --codex-report <step>/<codex report> --pin <pin> --model <model> --effort max
 # Codex, the owner starts it by hand in the same folder
-bash kdf-review.sh --repo <repo> --brief docs/security/<brief> --report docs/security/<report> \
-     --codex-report docs/security/<codex report> --pin <pin> --prepare
+bash kdf-review.sh --repo <repo> --brief <step>/<brief> --report <step>/<report> \
+     --codex-report <step>/<codex report> --pin <pin> --prepare
 bash kdf-review.sh --repo <repo> --collect
 # Codex in the cloud, which read the review branch on GitHub and handed its report back on a pull request's branch
-bash kdf-review.sh --repo <repo> --codex-report docs/security/<codex report> --pin <pin> --collect-branch <branch>
+bash kdf-review.sh --repo <repo> --codex-report <step>/<codex report> --pin <pin> --collect-branch <branch>
 ```
 
 `--pin` checks that a branch of `origin` holds the pin, that the folder is at it with no tracked file changed, that the
@@ -177,7 +182,7 @@ home directory, the tests use them.
 ```bash
 node kdf-brief.js facts  --repo <repo> --pin HEAD                     # the pin, its branch, the tip of main
 node kdf-brief.js counts --repo <repo> --pin HEAD Code=src/pkg/auth "Tests=tests/unit/auth/*.py"
-node kdf-brief.js check  --repo <repo> --pin HEAD docs/security/<brief>
+node kdf-brief.js check  --repo <repo> --pin HEAD <step>/<brief>
 ```
 
 `counts` prints one scope table row per argument, every file it names at the pin with its line count, in the order a

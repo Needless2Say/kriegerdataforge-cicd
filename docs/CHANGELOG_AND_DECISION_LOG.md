@@ -1576,3 +1576,58 @@ overrides nothing until a person fills it. The guard read a repo's credential na
 reads commented ones too, so a `.env.local` holding such a name stays closed. cicd adopted the standard in #235
 itself, and its E2E stack reads the sibling repos' package tokens from `.env.kdf` first.
 
+## D-031. Every review is archived in its repo, in a folder dated the day it opened, laid out by how it ran
+
+- **Date.** 2026-09-30
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Kit v1.7.0, reaching every
+  repo with the next Distribute.
+- **Tier / scope:** Standard · kit `docs/agent/CODE_REVIEW_PROCESS.md` sections 1, 3, 4, 5, 9, 11, 12 and 14, the four
+  review templates, a new `review-readme.template.md`, the kit README and registry · `tools/claude-code/README.md` and
+  the launcher's and guard's tests
+
+**Context.** The owner, 2026-09-30, "I want claude to archive the prompts in the repo its reviewing for me to have a
+tracked archive of every review that gets completed", "organized by folder names with dates, as in the review was
+initialized on the start date so I can review past reviews by looking at the directory names", and "the inside of that
+directory should be organized in a manner that makes sense to how the review went, like by rounds". Until now a
+review's files sat flat in `docs/security/`, named by prefix and slice, so the hub's and the auth UI's reviews share one
+folder with every other security document, and the Sol dispatches, the only prompts not written to the repo, lived on
+a Claude Artifact page alone. The owner keeps Codex on the one line prompt that names a brief in the repo.
+
+**Decision.**
+
+- **One folder per review,** `docs/security/reviews/<YYYY-MM-DD>-<scope>/` in the repo it reads. The date is the day
+  the review opened, the day the owner asked for it, and it never changes, so the folder names list the reviews in the
+  order they began. `<scope>` is the prefix in lower case with a few words when they help.
+- **Inside, the review as it ran.** A `README.md` index from the new template, the plan at the root from the feature
+  scale up, a folder per slice, `s1-<name>` on to `phase-b`, and in each the adjudication log and a folder per step that
+  sends a prompt or receives an answer, `step-2-review`, `step-4-sol/round-<n>`, `step-5-final` and
+  `step-5-second-read-<n>`. A spot review has no slice folder. The file names do not change, so a file read alone still
+  names its review and slice, and the finding ids do not change.
+- **Every prompt is kept.** The brief and both reports sit together in their step folder. Each Sol dispatch is written
+  to its round folder word for word as the page holds it, and each answer word for word as the owner pasted it back,
+  before it is adjudicated. The Artifact page stays the place the owner copies from.
+- **Across repos** the folder name is the same in every repo, the lead repo's holds the plan and the seam slices, and
+  every other repo's README names it. A review that grows keeps its folder.
+- **History stays.** Reviews opened before kit v1.7.0 keep their flat files. A review still running moves into its
+  folder with its next pull request.
+
+**Alternatives considered.**
+
+- `docs/reviews/` outside `docs/security`. Rejected, the guard, the launcher's fence, `AGENT_ROLES.md` and every repo's
+  `AGENTS.md` pointer say a reviewer writes only under `docs/security`, and a folder beneath it changes none of them.
+- The scale or the closing date in the folder name. Rejected, a review can grow into a larger scale and closes weeks
+  after it opens, and a folder must not be renamed while links point at it. The README carries both.
+- Shorter file names inside the folders, `PROMPT.md` and `REPORT.md`. Rejected, the launcher's one line, the finding ids
+  and a file opened on its own all read better with the full name.
+- Moving the finished reviews of the hub and the auth UI into dated folders. Not now, they are history, their links
+  run through plans, logs and memory, and a move is its own pull request if the owner wants it.
+
+**Trade-offs.** The launcher's lines grow longer, a step folder sits three levels under `docs/security/reviews/`. The
+launcher, the guard and the collect fence needed no change, since they already took any path under `docs/security`,
+and the tests now prove it at depth, a guard case for a nested report allowed and for a look alike folder outside
+refused, and a launcher run through the held report and collect with the nested paths.
+
+**Consequences.** Kit v1.7.0, cicd's own copies in step, and Distribute opens a sync pull request in every repo. The
+SDK review, open since 2026-09-28, moves its plan and S1's files into `docs/security/reviews/2026-09-28-sdk/` with S1's
+pull request.
+

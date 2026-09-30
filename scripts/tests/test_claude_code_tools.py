@@ -339,6 +339,25 @@ def test_every_agent_meets_its_role_where_it_reads() -> None:
     assert "`.gitignore` covers" in workflow
 
 
+def test_every_review_is_archived_in_a_dated_folder() -> None:
+    """
+    The process, its templates and the sync registry agree on the archive, one folder per review under
+    docs/security/reviews/, named by the day it opened, opened with the README template, a folder per step inside.
+    """
+    process = (KIT / "docs" / "agent" / "CODE_REVIEW_PROCESS.md").read_text(encoding = "utf-8")
+    assert "docs/security/reviews/<YYYY-MM-DD>-<scope>/" in process
+    for step in ("step-2-review", "step-4-sol", "round-<n>", "step-5-final", "step-5-second-read-<n>"):
+        assert step in process, f"CODE_REVIEW_PROCESS.md no longer names the {step} folder"
+    templates = KIT / "docs" / "agent" / "templates"
+    readme    = (templates / "review-readme.template.md").read_text(encoding = "utf-8")
+    assert "docs/security/reviews/{YYYY-MM-DD}-{scope}/" in readme
+    for name in ("review-brief", "review-plan", "review-adjudication"):
+        text = (templates / f"{name}.template.md").read_text(encoding = "utf-8")
+        assert "reviews/{YYYY-MM-DD}-{scope}" in text, f"{name} no longer names the review folder"
+    registry = json.loads((TOOLS.parents[1] / "scripts" / "kit_registry.json").read_text(encoding = "utf-8"))
+    assert "docs/agent/templates/review-readme.template.md" in registry["files"]
+
+
 @dataclass
 class Rig:
     """
@@ -787,6 +806,47 @@ def test_codex_first_its_report_waits_outside_the_tree_while_claude_reads(rig: R
     (rig.repo / "docs" / "security" / "REPORT.md").unlink()
     assert _launch(rig, "--codex-report", "docs/security/CODEX.md", mode = "tamper").returncode == 3
     assert (rig.repo / "docs" / "security" / "CODEX.md").is_file()
+    assert not (_hold(rig) / "open").exists()
+
+
+def test_a_review_archived_in_its_dated_folder_runs_like_a_flat_one(rig: Rig) -> None:
+    """
+    The archive nests a review under docs/security/reviews/<date>-<scope>/<slice>/<step>/. The report lands beside the
+    brief, Claude's report waits outside the tree under the same nested path while Codex reads, and collect puts both
+    back side by side.
+    """
+    step   = "docs/security/reviews/2026-09-30-app/s1-core/step-2-review"
+    folder = rig.repo / step
+    folder.mkdir(parents = True)
+    (folder / "APP_REVIEW_S1_PROMPT.md").write_text("# brief\n", encoding = "utf-8")
+    _git(rig.repo, "add", "-A")
+    _git(rig.repo, "commit", "-q", "-m", "brief in the archive")
+    _git(rig.repo, "push", "-q", "origin", "main")
+    paths = [
+        "--repo",
+        rig.repo.as_posix(),
+        "--brief",
+        f"{step}/APP_REVIEW_S1_PROMPT.md",
+        "--report",
+        f"{step}/APP_REVIEW_S1_REPORT.md",
+        "--codex-report",
+        f"{step}/APP_REVIEW_S1_CODEX_REPORT.md",
+        "--pin",
+        "HEAD",
+    ]
+    first = _run(rig, *paths)
+    assert first.returncode == 0, first.stdout + first.stderr
+    assert (folder / "APP_REVIEW_S1_REPORT.md").is_file()
+    prepared = _run(rig, *paths, "--prepare")
+    assert prepared.returncode == 0, prepared.stderr
+    assert f"write your report to {step}/APP_REVIEW_S1_CODEX_REPORT.md, edit nothing else." in prepared.stdout
+    assert not (folder / "APP_REVIEW_S1_REPORT.md").exists()
+    assert (_hold(rig) / "held" / step / "APP_REVIEW_S1_REPORT.md").is_file()
+    (folder / "APP_REVIEW_S1_CODEX_REPORT.md").write_text("# codex report\n", encoding = "utf-8")
+    collected = _collect(rig)
+    assert collected.returncode == 0, collected.stdout + collected.stderr
+    assert (folder / "APP_REVIEW_S1_REPORT.md").is_file()
+    assert (folder / "APP_REVIEW_S1_CODEX_REPORT.md").is_file()
     assert not (_hold(rig) / "open").exists()
 
 

@@ -1,9 +1,9 @@
 # The {campaign} review, {slice {S1}, {slice name}, or the spot review of {scope}}. The fresh review's report
 
-> **How to use.** A reviewer copies this to the report path its brief names, `docs/security/{PFX}_REVIEW_{slice}_REPORT.md`
-> for Claude or `..._CODEX_REPORT.md` for Codex, and at spot scale `docs/security/{PFX}_REVIEW_REPORT.md`, fills every
-> section, and deletes this box. Under 250 lines. It is the file a reviewer writes, with any scratch note beside it
-> under `docs/security`, both new files. The rules are
+> **How to use.** A reviewer copies this to the report path its brief names, beside the brief in the review's step
+> folder, `{PFX}_REVIEW_{slice}_REPORT.md` for Claude or `..._CODEX_REPORT.md` for Codex, and at spot scale
+> `{PFX}_REVIEW_REPORT.md`, fills every section, and deletes this box. Under 250 lines. It is the file a reviewer
+> writes, with any scratch note beside it in the same folder under `docs/security`, both new files. The rules are
 > [`../CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md) sections 5, 6 and 8. Name a secret's variable and never its
 > value.
 
