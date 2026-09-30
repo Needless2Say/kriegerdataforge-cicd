@@ -309,7 +309,8 @@ def test_real_registry_carries_both_app_secret_entries():
 def test_real_registry_covers_the_epic_consumers():
     """
     Wave 2.5 contract: the six E2E-journey repos + both package repos + the four
-    templates hold App-credential copies (superset of ops-setup-e2e's allow-list).
+    templates hold App-credential copies (superset of ops-setup-e2e's allow-list). The SDK
+    joined on 2026-09-30, its Merge Gate's consumer canary reads the hub and both tenant backends.
     """
     targets  = {t["repo"] for e in _distributable(_real_registry()) for t in e["github_repo_secrets"]}
     expected = {
@@ -325,6 +326,7 @@ def test_real_registry_covers_the_epic_consumers():
         "Needless2Say/kriegerdataforge-template-nextjs",
         "Needless2Say/kriegerdataforge-template-npm-package",
         "Needless2Say/kriegerdataforge-template-python-package",
+        "Needless2Say/kriegerdataforge-sdk",
     }
     assert targets == expected
 
