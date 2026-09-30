@@ -422,8 +422,9 @@ None of these declares outputs.
 `kdf_test`, health checked) and exports the connection string under **two** names,
 `DB_DATABASE_URL` (SDK/alembic, `env_prefix=DB_`) and `KDF_TEST_DATABASE_URL` (the pytest conftest
 gate), so a `-m requires_postgres` suite actually runs instead of silently green skipping (finding
-PL-166). App specific schema (e.g. a `kdfusers` table) is provisioned by the caller's `seed_command`,
-whose SQL lives in the caller's private repo (`:59-107`).
+PL-166). It declares `ENVIRONMENT: local`, since a stack started in Actions is local by the owner's
+definition (2026-09-30) and never the DEV account. App specific schema (e.g. a `kdfusers` table) is
+provisioned by the caller's `seed_command`, whose SQL lives in the caller's private repo (`:68-91`).
 
 **`ci-python-system.yml`** provisions a `postgres:16` service whose database is `kdf_system` and
 exports `KDF_SYSTEM_DATABASE_URL`. The suite's harness builds each server's environment from nothing, so

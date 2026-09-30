@@ -380,3 +380,15 @@ def test_the_secret_scan_refuses_a_committed_env_file_and_passes_the_examples(tm
     subprocess.run(["git", "-C", str(repo), "add", "-f", *tracked], check = True)
     run = subprocess.run([bash, shell.as_posix()], cwd = repo, capture_output = True, text = True)
     assert run.returncode == code, run.stdout + run.stderr
+
+
+def test_the_integration_lane_declares_a_ci_run_local():
+    """
+    A stack started in Actions is local by the owner's definition (2026-09-30), never the DEV account, and the states
+    are spelled local, dev and prod alone. The lane's job env names the state its callers' suites run in.
+    """
+    lane     = _lane("ci-python-integration.yml")
+    declared = [line.strip() for line in lane.split("\n") if line.strip().startswith("ENVIRONMENT:")]
+    assert declared == ["ENVIRONMENT: local"], declared
+    for word in ("ENVIRONMENT: dev", "ENVIRONMENT: development", "ENVIRONMENT: production", "ENVIRONMENT: prod"):
+        assert word not in lane, word
