@@ -39,8 +39,7 @@ security audit (`PL-###` findings). The canonical audit lives in the `kriegerdat
     it stays closed, since it may hold anything, a file `vercel env pull` wrote for example.
   - `.env.kdf`, every credential that works beyond this machine, the GitHub package tokens (`GH_PACKAGES_PAT`,
     `GH_NPM_TOKEN`), the SSO client secret and service key a hub issued (`KDF_OIDC_CLIENT_SECRET`,
-    `KDF_SERVICE_KEY`), and third party keys such as Resend or Twilio. Closed to every model. It replaces
-    `.env.github`.
+    `KDF_SERVICE_KEY`), and third party keys such as Resend or Twilio. Closed to every model.
   - The Makefile reads the tokens from `.env.kdf`, and compose passes a container only the `.env.kdf` values it needs
     at run time, never a package token. A new credential goes in `.env.kdf`, and its name in `.env.kdf.example`.
   - Every line of `.env.kdf.example` starts commented out, `# NAME=`, so a copy overrides nothing until a person
