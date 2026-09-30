@@ -50,7 +50,7 @@ jobs:
     name: Run AI Agent
     runs-on: ubuntu-latest
     # TODO: Choose the right environment for this agent's secret access
-    # environment: development
+    # environment: dev
     outputs:
       agent_result: ${{ steps.invoke-agent.outputs.result }}
       status: ${{ steps.invoke-agent.outputs.status }}

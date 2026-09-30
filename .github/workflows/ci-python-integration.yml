@@ -85,7 +85,10 @@ jobs:
       # KDF_TEST_DATABASE_URL for the pytest conftest gate.
       DB_DATABASE_URL: postgresql+psycopg2://kdf:kdf@localhost:5432/kdf_test
       KDF_TEST_DATABASE_URL: postgresql+psycopg2://kdf:kdf@localhost:5432/kdf_test
-      ENVIRONMENT: development
+      # a CI run is local, the owner's definition (2026-09-30), a stack started in Actions is local and never the DEV
+      # account, and the callers' integration conftests default to local themselves. local, dev and prod are the only
+      # names, and no caller branches on dev against local, is_production() is false for both
+      ENVIRONMENT: local
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
