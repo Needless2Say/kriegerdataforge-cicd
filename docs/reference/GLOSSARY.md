@@ -37,7 +37,7 @@ and the doc or file where the concept lives.
 | **Fresh review** | A review by a new session with an empty memory, briefed only by the brief and reading the pin, so it cannot inherit the orchestrator's assumptions. Claude and Codex each do one per slice. |
 | **Sol dispatch** | One self contained prompt over one area of a slice, pasted by the owner into a fresh ChatGPT Sol session. A slice runs one round of them, or three for a trust slice. |
 | **The guard** | `tools/claude-code/kdf-guard.js`, a Claude Code PreToolUse hook. Exit 2 refuses a tool call and says why. It enforces the owner rules in every session and the reviewer rules where `KDF_ROLE=reviewer`. |
-| **`KDF_ROLE`** | The environment variable that sets a session's role for the guard. `reviewer` means read only git, no GitHub CLI, no writes outside `docs/security`, no secret files and no outward facing tools. |
+| **`KDF_ROLE`** | The environment variable that sets a session's role for the guard. `reviewer` means read only git, no GitHub CLI, no writes outside `docs/reviews`, the review archive, no secret files and no outward facing tools. |
 | **Blocks** | A finding's yes or no field. Yes is a P, or an M that reaches an account, a token, a credential, a privilege or someone else's data. Only yes is fixed first. |
 
 ## Secrets and ops

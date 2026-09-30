@@ -47,7 +47,7 @@ invent a new *kind* of top level directory silently. Surface it to the owner fir
 | `docs/features/` | One doc per implemented feature | |
 | `docs/design/` | Design specs from the design gate (`{feature}.md`) | Paired with an ADR |
 | `docs/security/` | Security posture, audits, threat notes | |
-| `docs/code_review/` | Code review reports (from the review prompt) | Created as needed where the repo keeps them |
+| `docs/reviews/` | Every code review, one dated folder each, `<YYYY-MM-DD>-<scope>/`, laid out as [`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md) section 3 says, the review process's and the review prompt's alike | Its `README.md` is the archive's front door, one line per review, newest first. The only folder a reviewer writes in |
 | `docs/product/` | Product vision / roadmap material | Only where relevant |
 | `docs/archive/` | Retired docs kept for history | See the deprecation rule below |
 | `docs/epics/` | Cross repo epic trackers | **Hub only** (`kriegerdataforge`) |
@@ -122,7 +122,7 @@ is too small to warrant it.)
 | --- | --- | --- |
 | `FEATURE_DOCUMENTATION_PROMPT` | One implemented feature, documented | `docs/features/` |
 | `AGENT_DOCUMENTATION_PROMPT` | Agent facing repo guidance | `docs/agent/` pointers + `AGENTS.md` |
-| `CODE_REVIEW_DOCUMENTATION_PROMPT` | A code review report | `docs/code_review/` |
+| `CODE_REVIEW_DOCUMENTATION_PROMPT` | A code review report | `docs/reviews/<YYYY-MM-DD>-<scope>/`, dated the day it starts, with its line in `docs/reviews/README.md` |
 | `GUIDES_DOCUMENTATION_PROMPT` | A how to guide | `docs/guides/` |
 | `REFERENCE_DOCUMENTATION_PROMPT` | A source verified reference | `docs/reference/` |
 | `DESIGN_ADR_DOCUMENTATION_PROMPT` | A design doc + ADR entry | `docs/design/` + the decision log |

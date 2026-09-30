@@ -117,13 +117,14 @@ searched, opened, quoted in a report or offered as a finding. A finding that `.g
 ignored cites `.gitignore` and the path's name, never the file's content. A reviewer may open `.env.local` as rule 5
 says, to understand the local stack, and a value from it never goes into the report.
 
-**May write.** Only its report, and any scratch note, as new files under `docs/security/` of the repo it was started
-in. Never a tracked file there, a brief, a plan, a log or an earlier report.
+**May write.** Only its report, and any scratch note, as new files under `docs/reviews/` of the repo it was started
+in, the review archive, in the folder its brief names. Never a tracked file there, a brief, a plan, a log or an earlier
+report, and never anything under `docs/security/`, which holds the repo's security posture.
 
 **Never.** Edit any other file. Run a git command that writes, `add`, `commit`, `checkout`, `switch`, `reset`,
 `restore`, `stash`, `clean`, making or deleting a branch, `fetch`, `pull`, `push`. In the cloud, the one commit your
 task makes of your report, for its pull request, is the only git write allowed. Use the GitHub CLI or API. Install or
-download anything, a web fetch or search included. Redirect output into a file outside `docs/security/`. Use
+download anything, a web fetch or search included. Redirect output into a file outside `docs/reviews/`. Use
 connectors, artifacts, messages, schedules or notifications. Run a recursive `grep`, `rg -u` or `--no-ignore`,
 `git grep --no-index` or `git diff --no-index`, which read what `.gitignore` excludes. Open another reviewer's report of the same scope, the adjudication rows about it, or
 anything under `.git/kdf-review`, where the launcher holds a report while a review is open.
@@ -142,7 +143,7 @@ text, rule 9.
 | Tool | What holds it besides this page |
 | --- | --- |
 | Claude Code | The guard hook refuses a call that breaks a rule, the reviewer rules when `KDF_ROLE=reviewer` is set, and the permission deny rules and GitHub's rulesets stay behind it. The guard sees Read, Grep and Glob too. No session touches a secret file, or a `.env.local` that still holds a credential, beyond checking that it exists, and a reviewer cannot open a path git ignores or a held report, edit a tracked file, reach the web, or run docker beyond `ps` and `logs`. Glob still lists the names of ignored files, which hold no value |
-| Codex | For a review on the owner's machine, the launcher opens its turn in the repo folder at the pinned commit, closes it with a check that fails the review when anything but its report changed, and keeps the other reviewer's report of the scope out of the folder meanwhile. Its sandbox and approval settings limit what it writes, not what it reads, so the secret files and everything else `.gitignore` covers are kept from it by this page. Codex in the cloud reads the pushed pin on GitHub, where no ignored file exists, and the launcher brings in only a report its branch adds under `docs/security`. For other work, its sandbox and approval settings, and GitHub's rulesets |
+| Codex | For a review on the owner's machine, the launcher opens its turn in the repo folder at the pinned commit, closes it with a check that fails the review when anything but its report changed, and keeps the other reviewer's report of the scope out of the folder meanwhile. Its sandbox and approval settings limit what it writes, not what it reads, so the secret files and everything else `.gitignore` covers are kept from it by this page. Codex in the cloud reads the pushed pin on GitHub, where no ignored file exists, and the launcher brings in only a report its branch adds under `docs/reviews`. For other work, its sandbox and approval settings, and GitHub's rulesets |
 | Copilot, Cursor and others | Their own settings, GitHub's rulesets, and the owner's review of every pull request |
 | Chat readers | They have no access to the repo |
 

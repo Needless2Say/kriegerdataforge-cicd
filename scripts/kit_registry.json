@@ -17,6 +17,7 @@
 		"docs/agent/templates/adr-entry.template.md",
 		"docs/agent/templates/epic-tracker.template.md",
 		"docs/agent/templates/contributor-onboarding.template.md",
+		"docs/agent/templates/review-readme.template.md",
 		"docs/agent/templates/review-plan.template.md",
 		"docs/agent/templates/review-brief.template.md",
 		"docs/agent/templates/review-report.template.md",

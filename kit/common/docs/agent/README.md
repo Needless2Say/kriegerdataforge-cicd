@@ -33,10 +33,11 @@ deep dives (`<slug>.md`) may live alongside these files and are repo-owned.
 | [`templates/adr-entry.template.md`](templates/adr-entry.template.md) | Copy me ADR block → `docs/CHANGELOG_AND_DECISION_LOG.md` | Recording an architectural decision (`D-NNN`) |
 | [`templates/epic-tracker.template.md`](templates/epic-tracker.template.md) | Copy me tracker → `kriegerdataforge/docs/epics/{name}.md` (the hub) | Coordinating a cross repo Epic |
 | [`templates/contributor-onboarding.template.md`](templates/contributor-onboarding.template.md) | Copy me onboarding spine → `docs/guides/CONTRIBUTOR_ONBOARDING.md` | Creating/refreshing a repo's contributor onboarding |
-| [`templates/review-plan.template.md`](templates/review-plan.template.md) | Copy me review campaign plan → `docs/security/<PFX>_REVIEW_PLAN.md` | Starting a review campaign |
-| [`templates/review-brief.template.md`](templates/review-brief.template.md) | Copy me reviewer brief, one for Claude and Codex → `docs/security/<PFX>_REVIEW_<slice>_PROMPT.md` | Step 2 of a slice, and the final review |
-| [`templates/review-report.template.md`](templates/review-report.template.md) | Copy me report format for a fresh reviewer | A reviewer writing its report |
-| [`templates/review-adjudication.template.md`](templates/review-adjudication.template.md) | Copy me adjudication log → `docs/security/<PFX>_REVIEW_<slice>_ADJUDICATION.md` | Step 0 of a slice |
+| [`templates/review-readme.template.md`](templates/review-readme.template.md) | Copy me review index → `docs/reviews/<YYYY-MM-DD>-<scope>/README.md`, the dated folder that archives the whole review | Opening any review |
+| [`templates/review-plan.template.md`](templates/review-plan.template.md) | Copy me review campaign plan → `<PFX>_REVIEW_PLAN.md` in the review folder | Starting a review campaign |
+| [`templates/review-brief.template.md`](templates/review-brief.template.md) | Copy me reviewer brief, one for Claude and Codex → `<slice folder>/step-2-review/<PFX>_REVIEW_<slice>_PROMPT.md` | Step 2 of a slice, and the final review |
+| [`templates/review-report.template.md`](templates/review-report.template.md) | Copy me report format for a fresh reviewer, beside its brief | A reviewer writing its report |
+| [`templates/review-adjudication.template.md`](templates/review-adjudication.template.md) | Copy me adjudication log → `<slice folder>/<PFX>_REVIEW_<slice>_ADJUDICATION.md` | Step 0 of a slice |
 | [`KIT_VERSION`](KIT_VERSION) | The kit version this repo carries | Checking sync state / reporting drift |
 
 ## How to use the kit to work well here
@@ -51,7 +52,8 @@ deep dives (`<slug>.md`) may live alongside these files and are repo-owned.
   same PR as the behavior. Deprecate with a banner, don't delete.
 - **Reviewing code with more than one model**, one function or every repo. Follow `CODE_REVIEW_PROCESS.md`. Pick the
   scale first. A spot review needs only a brief, a larger one a plan the owner approves, and each slice runs the cycle
-  before its pull request opens.
+  before its pull request opens. Every review is archived in its own dated folder under `docs/reviews/`, and
+  `docs/reviews/README.md` lists them, newest first.
 - **To improve the kit itself**. Propose the change in `kriegerdataforge-cicd` (`kit/common/` +
   both `KIT_VERSION` markers), per *How the standard is maintained* in
   [`AGENT_OPERATING_STANDARD.md`](AGENT_OPERATING_STANDARD.md).

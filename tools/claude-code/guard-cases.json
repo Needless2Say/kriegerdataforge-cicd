@@ -1004,8 +1004,14 @@
  {
   "role": "reviewer",
   "tool": "Bash",
-  "command": "cat a > docs/security/scratch.txt",
+  "command": "cat a > docs/reviews/scratch.txt",
   "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "cat a > docs/security/scratch.txt",
+  "expect": "block"
  },
  {
   "role": "reviewer",
@@ -1286,20 +1292,32 @@
  {
   "role": "reviewer",
   "tool": "Write",
-  "file": "${PROJ}/docs/security/SDK_REVIEW_S1_REPORT.md",
+  "file": "${PROJ}/docs/reviews/2026-09-28-sdk/s1-foundation/step-2-review/SDK_REVIEW_S1_REPORT.md",
   "expect": "allow"
  },
  {
   "role": "reviewer",
   "tool": "Write",
-  "file": "${PROJ}/docs/security/x.md",
+  "file": "${PROJ}/docs/reviews/x.md",
   "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Write",
+  "file": "docs/reviews/y.md",
+  "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Write",
+  "file": "${PROJ}/docs/security/SDK_REVIEW_S1_REPORT.md",
+  "expect": "block"
  },
  {
   "role": "reviewer",
   "tool": "Write",
   "file": "docs/security/y.md",
-  "expect": "allow"
+  "expect": "block"
  },
  {
   "role": "reviewer",
@@ -1322,7 +1340,13 @@
  {
   "role": "reviewer",
   "tool": "Write",
-  "file": "${PROJ}/docs/security/../../src/x.py",
+  "file": "${PROJ}/docs/reviews/../../src/x.py",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Write",
+  "file": "${PROJ}/docs/reviews/../security/x.md",
   "expect": "block"
  },
  {
@@ -1334,14 +1358,20 @@
  {
   "role": "reviewer",
   "tool": "Write",
-  "file": "${PROJ}/docs/securityx/a.md",
+  "file": "${PROJ}/docs/reviewsx/a.md",
   "expect": "block"
  },
  {
   "role": "reviewer",
   "tool": "Edit",
-  "file": "${PROJ}/docs/security/a.md",
+  "file": "${PROJ}/docs/reviews/a.md",
   "expect": "allow"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Edit",
+  "file": "${PROJ}/docs/security/a.md",
+  "expect": "block"
  },
  {
   "role": "owner",
@@ -1666,7 +1696,7 @@
  {
   "role": "reviewer",
   "tool": "Write",
-  "file": "${PROJ}/docs/security/REPORT.md",
+  "file": "${PROJ}/docs/reviews/REPORT.md",
   "via": "env",
   "expect": "allow"
  },
@@ -1871,10 +1901,10 @@
  { "role": "reviewer", "tool": "Read", "file": "${PROJ}/.env.example", "expect": "allow" },
  { "role": "reviewer", "tool": "Read", "file": "${PROJ}/tokens/.env.local", "expect": "block" },
  { "role": "reviewer", "tool": "Read", "file": "${PROJ}/.env.test", "expect": "block" },
- { "role": "reviewer", "tool": "Read", "file": "${PROJ}/.git/kdf-review/held/docs/security/CODEX.md", "expect": "block" },
+ { "role": "reviewer", "tool": "Read", "file": "${PROJ}/.git/kdf-review/held/docs/reviews/CODEX.md", "expect": "block" },
  { "role": "owner", "tool": "Read", "file": "${PROJ}/tokens/.env.local", "expect": "block" },
  { "role": "owner", "tool": "Read", "file": "${PROJ}/.venv/lib/site.py", "expect": "allow" },
- { "role": "owner", "tool": "Read", "file": "${PROJ}/.git/kdf-review/held/docs/security/CODEX.md", "expect": "allow" },
+ { "role": "owner", "tool": "Read", "file": "${PROJ}/.git/kdf-review/held/docs/reviews/CODEX.md", "expect": "allow" },
  { "role": "reviewer", "tool": "Grep", "input": { "pattern": "x", "path": "${PROJ}/.venv/lib/site.py" }, "expect": "block" },
  { "role": "reviewer", "tool": "Grep", "input": { "pattern": "x", "path": "${PROJ}/.git/kdf-review" }, "expect": "block" },
  { "role": "reviewer", "tool": "Grep", "input": { "pattern": "x", "path": "${PROJ}/src" }, "expect": "allow" },
@@ -1891,7 +1921,7 @@
  { "role": "reviewer", "tool": "Bash", "command": "cat .venv/lib/site.py", "expect": "block" },
  { "role": "reviewer", "tool": "Bash", "command": "head -5 node_modules/pkg/index.js", "expect": "block" },
  { "role": "reviewer", "tool": "Bash", "command": "sed -n 1,5p build.log", "expect": "block" },
- { "role": "reviewer", "tool": "Bash", "command": "cat .git/kdf-review/held/docs/security/CODEX.md", "expect": "block" },
+ { "role": "reviewer", "tool": "Bash", "command": "cat .git/kdf-review/held/docs/reviews/CODEX.md", "expect": "block" },
  { "role": "reviewer", "tool": "Bash", "command": "cat tokens/.env.local", "expect": "block" },
  { "role": "reviewer", "tool": "Bash", "command": "cat src/app.py", "expect": "allow" },
  { "role": "reviewer", "tool": "Bash", "command": "grep -R foo .", "expect": "block" },
@@ -1993,10 +2023,17 @@
  { "role": "reviewer", "tool": "WebFetch", "input": { "url": "https://example.com", "prompt": "x" }, "expect": "block" },
  { "role": "reviewer", "tool": "WebSearch", "input": { "query": "x" }, "expect": "block" },
  { "role": "owner", "tool": "WebFetch", "input": { "url": "https://example.com", "prompt": "x" }, "expect": "allow" },
- { "role": "reviewer", "tool": "Write", "file": "${PROJ}/docs/security/TRACKED.md", "expect": "block" },
- { "role": "reviewer", "tool": "Edit", "file": "${PROJ}/docs/security/TRACKED.md", "expect": "block" },
- { "role": "reviewer", "tool": "Write", "file": "${PROJ}/docs/security/NEW_REPORT.md", "expect": "allow" },
- { "role": "owner", "tool": "Write", "file": "${PROJ}/docs/security/TRACKED.md", "expect": "allow" },
+ { "role": "reviewer", "tool": "Write", "file": "${PROJ}/docs/reviews/TRACKED.md", "expect": "block" },
+ { "role": "reviewer", "tool": "Edit", "file": "${PROJ}/docs/reviews/TRACKED.md", "expect": "block" },
+ { "role": "reviewer", "tool": "Write", "file": "${PROJ}/docs/reviews/NEW_REPORT.md", "expect": "allow" },
+ { "role": "reviewer", "tool": "Write", "file": "${PROJ}/docs/security/NEW_REPORT.md", "expect": "block" },
+ { "role": "reviewer", "tool": "Write", "file": "${PROJ}/docs/reviews/2026-09-30-app/s1-core/step-2-review/APP_REVIEW_S1_REPORT.md", "expect": "allow" },
+ { "role": "reviewer", "tool": "Write", "file": "${PROJ}/docs/reviews/2026-09-30-app/APP_REVIEW_PROMPT_NOTES.md", "expect": "allow" },
+ { "role": "reviewer", "tool": "Write", "file": "${PROJ}/docs/security/reviews/2026-09-30-app/s1-core/step-2-review/APP_REVIEW_S1_REPORT.md", "expect": "block" },
+ { "role": "reviewer", "tool": "Write", "file": "${PROJ}/docs/reviews-old/2026-09-30-app/APP_REVIEW_S1_REPORT.md", "expect": "block" },
+ { "role": "reviewer", "tool": "Write", "file": "${PROJ}/docs/reviews/../security/APP_REVIEW_S1_REPORT.md", "expect": "block" },
+ { "role": "owner", "tool": "Write", "file": "${PROJ}/docs/reviews/TRACKED.md", "expect": "allow" },
+ { "role": "owner", "tool": "Write", "file": "${PROJ}/docs/security/POSTURE.md", "expect": "allow" },
  { "role": "reviewer", "tool": "Bash", "command": "docker compose ps", "expect": "allow" },
  { "role": "reviewer", "tool": "Bash", "command": "docker logs kdf-api --tail 50", "expect": "allow" },
  { "role": "reviewer", "tool": "Bash", "command": "docker compose -f docker-compose.yml logs --tail 50 api", "expect": "allow" },

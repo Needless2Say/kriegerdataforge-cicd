@@ -4,7 +4,9 @@
  * kdf-brief.js, the facts a review brief states, measured at the pin instead of remembered. Read only.
  *
  *   node kdf-brief.js facts  --repo <root> --pin <commit> [--base <branch>]
- *        the pin, the branch that holds it and the tip of main it sits on, for the brief's "The commit" line
+ *        the slice's state commit, the branch that holds it and the tip of main it sits on, for the brief's "The
+ *        commit" line. Run it on the state, before the brief's own commit, which becomes the pin. No commit holds its
+ *        own hash, so the brief names the state and says the pin is the commit that adds the brief on top of it
  *   node kdf-brief.js counts --repo <root> --pin <commit> [<label>=]<path or glob> ...
  *        one scope table row per argument, every file it names at the pin with its line count
  *   node kdf-brief.js check  --repo <root> --pin <commit> <brief>
@@ -150,9 +152,11 @@ if (command === 'facts') {
   } catch (err) {
     fail(2, 'origin/' + base + ' is unknown here. Fetch it first.');
   }
-  process.stdout.write('pin     ' + pin + '\nbranch  ' + (branch || '(none, push the pin first)') + '\nbase    ' + tip + '\n');
-  process.stdout.write('line    The pin is `' + pin.slice(0, 10) + '` on branch `' + (branch || '?') + '`, which sits on `'
-    + base + '` at `' + tip.slice(0, 10) + '`.\n');
+  process.stdout.write('state   ' + pin + '\nbranch  ' + (branch || '(none, push the state first)') + '\nbase    ' + tip
+    + '\n');
+  process.stdout.write('line    The pin is the commit that adds this brief and nothing else, on top of the slice\'s state `'
+    + pin.slice(0, 10) + '`, on branch `' + (branch || '?') + '`, which sits on `' + base + '` at `' + tip.slice(0, 10)
+    + '`.\n');
   process.exit(0);
 }
 

@@ -19,8 +19,10 @@ Honor the stated vision. Surface conflicts to me rather than resolving them.
   invariants a reviewer must check every time.
 
 **Output, and only this.**
-- Write under `docs/code_review/` (create if absent), following the repo's existing file/ID
-  convention where there is one. Update the review index if the repo keeps one.
+- Write the review into its own dated folder, `docs/reviews/<YYYY-MM-DD>-<scope>/`, dated the day
+  it starts, with a `README.md` index from `docs/agent/templates/review-readme.template.md`, laid
+  out as `docs/agent/CODE_REVIEW_PROCESS.md` section 3 says, and add its line to
+  `docs/reviews/README.md`. Inside it, follow the repo's existing file and ID convention.
 - This task WRITES DOCS. It does not change product code or behavior.
 
 **Section template (playbook). Omit a section only if truly N/A and say so.**
