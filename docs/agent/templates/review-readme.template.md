@@ -1,9 +1,10 @@
 # {YYYY-MM-DD} {scope} review. {What was reviewed, in one line}
 
 > **How to use.** The orchestrator copies this to `README.md` at the root of the review folder,
-> `docs/security/reviews/{YYYY-MM-DD}-{scope}/`, on the day the review opens, fills every `{...}`, and deletes this box
+> `docs/reviews/{YYYY-MM-DD}-{scope}/`, on the day the review opens, fills every `{...}`, and deletes this box
 > and every hint in braces. It is the index a person reads first, so keep it short and current. The orchestrator
-> updates it whenever a step closes. The layout it describes is
+> updates it whenever a step closes, and adds the review's line to the top of `docs/reviews/README.md`, the archive's
+> front door, the day the folder is created. The layout it describes is
 > [`../CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md) section 3. Link every file with a path relative to this
 > folder, and name a secret's variable, never its value.
 

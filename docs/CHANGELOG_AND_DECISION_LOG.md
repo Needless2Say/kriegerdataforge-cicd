@@ -1581,23 +1581,34 @@ itself, and its E2E stack reads the sibling repos' package tokens from `.env.kdf
 - **Date.** 2026-09-30
 - **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Kit v1.7.0, reaching every
   repo with the next Distribute.
-- **Tier / scope:** Standard · kit `docs/agent/CODE_REVIEW_PROCESS.md` sections 1, 3, 4, 5, 9, 11, 12 and 14, the four
-  review templates, a new `review-readme.template.md`, the kit README and registry · `tools/claude-code/README.md` and
-  the launcher's and guard's tests
+- **Tier / scope:** Epic · kit `docs/agent/CODE_REVIEW_PROCESS.md` sections 1, 3, 4, 5, 7, 9, 10, 11, 12 and 14,
+  `AGENT_ROLES.md`, `WORKFLOW.md`, `DOCUMENTATION_STANDARD.md`, the four review templates, a new
+  `review-readme.template.md`, the kit README and registry · `tools/claude-code/kdf-guard.js`, `kdf-review.sh`,
+  `kdf-brief.js`, their README and tests · then every repo's `AGENTS.md` role pointer, its code review prompt and its
+  past reviews, one pull request per repo
 
 **Context.** The owner, 2026-09-30, "I want claude to archive the prompts in the repo its reviewing for me to have a
 tracked archive of every review that gets completed", "organized by folder names with dates, as in the review was
 initialized on the start date so I can review past reviews by looking at the directory names", and "the inside of that
-directory should be organized in a manner that makes sense to how the review went, like by rounds". Until now a
-review's files sat flat in `docs/security/`, named by prefix and slice, so the hub's and the auth UI's reviews share one
-folder with every other security document, and the Sol dispatches, the only prompts not written to the repo, lived on
-a Claude Artifact page alone. The owner keeps Codex on the one line prompt that names a brief in the repo.
+directory should be organized in a manner that makes sense to how the review went, like by rounds". The first draft of
+this decision put the archive at `docs/security/reviews/`. The owner moved it, "I prefer the docs/reviews/ directory
+more because the reviews are code reviews and they wont be all dedicated for security", and asked for "all of the past
+code reviews" to be organized the same way, "so that its easier for me and other agents to look through". Until now a
+review's files sat flat in `docs/security/`, named by prefix and slice, beside every security document, the review
+prompt of the documentation toolkit wrote to `docs/code_review/`, and the Sol dispatches, the only prompts not written
+to a repo, lived on a Claude Artifact page alone. The owner keeps Codex on the one line prompt that names a brief in the
+repo. The SDK review session also found that a brief could never name the commit that holds it.
 
 **Decision.**
 
-- **One folder per review,** `docs/security/reviews/<YYYY-MM-DD>-<scope>/` in the repo it reads. The date is the day
-  the review opened, the day the owner asked for it, and it never changes, so the folder names list the reviews in the
-  order they began. `<scope>` is the prefix in lower case with a few words when they help.
+- **One root, `docs/reviews/`, and one folder per review,** `docs/reviews/<YYYY-MM-DD>-<scope>/` in the repo it reads.
+  The date is the day the review opened, the day the owner asked for it, and it never changes, so the folder names
+  list the reviews in the order they began. `<scope>` is the prefix in lower case with a few words when they help.
+  `docs/reviews/README.md` is the archive's front door, one line per review, newest first.
+- **The reviewer write zone moves with it.** The guard lets a reviewer write files only under `docs/reviews`, the
+  launcher refuses a report or a Codex report anywhere else, and its contamination check and `--collect-branch` accept
+  only new files there. `docs/security/` holds the repo's security posture, its audits, threat notes, runbooks and the
+  register, and no reviewer writes in it. One root and not both, least privilege.
 - **Inside, the review as it ran.** A `README.md` index from the new template, the plan at the root from the feature
   scale up, a folder per slice, `s1-<name>` on to `phase-b`, and in each the adjudication log and a folder per step that
   sends a prompt or receives an answer, `step-2-review`, `step-4-sol/round-<n>`, `step-5-final` and
@@ -1606,28 +1617,41 @@ a Claude Artifact page alone. The owner keeps Codex on the one line prompt that 
 - **Every prompt is kept.** The brief and both reports sit together in their step folder. Each Sol dispatch is written
   to its round folder word for word as the page holds it, and each answer word for word as the owner pasted it back,
   before it is adjudicated. The Artifact page stays the place the owner copies from.
+- **The pin a brief can name.** Step 2 commits the slice's state, then the brief alone in a second commit, and that
+  second commit is the pin. The brief names the state commit and says the pin is the commit that adds the brief on top
+  of it, `git rev-parse HEAD` printing the pin and `git rev-parse HEAD~1` the state. `kdf-brief.js facts`, run on the
+  state, prints that line.
 - **Across repos** the folder name is the same in every repo, the lead repo's holds the plan and the seam slices, and
   every other repo's README names it. A review that grows keeps its folder.
-- **History stays.** Reviews opened before kit v1.7.0 keep their flat files. A review still running moves into its
-  folder with its next pull request.
+- **Past reviews move in.** The flat reviews in `docs/security/` and the `docs/code_review/` areas move into dated
+  folders under `docs/reviews/`, each dated by the day it began and laid out by how it ran, its rounds, slices or areas,
+  with their text unchanged and only the links that point at them fixed. Audits, their trackers and the register stay
+  in `docs/security/`. A review still running moves into its folder with its next pull request.
 
 **Alternatives considered.**
 
-- `docs/reviews/` outside `docs/security`. Rejected, the guard, the launcher's fence, `AGENT_ROLES.md` and every repo's
-  `AGENTS.md` pointer say a reviewer writes only under `docs/security`, and a folder beneath it changes none of them.
+- `docs/security/reviews/`, the first draft, which changed no fence. Rejected by the owner, the reviews are code
+  reviews and not all of them are about security.
+- `docs/review/` and `docs/code-review/`, which the owner also offered. `docs/reviews/` was the owner's first choice,
+  and it matches the plural folders beside it, `docs/guides/`, `docs/features/`, `docs/epics/`.
+- Keeping `docs/code_review/` for the review prompt's reports. Folded in, one home for every code review.
+- Both roots writable during a transition. Rejected, no running review writes under `docs/security` any more, and a
+  second zone would only widen what a reviewer may touch.
 - The scale or the closing date in the folder name. Rejected, a review can grow into a larger scale and closes weeks
   after it opens, and a folder must not be renamed while links point at it. The README carries both.
 - Shorter file names inside the folders, `PROMPT.md` and `REPORT.md`. Rejected, the launcher's one line, the finding ids
   and a file opened on its own all read better with the full name.
-- Moving the finished reviews of the hub and the auth UI into dated folders. Not now, they are history, their links
-  run through plans, logs and memory, and a move is its own pull request if the owner wants it.
 
-**Trade-offs.** The launcher's lines grow longer, a step folder sits three levels under `docs/security/reviews/`. The
-launcher, the guard and the collect fence needed no change, since they already took any path under `docs/security`,
-and the tests now prove it at depth, a guard case for a nested report allowed and for a look alike folder outside
-refused, and a launcher run through the held report and collect with the nested paths.
+**Trade-offs.** Every repo's `AGENTS.md` role pointer names the zone, so each repo needs a pull request of its own,
+which also points its code review prompt at `docs/reviews/` and moves its past reviews in. Until the owner reinstalls
+the guard, a Claude reviewer is still held to `docs/security`, so no review pins a brief under `docs/reviews/` before
+that. The launcher's lines grow longer, a step folder sits three levels under `docs/reviews/`. The tests prove the
+zone at depth, guard cases for a nested report allowed, for `docs/security`, a look alike folder and a traversal
+refused, and a launcher run through the held report and collect with nested paths.
 
-**Consequences.** Kit v1.7.0, cicd's own copies in step, and Distribute opens a sync pull request in every repo. The
-SDK review, open since 2026-09-28, moves its plan and S1's files into `docs/security/reviews/2026-09-28-sdk/` with S1's
-pull request.
+**Consequences.** Kit v1.7.0, cicd's own copies and its own `AGENTS.md` pointer in step, and Distribute opens a sync
+pull request in every repo. After merging, the owner pulls the cicd clone, runs `bash tools/claude-code/install.sh`
+and `--check`. Each repo's pull request carries its pointer, its code review prompt and its past reviews. The SDK
+review, open since 2026-09-28, holds S1's pin until the new guard is installed, and moves its plan and S1's files into
+`docs/reviews/2026-09-28-sdk/` with S1's pull request.
 

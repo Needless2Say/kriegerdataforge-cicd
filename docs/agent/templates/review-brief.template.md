@@ -2,7 +2,7 @@
 
 > **How to use.** Copy this into the review's archive, section 3 of the process, as
 > `{review}/{slice folder}/step-2-review/{PFX}_REVIEW_{slice}_PROMPT.md`, or at spot scale as
-> `{review}/step-2-review/{PFX}_REVIEW_PROMPT.md`, where `{review}` is `docs/security/reviews/{YYYY-MM-DD}-{scope}`.
+> `{review}/step-2-review/{PFX}_REVIEW_PROMPT.md`, where `{review}` is `docs/reviews/{YYYY-MM-DD}-{scope}`.
 > Fill every `{...}` and delete this box. One brief serves the fresh Claude reviewer and Codex, and both reports land
 > beside it. The same text with the closing line changed is the final brief, `{PFX}_REVIEW_{slice}_FINAL_PROMPT.md` in
 > the slice's `step-5-final` folder. The process is [`../CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md),
@@ -10,16 +10,18 @@
 > the review, write your report to <report>, edit nothing else.` A brief that needs more than that line to start a
 > reviewer is missing something from its own text.
 >
-> Commit the brief with the scope's state on the slice's branch and push it before any reviewer starts. That commit
-> is the pin, name it below. At spot scale the brief is the plan, so it also carries the owner's question. Keep it
+> Commit the slice's state on the slice's branch first, then add this brief alone in a second commit, and push both
+> before any reviewer starts. The second commit is the pin. A commit cannot hold its own hash, so the brief names the
+> state commit below and says the pin is the commit that adds it on top of that one. At spot scale the brief is the
+> plan, so it also carries the owner's question. Keep it
 > under about 250 lines. Line counts in the scope table are measured at the pin, never remembered. Keep the "Your
 > role" paragraph below word for word, it is what a reviewer of any model or tool is held to.
 
 **Your role.** You are a **reviewer**, as `docs/agent/AGENT_ROLES.md` at the repo root defines it, whatever model or
-tool you are. Read only. Write only your report, and any scratch note, as new files under `docs/security/`. Run no
+tool you are. Read only. Write only your report, and any scratch note, as new files under `docs/reviews/`. Run no
 git command that writes, and in the cloud the one commit your task makes of your report for its pull request is the
 only exception. Use no GitHub CLI or API, install or download nothing, a web fetch included, and redirect no output
-into a file outside `docs/security/`. Touch no secret file, no `.env` file but an example and `.env.local`, no
+into a file outside `docs/reviews/`. Touch no secret file, no `.env` file but an example and `.env.local`, no
 `*.tfvars` git does not track, no `*.pem` and nothing under `keys/`, open `.env.local` only as rule 5 of that page
 allows, and quote no value from it. Never open another reviewer's report of this scope. Follow `.gitignore`. Review
 only what git tracks, search with `git grep`, `git ls-files` or `rg`, never with a recursive `grep`, and never open,
@@ -37,10 +39,11 @@ stands, attack those fixes, and find what that session missed. You review, you d
 owner, who hands it to that session, and that session reproduces each finding before it agrees.} {At spot scale, the
 owner's question in the owner's words, and what a good answer settles.}
 
-**The commit.** The pin is `{sha}` on branch `{branch}`, which sits on `main` at `{tip}`. You read it in the repo
-folder, checked out at the pin, and nothing else changes the folder while you read. In the cloud you read branch
-`{review branch}`, which stays at the pin. Confirm first that `git rev-parse HEAD` prints the pin, and say so in your
-header. Size the delta with `git diff --stat {tip} HEAD`, never with a log range. Another reviewer reads the same pin
+**The commit.** The pin is the commit that adds this brief and nothing else, on top of the slice's state
+`{state sha}`, on branch `{branch}`, which sits on `main` at `{tip}`. You read it in the repo folder, checked out at
+the pin, and nothing else changes the folder while you read. In the cloud you read branch `{review branch}`, which
+stays at the pin. Confirm first that `git rev-parse HEAD` prints the pin and `git rev-parse HEAD~1` prints
+`{state sha}`, and name both in your header. Size the delta with `git diff --stat {tip} HEAD`, never with a log range. Another reviewer reads the same pin
 in its own turn. Never open its report or the adjudication log's rows about it. At the same pin they are kept out of
 the folder while you read and must not be sought elsewhere. {At a later pin, when rule 15 let the other family go
 first, its report and its rows are in the tree and in history. Skip the log's sections {n} and {n}, and never open

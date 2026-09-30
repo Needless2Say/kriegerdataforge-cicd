@@ -9,7 +9,7 @@ machine installs them from a clone of this repo.
 | --- | --- |
 | `kdf-guard.js` | A Claude Code PreToolUse hook. It reads each Bash and PowerShell command the way a shell does, each Read, Grep and Glob, and each file edit and outward facing tool call, and exits 2 to refuse with the reason. No dependencies, one file |
 | `guard-cases.json` | The table the guard is held to, one case per tool call with its role and whether it is allowed or refused. Every rule change adds cases |
-| `kdf-review.sh` | Starts one fresh Claude reviewer with the reviewer role in the repo folder itself, or opens and closes the folder for Codex, checking first that the pin is pushed, the folder is at it and the brief's counts match it. Compares git before and after and fails the review if the reviewer changed anything but a new file under `docs/security`. Brings a report Codex wrote in the cloud in from its branch |
+| `kdf-review.sh` | Starts one fresh Claude reviewer with the reviewer role in the repo folder itself, or opens and closes the folder for Codex, checking first that the pin is pushed, the folder is at it and the brief's counts match it. Compares git before and after and fails the review if the reviewer changed anything but a new file under `docs/reviews`, the review archive. Brings a report Codex wrote in the cloud in from its branch |
 | `kdf-brief.js` | Read only. The facts a brief states, measured at the pin, the commit line and the scope table's line counts, and a check of a written brief's table |
 | `check-wiring.js` | Read only. Says whether this machine's settings wire the guard as the process needs, and prints the block to add when they do not |
 | `install.sh` | Copies the guard to `~/.claude/hooks/`, smoke tests it, and prints the settings block. It edits no settings and refuses to run inside a Claude Code session |
@@ -87,7 +87,7 @@ mode. The owner runs the rest through the ops issue forms.
 **Reviewer rules** apply on top when `KDF_ROLE=reviewer` is set, or the guard is started with `reviewer`. Read only
 git, no GitHub CLI, no shell command that writes, deletes, installs or downloads, no redirect into a file,
 no connector, artifact, message, schedule, notification, web fetch or web search tool, and file edits only for new
-files under `docs/security`, never a tracked brief, plan, log or earlier report there. A reviewer reads the running
+files under `docs/reviews`, never a tracked brief, plan, log or earlier report there. A reviewer reads the running
 stack and never changes it. docker runs only `ps` and `logs`, their compose forms too, against this machine's daemon,
 and curl reaches `localhost`, `127.0.0.1` or `[::1]` over http or https alone. curl takes an allow list of options,
 so nothing writes a file, reads one with `@`, follows a redirect, goes through a proxy or a socket, or reaches port
@@ -110,15 +110,16 @@ The role comes from the environment the session was started in, so it works in a
 ```bash
 cd <workspace>/<repo>
 KDF_ROLE=reviewer claude rc --spawn=same-dir      # sessions opened from a phone
-step=docs/security/reviews/2026-09-28-sdk/s1-foundation/step-2-review
+step=docs/reviews/2026-09-28-sdk/s1-foundation/step-2-review
 bash <workspace>/kriegerdataforge-cicd/tools/claude-code/kdf-review.sh --repo . \
      --brief "$step/SDK_REVIEW_S1_PROMPT.md" --report "$step/SDK_REVIEW_S1_REPORT.md" \
      --codex-report "$step/SDK_REVIEW_S1_CODEX_REPORT.md" --pin <pin> --model <model> --effort max
 ```
 
-Every review is archived in its own dated folder, `docs/security/reviews/<YYYY-MM-DD>-<scope>/`, with a folder per
-slice and per step inside, as the process's section 3 lays out. `<step>` below is such a step folder, where the brief
-sits and both reports land beside it. The launcher takes any path under `docs/security`, at any depth.
+Every review is archived in its own dated folder, `docs/reviews/<YYYY-MM-DD>-<scope>/`, with a folder per slice and
+per step inside, as the process's section 3 lays out. `<step>` below is such a step folder, where the brief sits and
+both reports land beside it. A report path is refused unless it is under `docs/reviews`, at any depth, and
+`docs/security` holds posture docs no reviewer writes.
 
 Whether a `claude rc` server passes the variable on to the sessions it spawns is not documented, so run the permission
 test from the process, section 10, in the first session it opens.
@@ -159,15 +160,15 @@ never sees Codex's, whichever goes first. A Claude run cut off before it closed 
 `--collect` closes it with exit 6 and puts the held report back.
 
 `--collect-branch` fetches the branch of the pull request Codex in the cloud opened, checks that it is built on the pin
-and adds nothing but new files under `docs/security`, and writes the report into the folder, never over one. It needs
+and adds nothing but new files under `docs/reviews`, and writes the report into the folder, never over one. It needs
 no review open, since the cloud read GitHub and not the folder. The owner closes that pull request unmerged. Every
 collect, and every Claude run, warns when a report's header does not name the pin or list what the reviewer read
 first.
 
 | Exit | Meaning |
 | --- | --- |
-| 0 | Clean. Only the report, and any new file under `docs/security`, changed |
-| 2 | Bad arguments, a pin no branch of `origin` holds, a folder not at the pin, a brief the pin lacks or whose counts differ from it, a report that already exists, a cloud branch not built on the pin, or another review of the folder open |
+| 0 | Clean. Only the report, and any new file under `docs/reviews`, changed |
+| 2 | Bad arguments, a report path outside `docs/reviews`, a pin no branch of `origin` holds, a folder not at the pin, a brief the pin lacks or whose counts differ from it, a report that already exists, a cloud branch not built on the pin, or another review of the folder open |
 | 3 | Contamination. The reviewer changed something it must not, every path is listed, nothing is reverted |
 | 4 | The reviewer wrote no report |
 | 5 | The guard is not wired, the installed guard failed its canary, or node, which a pinned review needs for the brief check, is missing |
@@ -180,10 +181,14 @@ home directory, the tests use them.
 ## The brief's facts
 
 ```bash
-node kdf-brief.js facts  --repo <repo> --pin HEAD                     # the pin, its branch, the tip of main
+node kdf-brief.js facts  --repo <repo> --pin HEAD                     # the state, its branch, the tip of main
 node kdf-brief.js counts --repo <repo> --pin HEAD Code=src/pkg/auth "Tests=tests/unit/auth/*.py"
 node kdf-brief.js check  --repo <repo> --pin HEAD <step>/<brief>
 ```
+
+`facts` runs on the slice's state commit, before the brief's own commit, and prints the brief's "The commit" line. The
+brief sits alone in the commit on top of the state, and that commit is the pin, so the line names the state and says
+the pin is the commit that adds the brief, since no commit holds its own hash.
 
 `counts` prints one scope table row per argument, every file it names at the pin with its line count, in the order a
 row states them, ``| Code, `a.py`, `b.py` | 120, 1,203 |``. A path may be a directory or a glob. A line count is the

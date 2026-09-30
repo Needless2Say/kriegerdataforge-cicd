@@ -1,7 +1,7 @@
 # The {campaign} review, slice {S1}, {slice name}. Adjudication log
 
 > **How to use.** The orchestrator copies this to `{PFX}_REVIEW_{slice}_ADJUDICATION.md` at the root of the slice's
-> folder, `docs/security/reviews/{YYYY-MM-DD}-{scope}/{slice folder}/`, when step 0 of the slice starts, and appends a
+> folder, `docs/reviews/{YYYY-MM-DD}-{scope}/{slice folder}/`, when step 0 of the slice starts, and appends a
 > section as each source arrives. One row per finding from every source, with the
 > verdict, the fix, the test and the mutant. Never delete a row, a wrong verdict is corrected by a new row that says
 > so. The process is [`../CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md), sections 4, 6 and 8. Delete this box

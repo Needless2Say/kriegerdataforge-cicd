@@ -18,7 +18,7 @@
  *
  * Reviewer rules, on top of those. Read only git, no GitHub CLI, no shell command that writes, installs or
  * downloads, no redirect into a file, no secret file, no connector, artifact, message, schedule or notification
- * tool, and file edits only under docs/security. A reviewer follows .gitignore, so it opens no path git ignores
+ * tool, and file edits only under docs/reviews. A reviewer follows .gitignore, so it opens no path git ignores
  * but .env.local, no report the launcher holds, and runs no recursive grep.
  *
  * A permission deny rule matches one tool and one spelling. This guard reads the command the way a shell does,
@@ -179,17 +179,19 @@ function isProtected(p) {
   return PROTECTED.some((r) => r.test(n));
 }
 
-function insideSecurityDir(p) {
+// The review archive, the one folder a reviewer writes in. The separator on the end keeps a look alike such as
+// docs/reviews-old outside it.
+function insideReviewsDir(p) {
   const fold = (s) => (process.platform === 'win32' ? s.toLowerCase() : s);
-  const root = fold(path.join(PROJECT, 'docs', 'security') + path.sep);
+  const root = fold(path.join(PROJECT, 'docs', 'reviews') + path.sep);
   return fold(path.resolve(PROJECT, p) + path.sep).startsWith(root);
 }
 
 function checkFileTool(target) {
   if (!SELF_EDIT_OK && isProtected(target)) deny(GUARDRAIL_WHY, target);
   checkClosed(target, target);
-  if (MODE === 'reviewer' && !insideSecurityDir(target)) {
-    deny('Reviewers write only under docs/security. ' + target + ' is outside it.', target);
+  if (MODE === 'reviewer' && !insideReviewsDir(target)) {
+    deny('Reviewers write only under docs/reviews, the review archive. ' + target + ' is outside it.', target);
   }
   if (MODE === 'reviewer' && trackedByGit(target)) {
     deny('Reviewers write only new files, their report and notes. ' + target + ' is tracked, a brief, a plan or a log.',
@@ -964,8 +966,8 @@ function checkRedirects(toks, whole) {
     if (!m) continue;
     const target = m[3] || (toks[i + 1] ? toks[i + 1].t : '');
     const harmless = /^(\/dev\/null|nul|\$null)$/i.test(target) || target.startsWith('&');
-    if (!harmless && !insideSecurityDir(target)) {
-      deny('Reviewers may not redirect output into a file. Write the report with the file tools under docs/security.', whole);
+    if (!harmless && !insideReviewsDir(target)) {
+      deny('Reviewers may not redirect output into a file. Write the report with the file tools under docs/reviews.', whole);
     }
   }
 }

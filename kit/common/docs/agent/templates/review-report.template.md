@@ -3,14 +3,14 @@
 > **How to use.** A reviewer copies this to the report path its brief names, beside the brief in the review's step
 > folder, `{PFX}_REVIEW_{slice}_REPORT.md` for Claude or `..._CODEX_REPORT.md` for Codex, and at spot scale
 > `{PFX}_REVIEW_REPORT.md`, fills every section, and deletes this box. Under 250 lines. It is the file a reviewer
-> writes, with any scratch note beside it in the same folder under `docs/security`, both new files. The rules are
+> writes, with any scratch note beside it in the same folder under `docs/reviews`, both new files. The rules are
 > [`../CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md) sections 5, 6 and 8. Name a secret's variable and never its
 > value.
 
 ## 1. Header
 
-- **Pin read.** {sha}, as `git rev-parse HEAD` printed it, on branch {branch}. {If it differs from the brief's pin,
-  say so first, and stop.}
+- **Pin read.** {sha}, as `git rev-parse HEAD` printed it, on branch {branch}, on top of the state {state sha} that
+  `git rev-parse HEAD~1` printed. {If either differs from the brief, say so first, and stop.}
 - **Read first.** {The files you read before the code, in the order you read them, from `AGENTS.md` to the brief's
   reading list. The launcher warns when this line or the pin is missing.}
 - **Baseline reproduced.** {lint, type check, tests, the counts.} {A red baseline goes here first.}

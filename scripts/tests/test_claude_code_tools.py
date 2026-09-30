@@ -64,7 +64,7 @@ GUARD_RULES_IN_WORDS = (
     "deploy key",
     "gist",
     "KDF_ROLE=reviewer",
-    "docs/security/",
+    "docs/reviews/",
     "GitHub CLI",
     "connectors",
     "`.env.dev`",
@@ -94,14 +94,14 @@ echo "role=${KDF_ROLE:-} selfedit=${KDF_GUARD_ALLOW_SELF_EDIT:-unset}" >> "$STUB
 echo "args=$*" >> "$STUB_LOG"
 echo "pwd=$(pwd)" >> "$STUB_LOG"
 echo "app=$(head -n 1 src/app.py 2>/dev/null)" >> "$STUB_LOG"
-echo "saw=$(ls docs/security | tr '\\n' ' ')" >> "$STUB_LOG"
+echo "saw=$(ls docs/reviews | tr '\\n' ' ')" >> "$STUB_LOG"
 report=$(printf '%s' "$2" | sed -n 's/.*write your report to \\(.*\\), edit nothing else\\./\\1/p')
 case "${STUB_MODE:-clean}" in
 	clean) printf '# report\\nfinding\\n' > "$report" ;;
 	tamper) printf '# report\\n' > "$report"; echo "x = 2" >> src/app.py ;;
 	outside) printf '# report\\n' > "$report"; echo hi > stray.txt ;;
-	scratch) printf '# report\\n' > "$report"; echo notes > docs/security/scratch.md ;;
-	brief) printf '# report\\n' > "$report"; echo "settled, nothing to find" >> docs/security/BRIEF.md ;;
+	scratch) printf '# report\\n' > "$report"; echo notes > docs/reviews/scratch.md ;;
+	brief) printf '# report\\n' > "$report"; echo "settled, nothing to find" >> docs/reviews/BRIEF.md ;;
 	commit) printf '# report\\n' > "$report"; git add -A; git commit -q -m sneaky ;;
 	branch) printf '# report\\n' > "$report"; git checkout -q -b sneaky ;;
 	delete) printf '# report\\n' > "$report"; rm src/app.py ;;
@@ -191,8 +191,8 @@ def _ignored_tree(project: Path) -> None:
         "environments/dev/credentials.auto.tfvars": "token = \"x\"\n",
         ".env.kdf.example": "GH_PACKAGES_PAT=\n",
         "unadopted/.env.local": "PORT=3000\n",
-        "docs/security/TRACKED.md": "# an earlier log\n",
-        ".git/kdf-review/held/docs/security/CODEX.md": "# held\n",
+        "docs/reviews/TRACKED.md": "# an earlier log\n",
+        ".git/kdf-review/held/docs/reviews/CODEX.md": "# held\n",
     }
     for name, text in files.items():
         target = project / name
@@ -205,7 +205,7 @@ def _ignored_tree(project: Path) -> None:
         "migrated/.env.kdf.example",
         "commented/.env.kdf.example",
         "moved/.env.kdf.example",
-        "docs/security/TRACKED.md",
+        "docs/reviews/TRACKED.md",
     ]
     subprocess.run(["git", "-C", str(project), "add", "-f", *tracked], check = True, capture_output = True)
 
@@ -342,20 +342,30 @@ def test_every_agent_meets_its_role_where_it_reads() -> None:
 def test_every_review_is_archived_in_a_dated_folder() -> None:
     """
     The process, its templates and the sync registry agree on the archive, one folder per review under
-    docs/security/reviews/, named by the day it opened, opened with the README template, a folder per step inside.
+    docs/reviews/, named by the day it opened, opened with the README template, a folder per step inside.
     """
     process = (KIT / "docs" / "agent" / "CODE_REVIEW_PROCESS.md").read_text(encoding = "utf-8")
-    assert "docs/security/reviews/<YYYY-MM-DD>-<scope>/" in process
+    assert "docs/reviews/<YYYY-MM-DD>-<scope>/" in process
     for step in ("step-2-review", "step-4-sol", "round-<n>", "step-5-final", "step-5-second-read-<n>"):
         assert step in process, f"CODE_REVIEW_PROCESS.md no longer names the {step} folder"
     templates = KIT / "docs" / "agent" / "templates"
     readme    = (templates / "review-readme.template.md").read_text(encoding = "utf-8")
-    assert "docs/security/reviews/{YYYY-MM-DD}-{scope}/" in readme
+    assert "docs/reviews/{YYYY-MM-DD}-{scope}/" in readme
     for name in ("review-brief", "review-plan", "review-adjudication"):
         text = (templates / f"{name}.template.md").read_text(encoding = "utf-8")
         assert "reviews/{YYYY-MM-DD}-{scope}" in text, f"{name} no longer names the review folder"
     registry = json.loads((TOOLS.parents[1] / "scripts" / "kit_registry.json").read_text(encoding = "utf-8"))
     assert "docs/agent/templates/review-readme.template.md" in registry["files"]
+    assert "docs/reviews/README.md" in process, "the archive's front door is no longer named"
+    stale = [
+        str(path.relative_to(KIT))
+        for path in KIT.rglob("*.md")
+        if "docs/security/reviews" in path.read_text(encoding = "utf-8")
+    ]
+    assert not stale, f"the old archive root is still named in {stale}"
+    standard = (KIT / "docs" / "agent" / "DOCUMENTATION_STANDARD.md").read_text(encoding = "utf-8")
+    assert "| `docs/reviews/` |" in standard
+    assert "`docs/code_review/`" not in standard
 
 
 @dataclass
@@ -403,10 +413,10 @@ def rig(tmp_path: Path) -> Rig:
     _write_settings(home, _printed_settings(home))
 
     repo = tmp_path / "repo"
-    (repo / "docs" / "security").mkdir(parents = True)
+    (repo / "docs" / "reviews").mkdir(parents = True)
     (repo / "src").mkdir()
     (repo / "src" / "app.py").write_text("x = 1\n", encoding = "utf-8")
-    (repo / "docs" / "security" / "BRIEF.md").write_text("# brief\n", encoding = "utf-8")
+    (repo / "docs" / "reviews" / "BRIEF.md").write_text("# brief\n", encoding = "utf-8")
     _git(repo, "init", "-q", "-b", "main")
     _git(repo, "config", "user.email", "dev@example.com")
     _git(repo, "config", "user.name", "Dev")
@@ -465,9 +475,9 @@ def _launch(
         "--repo",
         rig.repo.as_posix(),
         "--brief",
-        "docs/security/BRIEF.md",
+        "docs/reviews/BRIEF.md",
         "--report",
-        "docs/security/REPORT.md",
+        "docs/reviews/REPORT.md",
         *extra,
         mode = mode,
         env = env,
@@ -478,11 +488,11 @@ def test_a_clean_review_is_reported_clean(rig: Rig) -> None:
     """
     The stub writes its report and nothing else, the launcher says clean and hands over the Codex line.
     """
-    done = _launch(rig, "--codex-report", "docs/security/CODEX.md")
+    done = _launch(rig, "--codex-report", "docs/reviews/CODEX.md")
     assert done.returncode == 0, done.stderr
     assert "clean" in done.stdout
-    assert "write your report to docs/security/CODEX.md, edit nothing else." in done.stdout
-    assert (rig.repo / "docs" / "security" / "REPORT.md").is_file()
+    assert "write your report to docs/reviews/CODEX.md, edit nothing else." in done.stdout
+    assert (rig.repo / "docs" / "reviews" / "REPORT.md").is_file()
 
 
 def test_the_reviewer_starts_with_the_role_and_without_the_owners_switch(rig: Rig) -> None:
@@ -502,9 +512,9 @@ def test_the_model_and_the_effort_reach_claude(rig: Rig) -> None:
     assert "--model opus --effort max" in rig.log.read_text(encoding = "utf-8")
 
 
-def test_new_files_under_docs_security_are_allowed(rig: Rig) -> None:
+def test_new_files_under_docs_reviews_are_allowed(rig: Rig) -> None:
     """
-    A reviewer's scratch note beside its report is inside the rule, a new file under docs/security.
+    A reviewer's scratch note beside its report is inside the rule, a new file under docs/reviews.
     """
     assert _launch(rig, mode = "scratch").returncode == 0
 
@@ -513,7 +523,7 @@ def test_new_files_under_docs_security_are_allowed(rig: Rig) -> None:
     ("mode", "named"),
     [
         ("tamper", "src/app.py"),
-        ("brief", "changed, docs/security/BRIEF.md"),
+        ("brief", "changed, docs/reviews/BRIEF.md"),
         ("outside", "stray.txt"),
         ("delete", "src/app.py"),
         ("commit", "git state changed"),
@@ -535,13 +545,14 @@ def test_a_missing_report_and_a_failing_claude_are_told_apart(rig: Rig) -> None:
     No report is exit 4, and claude exiting non zero is exit 6.
     """
     assert _launch(rig, mode = "noreport").returncode == 4
-    (rig.repo / "docs" / "security" / "REPORT.md").unlink(missing_ok = True)
+    (rig.repo / "docs" / "reviews" / "REPORT.md").unlink(missing_ok = True)
     assert _launch(rig, mode = "fail").returncode == 6
 
 
 def test_the_arguments_are_checked_before_anything_runs(rig: Rig) -> None:
     """
-    A report outside docs/security, one that exists, a missing brief and a repo that is not a root are all exit 2.
+    A report outside docs/reviews, one that exists, a missing brief and a repo that is not a root are all exit 2.
+    docs/security holds posture docs, so a report or a Codex report there is refused like any other folder.
     """
     base = [str(BASH), str(LAUNCHER), "--repo", rig.repo.as_posix()]
     env  = {
@@ -556,15 +567,22 @@ def test_the_arguments_are_checked_before_anything_runs(rig: Rig) -> None:
         return subprocess.run([*base, *args], capture_output = True, text = True, env = env, check = False).returncode
 
 
-    assert run("--brief", "docs/security/BRIEF.md", "--report", "src/REPORT.md") == 2
-    assert run("--brief", "docs/security/BRIEF.md", "--report", "docs/security/../../REPORT.md") == 2
-    assert run("--brief", "docs/security/NOPE.md", "--report", "docs/security/REPORT.md") == 2
-    assert run("--brief", "docs/security/BRIEF.md", "--report", "docs/security/BRIEF.md") == 2
-    assert run("--brief", "docs/security/BRIEF.md") == 2
+    assert run("--brief", "docs/reviews/BRIEF.md", "--report", "src/REPORT.md") == 2
+    assert run("--brief", "docs/reviews/BRIEF.md", "--report", "docs/security/REPORT.md") == 2
+    assert run("--brief", "docs/reviews/BRIEF.md", "--report", "docs/reviews/../security/REPORT.md") == 2
+    assert run("--brief", "docs/reviews/BRIEF.md", "--report", "docs/reviews-old/REPORT.md") == 2
+    assert (
+        run("--brief", "docs/reviews/BRIEF.md", "--report", "docs/reviews/R.md", "--codex-report", "docs/security/C.md")
+        == 2
+    )
+    assert run("--brief", "docs/reviews/BRIEF.md", "--report", "docs/reviews/../../REPORT.md") == 2
+    assert run("--brief", "docs/reviews/NOPE.md", "--report", "docs/reviews/REPORT.md") == 2
+    assert run("--brief", "docs/reviews/BRIEF.md", "--report", "docs/reviews/BRIEF.md") == 2
+    assert run("--brief", "docs/reviews/BRIEF.md") == 2
     assert not rig.log.exists()
     not_a_root = (rig.repo / "src").as_posix()
     sub        = subprocess.run(
-        [str(BASH), str(LAUNCHER), "--repo", not_a_root, "--brief", "x", "--report", "docs/security/R.md"],
+        [str(BASH), str(LAUNCHER), "--repo", not_a_root, "--brief", "x", "--report", "docs/reviews/R.md"],
         capture_output = True,
         text = True,
         env = env,
@@ -577,10 +595,10 @@ def test_a_dry_run_prints_both_prompts_and_starts_nothing(rig: Rig) -> None:
     """
     The same one line goes to Claude and to Codex, and claude is never run.
     """
-    done = _launch(rig, "--codex-report", "docs/security/CODEX.md", "--dry-run")
+    done = _launch(rig, "--codex-report", "docs/reviews/CODEX.md", "--dry-run")
     assert done.returncode == 0
-    assert "Claude prompt, Read docs/security/BRIEF.md and run the review," in done.stdout
-    assert "write your report to docs/security/REPORT.md, edit nothing else." in done.stdout
+    assert "Claude prompt, Read docs/reviews/BRIEF.md and run the review," in done.stdout
+    assert "write your report to docs/reviews/REPORT.md, edit nothing else." in done.stdout
     assert "Codex prompt," in done.stdout
     assert not rig.log.exists()
 
@@ -628,11 +646,11 @@ def _prepare(rig: Rig) -> subprocess.CompletedProcess[str]:
         "--repo",
         rig.repo.as_posix(),
         "--brief",
-        "docs/security/BRIEF.md",
+        "docs/reviews/BRIEF.md",
         "--report",
-        "docs/security/REPORT.md",
+        "docs/reviews/REPORT.md",
         "--codex-report",
-        "docs/security/CODEX.md",
+        "docs/reviews/CODEX.md",
         "--pin",
         "HEAD",
         "--prepare",
@@ -644,7 +662,7 @@ def _collect(rig: Rig) -> subprocess.CompletedProcess[str]:
 
 
 def _codex_writes_its_report(rig: Rig) -> None:
-    (rig.repo / "docs" / "security" / "CODEX.md").write_text("# codex report\n", encoding = "utf-8")
+    (rig.repo / "docs" / "reviews" / "CODEX.md").write_text("# codex report\n", encoding = "utf-8")
 
 
 def test_a_pinned_review_reads_the_folder_itself(rig: Rig) -> None:
@@ -653,7 +671,7 @@ def test_a_pinned_review_reads_the_folder_itself(rig: Rig) -> None:
     """
     done = _launch(rig, "--pin", "HEAD")
     assert done.returncode == 0, done.stdout + done.stderr
-    assert (rig.repo / "docs" / "security" / "REPORT.md").is_file()
+    assert (rig.repo / "docs" / "reviews" / "REPORT.md").is_file()
     log = rig.log.read_text(encoding = "utf-8")
     assert log.split("pwd=")[1].splitlines()[0].endswith("repo")
     assert "role=reviewer" in log
@@ -677,15 +695,15 @@ def test_a_folder_that_is_not_at_the_pin_is_never_reviewed(rig: Rig) -> None:
     _git(rig.repo, "commit", "-q", "-am", "moved on")
     assert _launch(rig, "--pin", pinned).returncode == 2
     assert _launch(rig, "--pin", "no-such-commit").returncode == 2
-    (rig.repo / "docs" / "security" / "NEW.md").write_text("# not committed\n", encoding = "utf-8")
+    (rig.repo / "docs" / "reviews" / "NEW.md").write_text("# not committed\n", encoding = "utf-8")
     uncommitted = _run(
         rig,
         "--repo",
         rig.repo.as_posix(),
         "--brief",
-        "docs/security/NEW.md",
+        "docs/reviews/NEW.md",
         "--report",
-        "docs/security/REPORT.md",
+        "docs/reviews/REPORT.md",
         "--pin",
         "HEAD",
     )
@@ -699,7 +717,7 @@ def test_codex_reads_the_same_folder_and_collect_checks_it(rig: Rig) -> None:
     """
     done = _prepare(rig)
     assert done.returncode == 0, done.stderr
-    assert "Read docs/security/BRIEF.md and run the review, write your report to docs/security/CODEX.md" in done.stdout
+    assert "Read docs/reviews/BRIEF.md and run the review, write your report to docs/reviews/CODEX.md" in done.stdout
     assert "--collect" in done.stdout
     assert not rig.log.exists()
     assert (_hold(rig) / "open").is_dir()
@@ -708,14 +726,14 @@ def test_codex_reads_the_same_folder_and_collect_checks_it(rig: Rig) -> None:
     assert collected.returncode == 0, collected.stderr
     assert "clean" in collected.stdout
     assert not (_hold(rig) / "open").exists()
-    assert (rig.repo / "docs" / "security" / "CODEX.md").is_file()
+    assert (rig.repo / "docs" / "reviews" / "CODEX.md").is_file()
 
 
 @pytest.mark.parametrize(
     ("change", "named"),
     [
         ("code", "src/app.py"),
-        ("brief", "changed, docs/security/BRIEF.md"),
+        ("brief", "changed, docs/reviews/BRIEF.md"),
         ("stray", "stray.txt"),
         ("commit", "git state changed"),
         ("branch", "git state changed"),
@@ -731,7 +749,7 @@ def test_collect_catches_a_reviewer_that_did_more_than_report(rig: Rig, change: 
     if change == "code":
         (rig.repo / "src" / "app.py").write_text("x = 2\n", encoding = "utf-8")
     elif change == "brief":
-        (rig.repo / "docs" / "security" / "BRIEF.md").write_text("# brief\nsettled\n", encoding = "utf-8")
+        (rig.repo / "docs" / "reviews" / "BRIEF.md").write_text("# brief\nsettled\n", encoding = "utf-8")
     elif change == "stray":
         (rig.repo / "stray.txt").write_text("hi\n", encoding = "utf-8")
     elif change == "commit":
@@ -776,17 +794,17 @@ def test_claude_first_its_report_waits_outside_the_tree_while_codex_reads(rig: R
     """
     Codex never sees Claude's report of the scope, and closing the review puts it back beside Codex's.
     """
-    security = rig.repo / "docs" / "security"
-    first    = _launch(rig, "--pin", "HEAD", "--codex-report", "docs/security/CODEX.md")
+    archive = rig.repo / "docs" / "reviews"
+    first   = _launch(rig, "--pin", "HEAD", "--codex-report", "docs/reviews/CODEX.md")
     assert first.returncode == 0, first.stdout + first.stderr
     assert "--prepare" in first.stdout
     assert _prepare(rig).returncode == 0
-    assert not (security / "REPORT.md").exists()
-    assert (_hold(rig) / "held" / "docs" / "security" / "REPORT.md").is_file()
+    assert not (archive / "REPORT.md").exists()
+    assert (_hold(rig) / "held" / "docs" / "reviews" / "REPORT.md").is_file()
     _codex_writes_its_report(rig)
     assert _collect(rig).returncode == 0
-    assert (security / "REPORT.md").is_file()
-    assert (security / "CODEX.md").is_file()
+    assert (archive / "REPORT.md").is_file()
+    assert (archive / "CODEX.md").is_file()
 
 
 def test_codex_first_its_report_waits_outside_the_tree_while_claude_reads(rig: Rig) -> None:
@@ -796,26 +814,26 @@ def test_codex_first_its_report_waits_outside_the_tree_while_claude_reads(rig: R
     assert _prepare(rig).returncode == 0
     _codex_writes_its_report(rig)
     assert _collect(rig).returncode == 0
-    done = _launch(rig, "--pin", "HEAD", "--codex-report", "docs/security/CODEX.md")
+    done = _launch(rig, "--pin", "HEAD", "--codex-report", "docs/reviews/CODEX.md")
     assert done.returncode == 0, done.stdout + done.stderr
     saw = rig.log.read_text(encoding = "utf-8").split("saw=")[1].splitlines()[0]
     assert "BRIEF.md" in saw
     assert "CODEX.md" not in saw
     assert "--prepare" not in done.stdout
-    assert (rig.repo / "docs" / "security" / "CODEX.md").is_file()
-    (rig.repo / "docs" / "security" / "REPORT.md").unlink()
-    assert _launch(rig, "--codex-report", "docs/security/CODEX.md", mode = "tamper").returncode == 3
-    assert (rig.repo / "docs" / "security" / "CODEX.md").is_file()
+    assert (rig.repo / "docs" / "reviews" / "CODEX.md").is_file()
+    (rig.repo / "docs" / "reviews" / "REPORT.md").unlink()
+    assert _launch(rig, "--codex-report", "docs/reviews/CODEX.md", mode = "tamper").returncode == 3
+    assert (rig.repo / "docs" / "reviews" / "CODEX.md").is_file()
     assert not (_hold(rig) / "open").exists()
 
 
 def test_a_review_archived_in_its_dated_folder_runs_like_a_flat_one(rig: Rig) -> None:
     """
-    The archive nests a review under docs/security/reviews/<date>-<scope>/<slice>/<step>/. The report lands beside the
+    The archive nests a review under docs/reviews/<date>-<scope>/<slice>/<step>/. The report lands beside the
     brief, Claude's report waits outside the tree under the same nested path while Codex reads, and collect puts both
     back side by side.
     """
-    step   = "docs/security/reviews/2026-09-30-app/s1-core/step-2-review"
+    step   = "docs/reviews/2026-09-30-app/s1-core/step-2-review"
     folder = rig.repo / step
     folder.mkdir(parents = True)
     (folder / "APP_REVIEW_S1_PROMPT.md").write_text("# brief\n", encoding = "utf-8")
@@ -872,18 +890,18 @@ def test_collect_closes_a_claude_run_that_was_cut_off(rig: Rig) -> None:
         text = True,
         check = True,
     ).stdout.strip()
-    held = _hold(rig) / "held" / "docs" / "security"
+    held = _hold(rig) / "held" / "docs" / "reviews"
     held.mkdir(parents = True)
     (held / "CODEX.md").write_text("# codex report\n", encoding = "utf-8")
     opened = _hold(rig) / "open"
     opened.mkdir()
-    meta = f"reviewer=claude\nreport=docs/security/REPORT.md\npid={dead}\n"
+    meta = f"reviewer=claude\nreport=docs/reviews/REPORT.md\npid={dead}\n"
     (opened / "meta").write_text(meta, encoding = "utf-8", newline = "\n")
-    (opened / "held").write_text("docs/security/CODEX.md\n", encoding = "utf-8", newline = "\n")
+    (opened / "held").write_text("docs/reviews/CODEX.md\n", encoding = "utf-8", newline = "\n")
     done = _collect(rig)
     assert done.returncode == 6, done.stdout + done.stderr
     assert "cut off" in done.stderr
-    assert (rig.repo / "docs" / "security" / "CODEX.md").is_file()
+    assert (rig.repo / "docs" / "reviews" / "CODEX.md").is_file()
     assert not opened.exists()
 
 
@@ -901,7 +919,7 @@ def test_a_pinned_dry_run_names_the_pin_and_opens_nothing(rig: Rig) -> None:
     """
     The dry run prints both lines and the pin, and opens no review.
     """
-    done = _launch(rig, "--pin", "HEAD", "--codex-report", "docs/security/CODEX.md", "--dry-run")
+    done = _launch(rig, "--pin", "HEAD", "--codex-report", "docs/reviews/CODEX.md", "--dry-run")
     assert done.returncode == 0, done.stderr
     assert "Pin, " in done.stdout
     assert "Codex prompt, " in done.stdout
@@ -914,10 +932,10 @@ def test_the_prepare_and_collect_arguments_are_checked_before_anything_runs(rig:
     --prepare without the pin or the Codex report, one file for both reports, --collect with more than the repo, and
     --collect with no review open are all exit 2.
     """
-    base = ["--repo", rig.repo.as_posix(), "--brief", "docs/security/BRIEF.md", "--report", "docs/security/REPORT.md"]
-    assert _run(rig, *base, "--codex-report", "docs/security/CODEX.md", "--prepare").returncode == 2
+    base = ["--repo", rig.repo.as_posix(), "--brief", "docs/reviews/BRIEF.md", "--report", "docs/reviews/REPORT.md"]
+    assert _run(rig, *base, "--codex-report", "docs/reviews/CODEX.md", "--prepare").returncode == 2
     assert _run(rig, *base, "--pin", "HEAD", "--prepare").returncode == 2
-    assert _run(rig, *base, "--codex-report", "docs/security/REPORT.md", "--pin", "HEAD", "--prepare").returncode == 2
+    assert _run(rig, *base, "--codex-report", "docs/reviews/REPORT.md", "--pin", "HEAD", "--prepare").returncode == 2
     assert _run(rig, "--repo", rig.repo.as_posix(), "--collect", "--pin", "HEAD").returncode == 2
     assert _collect(rig).returncode == 2
     assert not rig.log.exists()
@@ -948,7 +966,7 @@ def test_a_brief_whose_scope_table_differs_from_the_pin_is_refused(rig: Rig) -> 
     """
     The launcher measures the brief's line counts at the pin before a reviewer starts, and a stale count is exit 2.
     """
-    brief = rig.repo / "docs" / "security" / "BRIEF.md"
+    brief = rig.repo / "docs" / "reviews" / "BRIEF.md"
     table = "# brief\n\n| Files | Lines |\n| --- | --- |\n| `src/app.py` | {n} |\n"
     brief.write_text(table.replace("{n}", "7"), encoding = "utf-8", newline = "\n")
     _commit_and_push(rig, "a brief with a stale count")
@@ -990,7 +1008,7 @@ def _collect_branch(rig: Rig, branch: str) -> subprocess.CompletedProcess[str]:
         "--repo",
         rig.repo.as_posix(),
         "--codex-report",
-        "docs/security/CODEX.md",
+        "docs/reviews/CODEX.md",
         "--pin",
         "HEAD",
         "--collect-branch",
@@ -1002,20 +1020,20 @@ def test_a_cloud_report_comes_in_from_its_branch(rig: Rig) -> None:
     """
     Codex in the cloud read the pushed pin and committed its report on a branch. Collect writes only the report in.
     """
-    _cloud_branch(rig, "codex/report", {"docs/security/CODEX.md": "# codex report\n", "docs/security/notes.md": "n\n"})
+    _cloud_branch(rig, "codex/report", {"docs/reviews/CODEX.md": "# codex report\n", "docs/reviews/notes.md": "n\n"})
     done = _collect_branch(rig, "codex/report")
     assert done.returncode == 0, done.stdout + done.stderr
-    assert (rig.repo / "docs" / "security" / "CODEX.md").read_text(encoding = "utf-8") == "# codex report\n"
-    assert not (rig.repo / "docs" / "security" / "notes.md").exists()
+    assert (rig.repo / "docs" / "reviews" / "CODEX.md").read_text(encoding = "utf-8") == "# codex report\n"
+    assert not (rig.repo / "docs" / "reviews" / "notes.md").exists()
     assert "Close its pull request unmerged" in done.stdout
 
 
 @pytest.mark.parametrize(
     ("files", "code"),
     [
-        ({"docs/security/CODEX.md": "# report\n", "stray.txt": "hi\n"}, 3),
-        ({"docs/security/CODEX.md": "# report\n", "src/app.py": "x = 2\n"}, 3),
-        ({"docs/security/OTHER.md": "# not the report\n"}, 4),
+        ({"docs/reviews/CODEX.md": "# report\n", "stray.txt": "hi\n"}, 3),
+        ({"docs/reviews/CODEX.md": "# report\n", "src/app.py": "x = 2\n"}, 3),
+        ({"docs/reviews/OTHER.md": "# not the report\n"}, 4),
     ],
 )
 def test_a_cloud_branch_that_does_more_than_report_brings_nothing_in(
@@ -1029,26 +1047,26 @@ def test_a_cloud_branch_that_does_more_than_report_brings_nothing_in(
     _cloud_branch(rig, "codex/report", files)
     done = _collect_branch(rig, "codex/report")
     assert done.returncode == code, done.stdout + done.stderr
-    assert not (rig.repo / "docs" / "security" / "CODEX.md").exists()
+    assert not (rig.repo / "docs" / "reviews" / "CODEX.md").exists()
 
 
 def test_a_cloud_branch_is_collected_only_onto_its_pin_and_never_over_a_report(rig: Rig) -> None:
     """
     A branch built on another commit, a missing branch, an open review and a report already in the folder are exit 2.
     """
-    _cloud_branch(rig, "codex/old", {"docs/security/CODEX.md": "# old\n"})
+    _cloud_branch(rig, "codex/old", {"docs/reviews/CODEX.md": "# old\n"})
     (rig.repo / "src" / "app.py").write_text("x = 5\n", encoding = "utf-8")
     _commit_and_push(rig, "the pin moved on")
     assert _collect_branch(rig, "codex/old").returncode == 2
     assert _collect_branch(rig, "codex/none").returncode == 2
-    _cloud_branch(rig, "codex/new", {"docs/security/CODEX.md": "# new\n"})
+    _cloud_branch(rig, "codex/new", {"docs/reviews/CODEX.md": "# new\n"})
     assert _prepare(rig).returncode == 0
     assert _collect_branch(rig, "codex/new").returncode == 2
     assert _collect(rig).returncode == 4
     shutil.rmtree(_hold(rig) / "open")
-    (rig.repo / "docs" / "security" / "CODEX.md").write_text("# mine\n", encoding = "utf-8")
+    (rig.repo / "docs" / "reviews" / "CODEX.md").write_text("# mine\n", encoding = "utf-8")
     assert _collect_branch(rig, "codex/new").returncode == 2
-    assert (rig.repo / "docs" / "security" / "CODEX.md").read_text(encoding = "utf-8") == "# mine\n"
+    assert (rig.repo / "docs" / "reviews" / "CODEX.md").read_text(encoding = "utf-8") == "# mine\n"
 
 
 def test_a_report_that_does_not_show_what_it_read_is_warned_about(rig: Rig) -> None:
@@ -1062,12 +1080,12 @@ def test_a_report_that_does_not_show_what_it_read_is_warned_about(rig: Rig) -> N
         check = True,
     ).stdout.strip()
     header = f"# report\n\nPin read, `{pin[:10]}`. Read first, AGENTS.md, WORKFLOW.md, the brief.\n"
-    _cloud_branch(rig, "codex/named", {"docs/security/CODEX.md": header})
+    _cloud_branch(rig, "codex/named", {"docs/reviews/CODEX.md": header})
     named = _collect_branch(rig, "codex/named")
     assert named.returncode == 0, named.stderr
     assert "warning" not in named.stderr
-    (rig.repo / "docs" / "security" / "CODEX.md").unlink()
-    _cloud_branch(rig, "codex/bare", {"docs/security/CODEX.md": "# report\n"})
+    (rig.repo / "docs" / "reviews" / "CODEX.md").unlink()
+    _cloud_branch(rig, "codex/bare", {"docs/reviews/CODEX.md": "# report\n"})
     bare = _collect_branch(rig, "codex/bare")
     assert bare.returncode == 0
     assert "does not name the pin" in bare.stderr
@@ -1095,14 +1113,15 @@ def test_the_brief_tool_counts_lines_at_the_pin_and_not_in_the_tree(rig: Rig) ->
     assert done.returncode == 0, done.stderr
     assert done.stdout.splitlines() == [
         "| Code, `src/app.py`, `src/two.py` | 1, 2 |",
-        "| `docs/security/BRIEF.md` | 1 |",
+        "| `docs/reviews/BRIEF.md` | 1 |",
     ]
     assert _brief_tool(rig, "counts", "nope/*.py").returncode == 1
 
 
 def test_the_brief_tool_checks_a_scope_table_and_states_the_commit(rig: Rig) -> None:
     """
-    Matching rows pass, a stale count and a missing path fail, a placeholder row is skipped, and facts names the pin.
+    Matching rows pass, a stale count and a missing path fail, a placeholder row is skipped, and facts names the state
+    the brief sits on and describes the pin as the commit that adds the brief, since no commit holds its own hash.
     """
     brief = rig.tmp / "brief.md"
     good  = "| Files | Lines |\n| --- | --- |\n| `src/app.py` | 1 |\n| Tests, `src`, `docs` | 2 |\n| {`p`} | {n} |\n"
@@ -1110,19 +1129,23 @@ def test_the_brief_tool_checks_a_scope_table_and_states_the_commit(rig: Rig) -> 
     passed = _brief_tool(rig, "check", brief.as_posix())
     assert passed.returncode == 0, passed.stdout
     assert "skip" in passed.stdout
-    brief.write_text(good + "| `src/gone.py` | 4 |\n| `docs/security/BRIEF.md` | 9 |\n", encoding = "utf-8")
+    brief.write_text(good + "| `src/gone.py` | 4 |\n| `docs/reviews/BRIEF.md` | 9 |\n", encoding = "utf-8")
     failed = _brief_tool(rig, "check", brief.as_posix())
     assert failed.returncode == 1
     assert "MISSING at the pin, src/gone.py" in failed.stdout
-    assert "DIFFERS docs/security/BRIEF.md, the brief says 9, the pin has 1" in failed.stdout
-    pin   = subprocess.run(
+    assert "DIFFERS docs/reviews/BRIEF.md, the brief says 9, the pin has 1" in failed.stdout
+    state = subprocess.run(
         ["git", "-C", str(rig.repo), "rev-parse", "HEAD"],
         capture_output = True,
         text = True,
         check = True,
     ).stdout.strip()
     facts = _brief_tool(rig, "facts")
-    assert f"The pin is `{pin[:10]}` on branch `main`, which sits on `main` at `{pin[:10]}`." in facts.stdout
+    assert f"state   {state}" in facts.stdout
+    assert (
+        "The pin is the commit that adds this brief and nothing else, on top of the slice's state "
+        f"`{state[:10]}`, on branch `main`, which sits on `main` at `{state[:10]}`."
+    ) in facts.stdout
 
 
 def _checker(home: Path) -> subprocess.CompletedProcess[str]:

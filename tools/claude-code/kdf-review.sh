@@ -17,7 +17,7 @@
 #
 # Claude. The launcher checks the arguments and the guard, snapshots git, runs claude -p with KDF_ROLE=reviewer and
 # without the owner's self edit switch, snapshots again, and fails the run when anything but a new file under
-# docs/security changed. The review opens when claude starts and closes when it ends.
+# docs/reviews, the review archive, changed. The review opens when claude starts and closes when it ends.
 #
 # A reviewer without the guard, Codex. --prepare checks the pin, snapshots git, opens the review, and prints the one
 # line the owner gives the reviewer in this folder. --collect, once the report is written, checks git the same way and
@@ -27,7 +27,7 @@
 # .git/kdf-review folder, out of the working tree, and closing the review puts it back.
 #
 # Codex in the cloud. --collect-branch fetches the branch Codex's pull request came from, checks that it is built on
-# the pin and adds nothing but new files under docs/security, and writes the report into the folder. The owner closes
+# the pin and adds nothing but new files under docs/reviews, and writes the report into the folder. The owner closes
 # that pull request unmerged. Every collect warns when a report's header does not name the pin or what it read first.
 #
 # Exit codes. 0 clean. 2 bad arguments, the folder is not at the pin, or another review of it is open. 3 the reviewer
@@ -127,7 +127,7 @@ snapshot() {
 	} | LC_ALL=C sort
 }
 
-# compare <before> <after>, one line per thing the reviewer must not have done. Only a NEW file under docs/security is
+# compare <before> <after>, one line per thing the reviewer must not have done. Only a NEW file under docs/reviews is
 # allowed, so a tracked file there, a brief, a plan, a log or an earlier report, counts as changed like any other.
 compare() {
 	local before=$1 after=$2 line f head
@@ -145,8 +145,8 @@ compare() {
 			printf 'changed, %s\n' "$f"
 		else
 			case "$f" in
-				docs/security/*) ;;
-				*) printf 'new file outside docs/security, %s\n' "$f" ;;
+				docs/reviews/*) ;;
+				*) printf 'new file outside docs/reviews, %s\n' "$f" ;;
 			esac
 		fi
 	done < <(comm -13 "$before" "$after" | grep '^FILE|')
@@ -245,8 +245,8 @@ if [ -n "$collect_branch" ]; then
 	[ ! -d "$open" ] || die 2 "a review of $repo is open. Close it with --collect before a cloud report comes in"
 	codex_rel="$(relative_inside "$codex_report")" || die 2 "the Codex report must be a path inside the repo"
 	case "$codex_rel" in
-		docs/security/*) ;;
-		*) die 2 "the Codex report must be under docs/security, not $codex_rel" ;;
+		docs/reviews/*) ;;
+		*) die 2 "the Codex report must be under docs/reviews, not $codex_rel" ;;
 	esac
 	sha="$(pinned "$pin")" || exit 2
 	[ ! -e "$repo/$codex_rel" ] || die 2 "the report $codex_rel already exists in $repo, a report is never overwritten"
@@ -256,9 +256,9 @@ if [ -n "$collect_branch" ]; then
 	git -C "$repo" merge-base --is-ancestor "$sha" "$tip" \
 		|| die 2 "$collect_branch is not built on the pin ${sha:0:10}, so its reviewer read something else"
 	mapfile -t violations < <(git -C "$repo" diff --name-status --no-renames "$sha" "$tip" \
-		| awk -F '\t' '!($1 == "A" && $2 ~ /^docs\/security\//) { print $1 ", " $2 }')
+		| awk -F '\t' '!($1 == "A" && $2 ~ /^docs\/reviews\//) { print $1 ", " $2 }')
 	if [ "${#violations[@]}" -gt 0 ]; then
-		printf 'kdf-review: CONTAMINATION. %s changes more than new files under docs/security.\n' "$collect_branch" >&2
+		printf 'kdf-review: CONTAMINATION. %s changes more than new files under docs/reviews.\n' "$collect_branch" >&2
 		printf '  %s\n' "${violations[@]}" >&2
 		die 3 "nothing was brought in. Close that pull request unmerged and look at what the reviewer changed"
 	fi
@@ -275,15 +275,15 @@ fi
 brief_rel="$(relative_inside "$brief")" || die 2 "the brief must be a file inside the repo"
 report_rel="$(relative_inside "$report")" || die 2 "the report must be a path inside the repo"
 case "$report_rel" in
-	docs/security/*) ;;
-	*) die 2 "the report must be under docs/security, not $report_rel" ;;
+	docs/reviews/*) ;;
+	*) die 2 "the report must be under docs/reviews, not $report_rel" ;;
 esac
 codex_rel=""
 if [ -n "$codex_report" ]; then
 	codex_rel="$(relative_inside "$codex_report")" || die 2 "the Codex report must be a path inside the repo"
 	case "$codex_rel" in
-		docs/security/*) ;;
-		*) die 2 "the Codex report must be under docs/security, not $codex_rel" ;;
+		docs/reviews/*) ;;
+		*) die 2 "the Codex report must be under docs/reviews, not $codex_rel" ;;
 	esac
 	[ "$codex_rel" != "$report_rel" ] || die 2 "the Claude report and the Codex report must be two files"
 fi
