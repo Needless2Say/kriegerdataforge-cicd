@@ -63,13 +63,15 @@ The script test dependencies are installed **automatically** by `make test` (it 
 pip install -r scripts/requirements-test.txt
 ```
 
-### No `.env` here
+### The two env files
 
-This repo deliberately has **no `.env` files and no `.env.example`**. All credentials live as
-**GitHub Environment secrets** and are only ever referenced as `${{ secrets.NAME }}` inside
-workflows. There is nothing to configure locally to run the lint/test gate. (The runbook for
-creating and rotating those secrets in GitHub is [`docs/MANUAL_SETUP.md`](MANUAL_SETUP.md), that is
-owner operated setup, not something you wire up to develop here.)
+This repo runs no service, so it needs almost nothing locally. By the env standard (ADR D-030) it
+keeps `.env.local.example` and `.env.kdf.example` at the root. `.env.kdf` holds the one credential
+the Makefile uses, `GH_PACKAGES_PAT`, to install the private kdf-fmt, and `.env.local` holds nothing
+today. The workflows' credentials live as **GitHub Environment secrets** and are only ever
+referenced as `${{ secrets.NAME }}`. (The runbook for creating and rotating those secrets in GitHub
+is [`docs/MANUAL_SETUP.md`](MANUAL_SETUP.md), that is owner operated setup, not something you wire
+up to develop here.) The E2E suite keeps its own settings in `e2e/.env`, see `e2e/.env.example`.
 
 ---
 

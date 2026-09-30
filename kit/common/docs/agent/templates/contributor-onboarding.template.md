@@ -59,7 +59,7 @@ models. `.env.kdf` holds your credentials, GitHub tokens and hub secrets, and st
 it, never an AI session.
 
 ```bash
-cp {.env.local.example / .env.example} .env.local
+cp .env.local.example .env.local
 cp .env.kdf.example .env.kdf
 ```
 

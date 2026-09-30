@@ -382,7 +382,7 @@ def test_real_kit_registry_files_all_exist_under_kit_common():
         (".env*\n!.env.example\n", True),
         ("**/.env.*\n", True),
         ("/.env.kdf\n", True),
-        ("# .env*\n.env.local\n.env.github\n", False),
+        ("# .env*\n.env.local\n.env.test\n", False),
         (".env*\n!.env.kdf\n", False),
         (".env*\n!.env.*.example\n", True),
         (".env/\n", False),

@@ -28,8 +28,8 @@ const MUST_MATCH = [
 // it on 2026-09-29 and the guard keeps one that still holds a credential closed. .env.kdf holds the credentials, and
 // .env.dev and .env.prod are the owner's admin files.
 const SECRET_READ_DENIES = [
-  'Read(**/.env.kdf)', 'Read(**/.env.dev)', 'Read(**/.env.prod)', 'Read(**/.env.test)', 'Read(**/.env.github)',
-  'Read(**/*.tfvars)', 'Read(**/*.pem)'
+  'Read(**/.env.kdf)', 'Read(**/.env.dev)', 'Read(**/.env.prod)', 'Read(**/.env.test)', 'Read(**/*.tfvars)',
+  'Read(**/*.pem)'
 ];
 
 const argv = process.argv.slice(2);

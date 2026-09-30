@@ -60,8 +60,8 @@ When your role is unclear, take the narrower one and ask the owner.
    - **`.env.kdf` is closed.** It holds every credential that works beyond this machine, the GitHub package tokens
      `GH_PACKAGES_PAT` and `GH_NPM_TOKEN`, the SSO client secret and service key a hub issued, and third party keys.
    - **Every other `.env` file is closed too**, `.env.test`, the admin files `.env.dev` and `.env.prod` for scripts
-     against the DEV and PROD databases, `.env.github`, and backups such as `.env.local.bak`, and so are a `*.tfvars`
-     git does not track, `*.pem` and anything under `keys/`. The examples, `.env.example`, `.env.local.example` or
+     against the DEV and PROD databases, and backups such as `.env.local.bak`, and so are a `*.tfvars` git does not
+     track, `*.pem` and anything under `keys/`. The examples, `.env.example`, `.env.local.example` or
      `.env.kdf.example`, and a tracked `*.tfvars` such as terraform's `common.auto.tfvars` hold no secret and are
      open.
    - Name a variable, never its value, in code, logs, reports and messages, a value from `.env.local` included.
