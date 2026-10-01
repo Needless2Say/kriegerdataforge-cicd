@@ -14,8 +14,11 @@
 - **Read first.** {The files you read before the code, in the order you read them, from `AGENTS.md` to the brief's
   reading list. The launcher warns when this line or the pin is missing.}
 - **Baseline reproduced.** {lint, type check, tests, the counts.} {A red baseline goes here first.}
-- **Time spent.** {hours.}
-- **Reviewer.** {model and effort.}
+- **Time spent.** {From {start} to {end}, the times the clock showed when you began and when you wrote this line, not
+  an estimate.}
+- **Reviewer.** {The exact model and version as your tool names it, the tool you ran in, Claude Code, Codex CLI, Codex
+  in VS Code or ChatGPT chat, and the effort.}
+- **Usage.** {Tokens in and out, when your tool reports them, otherwise unknown.}
 
 ## 2. Verdict
 

@@ -1730,3 +1730,62 @@ any Python repo proves the lanes, and a red install there is this change. The ow
 SDK review is done. Later slices of that review add to the kit the same way, one pull request per batch of findings.
 The SDK's adjudication log names this pull request where its register rows for cicd stood.
 
+## D-033. A closed slice keeps an answer key and a report names its exact model, so the archive benchmarks models
+
+- **Date.** 2026-10-01
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Kit v1.9.0, reaching every
+  repo with the next Distribute.
+- **Tier / scope:** Standard · kit `docs/agent/CODE_REVIEW_PROCESS.md` sections 3, 8, 9 and 14, a new
+  `review-answer-key.template.md`, the report, adjudication and README templates, the kit README and registry ·
+  cicd's own copies
+
+**Context.** The owner, 2026-10-01, of the prompts and reports every review keeps, "I think this would be a good idea
+to keep them so that I can continue to have more data to test open source models on to see what they can do and how we
+can benchmark them against other industry scale models", and of the reports that come back, "so we can compare the
+reports of the open source models to the industry models, like claude and chatgpt to see what models working
+individually and combined can do". A pilot the same day ran four open weights models on the owner's machine, Codex CLI
+on Ollama in a container that reads the code and reaches nothing else, each with the auth UI's S1 step 2 brief at its
+pin, and scored every report against what the S1 adjudication log established. The archive held everything the scoring
+needed, but not in a form it could use. Turning the log and git into an answer key took a helper session about 250k
+tokens and 13 minutes, and several rows could only be inferred, since the log says what was fixed and not always
+whether the defect was in the tree an earlier reviewer read. The report template asked only for "model and effort", and
+one local model wrote "about two hours" for a run of 19 minutes.
+
+**Decision.**
+
+- **An answer key for every slice, written when it closes.** `<PFX>_REVIEW_<slice>_ANSWER_KEY.md` beside the
+  adjudication log, from the new template, written once at step 6 from the finished log and git, before the slice's
+  pull request opens. It names the commit every reader read, the step 2 brief as it stood at the pin, and one row per
+  finding of every source with its id, source, the reviewer's model, severity, Blocks, verdict, where it was at the
+  pin, the commit that brought it in and the one that fixed it, whether it was in the tree the step 2 reviewers read,
+  how that was decided and what a reviewer needed to find it. Then the declined findings with their measurements and
+  the counts. It adds no verdict of its own, each row cites its log row, and a corrected log row is corrected in the key
+  in the same commit. At spot scale it is `<PFX>_REVIEW_ANSWER_KEY.md`.
+- **A report names its reviewer exactly.** The header gives the model and version as the tool names it, the tool it ran
+  in, the effort, the tokens when the tool reports them, and the start and end times as the clock showed them.
+- **Same commit comparisons, and benchmark runs kept apart.** The archive is also a benchmark, section 3. Only reports
+  of the same commit compare fairly, step 2, step 5 and each second read read one pin, and each Sol round reads a later
+  commit. Runs of other models made later never go into `docs/reviews/`, which stays the record of what the review did
+  and which a later reviewer reads. A benchmark keeps its runs and scores elsewhere and copies the keys it needs.
+- **The Sol files stay word for word.** Each dispatch already names the branch and commit it was written against, and
+  the answer key gathers every round's commit beside the other readers'.
+
+**Alternatives considered.**
+
+- Building a key on demand from the log, as the pilot did. Rejected, it is costly, and the facts it needs fade, while
+  the orchestrator at close knows which defect was in which tree.
+- A machine readable key in JSON. Rejected for now, the kit is Markdown alone (D-001), a Markdown table parses, and a
+  person reads it.
+- Writing the local runs into the review folders beside the reviews. Rejected, the folder is the record of the review,
+  and a later reviewer would read a weaker model's report as context.
+- Making an open weights model a reviewer family now. Not decided here. Rule 15's two families stand, and the pilot
+  measures whether any local model could be one.
+
+**Trade-offs.** One more file per slice and some work at its close, most of it a copy of rows the log already holds. Two
+more header lines a reviewer fills. A key can only be as exact as its log, so a log that does not say which tree held a
+defect leaves that row unsure.
+
+**Consequences.** Kit v1.9.0 and cicd's own copies in step, and Distribute opens a sync pull request in every repo. The
+SDK review writes its first answer key when S1 closes. Closed reviews from before this decision have no key, and one
+is built for a past slice only when a benchmark needs it, as the pilot built the auth UI's S1.
+

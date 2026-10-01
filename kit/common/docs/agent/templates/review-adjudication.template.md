@@ -91,5 +91,9 @@ second read and the result.}
 {Every gate green, the mutation table all killed, the consumer check green where it applies, the pull request and
 its checks, and the date the owner merged it.}
 
+When this log is complete the orchestrator writes the slice's answer key beside it, `{PFX}_REVIEW_{slice}_ANSWER_KEY.md`
+from [`review-answer-key.template.md`](review-answer-key.template.md), one row per finding of every section above,
+before the slice's pull request opens.
+
 The verdict on every finding is one of **Agreed**, **Agreed in part** with what was and was not taken, **Declined**
 with the measurement that shows why, **Measured false**, or **Deferred** with the register row it became.

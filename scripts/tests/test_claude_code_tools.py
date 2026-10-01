@@ -368,6 +368,31 @@ def test_every_review_is_archived_in_a_dated_folder() -> None:
     assert "`docs/code_review/`" not in standard
 
 
+def test_every_slice_closes_with_an_answer_key_and_every_report_names_its_model() -> None:
+    """
+    A closed slice can score any later reviewer's report. The process names the answer key, the template exists and is
+    synced, the adjudication log points at it, and a report's header names the exact model, the tool, the tokens and
+    measured times, so two reports of one pin can be compared.
+    """
+    process   = (KIT / "docs" / "agent" / "CODE_REVIEW_PROCESS.md").read_text(encoding = "utf-8")
+    templates = KIT / "docs" / "agent" / "templates"
+    assert "`<PFX>_REVIEW_<slice>_ANSWER_KEY.md`" in process
+    assert "templates/review-answer-key.template.md" in process
+    assert "**The archive is also a benchmark.**" in process
+    registry = json.loads((TOOLS.parents[1] / "scripts" / "kit_registry.json").read_text(encoding = "utf-8"))
+    assert "docs/agent/templates/review-answer-key.template.md" in registry["files"]
+    key = (templates / "review-answer-key.template.md").read_text(encoding = "utf-8")
+    for column in ("Reviewer model", "At the step 2 pin", "Present from", "Fixed in", "Needs", "Log row"):
+        assert f"| {column} |" in key, f"the answer key template lost its {column} column"
+    assert "## 4. Declined, and measured false" in key
+    adjudication = (templates / "review-adjudication.template.md").read_text(encoding = "utf-8")
+    assert "review-answer-key.template.md" in adjudication
+    report = (templates / "review-report.template.md").read_text(encoding = "utf-8")
+    for line in ("- **Reviewer.**", "- **Usage.**", "- **Time spent.**"):
+        assert line in report, f"the report header lost {line}"
+    assert "the times the clock showed" in report, "the report's time spent is an estimate again"
+
+
 @dataclass
 class Rig:
     """
