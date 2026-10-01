@@ -197,6 +197,23 @@ server authoritative rule above is necessary but **not** sufficient. Also:
 - **Private Python packages stay private** *(kdf_sdk · template-python-package)*: they install via
   `git+https://…@vX.Y.Z` with a fine grained PAT (Contents: Read on the package repo only). **Never add a
   public PyPI publish workflow**. The sanctioned future is an **internal PyPI in GCP** (needs an ADR first).
+- **A token is one step's, never a job's.** Hand a package token to the step that clones and to no other, through
+  git's per process settings in that step's `env` (`GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0`, `GIT_CONFIG_VALUE_0`).
+  Never `git config --global`, a rewritten requirements file or `$GITHUB_ENV`, every later step reads those. Code a
+  job does not trust, a test suite, a pull request's own build, a dependency's install hook, runs in a **later step
+  that names no secret**. On Linux a process reads the environment of another process of the same user from
+  `/proc`, so keeping a variable from a child is not enough while its parent holds it. A hosted runner's `sudo`
+  reads the runner's own memory, so what must be beyond reach belongs in a **job that names no secret at all**.
+- **A required check's verdict job runs on `always()`.** GitHub counts a **skipped** job as a required check that
+  passed, and a job on `!cancelled()` is skipped when its run is cancelled, so a run stopped by hand leaves the
+  pull request free to merge. The verdict fails every result but `success`. `!cancelled()` is right only where
+  the reader takes a successful run alone, the PROD Gate.
+- **Tooling that runs another repo's tests hands them an allowlist.** The platform's own variables by name, what
+  the tool sets, and the names the caller passes on purpose. Never the caller's environment less a deny list,
+  each review finds one more name. Judge a database URL by **one anchored grammar**, never by refusals, two
+  parsers read the same text as two hosts.
+- **Pin every tool a lane installs**, the installer included, and install from a file of pins, never by a bare
+  name. A scanner that floats turns a lane red on a day the repo did not change.
 
 ## Scenario. Writing tests for security code
 
@@ -215,6 +232,10 @@ server authoritative rule above is necessary but **not** sufficient. Also:
   canonical copy + a CI **drift guard** (superset + agreement within tolerance + reciprocal consistency), and
   **verify, don't regenerate**, when the two sides intentionally differ in precision.
 - `round(84.535, 2) == 84.53` in Python (float repr + banker's rounding). Assert the **actual** value.
+- A mutant must die of the **assertion that states its rule**. One that dies of an exception on the way, a
+  `KeyError` at the test's own lookup, proves the test can crash, not that it can tell.
+- A list that decides something, an allowlist or a public surface, is **written out in its test**, name by name.
+  Asserted against itself it is its own oracle, and a name added to it passes every test.
 
 ---
 

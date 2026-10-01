@@ -144,11 +144,35 @@ def find_root(override: Path | None) -> Path:
     sys.exit("FAIL: no VERSION file found walking up from the current directory.")
 
 
+def _fetch_depth(cwd: Path) -> list[str]:
+    """
+    The depth a fetch of the base branch takes, one commit in a clone that is already shallow and none in a full one.
+
+    A runner's checkout is shallow and needs only the tip. A developer's clone is full, and `--depth=1` there writes
+    the fetched tip into `.git/shallow`, which turns the whole clone shallow. `git log` then stops at that commit
+    until someone runs `git fetch --unshallow`, which happened to a clone during the SDK review.
+
+    Args:
+        cwd: repo directory to run git in
+
+    Returns:
+        list[str]: `["--depth=1"]` in a shallow clone, an empty list in a full one or when git cannot say
+    """
+    result = subprocess.run(  # noqa: S603  (internal args only)
+        [_GIT, "rev-parse", "--is-shallow-repository"],
+        capture_output = True,
+        text = True,
+        check = False,
+        cwd = cwd,
+    )
+    return ["--depth=1"] if result.stdout.strip() == "true" else []
+
+
 def get_base_version(root: Path, base_branch: str) -> tuple[str, str]:
     """
     Read the version the bump should be computed FROM.
 
-    Tries origin/<base_branch>'s VERSION (after a best-effort shallow fetch);
+    Tries origin/<base_branch>'s VERSION (after a best-effort fetch, shallow only in a shallow clone);
     falls back to the local VERSION file with a warning when it cannot be read.
 
     Args:
@@ -159,7 +183,7 @@ def get_base_version(root: Path, base_branch: str) -> tuple[str, str]:
         tuple[str, str]: (version, source) where source is "origin/<base_branch>" or "local"
     """
     subprocess.run(  # noqa: S603  (internal args only)
-        [_GIT, "fetch", "origin", base_branch, "--depth=1"],
+        [_GIT, "fetch", "origin", base_branch, *_fetch_depth(root)],
         capture_output = True,
         check = False,
         cwd = root,

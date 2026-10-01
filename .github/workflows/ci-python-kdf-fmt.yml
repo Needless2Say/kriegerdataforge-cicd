@@ -48,7 +48,7 @@ jobs:
       # kriegerdataforge-fmt is a private repo, so this lane always needs package auth.
       # App-token-first (ADR D-010): when the caller opted in (USE_GITHUB_APP variable)
       # and holds the distributed App credentials, mint a short-lived installation token
-      # (contents: read only, auto-revoked at job end); otherwise the next step falls
+      # (contents: read only, auto-revoked at job end); otherwise the install step falls
       # back to the long-lived GH_PACKAGES_PAT.
       - name: Mint GitHub App token for private-package installs
         id: pkg-token
@@ -60,12 +60,15 @@ jobs:
           owner: ${{ github.repository_owner }}
           permission-contents: read
 
-      - name: Configure private package access
-        env:
-          PKG_INSTALL_TOKEN: ${{ steps.pkg-token.outputs.token || secrets.GH_PACKAGES_PAT }}
-        run: git config --global url."https://__token__:${PKG_INSTALL_TOKEN}@github.com/".insteadOf "https://github.com/"
-
+      # SECURITY: the token reaches git for this one step, through settings that live for the step's own processes
+      #   (GIT_CONFIG_COUNT, KEY and VALUE) and are written nowhere. It used to go into the job's global git config,
+      #   a file every later step could read, a test or a dependency a test imports among them. No later step
+      #   holds it now, and none may name it (SDK review S1-48, kdf-sdk D-020)
       - name: Install kdf-fmt (pinned, stdlib-only — no consumer deps)
+        env:
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: ${{ format('url.https://__token__:{0}@github.com/.insteadOf', steps.pkg-token.outputs.token || secrets.GH_PACKAGES_PAT) }}
+          GIT_CONFIG_VALUE_0: https://github.com/
         run: python -m pip install --quiet "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@${{ inputs.kdf_fmt_ref }}"
 
       - name: kdf-fmt check

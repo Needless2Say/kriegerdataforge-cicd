@@ -1655,3 +1655,75 @@ and `--check`. Each repo's pull request carries its pointer, its code review pro
 review, open since 2026-09-28, holds S1's pin until the new guard is installed, and moves its plan and S1's files into
 `docs/reviews/2026-09-28-sdk/` with S1's pull request.
 
+## D-032. What a review finds that cicd owns is fixed here as it is found, and a package token is one step's
+
+- **Date.** 2026-10-01
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Kit v1.8.0 and the version
+  scripts 1.4.0, reaching every repo with the next Distribute. The reusable lanes take effect at the merge, every repo
+  calls them at `main`.
+- **Tier / scope:** Standard · the eight reusable lanes `ci-python-*.yml` that can clone a private package ·
+  `scripts/common/check_version.py` and `bump_version.py` · `tools/claude-code/kdf-review.sh`, its README and tests ·
+  kit `skills.md` and `docs/agent/CODE_REVIEW_PROCESS.md`
+
+**Context.** The first slice of the kdf-sdk review, S1, left five items for cicd in its adjudication log, each a
+register row for later. Its reviewers also asked whether the package token, which the SDK's own canary keeps from a
+backend's test suite, was out of that suite's reach. It was not. On Linux a process reads the environment of another
+process of the same user from `/proc`, measured in a container, and a suite read the token from the process that
+started it. The SDK's canary now runs in two steps, the install with the token and the suites in a step that never held
+it. Every reusable Python lane here had the same exposure in a wider form, it wrote the token into the job's global
+git config, a file every later step reads, the tests among them. The owner, 2026-10-01, "I agree with the change in
+how the build works to avoid any sensitive secrets leaking during the build process so please proceed with that and
+make any necessary changes to the agentic workflow docs in the cicd repo so I can distribute it across all repos",
+and "keep updating the cicd repo agentic workflow kit as you go and find new issues and fixes for them and I will
+distribute the fix when the entire review is finished in the kdf-sdk repo".
+
+**Decision.**
+
+- **A package token is one step's.** Each of the eight lanes hands the token to the one step that clones, the install
+  step, the style lane's install of the formatter, and the audit step of the security lane, through git's per process
+  settings in that step's `env`, `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0` and `GIT_CONFIG_VALUE_0`. Nothing is written
+  to a git config file, and no later step names the token. A caller that does not ask for package access gets a count
+  of zero. The mint of the App's token is unchanged.
+- **The security lane pins its two tools.** `bandit` and `pip-audit` install at a version the lane names, 1.9.4 and
+  2.10.1, the hub's and the SDK's pins, and a caller may name another. They were installed by a bare name, the newest
+  release on the day.
+- **The version scripts leave a full clone full.** `check_version.py` and `bump_version.py` fetched the base branch
+  at a depth of one commit in every clone, which turned a developer's full clone shallow. They ask git first and
+  pass the depth only in a clone that is already shallow, a runner's checkout.
+- **On a runner, a version check that could not fetch does not pass.** It skipped the increment check with a warning
+  whenever the base could not be read. With `GITHUB_ACTIONS` set, a fetch that failed with no base to read is a
+  failure. A new repo whose `main` holds no `VERSION` yet, and a developer offline, still get the warning.
+- **The review launcher holds a reviewer's notes with its report.** While a second reviewer reads, every other
+  untracked file in the brief's folder waits out of the tree beside the first report and comes back with it. The SDK
+  review's third narrow read left three probe files there and the orchestrator moved them out by hand.
+- **The process says where such findings go.** What a review finds that cicd owns is fixed here by a pull request as
+  it is found, and the slice's log names the pull request. The playbook gains the rules behind these fixes, the token
+  as one step's, the verdict job of a required check on `always()`, an allowlist for tooling that runs another repo's
+  tests, every tool pinned, a mutant that dies of its rule's assertion, and a list held name by name in its test.
+
+**Alternatives considered.**
+
+- Two jobs in place of two steps, the clone of the private repositories in a job that holds the secrets and every
+  step that runs a repo's code in a job that names none. It is the only shape that also holds against a process that
+  becomes root, a hosted runner grants `sudo` and root reads the runner's own memory, where every secret the job
+  names sits, the App's private key among them. Not taken here, it hands private sources between jobs as artifacts
+  and changes every caller. Recorded as the next step, the owner's decision.
+- Writing the git config and removing it after the install. Rejected, a step that fails in between leaves the file,
+  the file is on disk while the install's own build hooks run, and the environment is the smaller mechanism.
+- Failing the version check whenever the base is unreadable. Rejected, a repo's first pull request and a developer
+  offline are both honest cases.
+
+**Trade-offs.** No session dispatches a workflow, so the lanes' first run is the next pull request of any repo after
+the merge. What holds them until then, `actionlint` on all eight, text level contract tests of each lane's steps, and
+the mechanism measured with git on Windows and on Linux, a count of zero reads no setting, a count of one rewrites
+the URL, and no config file is written. Every caller's install command was read, each is `pip install` or
+`make setup`, and no suite of the hub, the two tenant backends, the template, the reports package or the formatter
+installs or clones in its test step. `cd-python-vercel.yml` still writes the token into the git config of its deploy
+job, which holds the deploy secrets either way, and `.github/actions/run-e2e` still installs `cryptography` by a bare
+name. Both are left for the owner's word.
+
+**Consequences.** Kit v1.8.0 and scripts 1.4.0, cicd's own copies in step. After the merge the first pull request of
+any Python repo proves the lanes, and a red install there is this change. The owner runs Distribute once, when the
+SDK review is done. Later slices of that review add to the kit the same way, one pull request per batch of findings.
+The SDK's adjudication log names this pull request where its register rows for cicd stood.
+

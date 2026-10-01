@@ -155,8 +155,11 @@ time. A Claude run opens its review when claude starts and closes it when it end
 open, so the orchestrator puts right what the reviewer changed and collects again.
 
 While a review is open, the other report of the scope waits in the repo's `.git/kdf-review/held` folder, out of the
-working tree, and closing the review puts it back, never over a file. So Codex never sees Claude's report and Claude
-never sees Codex's, whichever goes first. A Claude run cut off before it closed its review leaves it open, and
+working tree, and closing the review puts it back, never over a file. So does every other untracked file in the
+brief's folder and below it, the scratch notes and probes a brief lets a reviewer keep beside its report, which
+say what it found as plainly as the report does. Only under `docs/reviews`, and for a brief at the archive's own
+root only the files that sit in that folder, the folders below it are other reviews. So Codex never sees Claude's
+report or notes and Claude never sees Codex's, whichever goes first. A Claude run cut off before it closed its review leaves it open, and
 `--collect` closes it with exit 6 and puts the held report back.
 
 `--collect-branch` fetches the branch of the pull request Codex in the cloud opened, checks that it is built on the pin

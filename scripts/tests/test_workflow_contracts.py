@@ -47,6 +47,18 @@ TEST_LANES = (
     "secret-scan.yml",
 )
 
+# each Python lane that can clone a private package, and the one step of it that does
+CLONING_STEP = {
+    "ci-python-tests.yml": "Install dependencies",
+    "ci-python-integration.yml": "Install dependencies",
+    "ci-python-lint.yml": "Install dependencies",
+    "ci-python-typecheck.yml": "Install dependencies",
+    "ci-python-mutation.yml": "Install dependencies",
+    "ci-python-system.yml": "Install dependencies",
+    "ci-python-kdf-fmt.yml": "Install kdf-fmt (pinned, stdlib-only — no consumer deps)",
+    "ci-python-security.yml": "Audit requirements.txt",
+}
+
 # a stand in for alembic whose env.py prints two lines of its own to stdout, the hub's shape
 FAKE_ALEMBIC = """#!/usr/bin/env bash
 echo "[Alembic] Using PROD environment"
@@ -344,13 +356,72 @@ def test_a_lane_that_installs_a_private_package_asks_the_app_first(name):
     The package token is a person's and expires, the App's is minted per job (D-010). On 2026-09-27 the token
     expired and every lane that fell back to it failed at its install.
     """
-    text  = _lane(name)
-    mint  = text.index("      - name: Mint GitHub App token for private-package installs\n")
-    token = text.index("      - name: Configure private SDK access\n")
-    assert mint < token < text.index("      - name: Install dependencies\n")
+    text = _lane(name)
+    mint = text.index("      - name: Mint GitHub App token for private-package installs\n")
+    assert mint < text.index("      - name: Install dependencies\n")
     assert "        if: ${{ inputs.needs_sdk_auth && vars.USE_GITHUB_APP == 'true' }}\n" in text
-    assert "PKG_INSTALL_TOKEN: ${{ steps.pkg-token.outputs.token || secrets.GH_PACKAGES_PAT }}" in text
+    assert "steps.pkg-token.outputs.token || secrets.GH_PACKAGES_PAT" in text
     assert "permission-contents: read" in text
+
+
+def _named_steps(text: str) -> dict[str, str]:
+    """
+    A lane's named steps, each by its name with its own text, comments above the next step left out.
+    """
+    found: dict[str, str] = {}
+    for chunk in text.split("\n      - ")[1:]:
+        first, _, rest = chunk.partition("\n")
+        if first.startswith("name: "):
+            found[first.removeprefix("name: ")] = "\n".join(
+                line for line in rest.splitlines() if not line.lstrip().startswith("#")
+            )
+    return found
+
+
+@pytest.mark.parametrize("name", sorted(CLONING_STEP))
+def test_the_package_token_goes_to_the_step_that_clones_and_into_no_file(name):
+    """
+    Each lane wrote the token into the job's global git config, a file every later step could read, a test or a
+    dependency a test imports among them (SDK review S1-48). It reaches git through the cloning step's own
+    environment now, settings that live for that step's processes, and no other step names it.
+    """
+    text  = _lane(name)
+    steps = _named_steps(text)
+    clone = steps[CLONING_STEP[name]]
+    assert "git config" not in "\n".join(steps.values()), "a lane writes a git config again"
+    assert "insteadOf" not in "\n".join(body for step, body in steps.items() if step != CLONING_STEP[name])
+    assert "GIT_CONFIG_KEY_0: ${{" in clone and "url.https://__token__:{0}@github.com/.insteadOf" in clone
+    assert "          GIT_CONFIG_VALUE_0: https://github.com/\n" in clone + "\n"
+    naming = sorted(step for step, body in steps.items() if "GH_PACKAGES_PAT" in body or "pkg-token.outputs" in body)
+    assert naming == [CLONING_STEP[name]], f"{naming} name the token, only the cloning step may"
+    # and it is the mint, then the clone, then whatever runs the caller's code, in that order
+    names = list(steps)
+    assert names.index("Mint GitHub App token for private-package installs") < names.index(CLONING_STEP[name])
+
+
+@pytest.mark.parametrize("name", sorted(set(CLONING_STEP) - {"ci-python-kdf-fmt.yml"}))
+def test_a_lane_that_was_not_asked_for_package_access_hands_git_no_setting(name):
+    """
+    A caller that never sets needs_sdk_auth gets a count of zero and an empty key, so git reads no rewrite.
+    """
+    clone = _named_steps(_lane(name))[CLONING_STEP[name]]
+    assert "          GIT_CONFIG_COUNT: ${{ inputs.needs_sdk_auth && '1' || '0' }}\n" in clone
+    assert "inputs.needs_sdk_auth && format(" in clone and ") || '' }}" in clone
+
+
+def test_the_security_lane_installs_its_two_tools_at_a_pin():
+    """
+    The lane installed bandit and pip-audit by a bare name, the newest release on the day, so a release of either
+    could turn a lane red in a repo that had not changed, and a caller's own pin of the same tool said nothing about
+    what CI ran (SDK review S1-4). A caller that pins another release names it.
+    """
+    text = _lane("ci-python-security.yml")
+    assert '        run: pip install "bandit[toml]==${{ inputs.bandit_version }}"\n' in text
+    assert '        run: pip install "pip-audit==${{ inputs.pip_audit_version }}"\n' in text
+    for tool in ("bandit_version", "pip_audit_version"):
+        block = text.split(f"      {tool}:\n", 1)[1].split("      needs_sdk_auth:", 1)[0]
+        assert re.search(r'        default: "\d+\.\d+\.\d+"\n', block), f"{tool} has no pinned default"
+    assert "pip install bandit[toml]\n" not in text and "pip install pip-audit\n" not in text
 
 
 @pytest.mark.parametrize("tracked, code", [
