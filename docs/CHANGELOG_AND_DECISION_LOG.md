@@ -1713,10 +1713,13 @@ distribute the fix when the entire review is finished in the kdf-sdk repo".
 - Failing the version check whenever the base is unreadable. Rejected, a repo's first pull request and a developer
   offline are both honest cases.
 
-**Trade-offs.** No session dispatches a workflow, so the lanes' first run is the next pull request of any repo after
-the merge. What holds them until then, `actionlint` on all eight, text level contract tests of each lane's steps, and
-the mechanism measured with git on Windows and on Linux, a count of zero reads no setting, a count of one rewrites
-the URL, and no config file is written. Every caller's install command was read, each is `pip install` or
+**Trade-offs.** No session dispatches a workflow. One of the eight lanes ran on GitHub all the same, the style lane,
+which this repo's own CI calls from the pull request's tree. On pull request 245 it minted the App's token and
+installed the private formatter through the step's environment, with no step that writes a git config. The other
+seven carry the same block and run first on the next pull request of a Python repo after the merge. What holds them
+until then, `actionlint` on all eight, text level contract tests of each lane's steps, and the mechanism measured
+with git on Windows and on Linux, a count of zero reads no setting, a count of one rewrites the URL, and no config
+file is written. Every caller's install command was read, each is `pip install` or
 `make setup`, and no suite of the hub, the two tenant backends, the template, the reports package or the formatter
 installs or clones in its test step. `cd-python-vercel.yml` still writes the token into the git config of its deploy
 job, which holds the deploy secrets either way, and `.github/actions/run-e2e` still installs `cryptography` by a bare
