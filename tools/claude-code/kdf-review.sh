@@ -112,9 +112,11 @@ snapshot() {
 	{
 		printf 'HEAD|%s\n' "$(git -C "$repo" rev-parse HEAD 2>/dev/null || echo none)"
 		printf 'BRANCH|%s\n' "$(git -C "$repo" symbolic-ref -q --short HEAD 2>/dev/null || echo detached)"
-		# every local ref and the stash, never the remote tracking refs, which an editor's background fetch moves
+		# every local ref and the stash, never the remote tracking refs, which an editor's background fetch moves,
+		# nor refs/codex/, where Codex's editor extension writes a checkpoint of its own each turn, a tree that no
+		# branch, tag or push names, so a clean Codex review was refused until the owner deleted the ref by hand
 		printf 'REFS|%s\n' "$(git -C "$repo" for-each-ref --format='%(refname) %(objectname)' \
-			| grep -v '^refs/remotes/' | git hash-object --stdin)"
+			| grep -v -E '^refs/(remotes|codex)/' | git hash-object --stdin)"
 		printf 'STASH|%s\n' "$(git -C "$repo" stash list | wc -l | tr -d ' ')"
 		printf 'INDEX|%s\n' "$(git -C "$repo" diff --cached --name-status | git hash-object --stdin)"
 		git -C "$repo" ls-files -z -m -o --exclude-standard | while IFS= read -r -d '' f; do

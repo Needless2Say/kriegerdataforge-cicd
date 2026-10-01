@@ -915,6 +915,32 @@ def test_a_fetch_during_a_review_is_not_held_against_the_reviewer(rig: Rig) -> N
     assert _collect(rig).returncode == 0
 
 
+def test_a_checkpoint_codex_s_extension_writes_is_not_held_against_the_reviewer(rig: Rig) -> None:
+    """
+    Codex's editor extension writes a ref under ``refs/codex/`` each turn, a checkpoint of its own that points at a
+    tree and that no branch, tag or push names. It is the editor's doing, not the reviewer's.
+    """
+    assert _prepare(rig).returncode == 0
+    _codex_writes_its_report(rig)
+    checkpoint = "refs/codex/turn-diffs/checkpoints/2e10a5b6/87c38180/1790849086763/6b922ca8"
+    _git(rig.repo, "update-ref", checkpoint, "HEAD^{tree}")
+    assert _collect(rig).returncode == 0
+
+
+@pytest.mark.parametrize("ref", ["refs/heads/sneaky", "refs/tags/sneaky", "refs/codexx/sneaky", "refs/notes/sneaky"])
+def test_any_other_ref_made_during_a_review_is_still_contamination(rig: Rig, ref: str) -> None:
+    """
+    Only the remote tracking refs and Codex's own namespace are left out of the snapshot. A branch, a tag, a note
+    or a ref beside ``refs/codex/`` that appears during a review fails it.
+    """
+    assert _prepare(rig).returncode == 0
+    _codex_writes_its_report(rig)
+    _git(rig.repo, "update-ref", ref, "HEAD")
+    collected = _collect(rig)
+    assert collected.returncode == 3, collected.stdout + collected.stderr
+    assert "REFS" in collected.stderr
+
+
 def test_a_pinned_dry_run_names_the_pin_and_opens_nothing(rig: Rig) -> None:
     """
     The dry run prints both lines and the pin, and opens no review.
