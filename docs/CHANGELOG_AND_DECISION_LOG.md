@@ -1789,3 +1789,51 @@ defect leaves that row unsure.
 SDK review writes its first answer key when S1 closes. Closed reviews from before this decision have no key, and one
 is built for a past slice only when a benchmark needs it, as the pilot built the auth UI's S1.
 
+## D-034. A supporting session builds what a review finds outside the reviewed repo
+
+- **Date.** 2026-10-01
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Kit v1.10.0, reaching every
+  repo with the next Distribute, together with v1.8.0 and v1.9.0.
+- **Tier / scope:** Standard · kit `docs/agent/CODE_REVIEW_PROCESS.md` sections 2, 4 and 12 and its status line, kit
+  `docs/agent/AGENT_ROLES.md` sections 1 and 4 · cicd's own copies
+
+**Context.** Since v1.8.0 a finding that shows a defect in something cicd owns is fixed in cicd by a pull request from
+a worktree as it is found, and the process did not say who builds it. In the SDK review's S1 the orchestrator built
+those fixes itself, beside adjudicating the reviews, and the next one was large, running a lane's tests in a job that
+names no secret at all (SDK finding S1-48, D-032's next step). The owner, 2026-10-01, of how the review runs from here,
+"going forward where the code review has 1 main Fable orchestrator and a supporting OPUS session on the side that you
+can offload ideas to and other things you find", and to the orchestrator, "I want you to focus on the code review, so I
+want you to hand this task off to the other agent".
+
+**Decision.**
+
+- **A second role, the supporting session.** A long running session the owner starts beside the orchestrator, in the
+  same folder, today Opus beside a Fable orchestrator. It builds what a review finds outside the reviewed repo, in
+  cicd, this kit, the reviewer tooling or another repo, each fix one pull request from a worktree of the repo that owns
+  it, and reports the pull request back.
+- **A handoff carries four things.** The finding, the evidence that proves it, what is already done, and what would
+  prove the fix.
+- **Between pins, and read before it is relied on.** A fix takes effect between pins and never under an open one, so
+  every reviewer of a pin reads one tree. The orchestrator reads what the supporting session built before the reviewed
+  repo relies on it, and the slice's log names that pull request where a register row would have stood.
+- **Two folders, two owners.** The supporting session never reviews, and never edits, commits, checks out or stashes
+  anything in the reviewed repo's folder. The orchestrator keeps that folder for the whole review.
+- **Optional.** A review without a supporting session runs as before, the orchestrator does that work itself, between
+  pins the same way.
+
+**Alternatives considered.**
+
+- The orchestrator fixes everything itself, as in S1. Rejected by the owner's word, it pulls the orchestrator off the
+  review for work that does not need the review's context, and a large fix delays the next pin.
+- Deferring what cicd owns to a register row until the review closes. Rejected already by D-032, a defect in a shared
+  lane or in the review's own tooling reaches every repo in the meantime.
+- Handing each fix to a fresh session. Rejected, a fix outside the repo often needs the history of earlier fixes, and a
+  long running session keeps it.
+
+**Trade-offs.** Two sessions to run and to keep apart, and a handoff to write for each fix. The supporting session's
+work is one more thing the orchestrator reads before relying on it, which is the point.
+
+**Consequences.** Kit v1.10.0 and cicd's own copies in step, and Distribute opens a sync pull request in every repo,
+carrying v1.8.0, v1.9.0 and v1.10.0 together. The SDK review runs this way from S1 on, its first handoff being the lanes
+that run a caller's code in a job that names no secret.
+
