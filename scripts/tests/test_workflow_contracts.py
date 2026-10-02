@@ -502,7 +502,7 @@ def test_every_release_tags_the_commit_it_read():
             assert "--target " in match.group(0), f"{path.name} creates a release on whatever the branch's tip is"
     assert found >= 1
     release = _lane("create-github-release.yml")
-    assert '          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"\n' in release
+    assert '            echo "commit=$(git rev-parse HEAD)"\n          } >> "$GITHUB_OUTPUT"\n' in release
     assert "          COMMIT: ${{ steps.version.outputs.commit }}\n" in release
     assert '            --target "$COMMIT" \\\n' in release
     assert "${{" not in release.split('gh release create "$TAG"', 1)[1], "no expression is written into the shell"
