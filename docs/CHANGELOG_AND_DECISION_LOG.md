@@ -1869,16 +1869,21 @@ its finding and its evidence, the arrangement of D-034.
   caller's install and test commands as before, and pip's direct git URLs clone from disk.
 - **The install job keeps its id and its name.** A ruleset requires a called job as `<caller job> / <called job name>`,
   so no repo's required check changes. The fetch job adds a check no ruleset requires.
-- **Fail closed.** A skipped required job counts as passing, so the install job runs whatever the fetch did, on
-  `!cancelled()`, and its first step fails unless the fetch succeeded. A Dependabot run, which gets no secrets, fails
-  as it does today.
+- **Fail closed.** A skipped required job counts as passing, so the install job runs on `always()`, a cancelled run
+  included, and its first step ends it failed when the run was cancelled or, with `needs_sdk_auth`, when the fetch did
+  not succeed. GitHub reads `cancelled()` only in an `if`, so the check is that step's `if` and its run says why. On
+  `!cancelled()` a cancel while the fetch ran would have skipped the job and passed the check, the kdf-sdk's S1-49
+  again. A Dependabot run, which gets no secrets, fails as it does today.
 - **A caller that does not ask keeps one job.** The fetch job and the install job's three mirror steps run only with
   `needs_sdk_auth`. The kdf-sdk calls its lanes without it.
 - **What the fetch reads.** A pin is `git+https://github.com/Needless2Say/<repo>.git@<ref>`, a `#subdirectory=` tail is
   part of the URL, a comment is a `#` at a line's start or after whitespace, a backslash continues a line, and `-r`,
   `-c`, `--requirement` and `--constraint` are followed within the same tree and refused when they name a URL or leave
-  it. Any other mention of the owner's repos fails the plan, a pin it missed would reach the install job with no
-  mirror. A ref out of a requirement file is a tag or a full commit id. A branch is allowed only for a repo the caller
+  it, and a file of the tree that is a link is followed only to a place inside the tree. Any other reference to the
+  owner's repos that pip could install fails the plan early, a git+, git@ or ssh:// URL, an archive or wheel link, or a
+  pip option line, while a plain https link to a repo's page, as a pyproject's `[project.urls]` holds, passes. The rule
+  is not the fence, a pin it missed fails closed in the install job, which has no mirror and no token for it. A ref out
+  of a requirement file is a tag or a full commit id. A branch is allowed only for a repo the caller
   lists by name in `extra_repos`, and the manifest records the commit it resolved to. `scan_files` reads requirement
   files inside such a mirror with `git show`, and `token_repositories` is the narrower fence per call, the kdf-sdk
   canary mints for one backend and the three packages.
@@ -1924,18 +1929,21 @@ its finding and its evidence, the arrangement of D-034.
 
 **Trade-offs.** What it closes. The App's private key and the package token are no longer in the memory or the
 environment of any job that runs a caller's code, so a dependency that becomes root during an install or a test reads
-neither. What it does not close. The `GITHUB_TOKEN` is in every job at `contents: read`, and the install job's checkout
-still keeps it in the tree's git config for the caller's tests. The fetch job still holds the key while it runs git and
-its own script, and a compromise of git, the runner image or a pinned action there would reach it. **The price.** A
-private tree sits in the calling repo's run artifacts for a day, readable by everyone who can read that repo. For a
-backend that is the packages it pins, for the kdf-sdk canary it is the three backends' trees in the SDK's artifacts.
-Every one of these repos is private, and the owner is its only reader. **The cost.** One more job per lane per pull
+neither. What it does not close. The `GITHUB_TOKEN` is in every job at `contents: read`, though no checkout of these
+lanes keeps it in the tree's git config, no caller's install or test command reaches its own remote (measured over the
+eight callers on 2026-10-02). The fetch job still holds the key while it runs git and its own script, and a compromise
+of git, the runner image or a pinned action there would reach it. **The price.** The full history of each private
+repo the fetch clones, up to every ref it needs, sits in the calling repo's run artifacts for a day, readable by
+everyone who can read that repo. The mirrors are not shallow, because pip clones with a filter and a filtered clone of
+a shallow mirror fails. For a backend that is the history of the packages it pins, for the kdf-sdk canary it is the
+three backends' whole histories in the SDK's artifacts. Every one of these repos is private, and the owner is its only
+reader. **The cost.** One more job per lane per pull
 request, a minute or two, and seven lanes of about seven hundred lines each, most of them the inline script.
 
 **Consequences.** The first pull request of any Python repo that sets `needs_sdk_auth` after the merge runs the two
 jobs, and a red fetch there is this change. Follow ups. `cd-python-vercel.yml` still writes the package token into its
 deploy job's git config, a job that holds the deploy secrets either way. `.github/actions/run-e2e` still installs
-`cryptography` by a bare name. The install job's checkout could keep no credential, `persist-credentials: false`, once
-no caller's tests need the token. The kdf-sdk wires its canary to `fetch-private-packages.yml` between pins and reports
-its first run.
+`cryptography` by a bare name. An extra repo that only a plain clone reads, as the canary reads a backend, could be
+fetched at depth one by an opt in, a plain clone of a shallow mirror works, which would shrink the price. The kdf-sdk
+wires its canary to `fetch-private-packages.yml` between pins and reports its first run.
 

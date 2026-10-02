@@ -398,11 +398,15 @@ The command driven lanes let the caller override the install/run commands. `need
 Its **fetch job** (`Fetch private packages`) is the only job that names a secret. It checks out the
 caller with no credential kept, runs nothing of it, reads the `requirement_files` as text for
 `git+https://github.com/Needless2Say/<repo>.git@<tag or full commit id>` pins, mints the token for
-exactly those repos, clones each pinned ref into a bare mirror, and uploads the mirrors as one
-artifact kept for a day. The **install job** keeps its id and its name, so every ruleset's required
-check is unchanged, names no secret, runs on `!cancelled()` and fails at its first step unless the
-fetch succeeded (a skipped required job counts as passing), then downloads the mirrors and hands git
-one `url.file://<mirror>.insteadOf https://github.com/Needless2Say/<repo>.git` rewrite per repo
+exactly those repos, clones each pinned ref with its full history into a bare mirror, and uploads
+the mirrors as one artifact kept for a day. A plain https link to a repo's page, as a pyproject's
+`[project.urls]` holds, is not a pin and passes, while any other form pip could install (git+,
+git@ or ssh:// URLs, archive or wheel links, a pip option line) fails the plan. The **install job**
+keeps its id and its name, so every ruleset's required check is unchanged, names no secret, runs on
+`always()`, and its first step ends it failed when the run was cancelled or, with `needs_sdk_auth`,
+unless the fetch succeeded (a skipped required job counts as passing). It checks the caller out
+with no credential kept, then downloads the mirrors and hands git one
+`url.file://<mirror>.insteadOf https://github.com/Needless2Say/<repo>.git` rewrite per repo
 through `GIT_CONFIG_COUNT`, `KEY_n` and `VALUE_n` in the job's environment. Without
 `needs_sdk_auth` the lane is one job as before. The token is **App token first** (reports ecosystem
 epic W2.5): when the calling repo sets the `USE_GITHUB_APP` variable and holds the distributed
@@ -444,7 +448,9 @@ requirement files inside the mirror through `scan_files`, and fences the token w
 `kdf-private/mirrors/<repo>.git` and `kdf-private/manifest.json` of repo, ref, kind and commit) and
 `token_sha256` (the sha256 of the token the fetch used, for a proof that a later job holds no copy).
 The caller downloads the artifact, untars it under `$RUNNER_TEMP` and hands git the same rewrites the
-lanes do. The fetch job in it and in each lane is one template, `scripts/fetch_private_job.template.yml`,
+lanes do. A caller that calls it in a matrix gets one output, the last leg's, and an artifact name
+that is new per run, so no leg finds its own, so wrap one leg, the fetch and the job that uses it, in
+a reusable workflow of the caller's own and call that in the matrix. The fetch job in it and in each lane is one template, `scripts/fetch_private_job.template.yml`,
 written by `scripts/render_fetch_job.py`, and a test fails when a copy differs.
 
 **`ci-python-integration.yml`** additionally provisions a `postgres:16` **service** (`kdf`/`kdf`/
