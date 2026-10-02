@@ -37,11 +37,11 @@ from pathlib import Path
 PEM_UTF8  = b"PRIVATE KEY-----"
 PEM_UTF16 = "PRIVATE KEY-----".encode("utf-16-le")
 
-# a token's known prefix and then every character a token may hold, its length not assumed. GitHub's tokens have
-# changed length before, and a run measured on 2026-10-02 found no `ghs_` followed by exactly 36 letters and digits
-TOKEN_UTF8  = re.compile(rb"(?<![A-Za-z0-9_])(?:gh[pousr]_|github_pat_)[A-Za-z0-9_.\-]{20,400}")
+# a token's known prefix and then every character a token may hold, its length not assumed. An App installation token
+# minted on 2026-10-02 was 390 characters with more than letters, digits and underscores, not the 40 of earlier years
+TOKEN_UTF8  = re.compile(rb"(?<![A-Za-z0-9_])(?:gh[pousr]_|github_pat_)[A-Za-z0-9_.\-]{20,2000}")
 TOKEN_UTF16 = re.compile(
-    rb"(?:g\x00h\x00[pousr]\x00_\x00|g\x00i\x00t\x00h\x00u\x00b\x00_\x00p\x00a\x00t\x00_\x00)(?:[A-Za-z0-9_.\-]\x00){20,400}"
+    rb"(?:g\x00h\x00[pousr]\x00_\x00|g\x00i\x00t\x00h\x00u\x00b\x00_\x00p\x00a\x00t\x00_\x00)(?:[A-Za-z0-9_.\-]\x00){20,2000}"
 )
 
 SHORTEST_TOKEN = 24
