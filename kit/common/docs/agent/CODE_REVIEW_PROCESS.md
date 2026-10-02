@@ -444,7 +444,7 @@ round's commit beside the other readers', so the dispatch files stay word for wo
 **Bundles go to the workspace's temp folder.** A page's bundle commands, one per dispatch for each shell, run from the
 workspace folder that holds the clones and write into its `temp/` folder, making it when missing, `mkdir -p temp` in
 Git Bash and `New-Item -ItemType Directory -Force temp` in PowerShell, and print the full path of the file they wrote.
-One file per dispatch, `<pfx>-<slice>-dispatch-<n>.txt` in lower case, made again just before that dispatch is
+One file per dispatch, `kdf-<pfx>-<slice>-dispatch-<n>.txt` in lower case, made again just before that dispatch is
 attached so it matches the commit the page names. The page names the commit it was built at, so build it at the
 commit the prompts should name. A rebuild after a commit that carries only the review's own records moves that id with
 no code changed, as the kdf-sdk's S1 page moved from `f811111` to `20d2a18`, and the page then says the later commits

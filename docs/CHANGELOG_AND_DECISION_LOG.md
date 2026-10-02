@@ -1963,10 +1963,11 @@ they do not take up space", and "Its better to have a temp directory here where 
 needed since these code combinated files are only temporary and not needed for long term".
 
 **Decision.** A page's bundle commands run from the workspace folder that holds the clones and write into its `temp/`
-folder, made when missing, one lower case file per dispatch, `<pfx>-<slice>-dispatch-<n>.txt`, and print the full path
-they wrote. A bundle is made again just before its dispatch is attached, so it matches the commit the page names, and
-the page is built at the commit its prompts should name, saying so when later commits carry only the review's own
-records. Bundles are scratch, outside every repo, never committed, and the owner deletes them after the round.
+folder, made when missing, one lower case file per dispatch, `kdf-<pfx>-<slice>-dispatch-<n>.txt` as every page so far
+has named it, and print the full path they wrote. A bundle is made again just before its dispatch is attached, so it
+matches the commit the page names, and the page is built at the commit its prompts should name, saying so when later
+commits carry only the review's own records. Bundles are scratch, outside every repo, never committed, and the owner
+deletes them after the round.
 
 **Alternatives considered.**
 

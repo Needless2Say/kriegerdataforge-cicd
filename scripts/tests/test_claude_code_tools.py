@@ -431,7 +431,7 @@ def test_sol_bundles_go_to_the_workspace_temp_folder_and_never_into_a_repo() -> 
     assert "**Bundles go to the workspace's temp folder.**" in section_9
     assert "write into its `temp/` folder, making it when missing, `mkdir -p temp`" in section_9
     assert "`New-Item -ItemType Directory -Force temp`" in section_9
-    assert "`<pfx>-<slice>-dispatch-<n>.txt` in lower case" in section_9
+    assert "`kdf-<pfx>-<slice>-dispatch-<n>.txt` in lower case" in section_9
     assert "A bundle never goes into a repo's folder, because a review's launcher counts every new file" in section_9
     assert "never into the system's temp folder" in section_9
     assert "the owner deletes them after the round." in section_9
