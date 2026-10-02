@@ -396,8 +396,9 @@ def test_every_slice_closes_with_an_answer_key_and_every_report_names_its_model(
 def test_a_supporting_session_builds_what_a_review_finds_outside_the_reviewed_repo() -> None:
     """
     The orchestrator stays on the review (D-034). The process names the supporting session as a role, says what its
-    handoff carries, keeps its fixes out from under an open pin and the session out of the reviewed repo's folder, and
-    hands it what cicd owns. The roles page gives an agent the same role.
+    handoff carries, says who brings a merged fix to a review (the orchestrator, by moving the clone forward and
+    installing the tooling again between pins, never the supporting session), keeps the session out of the reviewed
+    repo's folder, and hands it what cicd owns when the review has one. The roles page says the same.
     """
     process = " ".join((KIT / "docs" / "agent" / "CODE_REVIEW_PROCESS.md").read_text(encoding = "utf-8").split())
     roles   = " ".join((KIT / "docs" / "agent" / "AGENT_ROLES.md").read_text(encoding = "utf-8").split())
@@ -405,9 +406,15 @@ def test_a_supporting_session_builds_what_a_review_finds_outside_the_reviewed_re
     assert "**The supporting session.**" in process
     for part in ("the finding,", "the evidence that proves it,", "what is already done,", "what would prove the fix."):
         assert part in process, f"the handoff lost its part {part!r}"
-    assert "takes effect between pins and never under an open one" in process
-    assert "never edits, commits, checks out or stashes anything in the reviewed repo's folder" in process
-    assert "The orchestrator hands it to the supporting session, section 2" in process
+    who_brings_a_fix = (
+        "A merged fix reaches a review only when the machine's clone of the repo that owns it is brought forward and "
+        "the reviewer tooling is installed again. The orchestrator does both, between pins and never under an open one,"
+    )
+    for page in (process, roles):
+        assert who_brings_a_fix in page
+        assert "the supporting session does neither." in page
+        assert "never edits, commits, checks out or stashes anything in the reviewed repo's folder" in page
+    assert "The orchestrator hands it to the supporting session when the review has one, section 2" in process
     assert "since v1.10.0" in process
     assert "- **Supporting session**, when the owner started you beside a review's orchestrator" in roles
     assert "**The supporting session** is an implementer started beside the orchestrator." in roles

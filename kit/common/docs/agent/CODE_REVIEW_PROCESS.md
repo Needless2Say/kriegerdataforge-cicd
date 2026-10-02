@@ -79,11 +79,13 @@ ChatGPT, because different models catch different things.
 to the supporting session as a handoff, a message that carries four things, the finding, the evidence that proves it,
 what is already done, and what would prove the fix. The supporting session builds the fix in a worktree of the repo
 that owns it, with its tests and an ADR where a rule changes, opens one pull request for it and reports the number
-back. A fix takes effect between pins and never under an open one, so every reviewer of a pin reads one tree. The
-orchestrator reads what the supporting session built before the reviewed repo relies on it, and the slice's log names
-that pull request where a register row would have stood. The supporting session never reviews, and never edits,
-commits, checks out or stashes anything in the reviewed repo's folder. A review without one runs as before, the
-orchestrator does that work itself, between pins the same way.
+back. A merged fix reaches a review only when the machine's clone of the repo that owns it is brought forward and the
+reviewer tooling is installed again. The orchestrator does both, between pins and never under an open one, so every
+reviewer of a pin reads one tree, and the supporting session does neither. The orchestrator reads what the supporting
+session built before the reviewed repo relies on it, and the slice's log names that pull request where a register row
+would have stood. The supporting session never reviews, and never edits, commits, checks out or stashes anything in
+the reviewed repo's folder. A review without one runs as before, the orchestrator does that work itself, between pins
+the same way.
 
 Each role's limits are written for every model and tool in [`AGENT_ROLES.md`](AGENT_ROLES.md). Every brief states the
 reviewer's role in its own text, word for word from the template, so Codex, Sol or any other model is told the same
@@ -233,10 +235,10 @@ of refusing by one. A lane that will first run on another platform than the mach
 once before the pull request, in a container on a clean export of the tree.
 
 What a finding shows about something `kriegerdataforge-cicd` owns, this kit, the reviewer tooling, a distributed
-script or a reusable workflow, is not deferred. The orchestrator hands it to the supporting session, section 2, which
-fixes it there by a pull request from a worktree as it is found and lets it take effect between pins, the slice's log
-names that pull request where a register row would have stood, and the owner runs the distribution once the review is
-done. What only another repo owns stays a register row for that repo, or becomes a follow up the supporting session
+script or a reusable workflow, is not deferred. The orchestrator hands it to the supporting session when the review
+has one, section 2, or builds it itself when it has none. Either way the fix lands there by a pull request from a
+worktree as it is found and reaches the review between pins, the slice's log names that pull request where a register
+row would have stood, and the owner runs the distribution once the review is done. What only another repo owns stays a register row for that repo, or becomes a follow up the supporting session
 opens there when the owner asks for it.
 
 **Step 1b. The common code**, for a shared library or platform repo. From the plan's survey of what consumers write

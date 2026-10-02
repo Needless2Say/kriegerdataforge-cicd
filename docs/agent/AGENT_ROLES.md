@@ -106,9 +106,11 @@ it.
 **The supporting session** is an implementer started beside the orchestrator. It works from the orchestrator's
 handoffs, each carrying the finding, the evidence that proves it, what is already done and what would prove the fix,
 and builds each fix as one pull request from a worktree of the repo that owns it, cicd, this kit, the reviewer tooling
-or another repo. Its fix takes effect between pins and never under an open one, and it reports the pull request back so
-the orchestrator reads it before the reviewed repo relies on it. It never reviews, and it never edits, commits, checks
-out or stashes anything in the reviewed repo's folder, which is the orchestrator's for the whole review.
+or another repo, and it reports the pull request back so the orchestrator reads it before the reviewed repo relies on
+it. A merged fix reaches a review only when the machine's clone of the repo that owns it is brought forward and the
+reviewer tooling is installed again. The orchestrator does both, between pins and never under an open one, and the
+supporting session does neither. It never reviews, and never edits, commits, checks out or stashes anything in the
+reviewed repo's folder, which is the orchestrator's for the whole review.
 
 ## 5. Reviewer
 
