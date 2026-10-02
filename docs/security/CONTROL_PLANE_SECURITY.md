@@ -183,9 +183,17 @@ tracking issue, auto closing it when everything is healthy (`check-secret-expiry
 Auto mintable Vercel tokens self-heal. The PATs and the Vercel master token are flagged as
 hand rotated because no API can mint them (`secret_registry.json:84-96`).
 
-**CI SDK auth git credential.** Where a CI job must resolve the private SDK, the token is injected
-via `git config insteadOf` from `secrets.GH_PACKAGES_PAT` only when `needs_sdk_auth` is set. Never
-unconditionally (`ci-python-security.yml:54-57`, `cd-python-vercel.yml:110-115`).
+**CI SDK auth git credential.** Where a reusable Python lane must resolve the private packages, only
+when the caller sets `needs_sdk_auth`, the lane's fetch job holds the token and the job that installs
+and tests names no secret at all (D-035). A process that becomes root on a hosted runner reads the
+runner's own memory, where every secret its job names sits, so the App's private key and the package
+token stay out of every job that runs a caller's code. The fetch job runs only git and its own inline
+script, reaches git with the token through its clone step's `GIT_CONFIG_*` environment and no config
+file (D-032), and hands the install job bare mirrors as an artifact kept for a day, which a public
+calling repo may not hold for a private repo. This repo's own CI proves it on every pull request,
+a hunt as root for the key and the token in the install job finds neither, and the same hunt in a
+control job that names them finds both. The deploy lane still writes the token into its job's git
+config (`cd-python-vercel.yml:110-115`), a follow up of D-035.
 
 **Dual store reports cron secrets.** The reports triage trigger authenticates to each app's
 `POST /reports/triage/cron` with an `X-Cron-Secret` value held as a cicd side **copy**

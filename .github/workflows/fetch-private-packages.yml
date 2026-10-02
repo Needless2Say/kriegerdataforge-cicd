@@ -1,7 +1,10 @@
-name: Python · Security (bandit + pip-audit)
+name: Fetch private packages
 
-# N3b: least-privilege — read-only reusable security lane (bandit + pip-audit; no
-# SARIF upload, so no security-events: write needed). Cap the GITHUB_TOKEN.
+# D-035. The fetch half of a lane that runs code it does not trust in a job that names no secret, for a caller that
+# runs its own install and test job, the kdf-sdk canary. The caller's job downloads the artifact this returns, untars it
+# under $RUNNER_TEMP, and hands git one rewrite per mirror, `url.file://<mirrors>/<repo>.git.insteadOf` for
+# `https://github.com/Needless2Say/<repo>.git`, through GIT_CONFIG_COUNT, KEY_n and VALUE_n, as the lanes do. Callers
+# pass `secrets: inherit`. Written by scripts/render_fetch_job.py, edit the template there and run it.
 permissions:
   contents: read
 
@@ -9,29 +12,9 @@ on:
   workflow_call:
     inputs:
       ref:
-        description: Git ref to check out (tag, branch or SHA). Empty checks out the caller run's own ref, a release dispatch passes the release tag so this lane judges the exact commit being deployed.
+        description: Git ref of the caller to check out for its requirement files. Empty is the caller run's own ref
         type: string
         default: ""
-      python_version:
-        description: Python version to use
-        type: string
-        default: "3.14"
-      bandit_paths:
-        description: Space-separated paths to pass to bandit -r
-        type: string
-        default: "api/ scripts/ vercel_api/"
-      bandit_version:
-        description: The bandit release to install. A pin, so a release of the scanner never turns a lane red on a day the repo did not change
-        type: string
-        default: "1.9.4"
-      pip_audit_version:
-        description: The pip-audit release to install. A pin, the advisories it reads are fetched fresh either way
-        type: string
-        default: "2.10.1"
-      needs_sdk_auth:
-        description: Fetch the owner's private packages in a separate job that holds the token (the App's installation token when the caller sets USE_GITHUB_APP, else the GH_PACKAGES_PAT secret), and install and test in a job that names no secret (D-035)
-        type: boolean
-        default: false
       requirement_files:
         description: The caller's requirement files the fetch reads for git+https pins of the owner's private repos, space separated, a missing one skipped
         type: string
@@ -48,6 +31,13 @@ on:
         description: The repos the App token is minted for, the narrower fence per call. Empty is every repo the fetch clones
         type: string
         default: ""
+    outputs:
+      artifact:
+        description: The artifact holding kdf-private.tar, mirrors/<repo>.git for each repo and manifest.json
+        value: ${{ jobs.fetch-private.outputs.artifact }}
+      token_sha256:
+        description: The sha256 of the token the fetch used, for a proof that a later job holds no copy of it
+        value: ${{ jobs.fetch-private.outputs.token_sha256 }}
 
 jobs:
   # D-035. The one job of this workflow that names a secret. It runs git and this workflow's own text, nothing of the
@@ -57,7 +47,6 @@ jobs:
   #   of it identical, edit the template there and run it.
   fetch-private:
     name: Fetch private packages
-    if: ${{ inputs.needs_sdk_auth }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -894,94 +883,3 @@ jobs:
           path: ${{ runner.temp }}/kdf-private.tar
           retention-days: 1
           if-no-files-found: error
-
-  bandit:
-    name: Bandit SAST
-    runs-on: ubuntu-slim
-
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          ref: ${{ inputs.ref }}
-
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: ${{ inputs.python_version }}
-
-      - name: Install bandit
-        run: pip install "bandit[toml]==${{ inputs.bandit_version }}"
-
-      - name: Run bandit
-        run: python -m bandit -r ${{ inputs.bandit_paths }} -ll --format txt
-
-  pip-audit:
-    name: pip-audit (CVE check)
-    needs: [fetch-private]
-    # D-035. FAIL CLOSED. A skipped required job counts as passing, so this job runs whatever the fetch did, and its
-    #   first step stops it unless the fetch succeeded
-    if: ${{ !cancelled() }}
-    permissions:
-      contents: read
-    runs-on: ubuntu-slim
-
-    steps:
-      - name: Require the private packages
-        if: ${{ inputs.needs_sdk_auth }}
-        env:
-          FETCH_RESULT: ${{ needs.fetch-private.result }}
-        run: |
-          if [ "$FETCH_RESULT" != "success" ]; then
-            echo "::error::the private packages were not fetched, the fetch job ended $FETCH_RESULT, so nothing here runs"
-            exit 1
-          fi
-
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          ref: ${{ inputs.ref }}
-
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: ${{ inputs.python_version }}
-
-      # The slim runner lacks libpq, so psycopg2 (built from source — it ships
-      # no manylinux wheels) fails with "pg_config executable not found" when
-      # pip-audit resolves requirements.txt. Provide the build dependency.
-      - name: Install libpq (psycopg2 build dependency)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpq-dev
-
-      - name: Install pip-audit
-        run: pip install "pip-audit==${{ inputs.pip_audit_version }}"
-
-      # D-035. The private repos the fetch job cloned, as bare mirrors, which git reads through a rewrite of each https
-      #   URL in the job's environment. No step of this job names a secret, and nothing it holds is one
-      - name: Download the private mirrors
-        if: ${{ inputs.needs_sdk_auth }}
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: ${{ needs.fetch-private.outputs.artifact }}
-          path: ${{ runner.temp }}/kdf-private-download
-
-      - name: Point git at the private mirrors
-        if: ${{ inputs.needs_sdk_auth }}
-        env:
-          TOKEN_SHA256: ${{ needs.fetch-private.outputs.token_sha256 }}
-        run: |
-          set -euo pipefail
-          tar -C "$RUNNER_TEMP" -xf "$RUNNER_TEMP/kdf-private-download/kdf-private.tar"
-          count=0
-          for mirror in "$RUNNER_TEMP"/kdf-private/mirrors/*.git; do
-            [ -d "$mirror" ] || continue
-            repo=$(basename "$mirror" .git)
-            echo "GIT_CONFIG_KEY_$count=url.file://$mirror.insteadOf" >> "$GITHUB_ENV"
-            echo "GIT_CONFIG_VALUE_$count=https://github.com/Needless2Say/$repo.git" >> "$GITHUB_ENV"
-            count=$((count + 1))
-          done
-          {
-            echo "GIT_CONFIG_COUNT=$count"
-            echo "KDF_PRIVATE_MIRRORS=$RUNNER_TEMP/kdf-private"
-            echo "KDF_FETCH_TOKEN_SHA256=$TOKEN_SHA256"
-          } >> "$GITHUB_ENV"
-          echo "git reads $count private mirror(s) through the rewrite"
-
-      - name: Audit requirements.txt
-        run: python -m pip_audit -r requirements.txt

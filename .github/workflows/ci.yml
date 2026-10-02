@@ -6,9 +6,11 @@
 #   test            pytest runs the Python unit tests in scripts/tests/
 #   version-check   VERSION is exactly one step ahead of main
 #   secret-scan     gitleaks over the pull request's commits
+#   secretless-proof, secretless-control
+#                   D-035's proof that the unit lane's install job holds no secret, and its positive control
 #
 # Every job must pass before a PR can be merged. The owner sets them as required status checks in the repo's
-# ruleset for main.
+# ruleset for main. The two D-035 jobs run only where the secrets exist and are not required checks.
 
 name: CI
 
@@ -98,3 +100,55 @@ jobs:
   # repo has no .gitleaks.toml, and its full history held no finding on gitleaks 8.30.1 on 2026-09-29.
   secret-scan:
     uses: ./.github/workflows/secret-scan.yml
+
+  # D-035's proof, on the pull request itself, before any repo depends on the change. The unit test lane, by a local
+  # reference so the pull request's own version runs, with package access on. Its fetch job mirrors this public repo,
+  # the stand in for the owner's private packages, a tag the fixture pins and the pull request's branch, and the install
+  # job installs a probe from the mirror and hunts for a secret where root could read one, every environment and the
+  # runner's own memory. It must find none. Only where the secrets exist, so not for Dependabot or a fork, and not a
+  # required check.
+  secretless-proof:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
+    uses: ./.github/workflows/ci-python-tests.yml
+    with:
+      needs_sdk_auth: true
+      requirement_files: tests/fixtures/secretless/requirements.txt
+      extra_repos: kriegerdataforge-cicd@${{ github.head_ref }}
+      install_command: >-
+        pip install "kdf-secretless-probe @ git+https://github.com/Needless2Say/kriegerdataforge-cicd.git@${{ github.head_ref }}#subdirectory=tests/fixtures/secretless/probe"
+      test_command: python tests/fixtures/secretless/hunt.py absent
+    secrets: inherit
+
+  # The positive control. A job that names the App's secrets and mints a token, where the same hunt must FIND the key
+  # and the token in the runner's memory, otherwise the proof's empty result would prove nothing.
+  secretless-control:
+    name: Secret hunt, positive control
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Mint a token the way a fetch job does
+        id: control-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.KDF_APP_ID }}
+          private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: kriegerdataforge-cicd
+          permission-contents: read
+
+      # only the token's sha256 reaches the hunt, it prints counts and never a value
+      - name: Hunt where the secrets are
+        env:
+          CONTROL_TOKEN: ${{ steps.control-token.outputs.token }}
+        run: |
+          token_sha256=$(printf '%s' "$CONTROL_TOKEN" | sha256sum | cut -d ' ' -f 1)
+          /usr/bin/python3 -I tests/fixtures/secretless/hunt.py present --token-sha256 "$token_sha256"

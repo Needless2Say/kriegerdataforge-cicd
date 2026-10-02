@@ -1,0 +1,6 @@
+# The requirement file D-035's proof hands the fetch job. This repo is public, so the fetch may mirror only the
+# public stand in, and a pin of a private repo here would fail the plan. The comment rule keeps the next line out.
+# kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@v1.2.0
+
+# A tag pin, mirrored and never installed, the proof reads it back through the rewrite to the mirror
+kdf-secretless-probe @ git+https://github.com/Needless2Say/kriegerdataforge-cicd.git@v0.2.99#subdirectory=tests/fixtures/secretless/probe

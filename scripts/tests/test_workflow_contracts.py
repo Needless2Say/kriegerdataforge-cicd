@@ -47,15 +47,28 @@ TEST_LANES = (
     "secret-scan.yml",
 )
 
-# each Python lane that can clone a private package, and the one step of it that does
+# each Python lane that can clone a private package, and the one step of it that does. Seven clone in their fetch job,
+# the job that names a secret, and install in a job that names none (D-035). The style lane installs only the pinned
+# formatter and stays one job
 CLONING_STEP = {
+    "ci-python-tests.yml": "Clone the private packages as bare mirrors",
+    "ci-python-integration.yml": "Clone the private packages as bare mirrors",
+    "ci-python-lint.yml": "Clone the private packages as bare mirrors",
+    "ci-python-typecheck.yml": "Clone the private packages as bare mirrors",
+    "ci-python-mutation.yml": "Clone the private packages as bare mirrors",
+    "ci-python-system.yml": "Clone the private packages as bare mirrors",
+    "ci-python-kdf-fmt.yml": "Install kdf-fmt (pinned, stdlib-only — no consumer deps)",
+    "ci-python-security.yml": "Clone the private packages as bare mirrors",
+}
+
+# the step of each split lane that installs or audits the caller's tree, in the job that names no secret
+INSTALL_STEP = {
     "ci-python-tests.yml": "Install dependencies",
     "ci-python-integration.yml": "Install dependencies",
     "ci-python-lint.yml": "Install dependencies",
     "ci-python-typecheck.yml": "Install dependencies",
     "ci-python-mutation.yml": "Install dependencies",
     "ci-python-system.yml": "Install dependencies",
-    "ci-python-kdf-fmt.yml": "Install kdf-fmt (pinned, stdlib-only — no consumer deps)",
     "ci-python-security.yml": "Audit requirements.txt",
 }
 
@@ -358,10 +371,11 @@ def test_a_lane_that_installs_a_private_package_asks_the_app_first(name):
     """
     text = _lane(name)
     mint = text.index("      - name: Mint GitHub App token for private-package installs\n")
-    assert mint < text.index("      - name: Install dependencies\n")
-    assert "        if: ${{ inputs.needs_sdk_auth && vars.USE_GITHUB_APP == 'true' }}\n" in text
+    assert mint < text.index("      - name: Clone the private packages as bare mirrors\n")
+    assert "        if: ${{ vars.USE_GITHUB_APP == 'true' && steps.plan.outputs.repositories != '' }}\n" in text
     assert "steps.pkg-token.outputs.token || secrets.GH_PACKAGES_PAT" in text
     assert "permission-contents: read" in text
+    assert "          repositories: ${{ steps.plan.outputs.repositories }}\n" in text
 
 
 def _named_steps(text: str) -> dict[str, str]:
@@ -389,7 +403,8 @@ def test_the_package_token_goes_to_the_step_that_clones_and_into_no_file(name):
     steps = _named_steps(text)
     clone = steps[CLONING_STEP[name]]
     assert "git config" not in "\n".join(steps.values()), "a lane writes a git config again"
-    assert "insteadOf" not in "\n".join(body for step, body in steps.items() if step != CLONING_STEP[name])
+    # the token's rewrite lives in the cloning step alone, the install job's rewrite points at the mirrors on disk
+    assert "url.https://__token__" not in "\n".join(body for step, body in steps.items() if step != CLONING_STEP[name])
     assert "GIT_CONFIG_KEY_0: ${{" in clone and "url.https://__token__:{0}@github.com/.insteadOf" in clone
     assert "          GIT_CONFIG_VALUE_0: https://github.com/\n" in clone + "\n"
     naming = sorted(step for step, body in steps.items() if "GH_PACKAGES_PAT" in body or "pkg-token.outputs" in body)
@@ -399,14 +414,18 @@ def test_the_package_token_goes_to_the_step_that_clones_and_into_no_file(name):
     assert names.index("Mint GitHub App token for private-package installs") < names.index(CLONING_STEP[name])
 
 
-@pytest.mark.parametrize("name", sorted(set(CLONING_STEP) - {"ci-python-kdf-fmt.yml"}))
+@pytest.mark.parametrize("name", sorted(INSTALL_STEP))
 def test_a_lane_that_was_not_asked_for_package_access_hands_git_no_setting(name):
     """
-    A caller that never sets needs_sdk_auth gets a count of zero and an empty key, so git reads no rewrite.
+    The install step holds no git setting and no secret at all. The fetch job and the steps that read the mirrors run
+    only when the caller sets needs_sdk_auth, so a caller that never sets it gets one job and git reads no rewrite.
     """
-    clone = _named_steps(_lane(name))[CLONING_STEP[name]]
-    assert "          GIT_CONFIG_COUNT: ${{ inputs.needs_sdk_auth && '1' || '0' }}\n" in clone
-    assert "inputs.needs_sdk_auth && format(" in clone and ") || '' }}" in clone
+    text    = _lane(name)
+    install = _named_steps(text)[INSTALL_STEP[name]]
+    assert "GIT_CONFIG" not in install and "secrets." not in install
+    assert "  fetch-private:\n    name: Fetch private packages\n    if: ${{ inputs.needs_sdk_auth }}\n" in text
+    for step in ("Require the private packages", "Download the private mirrors", "Point git at the private mirrors"):
+        assert "        if: ${{ inputs.needs_sdk_auth }}\n" in _step(text, step), step
 
 
 def test_the_security_lane_installs_its_two_tools_at_a_pin():

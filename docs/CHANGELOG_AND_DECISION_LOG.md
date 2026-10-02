@@ -1789,3 +1789,100 @@ defect leaves that row unsure.
 SDK review writes its first answer key when S1 closes. Closed reviews from before this decision have no key, and one
 is built for a past slice only when a benchmark needs it, as the pilot built the auth UI's S1.
 
+## D-035. Code a lane does not trust runs in a job that names no secret, its private packages fetched by a job that runs only git
+
+- **Date.** 2026-10-02
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. The reusable lanes take effect
+  at the merge, every repo calls them at `main`. No kit change, nothing to Distribute.
+- **Tier / scope:** Standard · the seven reusable lanes `ci-python-tests.yml`, `-integration`, `-system`, `-mutation`,
+  `-security` (its pip-audit job), `-lint` and `-typecheck` · a new `fetch-private-packages.yml` ·
+  `scripts/fetch_private_packages.py`, `scripts/render_fetch_job.py` and `scripts/fetch_private_job.template.yml` · the
+  proof in `ci.yml` and `tests/fixtures/secretless/` · the workflow reference and the control plane security doc
+
+**Context.** D-032 made the package token one step's, so no later step of a lane reads it from a git config file or
+from another process's environment. It recorded what that does not close. A hosted runner grants passwordless `sudo`,
+and a process that becomes root reads the memory of `Runner.Worker`, where every secret the job names sits, the
+technique of the tj-actions/changed-files compromise of March 2025. Each lane named `KDF_APP_ID` and
+`KDF_APP_PRIVATE_KEY` in its mint step, in the same job as the caller's install and tests, and that private key mints
+tokens for every repo the App is installed on. A dependency of any backend that became root in CI could have taken
+the App itself. The kdf-sdk review's S1-48 measured the environment half of this on Linux. The owner, 2026-10-01, "I
+agree that this is an important enhancement and should be implemented", and of how it proves itself, "because then it
+can be used as you are doing the code review to see if it works properly". The review session handed the task over with
+its finding and its evidence, the arrangement of D-034.
+
+**Decision.**
+
+- **Two jobs when a caller asks for package access.** The lane's fetch job is the only job that names a secret. It
+  checks out the caller's tree with no credential kept and runs nothing of it, reads its requirement files as text,
+  mints the App's token for exactly the repos it clones, clones each pinned ref into a bare mirror, no working tree, so
+  no hook and no filter runs, and uploads the mirrors as one artifact kept for a day. The install job names no secret
+  at all. It downloads the mirrors and hands git one rewrite per repo, from `https://github.com/Needless2Say/<repo>.git`
+  to the mirror on disk, through `GIT_CONFIG_COUNT`, `KEY_n` and `VALUE_n` in the job's environment, then runs the
+  caller's install and test commands as before, and pip's direct git URLs clone from disk.
+- **The install job keeps its id and its name.** A ruleset requires a called job as `<caller job> / <called job name>`,
+  so no repo's required check changes. The fetch job adds a check no ruleset requires.
+- **Fail closed.** A skipped required job counts as passing, so the install job runs whatever the fetch did, on
+  `!cancelled()`, and its first step fails unless the fetch succeeded. A Dependabot run, which gets no secrets, fails
+  as it does today.
+- **A caller that does not ask keeps one job.** The fetch job and the install job's three mirror steps run only with
+  `needs_sdk_auth`. The kdf-sdk calls its lanes without it.
+- **What the fetch reads.** A pin is `git+https://github.com/Needless2Say/<repo>.git@<ref>`, a `#subdirectory=` tail is
+  part of the URL, a comment is a `#` at a line's start or after whitespace, a backslash continues a line, and `-r`,
+  `-c`, `--requirement` and `--constraint` are followed within the same tree and refused when they name a URL or leave
+  it. Any other mention of the owner's repos fails the plan, a pin it missed would reach the install job with no
+  mirror. A ref out of a requirement file is a tag or a full commit id. A branch is allowed only for a repo the caller
+  lists by name in `extra_repos`, and the manifest records the commit it resolved to. `scan_files` reads requirement
+  files inside such a mirror with `git show`, and `token_repositories` is the narrower fence per call, the kdf-sdk
+  canary mints for one backend and the three packages.
+- **An allowlist, and the public caller rule.** The fetch mirrors only the owner's repos a lane can need, the three
+  packages and the three backends, all private, and this public repo as the stand in for the proof. A public calling
+  repo may mirror only a public one. Its run artifacts are readable by anyone, so a public repo has no private package
+  to fetch.
+- **The fetch job is written into each lane, not called.** A reusable workflow that calls another by a `./` path is
+  documented to take it "from the same commit as the caller workflow", and the documentation does not say which
+  repository that is when the lane itself was called from another repo. Rather than guess, the fetch job is one
+  template, `scripts/fetch_private_job.template.yml`, written into the seven lanes and into `fetch-private-packages.yml`
+  by `scripts/render_fetch_job.py` with `fetch_private_packages.py` inline, so the code the job runs is the workflow's
+  own text at its own commit. A test fails when a copy differs. `fetch-private-packages.yml` is for a caller that runs
+  its own install job, the kdf-sdk canary, which calls it from its own top level workflow.
+- **The style lane stays one job.** It installs only the pinned kdf-fmt and runs it over files, no code of the caller
+  executes, and this public repo's own CI calls it, where a mirror artifact would publish the formatter. This rests on
+  kdf-fmt never importing or executing what it formats. A kdf-fmt that one day did would have to split too.
+- **Proved on the pull request.** No session dispatches a workflow, so this repo's own CI calls the unit test lane by a
+  local reference with package access on. Its fetch job mirrors this repo, a tag the fixture pins and the pull
+  request's branch. The install job installs a probe package from the mirror through the rewrite, reads the tag back
+  the same way, and then, as root, hunts every process's environment and the memory of `Runner.Worker` and
+  `Runner.Listener` for the header of a private key and for any token whose sha256 equals the one the fetch job
+  published. It must find none, and it must find the job's own `GITHUB_TOKEN` there, or it read the wrong memory. A
+  positive control job names the App's secrets, mints a token and runs the same hunt, which must find both. Only
+  counts and booleans are printed.
+
+**Alternatives considered.**
+
+- A composite action or a nested reusable workflow for the fetch. Not taken, the commit a nested `./` reference resolves
+  to is not documented for a lane called from another repo, and an action pinned at `@main` would let a pull request
+  here test main's fetch instead of its own.
+- Shallow mirrors. Rejected, pip clones with `--filter=blob:none`, and a filtered clone of a shallow repository failed,
+  measured with git on Windows on 2026-10-02, so each pinned ref keeps its history. A plain clone of a shallow mirror and
+  a filtered clone of a full one both worked.
+- A cache in place of an artifact. Rejected, a cache of a public repo can be restored by a fork's run.
+- Encrypting the artifact with a key passed between the jobs. Rejected, a job output is not a secret, and the key would
+  sit beside the ciphertext for anyone who reads the run.
+
+**Trade-offs.** What it closes. The App's private key and the package token are no longer in the memory or the
+environment of any job that runs a caller's code, so a dependency that becomes root during an install or a test reads
+neither. What it does not close. The `GITHUB_TOKEN` is in every job at `contents: read`, and the install job's checkout
+still keeps it in the tree's git config for the caller's tests. The fetch job still holds the key while it runs git and
+its own script, and a compromise of git, the runner image or a pinned action there would reach it. **The price.** A
+private tree sits in the calling repo's run artifacts for a day, readable by everyone who can read that repo. For a
+backend that is the packages it pins, for the kdf-sdk canary it is the three backends' trees in the SDK's artifacts.
+Every one of these repos is private, and the owner is its only reader. **The cost.** One more job per lane per pull
+request, a minute or two, and seven lanes of about seven hundred lines each, most of them the inline script.
+
+**Consequences.** The first pull request of any Python repo that sets `needs_sdk_auth` after the merge runs the two
+jobs, and a red fetch there is this change. Follow ups. `cd-python-vercel.yml` still writes the package token into its
+deploy job's git config, a job that holds the deploy secrets either way. `.github/actions/run-e2e` still installs
+`cryptography` by a bare name. The install job's checkout could keep no credential, `persist-credentials: false`, once
+no caller's tests need the token. The kdf-sdk wires its canary to `fetch-private-packages.yml` between pins and reports
+its first run.
+
