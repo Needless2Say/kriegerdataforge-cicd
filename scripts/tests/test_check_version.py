@@ -8,6 +8,7 @@ ADR D-013).
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -324,3 +325,117 @@ def test_fallback_when_registries_unreadable(tmp_path):
             ),
         ):
             assert cv._is_exempt_sync_pr(tmp_path) is True
+
+
+# ── The fetch of the base branch, against real git ────────────────────────
+def _git(cwd: Path, *args: str) -> str:
+    done = subprocess.run(["git", "-C", str(cwd), *args], capture_output = True, text = True, check = True)
+    return done.stdout.strip()
+
+
+def _origin_and_clones(tmp_path: Path) -> tuple[Path, Path]:
+    """
+    A bare origin whose main holds two commits and a VERSION, a full clone of it and a clone one commit deep.
+    """
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    _git(seed, "init", "-q", "-b", "main")
+    _git(seed, "config", "user.email", "dev@example.com")
+    _git(seed, "config", "user.name", "Dev")
+    for version in ("0.10.5", "0.10.6"):
+        (seed / "VERSION").write_text(version + "\n", encoding = "utf-8")
+        _git(seed, "add", "-A")
+        _git(seed, "commit", "-q", "-m", version)
+    origin = tmp_path / "origin.git"
+    subprocess.run(["git", "clone", "-q", "--bare", str(seed), str(origin)], check = True, capture_output = True)
+    full    = tmp_path / "full"
+    shallow = tmp_path / "shallow"
+    subprocess.run(["git", "clone", "-q", origin.as_uri(), str(full)], check = True, capture_output = True)
+    subprocess.run(
+        ["git", "clone", "-q", "--depth", "1", origin.as_uri(), str(shallow)],
+        check = True,
+        capture_output = True,
+    )
+    return full, shallow
+
+
+def test_a_full_clone_stays_full_after_the_check_fetches_its_base(tmp_path):
+    """
+    The fetch asked for one commit of depth in every clone. In a full one that writes the tip into .git/shallow and
+    the whole clone turns shallow, git log stops at that commit until someone runs git fetch --unshallow.
+    """
+    full, shallow = _origin_and_clones(tmp_path)
+    assert cv._fetch_depth(full) == []
+    assert cv._fetch_base(full, "main") is True
+    assert _git(full, "rev-parse", "--is-shallow-repository") == "false"
+    assert _git(full, "rev-list", "--count", "HEAD") == "2"
+    assert cv._get_base_version(full, "main") == "0.10.6"
+
+
+def test_a_shallow_clone_fetches_one_commit_as_before(tmp_path):
+    """
+    A runner's checkout is shallow, and the tip is all the check reads.
+    """
+    _full, shallow = _origin_and_clones(tmp_path)
+    assert cv._fetch_depth(shallow) == ["--depth=1"]
+    assert cv._fetch_base(shallow, "main") is True
+    assert _git(shallow, "rev-parse", "--is-shallow-repository") == "true"
+    assert cv._get_base_version(shallow, "main") == "0.10.6"
+
+
+def test_a_fetch_that_fails_says_so(tmp_path):
+    full, _shallow = _origin_and_clones(tmp_path)
+    _git(full, "remote", "set-url", "origin", (tmp_path / "gone.git").as_uri())
+    assert cv._fetch_base(full, "main") is False
+
+
+def _run_main_with_fetch(
+    tmp_path: Path,
+    fetched: bool,
+    base_version: str | None,
+    environ: dict[str, str],
+) -> int | None:
+    argv = ["check_version.py", "--root", str(tmp_path)]
+    with (
+        patch.object(cv.sys, "argv", argv),
+        patch.dict(cv.os.environ, environ, clear = True),
+        patch.object(cv, "_fetch_base", return_value = fetched),
+        patch.object(cv, "_get_base_version", return_value = base_version),
+    ):
+        try:
+            cv.main()
+        except SystemExit as exc:
+            return exc.code
+    return None
+
+
+def test_on_a_runner_a_check_that_could_not_fetch_does_not_pass(tmp_path, capsys):
+    """
+    The increment check was skipped with a warning whenever the base could not be read, so a checkout without
+    credentials passed every pull request, whatever its version. A check that cannot look does not pass.
+    """
+    (tmp_path / "VERSION").write_text("0.10.9\n", encoding = "utf-8")
+    assert _run_main_with_fetch(tmp_path, False, None, {"GITHUB_ACTIONS": "true"}) == 1
+    out = capsys.readouterr().out
+    assert "FAIL: could not fetch origin/main, so the increment cannot be checked." in out
+
+
+def test_on_a_runner_a_new_repo_with_no_base_version_still_passes(tmp_path, capsys):
+    # the fetch reached origin and main holds no VERSION yet, the first pull request of a repo
+    (tmp_path / "VERSION").write_text("0.0.1\n", encoding = "utf-8")
+    assert _run_main_with_fetch(tmp_path, True, None, {"GITHUB_ACTIONS": "true"}) is None
+    assert "WARNING: could not read VERSION" in capsys.readouterr().out
+
+
+def test_on_a_developer_machine_an_offline_check_warns_and_passes(tmp_path, capsys):
+    (tmp_path / "VERSION").write_text("0.10.9\n", encoding = "utf-8")
+    assert _run_main_with_fetch(tmp_path, False, None, {}) is None
+    assert "WARNING: could not read VERSION" in capsys.readouterr().out
+
+
+def test_on_a_runner_a_fetch_that_failed_does_not_hide_a_base_already_there(tmp_path):
+    # origin/main was fetched by an earlier step, this fetch failed, the base is readable, so the check runs
+    (tmp_path / "VERSION").write_text("0.10.7\n", encoding = "utf-8")
+    assert _run_main_with_fetch(tmp_path, False, "0.10.6", {"GITHUB_ACTIONS": "true"}) is None
+    (tmp_path / "VERSION").write_text("0.10.9\n", encoding = "utf-8")
+    assert _run_main_with_fetch(tmp_path, False, "0.10.6", {"GITHUB_ACTIONS": "true"}) == 1

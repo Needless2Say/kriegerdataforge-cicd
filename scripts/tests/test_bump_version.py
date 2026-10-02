@@ -6,6 +6,8 @@ makes accidental double-bumps (0.10.6 -> 0.10.8) impossible.
 from __future__ import annotations
 
 import json
+import subprocess
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import common.bump_version as bv
@@ -84,14 +86,15 @@ def test_bump_writes_all_detected_targets(tmp_path):
 # ── Fallback when origin/main is unreadable ──────────────────────────────────
 def test_get_base_version_reads_origin(tmp_path):
     show = MagicMock(returncode = 0, stdout = "0.10.6\n")
-    with patch.object(bv.subprocess, "run", side_effect = [MagicMock(), show]):
+    # three git calls, whether the clone is shallow, the fetch, and the read of origin's VERSION
+    with patch.object(bv.subprocess, "run", side_effect = [MagicMock(stdout = "false\n"), MagicMock(), show]):
         assert bv.get_base_version(tmp_path, "main") == ("0.10.6", "origin/main")
 
 
 def test_get_base_version_falls_back_to_local(tmp_path, capsys):
     (tmp_path / "VERSION").write_text("0.10.6\n", encoding = "utf-8")
     failed = MagicMock(returncode = 128, stdout = "")
-    with patch.object(bv.subprocess, "run", side_effect = [MagicMock(), failed]):
+    with patch.object(bv.subprocess, "run", side_effect = [MagicMock(stdout = "false\n"), MagicMock(), failed]):
         assert bv.get_base_version(tmp_path, "main") == ("0.10.6", "local")
     assert "WARNING: could not read VERSION from origin/main" in capsys.readouterr().out
 
@@ -209,3 +212,48 @@ def test_bom_tolerated(tmp_path):
     (tmp_path / "VERSION").write_bytes(b"\xef\xbb\xbf0.10.6\n")
     _run_bump(tmp_path, "patch")
     assert (tmp_path / "VERSION").read_text(encoding = "utf-8").strip() == "0.10.7"
+
+
+# ── The fetch of the base branch, against real git ────────────────────────
+def _git(cwd: Path, *args: str) -> str:
+    done = subprocess.run(["git", "-C", str(cwd), *args], capture_output = True, text = True, check = True)
+    return done.stdout.strip()
+
+
+def _origin_and_clones(tmp_path: Path) -> tuple[Path, Path]:
+    """
+    A bare origin whose main holds two commits and a VERSION, a full clone of it and a clone one commit deep.
+    """
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    _git(seed, "init", "-q", "-b", "main")
+    _git(seed, "config", "user.email", "dev@example.com")
+    _git(seed, "config", "user.name", "Dev")
+    for version in ("0.10.5", "0.10.6"):
+        (seed / "VERSION").write_text(version + "\n", encoding = "utf-8")
+        _git(seed, "add", "-A")
+        _git(seed, "commit", "-q", "-m", version)
+    origin = tmp_path / "origin.git"
+    subprocess.run(["git", "clone", "-q", "--bare", str(seed), str(origin)], check = True, capture_output = True)
+    full    = tmp_path / "full"
+    shallow = tmp_path / "shallow"
+    subprocess.run(["git", "clone", "-q", origin.as_uri(), str(full)], check = True, capture_output = True)
+    subprocess.run(
+        ["git", "clone", "-q", "--depth", "1", origin.as_uri(), str(shallow)],
+        check = True,
+        capture_output = True,
+    )
+    return full, shallow
+
+
+def test_a_full_clone_stays_full_after_a_bump_reads_its_base(tmp_path):
+    """
+    make bump-patch fetched the base branch at a depth of one commit, which turned a developer's full clone shallow.
+    """
+    full, shallow = _origin_and_clones(tmp_path)
+    assert bv.get_base_version(full, "main") == ("0.10.6", "origin/main")
+    assert _git(full, "rev-parse", "--is-shallow-repository") == "false"
+    assert _git(full, "rev-list", "--count", "HEAD") == "2"
+    assert bv._fetch_depth(full) == []
+    assert bv._fetch_depth(shallow) == ["--depth=1"]
+    assert bv.get_base_version(shallow, "main") == ("0.10.6", "origin/main")

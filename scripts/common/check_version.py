@@ -152,23 +152,48 @@ def _allowed_next(base: tuple[int, int, int]) -> list[tuple[int, int, int]]:
     ]
 
 
-def _fetch_base(cwd: Path, base_branch: str) -> None:
+def _fetch_depth(cwd: Path) -> list[str]:
     """
-    Best-effort shallow fetch of the base branch so origin/<base> is resolvable.
+    The depth a fetch of the base branch takes, one commit in a clone that is already shallow and none in a full one.
+
+    A runner's checkout is shallow and needs only the tip. A developer's clone is full, and `--depth=1` there writes
+    the fetched tip into `.git/shallow`, which turns the whole clone shallow. `git log` then stops at that commit
+    until someone runs `git fetch --unshallow`, which happened to a clone during the SDK review.
+
+    Args:
+        cwd: repo directory to run git in
+
+    Returns:
+        list[str]: `["--depth=1"]` in a shallow clone, an empty list in a full one or when git cannot say
+    """
+    result = subprocess.run(  # noqa: S603  (internal args only)
+        [_GIT, "rev-parse", "--is-shallow-repository"],
+        capture_output = True,
+        text = True,
+        check = False,
+        cwd = cwd,
+    )
+    return ["--depth=1"] if result.stdout.strip() == "true" else []
+
+
+def _fetch_base(cwd: Path, base_branch: str) -> bool:
+    """
+    Fetch the base branch so origin/<base> is resolvable, and say whether the fetch reached origin.
 
     Args:
         cwd: repo directory to run git in
         base_branch: the base branch name
 
     Returns:
-        None
+        bool: True when the fetch succeeded
     """
-    subprocess.run(  # noqa: S603  (internal args only)
-        [_GIT, "fetch", "origin", base_branch, "--depth=1"],
+    result = subprocess.run(  # noqa: S603  (internal args only)
+        [_GIT, "fetch", "origin", base_branch, *_fetch_depth(cwd)],
         capture_output = True,
         check = False,
         cwd = cwd,
     )
+    return result.returncode == 0
 
 
 def _get_base_version(cwd: Path, base_branch: str) -> str | None:
@@ -260,12 +285,7 @@ def _changed_files(cwd: Path, base_ref: str) -> list[str]:
     Returns:
         list[str]: changed file paths, empty when the diff cannot be computed
     """
-    subprocess.run(  # noqa: S603  (internal args only)
-        [_GIT, "fetch", "origin", base_ref, "--depth=1"],
-        capture_output = True,
-        check = False,
-        cwd = cwd,
-    )
+    _fetch_base(cwd, base_ref)
     result = subprocess.run(  # noqa: S603  (internal args only)
         [_GIT, "diff", "--name-only", f"origin/{base_ref}", "HEAD"],
         capture_output = True,
@@ -391,12 +411,18 @@ def main() -> None:
 
     # strict single-increment check vs the base branch
     print(f"Checking increment vs origin/{args.base_branch} ...")
-    _fetch_base(root, args.base_branch)
+    fetched      = _fetch_base(root, args.base_branch)
     base_version = _get_base_version(root, args.base_branch)
 
-    if base_version is None:
+    if base_version is None and not fetched and os.environ.get("GITHUB_ACTIONS") == "true":
+        # a check that cannot look does not pass. on a runner the fetch has no reason to fail but a checkout
+        # without credentials or a remote that is down, and either way the increment was not checked
+        print(f"FAIL: could not fetch origin/{args.base_branch}, so the increment cannot be checked.")
+        print("      Give the checkout its credentials (persist-credentials), or run the job again.")
+        passed = False
+    elif base_version is None:
         print(f"WARNING: could not read VERSION from origin/{args.base_branch} -- skipping increment check.")
-        print("         This is expected on a brand-new repo before the first commit to main.")
+        print("         This is expected on a brand-new repo before the first commit to main, and offline.")
     else:
         print(f"origin/{args.base_branch}: {base_version}")
         try:

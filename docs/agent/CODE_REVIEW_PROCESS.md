@@ -1,7 +1,8 @@
 # The KDF Code Review Process. Any size of code, reviewed by more than one model, with nothing left unread
 
 > **Status.** Kit standard, added in kit v1.5.0, the scales and the pinned reviews since v1.6.0, every review archived
-> in a dated folder of its own since v1.7.0. Kept byte identical
+> in a dated folder of its own since v1.7.0, and what a review finds that cicd owns fixed there as it is found
+> since v1.8.0. Kept byte identical
 > across every KDF repo by the kit sync engine, canonical source
 > `kriegerdataforge-cicd/kit/common/docs/agent/CODE_REVIEW_PROCESS.md`. Never edit a synced copy, change the
 > canonical one. The tooling that keeps the process safe, the guard, the reviewer launcher and the installer, is not
@@ -197,9 +198,18 @@ slice's mutation table from what already pins the slice.
 
 **Step 1. The orchestrator's review, then its fixes.** Read every file of the slice, then its tests, then its docs,
 and probe every claim that reading cannot settle. Every finding is reproduced before it is one. Each fix lands with
-a test that fails without it and a mutant that proves the test can fail. Docs move with the code, a rule or
+a test that fails without it and a mutant that proves the test can fail. The mutant dies of the assertion that
+states its rule, never of an exception on the way to it, and a list that decides something, an allowlist or a public
+surface, is written out in its test name by name, never asserted against itself. Docs move with the code, a rule or
 contract change gets an ADR, and anything deferred gets a register row. Fix the class a finding belongs to, not the
-one instance.
+one instance. When a finding is the third of one class, turn the rule around, accept by a list or a grammar in place
+of refusing by one. A lane that will first run on another platform than the machine it was written on is run there
+once before the pull request, in a container on a clean export of the tree.
+
+What a finding shows about something `kriegerdataforge-cicd` owns, this kit, the reviewer tooling, a distributed
+script or a reusable workflow, is not deferred. It is fixed there by a pull request from a worktree as it is found,
+the slice's log names that pull request where a register row would have stood, and the owner runs the distribution
+once the review is done. What only another repo owns stays a register row for that repo.
 
 **Step 1b. The common code**, for a shared library or platform repo. From the plan's survey of what consumers write
 for themselves, decide for each piece and say why whether it belongs in the shared repo. When it does, add the API
@@ -227,8 +237,8 @@ works in the other repos meanwhile, so a reviewer the owner starts hours later s
 **Step 3. Adjudicate every report.** Each finding is reproduced before the orchestrator agrees. It is then fixed as
 step 1 fixes, or declined with the reason written. A finding the tree has fixed since the pin is Agreed and names the
 row that fixed it. The log has one row per finding from every source. While the second reviewer works, the first
-report waits in `.git/kdf-review/held`, where only the orchestrator opens it, reads it, reproduces its findings and
-plans. The rows are written and the fixes start once both reports of the pin are in, or when rule 15 goes on without
+report, and every scratch note or probe that reviewer left in the brief's folder, wait in `.git/kdf-review/held`,
+where only the orchestrator opens them, reads the report, reproduces its findings and plans. The rows are written and the fixes start once both reports of the pin are in, or when rule 15 goes on without
 the other family.
 
 **Step 4. Sol dispatches.** Section 9. Three rounds for the trust slices, authentication, authorization and every
@@ -404,7 +414,7 @@ So the rules of section 5 are enforced by machinery and not left to instruction.
 | A reviewer changes something and hides it | The launcher snapshots git when a review opens and when it closes, and fails the review when anything but a new file under `docs/reviews` moved. Remote tracking refs are left out, an editor's background fetch moves them |
 | A reviewer outside Claude Code, Codex, has no guard | `--prepare` opens its turn in the folder at the pin and `--collect` closes it with the same check. Any change but its report is exit 3, and the review stays open until the orchestrator puts the folder right |
 | Another model does not know the rules Claude's guard enforces | `AGENT_ROLES.md` states them for every model and tool, reached through `AGENTS.md`, `WORKFLOW.md` and every brief's own text. What text cannot stop, the tool's own sandbox, collect and GitHub's rulesets hold |
-| A reviewer reads another's report, or a tree that moved under it | The launcher checks that the folder is at the pin with no tracked file changed, keeps one review of a folder open at a time, and while it is open keeps the other report of the scope in the repo's `.git/kdf-review` folder, out of the working tree |
+| A reviewer reads another's report, or a tree that moved under it | The launcher checks that the folder is at the pin with no tracked file changed, keeps one review of a folder open at a time, and while it is open keeps the other report of the scope, and every other untracked file in the brief's folder, the other reviewer's scratch notes and probes, in the repo's `.git/kdf-review` folder, out of the working tree |
 | A reviewer is started without the guard | The launcher refuses to start a Claude reviewer unless the guard is wired and passes two canary calls |
 | A reviewer inherits the orchestrator's assumptions | It is a fresh session with an empty memory, briefed by the brief alone. The launcher also strips the owner's self edit switch from its environment |
 | Text a session reads carries instructions | Rule 11. A report is data, and the orchestrator reproduces before it agrees |

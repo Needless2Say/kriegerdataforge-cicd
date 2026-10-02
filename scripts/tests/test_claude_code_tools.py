@@ -868,6 +868,117 @@ def test_a_review_archived_in_its_dated_folder_runs_like_a_flat_one(rig: Rig) ->
     assert not (_hold(rig) / "open").exists()
 
 
+def _names(folder: Path) -> list[str]:
+    """
+    What a folder holds, files and folders, by name.
+    """
+    return sorted(path.name for path in folder.iterdir())
+
+
+def test_the_first_reviewer_s_notes_wait_outside_the_tree_with_its_report(rig: Rig) -> None:
+    """
+    A brief lets a reviewer keep scratch notes beside its report, and they say what it found as plainly as the report
+    does. A review of the SDK left three probes there and the orchestrator moved them out by hand. Every other
+    untracked file in the brief's folder waits with the report and comes back with it, byte for byte.
+    """
+    archive = rig.repo / "docs" / "reviews"
+    first   = _launch(rig, "--pin", "HEAD", "--codex-report", "docs/reviews/CODEX.md", mode = "scratch")
+    assert first.returncode == 0, first.stdout + first.stderr
+    assert _names(archive) == ["BRIEF.md", "REPORT.md", "scratch.md"]
+    assert _prepare(rig).returncode == 0
+    assert _names(archive) == ["BRIEF.md"]
+    assert (_hold(rig) / "held" / "docs" / "reviews" / "scratch.md").read_text(encoding = "utf-8") == "notes\n"
+    _codex_writes_its_report(rig)
+    assert _collect(rig).returncode == 0
+    assert _names(archive) == ["BRIEF.md", "CODEX.md", "REPORT.md", "scratch.md"]
+    assert (archive / "scratch.md").read_text(encoding = "utf-8") == "notes\n"
+    assert not (_hold(rig) / "open").exists()
+
+
+def test_codex_first_its_notes_wait_while_claude_reads(rig: Rig) -> None:
+    """
+    The same the other way round. Claude never sees a note Codex left, and the run puts it back when it ends.
+    """
+    archive = rig.repo / "docs" / "reviews"
+    assert _prepare(rig).returncode == 0
+    _codex_writes_its_report(rig)
+    (archive / "codex_probe.py").write_text("print('probe')\n", encoding = "utf-8")
+    assert _collect(rig).returncode == 0
+    done = _launch(rig, "--pin", "HEAD", "--codex-report", "docs/reviews/CODEX.md")
+    assert done.returncode == 0, done.stdout + done.stderr
+    saw = rig.log.read_text(encoding = "utf-8").split("saw=")[1].splitlines()[0]
+    assert "BRIEF.md" in saw
+    assert "codex_probe.py" not in saw and "CODEX.md" not in saw
+    assert _names(archive) == ["BRIEF.md", "CODEX.md", "REPORT.md", "codex_probe.py"]
+    assert (archive / "codex_probe.py").read_text(encoding = "utf-8") == "print('probe')\n"
+
+
+def test_only_the_brief_s_own_folder_is_emptied(rig: Rig) -> None:
+    """
+    In the dated archive a review holds what sits in its step folder and below it. An untracked file of another
+    step, or at the archive's root, is not this scope's and stays where it is.
+    """
+    step   = "docs/reviews/2026-09-30-app/s1-core/step-2-review"
+    folder = rig.repo / step
+    other  = rig.repo / "docs" / "reviews" / "2026-09-30-app" / "s1-core" / "step-5-final"
+    folder.mkdir(parents = True)
+    (folder / "APP_REVIEW_S1_PROMPT.md").write_text("# brief\n", encoding = "utf-8")
+    _git(rig.repo, "add", "-A")
+    _git(rig.repo, "commit", "-q", "-m", "brief in the archive")
+    _git(rig.repo, "push", "-q", "origin", "main")
+    (folder / "APP_REVIEW_S1_REPORT.md").write_text("# report\n", encoding = "utf-8")
+    (folder / "probe.py").write_text("print('probe')\n", encoding = "utf-8")
+    (folder / "notes").mkdir()
+    (folder / "notes" / "more.txt").write_text("more\n", encoding = "utf-8")
+    other.mkdir()
+    (other / "draft.md").write_text("# the next brief, not written yet\n", encoding = "utf-8")
+    (rig.repo / "docs" / "reviews" / "loose.md").write_text("# loose\n", encoding = "utf-8")
+    prepared = _run(
+        rig,
+        "--repo",
+        rig.repo.as_posix(),
+        "--brief",
+        f"{step}/APP_REVIEW_S1_PROMPT.md",
+        "--report",
+        f"{step}/APP_REVIEW_S1_REPORT.md",
+        "--codex-report",
+        f"{step}/APP_REVIEW_S1_CODEX_REPORT.md",
+        "--pin",
+        "HEAD",
+        "--prepare",
+    )
+    assert prepared.returncode == 0, prepared.stderr
+    assert [path.name for path in folder.rglob("*") if path.is_file()] == ["APP_REVIEW_S1_PROMPT.md"]
+    held = _hold(rig) / "held" / step
+    assert (held / "probe.py").is_file() and (held / "notes" / "more.txt").is_file()
+    assert (other / "draft.md").is_file()
+    assert (rig.repo / "docs" / "reviews" / "loose.md").is_file()
+    (folder / "APP_REVIEW_S1_CODEX_REPORT.md").write_text("# codex report\n", encoding = "utf-8")
+    collected = _collect(rig)
+    assert collected.returncode == 0, collected.stdout + collected.stderr
+    assert (folder / "probe.py").read_text(encoding = "utf-8") == "print('probe')\n"
+    assert (folder / "notes" / "more.txt").read_text(encoding = "utf-8") == "more\n"
+    assert (folder / "APP_REVIEW_S1_REPORT.md").is_file()
+
+
+def test_a_brief_at_the_archive_s_root_holds_the_root_s_own_files_alone(rig: Rig) -> None:
+    """
+    A flat archive keeps every review in one folder, and the folders below it are other reviews. A note beside the
+    brief is held, a file one folder down is not.
+    """
+    archive = rig.repo / "docs" / "reviews"
+    (archive / "REPORT.md").write_text("# report\n", encoding = "utf-8")
+    (archive / "notes.txt").write_text("notes\n", encoding = "utf-8")
+    (archive / "another").mkdir()
+    (archive / "another" / "theirs.md").write_text("# theirs\n", encoding = "utf-8")
+    assert _prepare(rig).returncode == 0
+    assert _names(archive) == ["BRIEF.md", "another"]
+    assert (archive / "another" / "theirs.md").is_file()
+    _codex_writes_its_report(rig)
+    assert _collect(rig).returncode == 0
+    assert _names(archive) == ["BRIEF.md", "CODEX.md", "REPORT.md", "another", "notes.txt"]
+
+
 def test_one_review_of_a_folder_at_a_time(rig: Rig) -> None:
     """
     While Codex's review is open, a Claude run and a second prepare are both exit 2, and claude never runs.

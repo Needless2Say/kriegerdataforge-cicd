@@ -23,8 +23,9 @@
 # line the owner gives the reviewer in this folder. --collect, once the report is written, checks git the same way and
 # closes the review. A failed check leaves the review open, put right what the reviewer changed and collect again.
 #
-# No reviewer sees another's report of the scope. While a review is open the other report waits in the repo's
-# .git/kdf-review folder, out of the working tree, and closing the review puts it back.
+# No reviewer sees another's report of the scope, nor the scratch notes the other left beside it. While a review is
+# open the other report, and every other untracked file in the brief's folder, waits in the repo's .git/kdf-review
+# folder, out of the working tree, and closing the review puts each back.
 #
 # Codex in the cloud. --collect-branch fetches the branch Codex's pull request came from, checks that it is built on
 # the pin and adds nothing but new files under docs/reviews, and writes the report into the folder. The owner closes
@@ -183,6 +184,23 @@ hold_out() {
 	printf '%s\n' "$f" >>"$open/held"
 }
 
+# hold_notes, whatever else the other reviewer left in the brief's folder. A brief lets a reviewer keep scratch
+# notes and probes beside its report, and they say what it found as plainly as the report does. A review of the SDK
+# left three, and the orchestrator moved them out by hand. Only under docs/reviews, the archive, and at the
+# archive's own root only the files that sit in it, the folders below are other reviews
+hold_notes() {
+	local dir f
+	dir="$(dirname "$brief_rel")"
+	case "$dir" in
+		docs/reviews|docs/reviews/*) ;;
+		*) return 0 ;;
+	esac
+	while IFS= read -r -d '' f; do
+		[ "$dir" != docs/reviews ] || [ "$(dirname "$f")" = docs/reviews ] || continue
+		hold_out "$f"
+	done < <(git -C "$repo" ls-files -z -o --exclude-standard -- "$dir/")
+}
+
 # close_review, puts every held report back, never over a file, and closes the review
 close_review() {
 	local f
@@ -323,6 +341,7 @@ if [ "$prepare" -eq 1 ]; then
 	open_review codex "$codex_rel" "$report_rel"
 	trap close_review EXIT
 	hold_out "$report_rel"
+	hold_notes
 	snapshot >"$open/before"
 	trap - EXIT
 	folder="$repo"
@@ -365,6 +384,7 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 hold_out "$codex_rel"
+hold_notes
 snapshot >"$work/before"
 printf 'kdf-review: starting the reviewer in %s, log %s\n' "$repo" "$log"
 (cd "$repo" && env -u KDF_GUARD_ALLOW_SELF_EDIT KDF_ROLE=reviewer "${runner[@]}" "$claude_bin" "${args[@]}") >"$log" 2>&1
