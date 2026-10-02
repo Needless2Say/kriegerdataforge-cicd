@@ -238,8 +238,8 @@ What a finding shows about something `kriegerdataforge-cicd` owns, this kit, the
 script or a reusable workflow, is not deferred. The orchestrator hands it to the supporting session when the review
 has one, section 2, or builds it itself when it has none. Either way the fix lands there by a pull request from a
 worktree as it is found and reaches the review between pins, the slice's log names that pull request where a register
-row would have stood, and the owner runs the distribution once the review is done. What only another repo owns stays a register row for that repo, or becomes a follow up the supporting session
-opens there when the owner asks for it.
+row would have stood, and the owner runs the distribution once the review is done. What only another repo owns stays
+a register row for that repo, or becomes a follow up the supporting session opens there when the owner asks for it.
 
 **Step 1b. The common code**, for a shared library or platform repo. From the plan's survey of what consumers write
 for themselves, decide for each piece and say why whether it belongs in the shared repo. When it does, add the API
