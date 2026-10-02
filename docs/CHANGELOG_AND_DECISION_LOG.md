@@ -1901,6 +1901,10 @@ its finding and its evidence, the arrangement of D-034.
 - **The style lane stays one job.** It installs only the pinned kdf-fmt and runs it over files, no code of the caller
   executes, and this public repo's own CI calls it, where a mirror artifact would publish the formatter. This rests on
   kdf-fmt never importing or executing what it formats. A kdf-fmt that one day did would have to split too.
+  **Corrected by D-038.** The claim that no code of the caller executes was false three ways. `python -m` put the
+  checkout first on the import path, so a `pip.py` in a pull request ran in pip's place in the step that held the
+  token and a `kdf_fmt/` in the formatter's place in the job that named the App's key, and `check_command` is the
+  caller's own text. The style lane splits too, and this repo runs its own one job check.
 - **Proved on the pull request.** No session dispatches a workflow, so this repo's own CI calls the unit test lane by a
   local reference with package access on. Its fetch job mirrors this repo, a tag the fixture pins and the pull
   request's branch. The install job installs a probe package from the mirror through the rewrite, reads the tag back
@@ -2030,5 +2034,63 @@ does not state them prints unknown. The ledger lives in a private repo of its ow
 **Consequences.** Kit v1.12.0 and cicd's own copies in step, the template registered for the sync, `kdf-retro.js` beside
 `kdf-brief.js` and not synced, like the rest of the tooling. The kdf-sdk review's S1 closes with the first
 retrospective.
+
+## D-038. The style lane runs no caller code where a secret is, and a release tags the commit it read
+
+- **Date.** 2026-10-02
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Supersedes D-035's paragraph on
+  the style lane.
+- **Tier / scope:** Standard · `ci-python-kdf-fmt.yml` · the new `ci-kdf-fmt-self.yml` and this repo's `ci.yml` ·
+  `create-github-release.yml` · `scripts/fetch_private_job.template.yml` and `scripts/render_fetch_job.py` · the tests
+
+**Context.** The kdf-sdk review's Sol dispatch 3 (SDK-S1-D3-R1-1) found D-035 wrong about the style lane. D-035 left it
+one job because no code of the caller executed there. It did, three ways. The install step ran `python -m pip` in the
+caller's checkout with the token in its environment, and `python -m` puts the working directory first on the import
+path, so a `pip.py` at the root of a pull request ran in pip's place in the one step that held the token. The check step
+ran `python -m kdf_fmt.cli`, so a `kdf_fmt/` folder in the tree ran in the formatter's place, in a job that named
+`KDF_APP_PRIVATE_KEY`, which a process that becomes root reads from the runner's memory. And `check_command` is the
+caller's own text. The review session measured both shadowings on Python 3.14.2, and `python -I` stopped both. The mint
+named no `repositories` either, so its token read every repo the App is installed on. Someone who can open a same repo
+pull request can already reach the secrets another way, so the review session rated it low, but the record was false.
+Probing the same dispatch found S1-54. `create-github-release.yml` ran `gh release create` with no `--target`, so GitHub
+put the tag on the default branch's tip when the command ran, and a second merge landing between the push and that line
+would take the first one's tag. Every backend pins the SDK's tag, and the tag naming the gated commit is the point of
+the SDK's D-020.
+
+**Decision.** The owner chose, 2026-10-02, to split the style lane like the other seven, "For every private repo, the
+style lane becomes two jobs like the other seven ... cicd, the one public repo, keeps its own one-job style check with
+Python's isolated mode and a token limited to kdf-fmt". The lane takes the template's fetch job, which here always
+runs, reads no requirement file, mirrors only `kriegerdataforge-fmt` at the caller's `kdf_fmt_ref` and mints for that
+repo alone. Its check job keeps the id `style` and the name `Style (kdf-fmt)`, so every ruleset's required check is
+unchanged, names no secret, fails closed on the template's guard, checks out with no credential kept, and installs the
+formatter from its mirror with `python -I -m pip`. The default `check_command` is `python -I -m kdf_fmt.cli check
+--no-cache`. Isolated mode covers the install step and that default only. A caller's own command is its own text, and
+in a job that names no secret a shadowed `kdf_fmt` can only fake a style pass, which a pull request could do anyway by
+changing `check_command`, so the lane's safety rests on the check job naming no secret. The template's plan inputs and
+its guard's condition became fields filled per copy, and the seven lanes and the standalone render exactly as before.
+The fetch refuses a public caller's mirror of a private repo, so this public repo calls its own one job check,
+`ci-kdf-fmt-self.yml`, whose job keeps the name `Style (kdf-fmt)`. It mints for `kriegerdataforge-fmt` alone, installs
+and runs in isolated mode, and its command, baseline gated, is fixed in the file and is not an input. A release names
+its commit, `create-github-release.yml` records the commit it read `VERSION` from, the triggering commit, and passes it
+to `gh release create` as `--target`.
+
+**Alternatives considered.**
+
+- Isolated mode and a narrowed token alone, the lane one job. Offered to the owner and not chosen, the caller's
+  `check_command` would still run where the App's key sat.
+- Mirroring the formatter for this public repo too. Rejected, a public repo's run artifacts are readable by anyone and
+  would publish the private formatter.
+- `--target "$GITHUB_SHA"`. The same commit on the push to `main` that triggers a release. The checkout's commit is
+  named so the tag holds the tree `VERSION` was read from whatever the trigger.
+
+**Trade-offs.** One more job per call of the style lane, as for the other seven. This repo's own style check still
+holds the token in one job, resting on its pull requests coming from the owner alone, Dependabot's and a fork's runs
+getting no secret, the token reaching only `kriegerdataforge-fmt`, and its command being fixed and isolated. This
+repo's CI cannot run the shared lane's check job, since it cannot mirror the formatter, so its fetch job is the template
+the secretless proof runs on every pull request and its check job is held to the template by the tests.
+
+**Consequences.** Every private repo's style check runs on two jobs from its next CI run, and no caller changes. The
+kdf-sdk's own `check_command`, with its baseline, keeps working and reaches no secret. A release's tag can no longer
+name another commit than the one whose `VERSION` it carries. D-035's paragraph on the style lane now points here.
 
 

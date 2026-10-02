@@ -47,9 +47,8 @@ TEST_LANES = (
     "secret-scan.yml",
 )
 
-# each Python lane that can clone a private package, and the one step of it that does. Seven clone in their fetch job,
-# the job that names a secret, and install in a job that names none (D-035). The style lane installs only the pinned
-# formatter and stays one job
+# each Python lane that can clone a private package, and the one step of it that does. All eight clone in their fetch
+# job, the job that names a secret, and install or check in a job that names none (D-035, the style lane since D-038)
 CLONING_STEP = {
     "ci-python-tests.yml": "Clone the private packages as bare mirrors",
     "ci-python-integration.yml": "Clone the private packages as bare mirrors",
@@ -57,7 +56,7 @@ CLONING_STEP = {
     "ci-python-typecheck.yml": "Clone the private packages as bare mirrors",
     "ci-python-mutation.yml": "Clone the private packages as bare mirrors",
     "ci-python-system.yml": "Clone the private packages as bare mirrors",
-    "ci-python-kdf-fmt.yml": "Install kdf-fmt (pinned, stdlib-only — no consumer deps)",
+    "ci-python-kdf-fmt.yml": "Clone the private packages as bare mirrors",
     "ci-python-security.yml": "Clone the private packages as bare mirrors",
 }
 
@@ -485,3 +484,25 @@ def test_the_integration_lane_declares_a_ci_run_local():
     assert declared == ["ENVIRONMENT: local"], declared
     for word in ("ENVIRONMENT: dev", "ENVIRONMENT: development", "ENVIRONMENT: production", "ENVIRONMENT: prod"):
         assert word not in lane, word
+
+
+def test_every_release_tags_the_commit_it_read():
+    """
+    `gh release create` with no --target tags the default branch's tip when it runs, so a second merge that lands
+    between the push and the command takes the first one's tag, a tag naming a tree whose VERSION says another version
+    (SDK review S1-54, D-038). Every release a workflow creates names its commit, and the reusable release names the
+    commit it read VERSION from.
+    """
+    found = 0
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        text = path.read_text(encoding = "utf-8").replace("\r\n", "\n")
+        # the command with every line it continues with a trailing backslash
+        for match in re.finditer(r"gh release create(?:[^\n]*\\\n)*[^\n]*", text):
+            found += 1
+            assert "--target " in match.group(0), f"{path.name} creates a release on whatever the branch's tip is"
+    assert found >= 1
+    release = _lane("create-github-release.yml")
+    assert '          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"\n' in release
+    assert "          COMMIT: ${{ steps.version.outputs.commit }}\n" in release
+    assert '            --target "$COMMIT" \\\n' in release
+    assert "${{" not in release.split('gh release create "$TAG"', 1)[1], "no expression is written into the shell"
