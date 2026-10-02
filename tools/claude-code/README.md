@@ -11,6 +11,7 @@ machine installs them from a clone of this repo.
 | `guard-cases.json` | The table the guard is held to, one case per tool call with its role and whether it is allowed or refused. Every rule change adds cases |
 | `kdf-review.sh` | Starts one fresh Claude reviewer with the reviewer role in the repo folder itself, or opens and closes the folder for Codex, checking first that the pin is pushed, the folder is at it and the brief's counts match it. Compares git before and after and fails the review if the reviewer changed anything but a new file under `docs/reviews`, the review archive. Brings a report Codex wrote in the cloud in from its branch |
 | `kdf-brief.js` | Read only. The facts a brief states, measured at the pin, the commit line and the scope table's line counts, and a check of a written brief's table |
+| `kdf-retro.js` | Read only. The numbers a slice's retrospective starts from, counted from its answer key, its reports' headers and its Sol rounds, the escapes first |
 | `check-wiring.js` | Read only. Says whether this machine's settings wire the guard as the process needs, and prints the block to add when they do not |
 | `install.sh` | Copies the guard to `~/.claude/hooks/`, smoke tests it, and prints the settings block. It edits no settings and refuses to run inside a Claude Code session |
 
@@ -199,6 +200,18 @@ number of lines an editor shows, so a last line without a newline counts. `check
 `| Files | Lines |` table, and compares each row, one count per path or one total for the row. A directory's files are
 summed, and a row with a line range or a placeholder is skipped. It exits 1 on a count that differs or a path missing
 at the pin, and the launcher runs it before every pinned review.
+
+## A slice's retrospective numbers
+
+```bash
+node kdf-retro.js docs/reviews/<YYYY-MM-DD>-<scope>/<slice folder>   # paste its output into the retrospective
+```
+
+It reads the slice's answer key, whose findings table must carry the answer key template's columns in their order, or
+it exits 2 rather than guess. It prints the findings by source (raised, agreed, declined, the agreed ones in the step 2
+pin's tree, and the escapes, the agreed findings in that tree that a later step found), the escape rate, every report's
+reviewer, minutes and tokens from its header, and every Sol dispatch without its archived answer. The output is the
+same every time for the same files, so a retrospective pastes it as printed, the process's section 14.
 
 ## What the guard cannot stop
 

@@ -27,9 +27,10 @@
 
 | Folder | What it holds |
 | --- | --- |
-| [`s1-{name}/`](s1-{name}/) | {Slice S1, what it covers. Its adjudication log is the slice's record, and its answer key, written when the slice closed, restates the log as one table for scoring any reviewer's report} |
+| [`s1-{name}/`](s1-{name}/) | {Slice S1, what it covers. Its adjudication log is the slice's record, its answer key, written when the slice closed, restates the log as one table for scoring any reviewer's report, and its retrospective measures how the slice went and what the owner changed after it} |
 | [`step-2-review/`](step-2-review/) | {At spot scale, the brief and both reports, read at pin {sha}} |
 | [`{PFX}_REVIEW_ANSWER_KEY.md`]({PFX}_REVIEW_ANSWER_KEY.md) | {At spot scale, the answer key, written when the review closed} |
+| [`{PFX}_REVIEW_RETRO.md`]({PFX}_REVIEW_RETRO.md) | {At spot scale, the retrospective, written after the answer key, and from the feature scale up the campaign's own, `{PFX}_REVIEW_CAMPAIGN_RETRO.md`} |
 
 ## Timeline
 
