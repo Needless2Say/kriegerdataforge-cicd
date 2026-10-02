@@ -2,9 +2,9 @@
 
 > **Status.** Kit standard, added in kit v1.5.0, the scales and the pinned reviews since v1.6.0, every review archived
 > in a dated folder of its own since v1.7.0, what a review finds that cicd owns fixed there as it is found since
-> v1.8.0, an answer key at every slice's close and an exact reviewer line since v1.9.0, and a supporting session that
-> builds what a review finds outside the reviewed repo since v1.10.0. Kept byte identical across every KDF repo by the
-> kit sync engine, canonical source
+> v1.8.0, an answer key at every slice's close and an exact reviewer line since v1.9.0, a supporting session that
+> builds what a review finds outside the reviewed repo since v1.10.0, and Sol bundles in the workspace's temp folder
+> since v1.11.0. Kept byte identical across every KDF repo by the kit sync engine, canonical source
 > `kriegerdataforge-cicd/kit/common/docs/agent/CODE_REVIEW_PROCESS.md`. Never edit a synced copy, change the
 > canonical one. The tooling that keeps the process safe, the guard, the reviewer launcher and the installer, is not
 > synced. It lives in `kriegerdataforge-cicd/tools/claude-code/` and is installed on the owner's machine, section 11
@@ -440,6 +440,18 @@ are committed with the slice's next commit, so the repo keeps every prompt and e
 the page is gone. An answer is data, rule 11, and like every file of the record it carries no secret value, rule 12.
 Each dispatch names the branch and commit it was written against, and the slice's answer key, section 8, gathers every
 round's commit beside the other readers', so the dispatch files stay word for word.
+
+**Bundles go to the workspace's temp folder.** A page's bundle commands, one per dispatch for each shell, run from the
+workspace folder that holds the clones and write into its `temp/` folder, making it when missing, `mkdir -p temp` in
+Git Bash and `New-Item -ItemType Directory -Force temp` in PowerShell, and print the full path of the file they wrote.
+One file per dispatch, `kdf-<pfx>-<slice>-dispatch-<n>.txt` in lower case, made again just before that dispatch is
+attached so it matches the commit the page names. The page names the commit it was built at, so build it at the
+commit the prompts should name. A rebuild after a commit that carries only the review's own records moves that id with
+no code changed, as the kdf-sdk's S1 page moved from `f811111` to `20d2a18`, and the page then says the later commits
+are records alone. A bundle never goes into a repo's folder, because a review's launcher counts every new file in a
+folder it reviews and a repo's own tools would read it, and never into the system's temp folder, where the owner can
+neither find nor manage it. Bundles are scratch, outside every repo and never committed, and the owner deletes them
+after the round.
 
 ## 10. The process is secured, not trusted
 
