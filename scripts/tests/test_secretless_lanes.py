@@ -119,13 +119,78 @@ def test_a_continued_line_is_read_whole():
     "sdk @ git+https://github.com/needless2say/kriegerdataforge-sdk.git@v1",
     "sdk @ https://github.com/Needless2Say/kriegerdataforge-sdk/archive/v1.zip",
     "--extra-index-url https://github.com/Needless2Say/kriegerdataforge-sdk",
+    "git@github.com:Needless2Say/kriegerdataforge-sdk.git",
+    "sdk @ ssh://git@github.com/Needless2Say/kriegerdataforge-sdk.git",
+    "sdk @ https://github.com/Needless2Say/kriegerdataforge-sdk/tarball/v1",
+    "sdk @ https://github.com/Needless2Say/kriegerdataforge-sdk/zipball/v1",
+    "sdk @ https://github.com/Needless2Say/kriegerdataforge-sdk/releases/download/v1/kdf_sdk-1.0.tar.gz",
+    "sdk @ https://github.com/Needless2Say/kriegerdataforge-sdk/releases/download/v1/kdf_sdk-1.0-py3-none-any.whl",
+    "sdk @ https://codeload.github.com/Needless2Say/kriegerdataforge-sdk/tar.gz/refs/tags/v1",
+    "-e https://github.com/Needless2Say/kriegerdataforge-sdk",
+    "--find-links https://github.com/Needless2Say/kriegerdataforge-sdk/releases",
 ])
-def test_a_form_the_scan_cannot_read_fails_the_plan(line):
+def test_a_form_pip_could_install_that_the_scan_cannot_read_fails_the_plan(line):
     """
-    A pin the scan missed would reach the install job with no mirror, so any other mention of the owner's repos fails.
+    A form pip could install and the scan does not read fails early, so the caller learns it here. It is not the fence,
+    a pin the scan missed fails closed in the install job, which has no mirror and no token for it.
     """
     with pytest.raises(fpp.FetchError, match = "a form this lane does not read"):
         fpp.scan_text(line, "requirements.txt")
+
+
+@pytest.mark.parametrize("line", [
+    'Repository = "https://github.com/Needless2Say/kriegerdataforge-sdk"',
+    'Homepage = "https://github.com/Needless2Say/kriegerdataforge-sdk#readme"',
+    'Issues = "https://github.com/Needless2Say/kriegerdataforge-sdk/issues"',
+    'Changelog = "https://github.com/Needless2Say/kriegerdataforge-sdk/blob/main/CHANGELOG.md"',
+])
+def test_a_plain_link_to_a_repo_page_is_not_a_pin_and_passes(line):
+    """
+    The kdf-sdk's pyproject.toml line 85 is the first, under [project.urls]. pip installs nothing from a page link.
+    """
+    assert fpp.scan_text(line, "pyproject.toml") == ([], [])
+
+
+def test_a_pyproject_with_project_urls_plans_on_the_default_files(tmp_path):
+    pyproject = "\n".join([
+        "[project]",
+        'name = "kdf-backend"',
+        "dependencies = [",
+        f'    "kriegerdataforge-sdk @ {SDK_URL}@{SDK_SHA}",',
+        "]",
+        "[project.urls]",
+        'Repository = "https://github.com/Needless2Say/kriegerdataforge-sdk"',
+        "",
+    ])
+    data      = _plan(
+        tmp_path,
+        {"pyproject.toml": pyproject},
+        REQUIREMENT_FILES = "requirements.txt requirements-dev.txt requirements-test.txt pyproject.toml",
+    )
+    assert [(pin["repo"], pin["ref"]) for pin in data["pins"]] == [("kriegerdataforge-sdk", SDK_SHA)]
+
+
+def _link(link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("this machine cannot make a symbolic link, the CI runner can")
+
+
+def test_a_link_out_of_the_checkout_is_refused_and_one_inside_it_read(tmp_path):
+    root = tmp_path / "caller"
+    (root / "reqs").mkdir(parents = True)
+    (root / "reqs" / "base.txt").write_text(f"sdk @ {SDK_URL}@{SDK_SHA}\n", encoding = "utf-8")
+    outside = tmp_path / "outside.txt"
+    outside.write_text(f"fmt @ {FMT_URL}@v1.2.0\n", encoding = "utf-8")
+    _link(root / "requirements.txt", root / "reqs" / "base.txt")
+    _link(root / "requirements-dev.txt", outside)
+    read = fpp.directory_reader(root)
+    assert read("requirements.txt") == f"sdk @ {SDK_URL}@{SDK_SHA}\n"
+    with pytest.raises(fpp.FetchError, match = "a link that leads out of the tree"):
+        read("requirements-dev.txt")
+    with pytest.raises(fpp.FetchError, match = "a link that leads out of the tree"):
+        fpp.scan_tree(read, ["requirements.txt", "requirements-dev.txt"], "", required = False)
 
 
 @pytest.mark.parametrize("line, path", [
@@ -518,17 +583,25 @@ def test_the_install_job_keeps_its_id_and_name_and_names_no_secret(name):
 
 
 @pytest.mark.parametrize("name", JOB_B)
-def test_the_install_job_fails_closed_when_the_fetch_did_not_succeed(name):
+def test_the_install_job_fails_closed_when_the_run_was_cancelled_or_the_fetch_did_not_succeed(name):
     """
-    A skipped required job counts as passing, so the job runs whatever the fetch did and stops at its first step.
+    A skipped required job counts as passing. On !cancelled() a cancel while the fetch ran skipped the install job and
+    passed the check (the kdf-sdk's S1-49 again), so the job runs on always() and its first step, the template's, ends
+    it failed when the run was cancelled or, with package access, when the fetch did not succeed. GitHub reads
+    cancelled() only in an if, so the check is that step's if, and every later step keeps the default success().
     """
     job_id, _title = JOB_B[name]
-    job = _jobs(_text(name))[job_id]
+    job   = _jobs(_text(name))[job_id]
+    parts = render.sections()
+    head  = job.split("    steps:\n", 1)[0]
     assert "    needs: [fetch-private]\n" in job
-    assert "    if: ${{ !cancelled() }}\n" in job and "always()" not in job.split("    steps:\n")[0]
-    first = job.split("    steps:\n", 1)[1].split("\n      - ", 1)[0]
-    assert "name: Require the private packages" in first
-    assert 'FETCH_RESULT: ${{ needs.fetch-private.result }}' in first and '!= "success"' in first and "exit 1" in first
+    assert parts["install-guard"] in head and head.count("    if: ") == 1
+    assert "    if: ${{ always() }}\n" in head and "!cancelled()" not in job
+    first = job.split("    steps:\n", 1)[1].split("\n\n", 1)[0] + "\n"
+    assert first == parts["install-require"]
+    assert "        if: ${{ cancelled() || (inputs.needs_sdk_auth && needs.fetch-private.result != 'success') }}\n" \
+        in first
+    assert first.rstrip().endswith("exit 1")
 
 
 @pytest.mark.parametrize("name", JOB_B)
@@ -537,7 +610,24 @@ def test_without_package_access_the_lane_runs_as_one_job(name):
     assert "    if: ${{ inputs.needs_sdk_auth }}\n" in jobs["fetch-private"]
     job     = jobs[JOB_B[name][0]]
     private = [step for step in job.split("\n      - ")[1:] if "fetch-private" in step or "kdf-private" in step]
-    assert len(private) == 3 and all("if: ${{ inputs.needs_sdk_auth }}" in step for step in private)
+    assert len(private) == 3
+    guard, *mirrors = private
+    assert guard.startswith("name: Require the private packages\n") and "inputs.needs_sdk_auth &&" in guard
+    assert all("if: ${{ inputs.needs_sdk_auth }}" in step for step in mirrors)
+
+
+@pytest.mark.parametrize("name", JOB_B)
+def test_no_checkout_of_a_split_lane_keeps_a_credential(name):
+    """
+    The fetch job's, the install job's and the security lane's bandit job's checkouts keep no token in the tree's git
+    config. No caller's install or test command reaches its own remote, measured over the eight callers on 2026-10-02.
+    """
+    text      = _text(name)
+    checkouts = text.count("      - uses: actions/checkout@")
+    assert checkouts >= 2
+    assert text.count("          persist-credentials: false\n") == checkouts
+    install = _jobs(text)[JOB_B[name][0]]
+    assert "          ref: ${{ inputs.ref }}\n          persist-credentials: false\n" in install
 
 
 def test_the_private_steps_of_every_install_job_are_identical():

@@ -1,6 +1,7 @@
 # The template render_fetch_job.py writes into each reusable Python lane and the standalone fetch workflow (D-035).
 # Each section starts at a line `#@ <name>`. @SCRIPT@ is fetch_private_packages.py's text, @DELIMITER@ its heredoc's
-# end and @INPUTS@ the inputs section. Edit here, then run `python scripts/render_fetch_job.py`.
+# end and @INPUTS@ the inputs section. install-guard and install-require are the install job's if and its first step,
+# written into each lane's install job. Edit here, then run `python scripts/render_fetch_job.py`.
 #@ job-head
   # D-035. The one job of this workflow that names a secret. It runs git and this workflow's own text, nothing of the
   #   caller's. It reads the requirement files as text, clones what they pin from the owner's private repos into bare
@@ -85,7 +86,8 @@
           suffix=$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')
           echo "artifact=kdf-private-$RUN_ID-$RUN_ATTEMPT-$suffix" >> "$GITHUB_OUTPUT"
 
-      # the mirrors are readable for a day by everyone who can read the calling repo's runs, the price of D-035
+      # the mirrors, each repo's full history up to its refs, are readable for a day by everyone who can read the
+      #   calling repo's runs, the price of D-035
       - name: Upload the mirrors
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -93,6 +95,25 @@
           path: ${{ runner.temp }}/kdf-private.tar
           retention-days: 1
           if-no-files-found: error
+#@ install-guard
+    # D-035. FAIL CLOSED. A skipped required job counts as passing, so this job runs whatever happened before it, a
+    #   cancelled run included, and its first step ends it failed when the run was cancelled or, with package access,
+    #   when the fetch did not succeed. GitHub reads cancelled() only in an if, so the step's if is the check and its
+    #   run only says why. Written by scripts/render_fetch_job.py from its template
+    if: ${{ always() }}
+#@ install-require
+      - name: Require the private packages
+        if: ${{ cancelled() || (inputs.needs_sdk_auth && needs.fetch-private.result != 'success') }}
+        env:
+          NEEDS_SDK_AUTH: ${{ inputs.needs_sdk_auth }}
+          FETCH_RESULT: ${{ needs.fetch-private.result }}
+        run: |
+          if [ "$NEEDS_SDK_AUTH" = "true" ] && [ "$FETCH_RESULT" != "success" ]; then
+            echo "::error::the private packages were not fetched, the fetch job ended $FETCH_RESULT, so nothing here runs"
+          else
+            echo "::error::the run was cancelled, so this job ends failed rather than skipped and tests nothing"
+          fi
+          exit 1
 #@ standalone-head
 name: Fetch private packages
 

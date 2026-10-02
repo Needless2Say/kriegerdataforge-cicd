@@ -6,8 +6,9 @@ job holds the token and runs only git and `fetch_private_packages.py`, the job t
 A reusable workflow that calls another with a `./` path is not documented to resolve that path in its own repository
 when a different repository calls it, so the fetch job is not a called workflow. It is written into every lane, its
 script's text inline, and `fetch-private-packages.yml` carries the same job for a caller that runs its own install job,
-the kdf-sdk canary. Every copy comes from `fetch_private_job.template.yml`, and `test_secretless_lanes.py` fails when
-one differs.
+the kdf-sdk canary. Each lane's install job takes its if and its first step from the same template, so a cancelled
+run or a fetch that did not succeed ends it failed alike in every lane. Every copy comes from
+`fetch_private_job.template.yml`, and `test_secretless_lanes.py` fails when one differs.
 
 Usage:
     python scripts/render_fetch_job.py           # write every copy
@@ -50,6 +51,10 @@ DELIMITER = "KDF_FETCH_PRIVATE_PACKAGES"
 
 # where a lane's fetch job ends, the next job's id line that is not the fetch job's own
 NEXT_JOB = r"(?=^  [a-z0-9-]+:\n(?!    name: Fetch private packages))"
+
+# the install job's if with the comment above it, and its first step up to the blank line after it
+INSTALL_GUARD   = re.compile(r"^    # D-035\. FAIL CLOSED\.[^\n]*\n(?:    #[^\n]*\n)*    if: [^\n]*\n", re.MULTILINE)
+INSTALL_REQUIRE = re.compile(r"^      - name: Require the private packages\n(?:[^\n]+\n)*", re.MULTILINE)
 
 # ======================================================================================================================
 # Rendering
@@ -110,9 +115,32 @@ def job(in_lane: bool) -> str:
     return parts["job-head"] + condition + body
 
 
+def render_install(plain: str) -> str:
+    """
+    A lane with its install job's if and first step replaced by the template's, so a cancelled run or a fetch that
+    did not succeed ends the job failed in every lane alike.
+
+    Args:
+        plain: the lane's text, LF line ends
+
+    Returns:
+        str: the lane's text with both written from the template
+
+    Raises:
+        SystemExit: when the lane does not hold exactly one of each
+    """
+    parts = sections()
+    for pattern, section in ((INSTALL_GUARD, "install-guard"), (INSTALL_REQUIRE, "install-require")):
+        plain, count = pattern.subn(lambda _match, text = parts[section]: text, plain)
+        if count != 1:
+            raise SystemExit(f"a lane holds {count} of the install job's {section}, not one")
+    return plain
+
+
 def render_lane(text: str) -> str:
     """
-    A lane with its fetch job replaced, or written first under `jobs:` when it has none.
+    A lane with its fetch job replaced, or written first under `jobs:` when it has none, and its install job's if
+    and first step written from the template.
 
     Args:
         text: the lane's text
@@ -121,7 +149,7 @@ def render_lane(text: str) -> str:
         str: the lane's new text, in the lane's own line endings
 
     Raises:
-        SystemExit: when the lane has no jobs: line
+        SystemExit: when the lane has no jobs: line, or not one install job if and first step
     """
     crlf  = "\r\n" in text
     plain = text.replace("\r\n", "\n")
@@ -134,6 +162,7 @@ def render_lane(text: str) -> str:
         if not marker:
             raise SystemExit("a lane without a jobs: line")
         plain = head + marker + block + rest.lstrip("\n")
+    plain = render_install(plain)
     return plain.replace("\n", "\r\n") if crlf else plain
 
 

@@ -424,8 +424,11 @@ def test_a_lane_that_was_not_asked_for_package_access_hands_git_no_setting(name)
     install = _named_steps(text)[INSTALL_STEP[name]]
     assert "GIT_CONFIG" not in install and "secrets." not in install
     assert "  fetch-private:\n    name: Fetch private packages\n    if: ${{ inputs.needs_sdk_auth }}\n" in text
-    for step in ("Require the private packages", "Download the private mirrors", "Point git at the private mirrors"):
+    for step in ("Download the private mirrors", "Point git at the private mirrors"):
         assert "        if: ${{ inputs.needs_sdk_auth }}\n" in _step(text, step), step
+    # the guard runs on a cancelled run too, and without package access only then (D-035, fail closed)
+    guard = "        if: ${{ cancelled() || (inputs.needs_sdk_auth && needs.fetch-private.result != 'success') }}\n"
+    assert guard in _step(text, "Require the private packages")
 
 
 def test_the_security_lane_installs_its_two_tools_at_a_pin():

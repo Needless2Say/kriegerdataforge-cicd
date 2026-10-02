@@ -88,8 +88,12 @@ jobs:
           or other fragment after it is part of the URL. A comment is a `#` at the start of a line or after whitespace, as pip
           reads one. A line ending in a backslash continues on the next. An include, `-r`, `-c`, `--requirement` or
           `--constraint`, is followed within the same tree, the caller's checkout or the same mirror at the same commit, and an
-          include that names a URL or leaves the tree is refused. Any other mention of the owner's repos fails the plan, a form
-          this script does not read would otherwise reach the install job with no mirror for it. A ref read out of a
+          include that names a URL or leaves the tree is refused, as is a file of the tree that is a link to a place outside it.
+          Any other reference to the owner's repos that pip could install fails the plan, a git+, git@ or ssh:// URL, an
+          archive or wheel link, or a pip option line, so the caller learns early that the scan does not read it. A plain https
+          link to a repo's page, as a pyproject's [project.urls] table holds, is not one pip installs and passes. Either way the
+          rule is not the fence, a pin the scan misses fails closed in the install job, which has no mirror and no token for it.
+          A ref read out of a
           requirement file is a tag or a full commit id, never a branch. A branch is allowed only for a repo the caller lists by
           name as an extra repo, and is resolved to the commit it points at, which the manifest records.
 
@@ -139,6 +143,24 @@ jobs:
           FULL_SHA   = re.compile(r"[0-9a-f]{40}")
           REF_TEXT   = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/+-]*")
           CREDENTIAL = re.compile(r"(https?://)[^/\s@]+@")
+
+          # one URL or word of a line, what lies between quotes, brackets, separators and whitespace
+          TOKEN = re.compile(r"[^\s'\"<>()\[\]{},;]+")
+
+          # a token pip could install from, a VCS URL, an archive or a wheel
+          INSTALLABLE_FORMS = (
+              r"git\+",
+              r"git@",
+              r"ssh://",
+              r"codeload\.github\.com",
+              r"/archive/",
+              r"/tarball/",
+              r"/zipball/",
+              r"\.zip(?:$|[?#])",
+              r"\.tar\.gz(?:$|[?#])",
+              r"\.whl(?:$|[?#])",
+          )
+          INSTALLABLE       = re.compile("|".join(INSTALLABLE_FORMS), re.IGNORECASE)
 
           MAX_INCLUDE_DEPTH = 10
 
@@ -212,7 +234,8 @@ jobs:
                   tuple[list[tuple[str, str]], list[str]]: the (repo, ref) pins in order, and the include paths
 
               Raises:
-                  FetchError: when a line mentions the owner's repos in a form the scan does not read
+                  FetchError: when a line holds a reference to the owner's repos that pip could install and the scan does not
+                      read, a git+, git@ or ssh:// URL, an archive or wheel link, or any mention on a pip option line
               """
               pins:     list[tuple[str, str]] = []
               includes: list[str] = []
@@ -223,13 +246,15 @@ jobs:
                   include = INCLUDE.match(stripped)
                   if include:
                       includes.append(include.group("path"))
-                  found = [(match.group("repo"), match.group("ref")) for match in PIN.finditer(stripped)]
-                  if len(MENTION.findall(stripped)) > len(found):
-                      raise FetchError(
-                          f"{source}: a reference to {OWNER}'s repos in a form this lane does not read, write it "
-                          f"git+https://github.com/{OWNER}/<repo>.git@<tag or full commit id>"
-                      )
-                  pins.extend(found)
+                  option = stripped.startswith("-")
+                  for token in TOKEN.findall(stripped):
+                      mentions = len(MENTION.findall(token))
+                      if mentions > len(PIN.findall(token)) and (option or INSTALLABLE.search(token)):
+                          raise FetchError(
+                              f"{source}: a reference to {OWNER}'s repos in a form this lane does not read, write it "
+                              f"git+https://github.com/{OWNER}/<repo>.git@<tag or full commit id>"
+                          )
+                  pins.extend((match.group("repo"), match.group("ref")) for match in PIN.finditer(stripped))
               return pins, includes
 
 
@@ -302,7 +327,7 @@ jobs:
 
           def directory_reader(root: Path) -> Reader:
               """
-              A reader of one checkout's files.
+              A reader of one checkout's files, which follows a link only to a place inside the checkout.
 
               Args:
                   root: the checkout's folder
@@ -310,17 +335,25 @@ jobs:
               Returns:
                   Reader: reads a tree relative file as text, None when it is not a file
               """
+              inside = root.resolve()
+
+
               def read(name: str) -> str | None:
                   """
-                  One file of the checkout.
+                  One file of the checkout, the path resolved through every link first.
 
                   Args:
                       name: the tree relative path
 
                   Returns:
                       str | None: the text, None when it is not a file
+
+                  Raises:
+                      FetchError: when the path, through a link, leads out of the checkout
                   """
-                  path = root / name
+                  path = (root / name).resolve()
+                  if path != inside and inside not in path.parents:
+                      raise FetchError(f"{name}: a link that leads out of the tree")
                   return path.read_text(encoding = "utf-8", errors = "replace") if path.is_file() else None
 
 
@@ -875,7 +908,8 @@ jobs:
           suffix=$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')
           echo "artifact=kdf-private-$RUN_ID-$RUN_ATTEMPT-$suffix" >> "$GITHUB_OUTPUT"
 
-      # the mirrors are readable for a day by everyone who can read the calling repo's runs, the price of D-035
+      # the mirrors, each repo's full history up to its refs, are readable for a day by everyone who can read the
+      #   calling repo's runs, the price of D-035
       - name: Upload the mirrors
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
