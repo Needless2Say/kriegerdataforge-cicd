@@ -27,8 +27,9 @@
 
 | Folder | What it holds |
 | --- | --- |
-| [`s1-{name}/`](s1-{name}/) | {Slice S1, what it covers. Its adjudication log is the slice's record} |
+| [`s1-{name}/`](s1-{name}/) | {Slice S1, what it covers. Its adjudication log is the slice's record, and its answer key, written when the slice closed, restates the log as one table for scoring any reviewer's report} |
 | [`step-2-review/`](step-2-review/) | {At spot scale, the brief and both reports, read at pin {sha}} |
+| [`{PFX}_REVIEW_ANSWER_KEY.md`]({PFX}_REVIEW_ANSWER_KEY.md) | {At spot scale, the answer key, written when the review closed} |
 
 ## Timeline
 
