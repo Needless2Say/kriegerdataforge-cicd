@@ -170,6 +170,9 @@ def main(argv: list[str] | None = None) -> int:
     for name, wanted in targets.items():
         path    = WORKFLOWS / name
         current = _read(path) if path.exists() else None
+        # a checkout on Windows holds the files with CRLF ends, a copy is judged and written in the file's own
+        if current is not None and "\r\n" in current and "\r\n" not in wanted:
+            wanted = wanted.replace("\n", "\r\n")
         if current == wanted:
             continue
         stale.append(name)
