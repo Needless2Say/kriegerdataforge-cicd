@@ -15,7 +15,8 @@
  *
  * The answer key's findings table must carry the columns of templates/review-answer-key.template.md, in its order. A
  * key with other columns is refused rather than guessed at. A report's Time spent, Reviewer and Usage lines are read as
- * templates/review-report.template.md writes them, and a value the report does not give prints as unknown.
+ * templates/review-report.template.md writes them, and a value the report does not give prints as unknown. A Time spent
+ * line with no From and To but a duration in digits, as older reports wrote it, prints that duration marked stated.
  *
  * Exit codes. 0 the tables printed. 2 no answer key, more than one, a key that cannot be read, or a findings table
  * whose columns this tool does not know.
@@ -84,18 +85,25 @@ for (let i = header + 1; i < lines.length && lines[i].trim().startsWith('|'); i+
   });
 }
 
-// Where a source sits in the cycle, so the table reads in the order the review ran and an escape is told apart.
+// Where a source sits in the cycle, so the table reads in the order the review ran and an escape is told apart. The
+// more specific words are read first, so "Orchestrator, after step 2" is a late finding and not a step 1 one. A source
+// none of them place is unplaced, sorts last and counts its agreed findings at the step 2 pin as escapes, so a wording
+// the tool does not know can never hide one.
 function rank(source) {
   const s = source.toLowerCase();
   if (/second read/.test(s)) return 6;
   if (/final|step 5/.test(s)) return 5;
   if (/\bsol\b|round|dispatch/.test(s)) return 4;
-  if (/step 3|adjudicat|after step 2/.test(s)) return 3;
+  if (/step 3|adjudicat|after step 2|after the pin/.test(s)) return 3;
   if (/step 2/.test(s)) return 2;
   if (/step 1|step 0|orchestrator/.test(s)) return 1;
   if (/@codex|pull request/.test(s)) return 7;
   return 9;
 }
+
+const READ_AS = {
+  1: 'step 1', 2: 'step 2', 3: 'after step 2', 4: 'Sol', 5: 'final', 6: 'second read', 7: 'pull request', 9: 'unplaced'
+};
 
 function kind(verdict) {
   const v = verdict.toLowerCase();
@@ -127,19 +135,23 @@ out.push('From `' + keys[0] + '`, ' + findings.length
 out.push('');
 out.push('## Findings by source');
 out.push('');
-out.push('| Source | Raised | Agreed | Declined | Other | Agreed, in the step 2 tree | Escapes it found |');
-out.push('| --- | --- | --- | --- | --- | --- | --- |');
+out.push('| Source | Read as | Raised | Agreed | Declined | Other | Agreed, in the step 2 tree | Escapes it found |');
+out.push('| --- | --- | --- | --- | --- | --- | --- | --- |');
 const total = { raised: 0, agreed: 0, declined: 0, other: 0, inTree: 0, escapes: [] };
 for (const name of order) {
   const s = sources.get(name);
   const esc = rank(name) > 2 ? String(s.escapes.length) : '-';
-  out.push('| ' + name.replace(/\|/g, '\\|') + ' | ' + s.raised + ' | ' + s.agreed + ' | ' + s.declined + ' | '
-    + s.other + ' | ' + s.inTree + ' | ' + esc + ' |');
+  out.push('| ' + name.replace(/\|/g, '\\|') + ' | ' + READ_AS[rank(name)] + ' | ' + s.raised + ' | ' + s.agreed
+    + ' | ' + s.declined + ' | ' + s.other + ' | ' + s.inTree + ' | ' + esc + ' |');
   for (const k of ['raised', 'agreed', 'declined', 'other', 'inTree']) total[k] += s[k];
   total.escapes.push(...s.escapes);
 }
-out.push('| All | ' + total.raised + ' | ' + total.agreed + ' | ' + total.declined + ' | ' + total.other + ' | '
+out.push('| All | | ' + total.raised + ' | ' + total.agreed + ' | ' + total.declined + ' | ' + total.other + ' | '
   + total.inTree + ' | ' + total.escapes.length + ' |');
+out.push('');
+out.push('Read as is where the tool placed each source in the cycle, from the words the answer key template names. An '
+  + 'unplaced source sorts last and counts its agreed findings at the step 2 pin as escapes, so check that column '
+  + 'first.');
 out.push('');
 const unsure = findings.filter((f) => kind(f.verdict) === 'agreed' && f.atPin.startsWith('unsure')).length;
 const rate = total.inTree ? Math.round((100 * total.escapes.length) / total.inTree) : 0;
@@ -191,6 +203,23 @@ function minutes(timeSpent) {
   return d < 0 ? null : Math.round(d);
 }
 
+// A duration the report states in digits, "0.6 hours" or "45 minutes", for reports written before the template asked
+// for the clock. It is an estimate, so it prints marked as stated. A duration in words stays unknown.
+function statedMinutes(timeSpent) {
+  const m = /(\d+(?:\.\d+)?)\s*(hours?|hrs?|h|minutes?|mins?)\b/i.exec(timeSpent);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Math.round(/^h/i.test(m[2]) ? n * 60 : n);
+}
+
+// The minutes cell, the clock when the line gives one, else a stated duration marked so, else unknown.
+function minutesCell(timeSpent) {
+  const clocked = minutes(timeSpent);
+  if (clocked !== null) return format(clocked);
+  const stated = statedMinutes(timeSpent);
+  return stated === null ? 'unknown' : format(stated) + ' stated';
+}
+
 function tokens(usage, word) {
   const number = (s) => {
     const m = /^([\d][\d,]*(?:\.\d+)?)\s*([kKmM])?$/.exec(s.trim());
@@ -216,7 +245,7 @@ for (const step of steps) {
       step,
       file,
       reviewer: headerValue(text, 'Reviewer') || 'unknown',
-      minutes: minutes(headerValue(text, 'Time spent')),
+      minutes: minutesCell(headerValue(text, 'Time spent')),
       tokensIn: tokens(usage, 'in'),
       tokensOut: tokens(usage, 'out')
     });
@@ -230,9 +259,12 @@ else {
   out.push('| Step | Report | Reviewer | Minutes | Tokens in | Tokens out |');
   out.push('| --- | --- | --- | --- | --- | --- |');
   for (const r of reports) {
-    out.push('| ' + r.step + ' | `' + r.file + '` | ' + r.reviewer.replace(/\|/g, '\\|') + ' | ' + format(r.minutes)
+    out.push('| ' + r.step + ' | `' + r.file + '` | ' + r.reviewer.replace(/\|/g, '\\|') + ' | ' + r.minutes
       + ' | ' + format(r.tokensIn) + ' | ' + format(r.tokensOut) + ' |');
   }
+  out.push('');
+  out.push('Minutes are clocked from the Time spent line\'s From and To. A number marked stated is the duration the '
+    + 'report wrote, an estimate and not a clock, and a duration written in words prints as unknown.');
 }
 
 // ------------------------------------------------------------ the Sol rounds

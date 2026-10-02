@@ -1417,13 +1417,13 @@ def test_the_retro_tool_counts_findings_escapes_minutes_and_missing_answers() ->
     assert done.returncode == 0, done.stderr
     lines = done.stdout.splitlines()
     for row in (
-        "| Step 1, orchestrator | 1 | 1 | 0 | 0 | 0 | - |",
-        "| Step 2, Claude | 2 | 2 | 0 | 0 | 1 | - |",
-        "| Step 2, Codex | 1 | 0 | 1 | 0 | 0 | - |",
-        "| Sol R1, dispatch 1 | 1 | 1 | 0 | 0 | 1 | 1 |",
-        "| Step 5 final, Claude | 1 | 1 | 0 | 0 | 1 | 1 |",
-        "| Step 5 final, Codex | 1 | 1 | 0 | 0 | 0 | 0 |",
-        "| All | 7 | 6 | 1 | 0 | 3 | 2 |",
+        "| Step 1, orchestrator | step 1 | 1 | 1 | 0 | 0 | 0 | - |",
+        "| Step 2, Claude | step 2 | 2 | 2 | 0 | 0 | 1 | - |",
+        "| Step 2, Codex | step 2 | 1 | 0 | 1 | 0 | 0 | - |",
+        "| Sol R1, dispatch 1 | Sol | 1 | 1 | 0 | 0 | 1 | 1 |",
+        "| Step 5 final, Claude | final | 1 | 1 | 0 | 0 | 1 | 1 |",
+        "| Step 5 final, Codex | final | 1 | 1 | 0 | 0 | 0 | 0 |",
+        "| All | | 7 | 6 | 1 | 0 | 3 | 2 |",
         "| round-1 | 2 | 1 | `EX_REVIEW_S1_SOL_R1_D2_PROMPT.md` |",
     ):
         assert row in lines, f"missing {row!r} in\n{done.stdout}"
@@ -1465,6 +1465,79 @@ def test_the_retro_tool_refuses_a_folder_without_a_key_or_a_key_it_does_not_know
     assert unknown.returncode == 2
     assert "this tool reads only" in unknown.stderr
     assert not unknown.stdout
+
+
+def _report_minutes(stdout: str) -> dict[str, str]:
+    minutes: dict[str, str] = {}
+    for line in stdout.splitlines():
+        if line.startswith("| step-"):
+            row = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            minutes[row[1]] = row[3]
+    return minutes
+
+
+def _set_time_spent(report: Path, line: str) -> None:
+    text = report.read_text(encoding = "utf-8")
+    old  = next(row for row in text.splitlines() if row.startswith("- **Time spent.**"))
+    report.write_text(text.replace(old, "- **Time spent.** " + line), encoding = "utf-8")
+
+
+def test_the_retro_tool_reads_a_stated_duration_marked_and_leaves_words_unknown(tmp_path: Path) -> None:
+    """
+    Reports written before the template asked for the clock state a duration. One in digits prints converted to minutes
+    and marked stated, an estimate a reader tells apart from a clock. One in words prints unknown. A line that gives the
+    clock and also a stated duration prints the clock.
+    """
+    slice_ = tmp_path / "s1-example"
+    shutil.copytree(RETRO_SLICE, slice_)
+    _set_time_spent(slice_ / "step-2-review" / "EX_REVIEW_S1_CODEX_REPORT.md", "0.6 hours.")
+    _set_time_spent(slice_ / "step-2-review" / "EX_REVIEW_S1_REPORT.md", "About three hours.")
+    _set_time_spent(
+        slice_ / "step-5-final" / "EX_REVIEW_S1_FINAL_REPORT.md",
+        "From 2026-10-02T14:00:00-05:00 to 2026-10-02T15:30:00-05:00, about 2 hours by my estimate.",
+    )
+    done = _retro_tool(slice_)
+    assert done.returncode == 0, done.stderr
+    minutes = _report_minutes(done.stdout)
+    assert minutes["`EX_REVIEW_S1_CODEX_REPORT.md`"] == "36 stated"
+    assert minutes["`EX_REVIEW_S1_REPORT.md`"] == "unknown"
+    assert minutes["`EX_REVIEW_S1_FINAL_REPORT.md`"] == "90"
+    assert "A number marked stated is the duration the report wrote, an estimate and not a clock" in done.stdout
+
+
+def test_the_retro_tool_places_a_late_orchestrator_finding_and_shows_how_it_read_each_source(tmp_path: Path) -> None:
+    """
+    An orchestrator's finding made after the pin reads as after step 2 and counts as an escape, it is not taken for a
+    step 1 one. A source the tool cannot place reads as unplaced, sorts last and still counts as an escape, so a wording
+    the tool does not know never hides one. The Read as column shows both in the retrospective itself.
+    """
+    slice_ = tmp_path / "s1-example"
+    shutil.copytree(RETRO_SLICE, slice_)
+    key   = slice_ / "EX_REVIEW_S1_ANSWER_KEY.md"
+    text  = key.read_text(encoding = "utf-8")
+    late  = (
+        "| EX-S1-47 | Orchestrator, after step 2 | claude-fable-5-1 | M | no | Agreed | `src/h.py:5` "
+        "| before the review | `ggggggg` | yes | read the file at the pin | the repo alone | A late find. | section 8 |"
+    )
+    odd   = (
+        "| EX-S1-X1 | The owner, by hand | owner | E | no | Agreed | `src/i.py:1` | before the review | `hhhhhhh` "
+        "| yes | read the file at the pin | the repo alone | An unplaced find. | section 8 |"
+    )
+    first = next(row for row in text.splitlines() if row.startswith("| EX-S1-D1-R1-1 |"))
+    key.write_text(text.replace(first, late + "\n" + odd + "\n" + first), encoding = "utf-8")
+    done = _retro_tool(slice_)
+    assert done.returncode == 0, done.stderr
+    lines    = done.stdout.splitlines()
+    late_row = "| Orchestrator, after step 2 | after step 2 | 1 | 1 | 0 | 0 | 1 | 1 |"
+    odd_row  = "| The owner, by hand | unplaced | 1 | 1 | 0 | 0 | 1 | 1 |"
+    sol_row  = "| Sol R1, dispatch 1 | Sol | 1 | 1 | 0 | 0 | 1 | 1 |"
+    for row in (late_row, odd_row, sol_row, "| All | | 9 | 8 | 1 | 0 | 5 | 4 |"):
+        assert row in lines, f"missing {row!r} in\n{done.stdout}"
+    assert lines.index("| Step 2, Codex | step 2 | 1 | 0 | 1 | 0 | 0 | - |") < lines.index(late_row)
+    assert lines.index(late_row) < lines.index(sol_row)
+    assert lines[lines.index(odd_row) + 1].startswith("| All |"), "an unplaced source sorts last"
+    assert any(line.startswith("Escapes, agreed findings in the step 2 tree that a later source found, 4 of 5 (80%)")
+               for line in lines)
 
 
 def _checker(home: Path) -> subprocess.CompletedProcess[str]:

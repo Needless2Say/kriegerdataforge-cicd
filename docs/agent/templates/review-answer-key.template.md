@@ -39,6 +39,10 @@ the second reads, real or not, plus every question for the owner that was acted 
 **At the step 2 pin** says whether the defect was in the tree the step 2 reviewers read, yes, no or unsure, and **How
 decided** says how that was settled, a read of the file at the pin, a probe, or the commit that brought the code in.
 **Needs** says what a reviewer had to have to find it, the repo alone, the sibling repos, or a running stack.
+**Source** uses the words `kdf-retro.js` places in the cycle, `Orchestrator, step 1`, `Orchestrator, after step 2`,
+`Step 2 Claude`, `Step 2 Codex`, `Sol R<n> D<m>`, `Second read <n>`, `Final Claude` and `Final Codex`, so a finding the
+orchestrator made after the pin counts as an escape. The tool prints how it read each source, and one it cannot place
+prints as unplaced.
 
 Sorted by At the step 2 pin (yes, unsure, no, declined) and within each by severity, most severe first.
 
