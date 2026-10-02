@@ -393,15 +393,37 @@ is the caller run's own ref. A consumer's `ci.yml` hands each lane the `ref` it 
 dispatch judges the release tag in every lane (D-026).
 
 The command driven lanes let the caller override the install/run commands. `needs_sdk_auth: true`
-(where present) configures a `git insteadOf` credential so `pip` can resolve the private packages
-(`kdf_sdk`, `kdf_reports`). The credential is **App token first** (reports ecosystem epic W2.5):
-when the calling repo sets the `USE_GITHUB_APP` variable and holds the distributed `KDF_APP_ID` /
-`KDF_APP_PRIVATE_KEY` secrets (see [`ops-distribute-app-secrets.yml`](#repo-internal-event-triggered-workflows)),
-the lane mints a short lived installation token (`contents: read` only, auto revoked at job end).
-Otherwise it falls back to the long lived **`GH_PACKAGES_PAT`** exactly as before. Secrets these
-lanes read via `secrets: inherit`. `GH_PACKAGES_PAT`, plus `KDF_APP_ID` / `KDF_APP_PRIVATE_KEY`
-when the caller opted in. Several lanes install `libpq-dev` so source built `psycopg2` compiles on
-the slim runner.
+(where present) lets `pip` resolve the owner's private packages (`kdf_sdk`, `kdf_reports`, `kdf_fmt`)
+**without the job that runs the caller's code ever naming a secret** (D-035). The lane splits in two.
+Its **fetch job** (`Fetch private packages`) is the only job that names a secret. It checks out the
+caller with no credential kept, runs nothing of it, reads the `requirement_files` as text for
+`git+https://github.com/Needless2Say/<repo>.git@<tag or full commit id>` pins, mints the token for
+exactly those repos, clones each pinned ref with its full history into a bare mirror, and uploads
+the mirrors as one artifact kept for a day. A plain https link to a repo's page, as a pyproject's
+`[project.urls]` holds, is not a pin and passes, while any other form pip could install (git+,
+git@ or ssh:// URLs, archive or wheel links, a pip option line) fails the plan. The **install job**
+keeps its id and its name, so every ruleset's required check is unchanged, names no secret, runs on
+`always()`, and its first step ends it failed when the run was cancelled or, with `needs_sdk_auth`,
+unless the fetch succeeded (a skipped required job counts as passing). It checks the caller out
+with no credential kept, then downloads the mirrors and hands git one
+`url.file://<mirror>.insteadOf https://github.com/Needless2Say/<repo>.git` rewrite per repo
+through `GIT_CONFIG_COUNT`, `KEY_n` and `VALUE_n` in the job's environment. Without
+`needs_sdk_auth` the lane is one job as before. The token is **App token first** (reports ecosystem
+epic W2.5): when the calling repo sets the `USE_GITHUB_APP` variable and holds the distributed
+`KDF_APP_ID` / `KDF_APP_PRIVATE_KEY` secrets (see
+[`ops-distribute-app-secrets.yml`](#repo-internal-event-triggered-workflows)), the fetch job mints a
+short lived installation token (`contents: read` only, for the repos it clones, auto revoked at job
+end). Otherwise it falls back to the long lived **`GH_PACKAGES_PAT`**. Secrets these lanes read via
+`secrets: inherit`. `GH_PACKAGES_PAT`, plus `KDF_APP_ID` / `KDF_APP_PRIVATE_KEY` when the caller
+opted in. The fetch mirrors only the allowlisted repos (the three packages, the three backends, and
+this repo as the proof's public stand in), and a **public** calling repo may mirror only a public
+one, its run artifacts being readable by anyone. The four inputs every split lane shares are
+`requirement_files` (default `requirements.txt requirements-dev.txt requirements-test.txt
+pyproject.toml`, a missing one skipped), `extra_repos` (`repo@ref` items, a branch allowed here alone
+and resolved to its commit), `scan_files` (`repo:path` items read inside an extra repo's mirror) and
+`token_repositories` (the narrower fence per call, empty is every repo the fetch clones). The style
+lane stays one job, it installs only the pinned formatter and runs no caller code. Several lanes
+install `libpq-dev` so source built `psycopg2` compiles on the slim runner.
 
 | Workflow | Inputs (`string` unless noted) → default | `needs_sdk_auth`? | Top level `permissions` |
 |---|---|---|---|
@@ -417,6 +439,19 @@ the slim runner.
 | `ci-vercel-compactor.yml` | `python_version`=`3.14` | no | *(none declared)* |
 
 None of these declares outputs.
+
+**`fetch-private-packages.yml`** is the fetch job alone, for a caller that runs its own install and
+test job (the kdf-sdk canary, which mirrors a backend at its branch through `extra_repos`, reads its
+requirement files inside the mirror through `scan_files`, and fences the token with
+`token_repositories`). Inputs `ref`, `requirement_files`, `extra_repos`, `scan_files`,
+`token_repositories` as above. Outputs `artifact` (holding `kdf-private.tar`, with
+`kdf-private/mirrors/<repo>.git` and `kdf-private/manifest.json` of repo, ref, kind and commit) and
+`token_sha256` (the sha256 of the token the fetch used, for a proof that a later job holds no copy).
+The caller downloads the artifact, untars it under `$RUNNER_TEMP` and hands git the same rewrites the
+lanes do. A caller that calls it in a matrix gets one output, the last leg's, and an artifact name
+that is new per run, so no leg finds its own, so wrap one leg, the fetch and the job that uses it, in
+a reusable workflow of the caller's own and call that in the matrix. The fetch job in it and in each lane is one template, `scripts/fetch_private_job.template.yml`,
+written by `scripts/render_fetch_job.py`, and a test fails when a copy differs.
 
 **`ci-python-integration.yml`** additionally provisions a `postgres:16` **service** (`kdf`/`kdf`/
 `kdf_test`, health checked) and exports the connection string under **two** names,

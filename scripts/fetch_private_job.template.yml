@@ -1,0 +1,161 @@
+# The template render_fetch_job.py writes into each reusable Python lane and the standalone fetch workflow (D-035).
+# Each section starts at a line `#@ <name>`. @SCRIPT@ is fetch_private_packages.py's text, @DELIMITER@ its heredoc's
+# end and @INPUTS@ the inputs section. install-guard and install-require are the install job's if and its first step,
+# written into each lane's install job. Edit here, then run `python scripts/render_fetch_job.py`.
+#@ job-head
+  # D-035. The one job of this workflow that names a secret. It runs git and this workflow's own text, nothing of the
+  #   caller's. It reads the requirement files as text, clones what they pin from the owner's private repos into bare
+  #   mirrors and hands them on as an artifact, so the job that installs and tests names no secret at all and a process
+  #   that becomes root there reads none out of the runner's memory. Written by scripts/render_fetch_job.py, every copy
+  #   of it identical, edit the template there and run it.
+  fetch-private:
+    name: Fetch private packages
+#@ job-body
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      artifact: ${{ steps.pack.outputs.artifact }}
+      token_sha256: ${{ steps.fetch.outputs.token_sha256 }}
+
+    steps:
+      # the caller's tree is read as text and nothing of it runs, and no credential is left in its git config
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+          path: caller
+
+      - name: Write the fetch script
+        run: |
+          mkdir -p "$RUNNER_TEMP/kdf-fetch"
+          cat > "$RUNNER_TEMP/kdf-fetch/fetch_private_packages.py" <<'@DELIMITER@'
+@SCRIPT@
+          @DELIMITER@
+
+      - name: Plan the fetch
+        id: plan
+        env:
+          REQUIREMENT_FILES: ${{ inputs.requirement_files }}
+          EXTRA_REPOS: ${{ inputs.extra_repos }}
+          SCAN_FILES: ${{ inputs.scan_files }}
+          TOKEN_REPOSITORIES: ${{ inputs.token_repositories }}
+          CALLER_PRIVATE: ${{ github.event.repository.private }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: /usr/bin/python3 -I "$RUNNER_TEMP/kdf-fetch/fetch_private_packages.py" plan --caller "$GITHUB_WORKSPACE/caller" --out "$RUNNER_TEMP/kdf-fetch/plan.json"
+
+      # App token first (D-010), minted for exactly the repos the plan clones, never for every repo of the App
+      - name: Mint GitHub App token for private-package installs
+        id: pkg-token
+        if: ${{ vars.USE_GITHUB_APP == 'true' && steps.plan.outputs.repositories != '' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.KDF_APP_ID }}
+          private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.plan.outputs.repositories }}
+          permission-contents: read
+
+      # SECURITY: the token reaches git through this step's own GIT_CONFIG settings, written to no file, with no system
+      #   or global config read. The mirrors are bare, no working tree, so no hook and no filter runs. Only the token's
+      #   sha256 leaves the step, for the proof that the install job holds no copy of it
+      - name: Clone the private packages as bare mirrors
+        id: fetch
+        if: ${{ steps.plan.outputs.repositories != '' }}
+        env:
+          GIT_CONFIG_NOSYSTEM: "1"
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_TERMINAL_PROMPT: "0"
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: ${{ format('url.https://__token__:{0}@github.com/.insteadOf', steps.pkg-token.outputs.token || secrets.GH_PACKAGES_PAT) }}
+          GIT_CONFIG_VALUE_0: https://github.com/
+          KDF_FETCH_TOKEN: ${{ steps.pkg-token.outputs.token || secrets.GH_PACKAGES_PAT }}
+        run: /usr/bin/python3 -I "$RUNNER_TEMP/kdf-fetch/fetch_private_packages.py" fetch --plan "$RUNNER_TEMP/kdf-fetch/plan.json" --dest "$RUNNER_TEMP/kdf-private"
+
+      - name: Pack the mirrors
+        id: pack
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/kdf-private/mirrors"
+          if [ ! -f "$RUNNER_TEMP/kdf-private/manifest.json" ]; then echo "[]" > "$RUNNER_TEMP/kdf-private/manifest.json"; fi
+          tar -C "$RUNNER_TEMP" -cf "$RUNNER_TEMP/kdf-private.tar" kdf-private
+          suffix=$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')
+          echo "artifact=kdf-private-$RUN_ID-$RUN_ATTEMPT-$suffix" >> "$GITHUB_OUTPUT"
+
+      # the mirrors, each repo's full history up to its refs, are readable for a day by everyone who can read the
+      #   calling repo's runs, the price of D-035
+      - name: Upload the mirrors
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ steps.pack.outputs.artifact }}
+          path: ${{ runner.temp }}/kdf-private.tar
+          retention-days: 1
+          if-no-files-found: error
+#@ install-guard
+    # D-035. FAIL CLOSED. A skipped required job counts as passing, so this job runs whatever happened before it, a
+    #   cancelled run included, and its first step ends it failed when the run was cancelled or, with package access,
+    #   when the fetch did not succeed. GitHub reads cancelled() only in an if, so the step's if is the check and its
+    #   run only says why. Written by scripts/render_fetch_job.py from its template
+    if: ${{ always() }}
+#@ install-require
+      - name: Require the private packages
+        if: ${{ cancelled() || (inputs.needs_sdk_auth && needs.fetch-private.result != 'success') }}
+        env:
+          NEEDS_SDK_AUTH: ${{ inputs.needs_sdk_auth }}
+          FETCH_RESULT: ${{ needs.fetch-private.result }}
+        run: |
+          if [ "$NEEDS_SDK_AUTH" = "true" ] && [ "$FETCH_RESULT" != "success" ]; then
+            echo "::error::the private packages were not fetched, the fetch job ended $FETCH_RESULT, so nothing here runs"
+          else
+            echo "::error::the run was cancelled, so this job ends failed rather than skipped and tests nothing"
+          fi
+          exit 1
+#@ standalone-head
+name: Fetch private packages
+
+# D-035. The fetch half of a lane that runs code it does not trust in a job that names no secret, for a caller that
+# runs its own install and test job, the kdf-sdk canary. The caller's job downloads the artifact this returns, untars it
+# under $RUNNER_TEMP, and hands git one rewrite per mirror, `url.file://<mirrors>/<repo>.git.insteadOf` for
+# `https://github.com/Needless2Say/<repo>.git`, through GIT_CONFIG_COUNT, KEY_n and VALUE_n, as the lanes do. Callers
+# pass `secrets: inherit`. Written by scripts/render_fetch_job.py, edit the template there and run it.
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref of the caller to check out for its requirement files. Empty is the caller run's own ref
+        type: string
+        default: ""
+@INPUTS@
+    outputs:
+      artifact:
+        description: The artifact holding kdf-private.tar, mirrors/<repo>.git for each repo and manifest.json
+        value: ${{ jobs.fetch-private.outputs.artifact }}
+      token_sha256:
+        description: The sha256 of the token the fetch used, for a proof that a later job holds no copy of it
+        value: ${{ jobs.fetch-private.outputs.token_sha256 }}
+
+jobs:
+#@ inputs
+      requirement_files:
+        description: The caller's requirement files the fetch reads for git+https pins of the owner's private repos, space separated, a missing one skipped
+        type: string
+        default: "requirements.txt requirements-dev.txt requirements-test.txt pyproject.toml"
+      extra_repos:
+        description: More repos to mirror, repo@ref items, a branch allowed here alone and resolved to its commit
+        type: string
+        default: ""
+      scan_files:
+        description: Requirement files read inside a mirrored extra repo at its commit, repo:path items
+        type: string
+        default: ""
+      token_repositories:
+        description: The repos the App token is minted for, the narrower fence per call. Empty is every repo the fetch clones
+        type: string
+        default: ""

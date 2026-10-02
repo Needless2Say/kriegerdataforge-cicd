@@ -1,0 +1,12 @@
+[build-system]
+requires      = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name            = "kdf-secretless-probe"
+version         = "0.1.0"
+description     = "The package D-035's proof installs from a mirror. It holds nothing"
+requires-python = ">=3.12"
+
+[tool.setuptools]
+packages = ["kdf_secretless_probe"]

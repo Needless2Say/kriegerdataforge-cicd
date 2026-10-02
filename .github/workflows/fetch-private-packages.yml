@@ -1,60 +1,20 @@
-name: Python · Integration tests (Postgres)
+name: Fetch private packages
 
-# N3b: least-privilege by construction — this reusable lane only clones (incl. the
-# private SDK) and runs tests; it never writes to the repo. Cap the GITHUB_TOKEN to
-# read so a called job can't inherit a broader token from a lax caller.
+# D-035. The fetch half of a lane that runs code it does not trust in a job that names no secret, for a caller that
+# runs its own install and test job, the kdf-sdk canary. The caller's job downloads the artifact this returns, untars it
+# under $RUNNER_TEMP, and hands git one rewrite per mirror, `url.file://<mirrors>/<repo>.git.insteadOf` for
+# `https://github.com/Needless2Say/<repo>.git`, through GIT_CONFIG_COUNT, KEY_n and VALUE_n, as the lanes do. Callers
+# pass `secrets: inherit`. Written by scripts/render_fetch_job.py, edit the template there and run it.
 permissions:
   contents: read
-
-# Reusable integration-test lane for KDF Python backends.
-#
-# Unlike ci-python-tests.yml (the fast, DB-free UNIT lane), this workflow
-# provisions an ephemeral Postgres service, migrates it to head, optionally
-# seeds app-specific fixtures, and runs the caller's integration suite. It
-# exists because a backend's DB-backed tests (e.g. `-m requires_postgres`)
-# silently green-skip when no `KDF_TEST_DATABASE_URL` is set — the integration
-# guarantees never actually run (finding PL-166).
-#
-# Design notes:
-#   * This file is PUBLIC — it stays schema-free. Anything app-specific (e.g. a
-#     `kdfusers` table that lives only in an auth-owned DB) is provisioned by the
-#     caller via `seed_command`, whose SQL file lives in the caller's PRIVATE
-#     repo and is present at runtime because `checkout` pulls the caller repo.
-#   * The same Postgres URL is exported under two names so both the SDK
-#     (`env_prefix=DB_` → alembic) and the test conftest (`KDF_TEST_DATABASE_URL`)
-#     point at the one ephemeral DB.
-#   * Callers opt in with a separate job; the fast unit lane stays DB-free.
 
 on:
   workflow_call:
     inputs:
-      python_version:
-        description: Python version to use
-        type: string
-        default: "3.14"
-      install_command:
-        description: Command to install dependencies before running tests
-        type: string
-        default: "pip install -r requirements.txt"
-      migrate_command:
-        description: Command that migrates the ephemeral DB to head
-        type: string
-        default: "alembic upgrade head"
-      seed_command:
-        description: >-
-          Optional app-specific seed command run after migrate (e.g. create a
-          test-only kdfusers table). The SQL/script it references lives in the
-          caller's private repo. Empty string skips seeding.
+      ref:
+        description: Git ref of the caller to check out for its requirement files. Empty is the caller run's own ref
         type: string
         default: ""
-      test_command:
-        description: Full pytest command to run the integration suite
-        type: string
-        default: "python -m pytest -m requires_postgres -q --tb=short"
-      needs_sdk_auth:
-        description: Fetch the owner's private packages in a separate job that holds the token (the App's installation token when the caller sets USE_GITHUB_APP, else the GH_PACKAGES_PAT secret), and install and test in a job that names no secret (D-035)
-        type: boolean
-        default: false
       requirement_files:
         description: The caller's requirement files the fetch reads for git+https pins of the owner's private repos, space separated, a missing one skipped
         type: string
@@ -71,10 +31,13 @@ on:
         description: The repos the App token is minted for, the narrower fence per call. Empty is every repo the fetch clones
         type: string
         default: ""
-      ref:
-        description: Git ref to check out (tag, branch or SHA). Empty checks out the caller run's own ref, a release dispatch passes the release tag so this lane tests the exact commit being deployed.
-        type: string
-        default: ""
+    outputs:
+      artifact:
+        description: The artifact holding kdf-private.tar, mirrors/<repo>.git for each repo and manifest.json
+        value: ${{ jobs.fetch-private.outputs.artifact }}
+      token_sha256:
+        description: The sha256 of the token the fetch used, for a proof that a later job holds no copy of it
+        value: ${{ jobs.fetch-private.outputs.token_sha256 }}
 
 jobs:
   # D-035. The one job of this workflow that names a secret. It runs git and this workflow's own text, nothing of the
@@ -84,7 +47,6 @@ jobs:
   #   of it identical, edit the template there and run it.
   fetch-private:
     name: Fetch private packages
-    if: ${{ inputs.needs_sdk_auth }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -955,109 +917,3 @@ jobs:
           path: ${{ runner.temp }}/kdf-private.tar
           retention-days: 1
           if-no-files-found: error
-
-  integration-tests:
-    name: Integration Tests (Postgres)
-    needs: [fetch-private]
-    # D-035. FAIL CLOSED. A skipped required job counts as passing, so this job runs whatever happened before it, a
-    #   cancelled run included, and its first step ends it failed when the run was cancelled or, with package access,
-    #   when the fetch did not succeed. GitHub reads cancelled() only in an if, so the step's if is the check and its
-    #   run only says why. Written by scripts/render_fetch_job.py from its template
-    if: ${{ always() }}
-    permissions:
-      contents: read
-    runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: kdf
-          POSTGRES_PASSWORD: kdf
-          POSTGRES_DB: kdf_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U kdf -d kdf_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 15
-
-    env:
-      # One ephemeral DB, exported under both names: DB_* for the SDK/alembic,
-      # KDF_TEST_DATABASE_URL for the pytest conftest gate.
-      DB_DATABASE_URL: postgresql+psycopg2://kdf:kdf@localhost:5432/kdf_test
-      KDF_TEST_DATABASE_URL: postgresql+psycopg2://kdf:kdf@localhost:5432/kdf_test
-      # a CI run is local, the owner's definition (2026-09-30), a stack started in Actions is local and never the DEV
-      # account, and the callers' integration conftests default to local themselves. local, dev and prod are the only
-      # names, and no caller branches on dev against local, is_production() is false for both
-      ENVIRONMENT: local
-
-    steps:
-      - name: Require the private packages
-        if: ${{ cancelled() || (inputs.needs_sdk_auth && needs.fetch-private.result != 'success') }}
-        env:
-          NEEDS_SDK_AUTH: ${{ inputs.needs_sdk_auth }}
-          FETCH_RESULT: ${{ needs.fetch-private.result }}
-        run: |
-          if [ "$NEEDS_SDK_AUTH" = "true" ] && [ "$FETCH_RESULT" != "success" ]; then
-            echo "::error::the private packages were not fetched, the fetch job ended $FETCH_RESULT, so nothing here runs"
-          else
-            echo "::error::the run was cancelled, so this job ends failed rather than skipped and tests nothing"
-          fi
-          exit 1
-
-      # D-035. The tree's git config keeps no token, nothing this job runs reaches the repo's own remote
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          ref: ${{ inputs.ref }}
-          persist-credentials: false
-
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: ${{ inputs.python_version }}
-
-      # D-035. The private repos the fetch job cloned, as bare mirrors, which git reads through a rewrite of each https
-      #   URL in the job's environment. No step of this job names a secret, and nothing it holds is one, its checkout
-      #   leaves no token in the tree's git config
-      - name: Download the private mirrors
-        if: ${{ inputs.needs_sdk_auth }}
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: ${{ needs.fetch-private.outputs.artifact }}
-          path: ${{ runner.temp }}/kdf-private-download
-
-      - name: Point git at the private mirrors
-        if: ${{ inputs.needs_sdk_auth }}
-        env:
-          TOKEN_SHA256: ${{ needs.fetch-private.outputs.token_sha256 }}
-        run: |
-          set -euo pipefail
-          tar -C "$RUNNER_TEMP" -xf "$RUNNER_TEMP/kdf-private-download/kdf-private.tar"
-          count=0
-          for mirror in "$RUNNER_TEMP"/kdf-private/mirrors/*.git; do
-            [ -d "$mirror" ] || continue
-            repo=$(basename "$mirror" .git)
-            echo "GIT_CONFIG_KEY_$count=url.file://$mirror.insteadOf" >> "$GITHUB_ENV"
-            echo "GIT_CONFIG_VALUE_$count=https://github.com/Needless2Say/$repo.git" >> "$GITHUB_ENV"
-            count=$((count + 1))
-          done
-          {
-            echo "GIT_CONFIG_COUNT=$count"
-            echo "KDF_PRIVATE_MIRRORS=$RUNNER_TEMP/kdf-private"
-            echo "KDF_FETCH_TOKEN_SHA256=$TOKEN_SHA256"
-          } >> "$GITHUB_ENV"
-          echo "git reads $count private mirror(s) through the rewrite"
-
-      - name: Install dependencies
-        run: ${{ inputs.install_command }}
-
-      - name: Migrate ephemeral DB to head
-        run: ${{ inputs.migrate_command }}
-
-      - name: Seed app-specific fixtures
-        if: ${{ inputs.seed_command != '' }}
-        run: ${{ inputs.seed_command }}
-
-      - name: Run integration tests
-        run: ${{ inputs.test_command }}
