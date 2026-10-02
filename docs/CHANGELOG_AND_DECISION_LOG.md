@@ -1903,7 +1903,12 @@ its finding and its evidence, the arrangement of D-034.
   `Runner.Listener` for the header of a private key and for any token whose sha256 equals the one the fetch job
   published. It must find none, and it must find the job's own `GITHUB_TOKEN` there, or it read the wrong memory. A
   positive control job names the App's secrets, mints a token and runs the same hunt, which must find both. Only
-  counts and booleans are printed.
+  counts and booleans are printed. Measured on the pull request that carries this decision, the install job's hunt read
+  579 MB of two runner processes and found 13 token shaped runs, its own `GITHUB_TOKEN` among them, no private key
+  header and no copy of the fetch job's token, in memory or in any of 38 environments. The control read 630 MB and
+  found the key's header 91 times and its own token 3 times in memory. The first run found no token in either job, its
+  pattern assumed `ghs_` and 36 letters and digits, and the App's installation token minted that day was 390
+  characters, so the hunt now matches any run of token characters after a known prefix by the sha256 of its prefixes.
 
 **Alternatives considered.**
 
