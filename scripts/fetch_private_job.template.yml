@@ -1,7 +1,9 @@
 # The template render_fetch_job.py writes into each reusable Python lane and the standalone fetch workflow (D-035).
 # Each section starts at a line `#@ <name>`. @SCRIPT@ is fetch_private_packages.py's text, @DELIMITER@ its heredoc's
 # end and @INPUTS@ the inputs section. install-guard and install-require are the install job's if and its first step,
-# written into each lane's install job. Edit here, then run `python scripts/render_fetch_job.py`.
+# written into each lane's install job. The other @NAME@ fields are filled per copy, from the caller's inputs in the
+# seven lanes and the standalone, with fixed values in the style lane (D-038). Edit here, then run
+# `python scripts/render_fetch_job.py`.
 #@ job-head
   # D-035. The one job of this workflow that names a secret. It runs git and this workflow's own text, nothing of the
   #   caller's. It reads the requirement files as text, clones what they pin from the owner's private repos into bare
@@ -37,10 +39,10 @@
       - name: Plan the fetch
         id: plan
         env:
-          REQUIREMENT_FILES: ${{ inputs.requirement_files }}
-          EXTRA_REPOS: ${{ inputs.extra_repos }}
-          SCAN_FILES: ${{ inputs.scan_files }}
-          TOKEN_REPOSITORIES: ${{ inputs.token_repositories }}
+          REQUIREMENT_FILES: @REQUIREMENT_FILES@
+          EXTRA_REPOS: @EXTRA_REPOS@
+          SCAN_FILES: @SCAN_FILES@
+          TOKEN_REPOSITORIES: @TOKEN_REPOSITORIES@
           CALLER_PRIVATE: ${{ github.event.repository.private }}
           GITHUB_TOKEN: ${{ github.token }}
         run: /usr/bin/python3 -I "$RUNNER_TEMP/kdf-fetch/fetch_private_packages.py" plan --caller "$GITHUB_WORKSPACE/caller" --out "$RUNNER_TEMP/kdf-fetch/plan.json"
@@ -103,9 +105,9 @@
     if: ${{ always() }}
 #@ install-require
       - name: Require the private packages
-        if: ${{ cancelled() || (inputs.needs_sdk_auth && needs.fetch-private.result != 'success') }}
+        if: ${{ cancelled() || (@NEEDS_SDK_AUTH@ && needs.fetch-private.result != 'success') }}
         env:
-          NEEDS_SDK_AUTH: ${{ inputs.needs_sdk_auth }}
+          NEEDS_SDK_AUTH: ${{ @NEEDS_SDK_AUTH@ }}
           FETCH_RESULT: ${{ needs.fetch-private.result }}
         run: |
           if [ "$NEEDS_SDK_AUTH" = "true" ] && [ "$FETCH_RESULT" != "success" ]; then

@@ -193,8 +193,13 @@ file (D-032), and hands the install job bare mirrors, each repo's full history u
 needs, as an artifact kept for a day, which a public calling repo may not hold for a private repo.
 The install job's checkout keeps no credential either. This repo's own CI proves it on every pull
 request, a hunt as root for the key and the token in the install job finds neither, and the same
-hunt in a control job that names them finds both. The deploy lane still writes the token into its
-job's git config (`cd-python-vercel.yml:110-115`), a follow up of D-035.
+hunt in a control job that names them finds both. The style lane splits the same way since D-038,
+its check job naming no secret and installing in isolated mode, because `python -m` put a pull
+request's `pip.py` or `kdf_fmt/` where the secret was and its `check_command` is the caller's own
+text. This public repo's own style check, `ci-kdf-fmt-self.yml`, holds the token in one job,
+minted for `kriegerdataforge-fmt` alone, with the checkout off the import path and its command
+fixed. The deploy lane still writes the token into its job's git config
+(`cd-python-vercel.yml:110-115`), a follow up of D-035.
 
 **Dual store reports cron secrets.** The reports triage trigger authenticates to each app's
 `POST /reports/triage/cron` with an `X-Cron-Secret` value held as a cicd side **copy**

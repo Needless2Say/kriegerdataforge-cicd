@@ -7,7 +7,9 @@ A reusable workflow that calls another with a `./` path is not documented to res
 when a different repository calls it, so the fetch job is not a called workflow. It is written into every lane, its
 script's text inline, and `fetch-private-packages.yml` carries the same job for a caller that runs its own install job,
 the kdf-sdk canary. Each lane's install job takes its if and its first step from the same template, so a cancelled
-run or a fetch that did not succeed ends it failed alike in every lane. Every copy comes from
+run or a fetch that did not succeed ends it failed alike in every lane. The style lane takes the same fetch job and
+the same if and first step for its check job (D-038), its fetch always runs, mirrors only the formatter the caller
+pins and mints for it alone, so the template's @NAME@ fields are filled per copy. Every copy comes from
 `fetch_private_job.template.yml`, and `test_secretless_lanes.py` fails when one differs.
 
 Usage:
@@ -47,7 +49,32 @@ LANES = (
 
 STANDALONE = "fetch-private-packages.yml"
 
+# the style lane, whose check job runs the caller's tree too, a module of it on the import path or its own command
+# (D-038), so its fetch job always runs and its check job names no secret
+STYLE_LANE = "ci-python-kdf-fmt.yml"
+
 DELIMITER = "KDF_FETCH_PRIVATE_PACKAGES"
+
+# the values of the template's @NAME@ fields, from the caller's inputs in the seven lanes and the standalone
+LANE_FILLS = {
+    "REQUIREMENT_FILES": "${{ inputs.requirement_files }}",
+    "EXTRA_REPOS": "${{ inputs.extra_repos }}",
+    "SCAN_FILES": "${{ inputs.scan_files }}",
+    "TOKEN_REPOSITORIES": "${{ inputs.token_repositories }}",
+    "NEEDS_SDK_AUTH": "inputs.needs_sdk_auth",
+}
+
+# and fixed in the style lane, no requirement file read, the pinned formatter its one mirror and its token's one repo
+STYLE_FILLS = {
+    "REQUIREMENT_FILES": '""',
+    "EXTRA_REPOS": "kriegerdataforge-fmt@${{ inputs.kdf_fmt_ref }}",
+    "SCAN_FILES": '""',
+    "TOKEN_REPOSITORIES": "kriegerdataforge-fmt",
+    "NEEDS_SDK_AUTH": "true",
+}
+
+# the fetch job's if in a lane, where it runs only when the caller asks for package access
+LANE_CONDITION = "    if: ${{ inputs.needs_sdk_auth }}\n"
 
 # where a lane's fetch job ends, the next job's id line that is not the fetch job's own
 NEXT_JOB = r"(?=^  [a-z0-9-]+:\n(?!    name: Fetch private packages))"
@@ -92,12 +119,50 @@ def sections() -> dict[str, str]:
     return found
 
 
-def job(in_lane: bool) -> str:
+def fill(text: str, fills: dict[str, str]) -> str:
+    """
+    A section with its @NAME@ fields filled.
+
+    Args:
+        text: the section's text
+        fills: each field's value by its name
+
+    Returns:
+        str: the text with every field filled
+
+    Raises:
+        SystemExit: when a field is left that no value fills
+    """
+    for name, value in fills.items():
+        text = text.replace(f"@{name}@", value)
+    # the script, its heredoc's end and the inputs section are written in by the functions that place them
+    left = [field for field in re.findall(r"@[A-Z_]+@", text) if field not in ("@SCRIPT@", "@DELIMITER@", "@INPUTS@")]
+    if left:
+        raise SystemExit(f"the template holds a field no value fills, {', '.join(sorted(set(left)))}")
+    return text
+
+
+def section(name: str, fills: dict[str, str]) -> str:
+    """
+    One section of the template, its fields filled.
+
+    Args:
+        name: the section's name
+        fills: each field's value by its name
+
+    Returns:
+        str: the section's text, LF line ends
+    """
+    return fill(sections()[name], fills)
+
+
+def job(condition: str, fills: dict[str, str]) -> str:
     """
     The fetch job, the script's own text inline.
 
     Args:
-        in_lane: whether it goes into a lane, where it runs only when the caller asks for package access
+        condition: the job's if line, empty where it always runs
+        fills: the values of the template's fields for this copy
 
     Returns:
         str: the job's text, LF line ends
@@ -108,20 +173,19 @@ def job(in_lane: bool) -> str:
     script = _read(SCRIPT).replace("\r\n", "\n")
     if "${{" in script or f"\n{DELIMITER}\n" in f"\n{script}\n":
         raise SystemExit("fetch_private_packages.py must hold no ${{ and no line that ends the heredoc")
-    indented  = "\n".join(f"          {line}" if line else "" for line in script.rstrip("\n").split("\n"))
-    parts     = sections()
-    body      = parts["job-body"].replace("@SCRIPT@", indented).replace("@DELIMITER@", DELIMITER)
-    condition = "    if: ${{ inputs.needs_sdk_auth }}\n" if in_lane else ""
-    return parts["job-head"] + condition + body
+    indented = "\n".join(f"          {line}" if line else "" for line in script.rstrip("\n").split("\n"))
+    body     = section("job-body", fills).replace("@SCRIPT@", indented).replace("@DELIMITER@", DELIMITER)
+    return sections()["job-head"] + condition + body
 
 
-def render_install(plain: str) -> str:
+def render_install(plain: str, fills: dict[str, str]) -> str:
     """
     A lane with its install job's if and first step replaced by the template's, so a cancelled run or a fetch that
     did not succeed ends the job failed in every lane alike.
 
     Args:
         plain: the lane's text, LF line ends
+        fills: the values of the template's fields for this copy
 
     Returns:
         str: the lane's text with both written from the template
@@ -129,21 +193,22 @@ def render_install(plain: str) -> str:
     Raises:
         SystemExit: when the lane does not hold exactly one of each
     """
-    parts = sections()
-    for pattern, section in ((INSTALL_GUARD, "install-guard"), (INSTALL_REQUIRE, "install-require")):
-        plain, count = pattern.subn(lambda _match, text = parts[section]: text, plain)
+    for pattern, name in ((INSTALL_GUARD, "install-guard"), (INSTALL_REQUIRE, "install-require")):
+        plain, count = pattern.subn(lambda _match, text = section(name, fills): text, plain)
         if count != 1:
-            raise SystemExit(f"a lane holds {count} of the install job's {section}, not one")
+            raise SystemExit(f"a lane holds {count} of the install job's {name}, not one")
     return plain
 
 
-def render_lane(text: str) -> str:
+def render_lane(text: str, fills: dict[str, str] = LANE_FILLS, condition: str = LANE_CONDITION) -> str:
     """
     A lane with its fetch job replaced, or written first under `jobs:` when it has none, and its install job's if
     and first step written from the template.
 
     Args:
         text: the lane's text
+        fills: the values of the template's fields for this lane
+        condition: the fetch job's if line, empty in the style lane, whose fetch always runs
 
     Returns:
         str: the lane's new text, in the lane's own line endings
@@ -153,7 +218,7 @@ def render_lane(text: str) -> str:
     """
     crlf  = "\r\n" in text
     plain = text.replace("\r\n", "\n")
-    block = job(in_lane = True) + "\n"
+    block = job(condition, fills) + "\n"
     found = re.search(r"^  # D-035\. The one job.*?" + NEXT_JOB, plain, flags = re.MULTILINE | re.DOTALL)
     if found:
         plain = plain[:found.start()] + block + plain[found.end():]
@@ -162,7 +227,7 @@ def render_lane(text: str) -> str:
         if not marker:
             raise SystemExit("a lane without a jobs: line")
         plain = head + marker + block + rest.lstrip("\n")
-    plain = render_install(plain)
+    plain = render_install(plain, fills)
     return plain.replace("\n", "\r\n") if crlf else plain
 
 
@@ -174,7 +239,7 @@ def render_standalone() -> str:
         str: the workflow's text, LF line ends
     """
     parts = sections()
-    return parts["standalone-head"].replace("@INPUTS@\n", parts["inputs"]) + job(in_lane = False)
+    return parts["standalone-head"].replace("@INPUTS@\n", parts["inputs"]) + job("", LANE_FILLS)
 
 # ======================================================================================================================
 # CLI
@@ -195,6 +260,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     stale: list[str] = []
     targets = {name: render_lane(_read(WORKFLOWS / name)) for name in LANES}
+    targets[STYLE_LANE] = render_lane(_read(WORKFLOWS / STYLE_LANE), STYLE_FILLS, "")
     targets[STANDALONE] = render_standalone()
     for name, wanted in targets.items():
         path    = WORKFLOWS / name

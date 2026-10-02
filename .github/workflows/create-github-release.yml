@@ -49,8 +49,12 @@ jobs:
             exit 1
           fi
           VERSION=$(tr -d '[:space:]' < VERSION)
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          # D-038. commit is the one whose VERSION was just read, the triggering commit (GITHUB_SHA on the push to main)
+          {
+            echo "version=$VERSION"
+            echo "tag=v$VERSION"
+            echo "commit=$(git rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Check if tag already exists
         id: tag_check
@@ -62,13 +66,19 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # D-038. --target names the commit the tag goes on. Without it GitHub tags the default branch's tip when the
+      #   command runs, and a second merge that lands between the push and this line takes the first one's tag, so a
+      #   tag would name a tree whose VERSION says another version. Every backend pins the SDK's tag (kdf-sdk D-020)
       - name: Create GitHub Release
         if: steps.tag_check.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          COMMIT: ${{ steps.version.outputs.commit }}
         run: |
-          gh release create "${{ steps.version.outputs.tag }}" \
-            --title "${{ steps.version.outputs.tag }}" \
+          gh release create "$TAG" \
+            --target "$COMMIT" \
+            --title "$TAG" \
             --generate-notes \
             --latest
-          echo "✅  Release ${{ steps.version.outputs.tag }} created."
+          echo "✅  Release $TAG created on $COMMIT."

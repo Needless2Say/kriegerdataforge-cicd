@@ -344,6 +344,9 @@ jobs:
 
 Reads `VERSION`, creates a GitHub Release tagged `v{VERSION}` with auto generated notes, **skips**
 gracefully if the tag already exists (avoids the double release race from two PRs on the same version).
+The tag goes on the commit `VERSION` was read from, the triggering commit, passed as `--target`
+(D-038). Without it GitHub tags the default branch's tip when the command runs, and a second merge
+landing in between would take the first one's tag.
 
 - **Inputs.** None. **Secrets.** `GITHUB_TOKEN` (default). **Outputs.** None.
 - **Permissions.** `release` job. `contents: write` (**the caller must grant this**) (`:35-36`).
@@ -422,13 +425,21 @@ one, its run artifacts being readable by anyone. The four inputs every split lan
 pyproject.toml`, a missing one skipped), `extra_repos` (`repo@ref` items, a branch allowed here alone
 and resolved to its commit), `scan_files` (`repo:path` items read inside an extra repo's mirror) and
 `token_repositories` (the narrower fence per call, empty is every repo the fetch clones). The style
-lane stays one job, it installs only the pinned formatter and runs no caller code. Several lanes
-install `libpq-dev` so source built `psycopg2` compiles on the slim runner.
+lane splits the same way since D-038, because `python -m` put the checkout first on the import path,
+so a pull request's `pip.py` or `kdf_fmt/` ran where the secret was, and `check_command` is the
+caller's own text. Its fetch job always runs, reads no requirement file, mirrors only
+`kriegerdataforge-fmt` at `kdf_fmt_ref` and mints for that repo alone, and its check job keeps the
+name `Style (kdf-fmt)`, names no secret and installs in isolated mode (`python -I`). Isolated mode
+covers the install and the default command only, a caller's own command runs in a job with no
+secret to reach. A public caller cannot mirror the private formatter, so this repo runs its own one
+job check, `ci-kdf-fmt-self.yml`, minted for `kriegerdataforge-fmt` alone with its command fixed
+and isolated. Several lanes install `libpq-dev` so source built `psycopg2` compiles on the slim
+runner.
 
 | Workflow | Inputs (`string` unless noted) → default | `needs_sdk_auth`? | Top level `permissions` |
 |---|---|---|---|
 | `ci-python-format.yml` | `python_version`=`3.14`, `install_command`=`pip install -e ".[dev]"`, `format_command`=`python -m ruff format --check src/ tests/` | no | `contents: read` (`:4-5`) |
-| `ci-python-kdf-fmt.yml` | `python_version`=`3.14`, `kdf_fmt_ref` (**required**, pin a `vX.Y.Z` tag), `check_command`=`python -m kdf_fmt.cli check --no-cache` | always (kdf-fmt is private, App token first, `GH_PACKAGES_PAT` fallback, callers pass `secrets: inherit`) | `contents: read` |
+| `ci-python-kdf-fmt.yml` | `python_version`=`3.14`, `kdf_fmt_ref` (**required**, pin a `vX.Y.Z` tag or a full commit id), `check_command`=`python -I -m kdf_fmt.cli check --no-cache`, `ref`=`""` | always, two jobs (D-038), the fetch mints for `kriegerdataforge-fmt` alone (App token first, `GH_PACKAGES_PAT` fallback, callers pass `secrets: inherit`), private callers only | `contents: read` |
 | `ci-python-lint.yml` | `python_version`=`3.14`, `install_command`=`pip install -r requirements.txt`, `lint_command`=`python -m ruff check .`, `needs_sdk_auth` (bool)=`false` | yes | `contents: read` |
 | `ci-python-typecheck.yml` | + `typecheck_command`=`python -m mypy api/` (same shape as lint) | yes | `contents: read` |
 | `ci-python-tests.yml` | + `test_command`=`python -m pytest unit_tests/ -q --tb=short` (fast, DB free unit lane), `ref`=`""` (the ref to check out, a release dispatch passes the tag, D-024) | yes | `contents: read` |

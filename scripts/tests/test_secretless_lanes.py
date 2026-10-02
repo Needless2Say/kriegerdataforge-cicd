@@ -14,6 +14,8 @@ import hashlib
 import importlib.util
 import json
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import fetch_private_packages as fpp
@@ -532,6 +534,7 @@ def test_every_copy_of_the_fetch_job_is_the_template():
     """
     assert render.main(["--check"]) == 0
     assert render.LANES == tuple(JOB_B)
+    assert render.STYLE_LANE == "ci-python-kdf-fmt.yml"
 
 
 def test_the_script_holds_nothing_the_heredoc_or_an_expression_would_change():
@@ -591,14 +594,13 @@ def test_the_install_job_fails_closed_when_the_run_was_cancelled_or_the_fetch_di
     cancelled() only in an if, so the check is that step's if, and every later step keeps the default success().
     """
     job_id, _title = JOB_B[name]
-    job   = _jobs(_text(name))[job_id]
-    parts = render.sections()
-    head  = job.split("    steps:\n", 1)[0]
+    job  = _jobs(_text(name))[job_id]
+    head = job.split("    steps:\n", 1)[0]
     assert "    needs: [fetch-private]\n" in job
-    assert parts["install-guard"] in head and head.count("    if: ") == 1
+    assert render.section("install-guard", render.LANE_FILLS) in head and head.count("    if: ") == 1
     assert "    if: ${{ always() }}\n" in head and "!cancelled()" not in job
     first = job.split("    steps:\n", 1)[1].split("\n\n", 1)[0] + "\n"
-    assert first == parts["install-require"]
+    assert first == render.section("install-require", render.LANE_FILLS)
     assert "        if: ${{ cancelled() || (inputs.needs_sdk_auth && needs.fetch-private.result != 'success') }}\n" \
         in first
     assert first.rstrip().endswith("exit 1")
@@ -643,15 +645,86 @@ def test_the_private_steps_of_every_install_job_are_identical():
     assert len(copies) == 1
 
 
-def test_the_style_lane_stays_one_job_and_installs_only_the_pinned_formatter():
+def test_the_style_lane_checks_in_a_job_that_names_no_secret():
     """
-    It runs no caller code, kdf-fmt never imports or executes what it formats (D-035), and this public repo's CI
-    calls it.
+    D-035 left the style lane one job, saying no caller code ran there. It did, `python -m` put the checkout first on
+    the import path, so a pull request's pip.py ran in the step that held the token and its kdf_fmt/ in the job that
+    named the App's key, and check_command was the caller's own text (SDK review SDK-S1-D3-R1-1). D-038 splits it as
+    the seven lanes, the check job keeps its id and name, names no secret, fails closed, and installs in isolated mode.
     """
-    jobs = _jobs(_text("ci-python-kdf-fmt.yml"))
-    assert list(jobs) == ["style"]
-    assert "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@${{ inputs.kdf_fmt_ref }}" in \
-        jobs["style"]
+    text = _text("ci-python-kdf-fmt.yml")
+    jobs = _jobs(text)
+    assert list(jobs) == ["fetch-private", "style"]
+    style = jobs["style"]
+    assert style.startswith("    name: Style (kdf-fmt)\n    needs: [fetch-private]\n")
+    assert "secrets." not in style and "pkg-token" not in style and "GH_PACKAGES_PAT" not in style
+    assert "    permissions:\n      contents: read\n" in style
+    head = style.split("    steps:\n", 1)[0]
+    assert render.section("install-guard", render.STYLE_FILLS) in head and "    if: ${{ always() }}\n" in head
+    first = style.split("    steps:\n", 1)[1].split("\n\n", 1)[0] + "\n"
+    assert first == render.section("install-require", render.STYLE_FILLS)
+    assert "        if: ${{ cancelled() || (true && needs.fetch-private.result != 'success') }}\n" in first
+    assert "          ref: ${{ inputs.ref }}\n          persist-credentials: false\n" in style
+    assert text.count("      - uses: actions/checkout@") == text.count("          persist-credentials: false\n") == 2
+    assert 'run: python -I -m pip install --quiet "kdf-fmt @ git+https://github.com/Needless2Say/' \
+           'kriegerdataforge-fmt.git@$KDF_FMT_REF"\n' in style
+    assert '        default: "python -I -m kdf_fmt.cli check --no-cache"\n' in text
+    assert "        run: ${{ inputs.check_command }}\n" in style
+
+
+def test_the_style_lanes_fetch_always_runs_and_mirrors_the_formatter_alone():
+    """
+    The style lane always needs the private formatter, so its fetch job carries no if, reads no requirement file and
+    mirrors only the release the caller pins, with a token minted for kriegerdataforge-fmt alone.
+    """
+    text  = _text("ci-python-kdf-fmt.yml")
+    fetch = _jobs(text)["fetch-private"]
+    assert "  fetch-private:\n    name: Fetch private packages\n    runs-on: ubuntu-latest\n" in text
+    assert "          REQUIREMENT_FILES: \"\"\n" in fetch and "          SCAN_FILES: \"\"\n" in fetch
+    assert "          EXTRA_REPOS: kriegerdataforge-fmt@${{ inputs.kdf_fmt_ref }}\n" in fetch
+    assert "          TOKEN_REPOSITORIES: kriegerdataforge-fmt\n" in fetch
+    assert "          repositories: ${{ steps.plan.outputs.repositories }}\n" in fetch
+
+
+def test_this_public_repo_runs_its_own_style_check_in_isolated_mode():
+    """
+    The fetch refuses a public caller's mirror of a private repo, so this public repo's CI cannot call the shared lane.
+    Its own check holds the token in one job, minted for the formatter alone, with the command fixed and isolated.
+    """
+    style = _jobs(_text("ci.yml"))["style"]
+    assert "    uses: ./.github/workflows/ci-kdf-fmt-self.yml\n" in style and "check_command" not in style
+    text = _text("ci-kdf-fmt-self.yml")
+    jobs = _jobs(text)
+    assert list(jobs) == ["style"] and jobs["style"].startswith("    name: Style (kdf-fmt)\n")
+    assert "check_command" not in text and "inputs.check_command" not in text
+    assert "          repositories: kriegerdataforge-fmt\n" in text
+    assert "          persist-credentials: false\n" in text
+    assert 'run: python -I -m pip install --quiet "kdf-fmt @ git+https://github.com/Needless2Say/' \
+           'kriegerdataforge-fmt.git@$KDF_FMT_REF"\n' in text
+    assert "        run: python -I -m kdf_fmt.cli check --no-cache --baseline kdf-style-debt.json\n" in text
+
+
+def test_isolated_mode_keeps_the_checkout_from_standing_in_for_pip_and_the_formatter(tmp_path):
+    """
+    `python -m` puts the working directory first on the import path, so a pip.py or a kdf_fmt/ in a checkout runs in
+    the real one's place. `python -I` leaves the directory off the path, the measurement behind D-038.
+    """
+    (tmp_path / "pip.py").write_text("print('SENTINEL-PIP')\n", encoding = "utf-8")
+    (tmp_path / "kdf_fmt").mkdir()
+    (tmp_path / "kdf_fmt" / "__init__.py").write_text("", encoding = "utf-8")
+    (tmp_path / "kdf_fmt" / "cli.py").write_text("print('SENTINEL-FMT')\n", encoding = "utf-8")
+
+
+    def run(*args: str) -> str:
+        found = subprocess.run([sys.executable, *args], cwd = tmp_path, capture_output = True, text = True)
+        return found.stdout + found.stderr
+
+
+    assert "SENTINEL-PIP" in run("-m", "pip", "--version")
+    isolated = run("-I", "-m", "pip", "--version")
+    assert "SENTINEL-PIP" not in isolated and isolated.startswith("pip ")
+    assert "SENTINEL-FMT" in run("-m", "kdf_fmt.cli")
+    assert "SENTINEL-FMT" not in run("-I", "-m", "kdf_fmt.cli", "--help")
 
 
 def test_this_repos_ci_proves_the_lane_and_controls_the_hunt():
