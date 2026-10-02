@@ -1921,8 +1921,8 @@ its finding and its evidence, the arrangement of D-034.
   to is not documented for a lane called from another repo, and an action pinned at `@main` would let a pull request
   here test main's fetch instead of its own.
 - Shallow mirrors. Rejected, pip clones with `--filter=blob:none`, and a filtered clone of a shallow repository failed,
-  measured with git on Windows on 2026-10-02, so each pinned ref keeps its history. A plain clone of a shallow mirror and
-  a filtered clone of a full one both worked.
+  measured with git on Windows on 2026-10-02, so each pinned ref keeps its history. A plain clone of a shallow mirror
+  and a filtered clone of a full one both worked.
 - A cache in place of an artifact. Rejected, a cache of a public repo can be restored by a fork's run.
 - Encrypting the artifact with a key passed between the jobs. Rejected, a job output is not a secret, and the key would
   sit beside the ciphertext for anyone who reads the run.
@@ -1932,13 +1932,13 @@ environment of any job that runs a caller's code, so a dependency that becomes r
 neither. What it does not close. The `GITHUB_TOKEN` is in every job at `contents: read`, though no checkout of these
 lanes keeps it in the tree's git config, no caller's install or test command reaches its own remote (measured over the
 eight callers on 2026-10-02). The fetch job still holds the key while it runs git and its own script, and a compromise
-of git, the runner image or a pinned action there would reach it. **The price.** The full history of each private
-repo the fetch clones, up to every ref it needs, sits in the calling repo's run artifacts for a day, readable by
-everyone who can read that repo. The mirrors are not shallow, because pip clones with a filter and a filtered clone of
-a shallow mirror fails. For a backend that is the history of the packages it pins, for the kdf-sdk canary it is the
-three backends' whole histories in the SDK's artifacts. Every one of these repos is private, and the owner is its only
-reader. **The cost.** One more job per lane per pull
-request, a minute or two, and seven lanes of about seven hundred lines each, most of them the inline script.
+of git, the runner image or a pinned action there would reach it. **The price.** The full history of each private repo
+the fetch clones, up to every ref it needs, sits in the calling repo's run artifacts for a day, readable by everyone who
+can read that repo. The mirrors are not shallow, because pip clones with a filter and a filtered clone of a shallow
+mirror fails. For a backend that is the history of the packages it pins, for the kdf-sdk canary it is the three
+backends' whole histories in the SDK's artifacts. Every one of these repos is private, and the owner is its only reader.
+**The cost.** One more job per lane per pull request, a minute or two, and seven lanes of about seven hundred lines
+each, most of them the inline script.
 
 **Consequences.** The first pull request of any Python repo that sets `needs_sdk_auth` after the merge runs the two
 jobs, and a red fetch there is this change. Follow ups. `cd-python-vercel.yml` still writes the package token into its
@@ -1946,4 +1946,38 @@ deploy job's git config, a job that holds the deploy secrets either way. `.githu
 `cryptography` by a bare name. An extra repo that only a plain clone reads, as the canary reads a backend, could be
 fetched at depth one by an opt in, a plain clone of a shallow mirror works, which would shrink the price. The kdf-sdk
 wires its canary to `fetch-private-packages.yml` between pins and reports its first run.
+
+## D-036. Sol bundles go to the workspace's temp folder
+
+- **Date.** 2026-10-02
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Kit v1.11.0, reaching every
+  repo with the next Distribute.
+- **Tier / scope:** Standard · kit `docs/agent/CODE_REVIEW_PROCESS.md` section 9 and its status line · cicd's own copy
+
+**Context.** A Sol page carries, for each dispatch, a command per shell that joins the dispatch's files into one bundle
+the owner attaches to the Sol chat. The pages wrote it into the system's temp folder, `/tmp` in Git Bash and `$env:TEMP`
+in PowerShell, which on Windows is `C:\Users\<user>\AppData\Local\Temp`, a folder the owner could not find and that only
+fills up. The owner, 2026-10-02, "can it be put somewhere in a directory in this directory I am in like
+/d/KriegerDataForge/temp/ so I can copy paste from there ... so I can also delete those files after they are done so
+they do not take up space", and "Its better to have a temp directory here where I can manage them and delete them when
+needed since these code combinated files are only temporary and not needed for long term".
+
+**Decision.** A page's bundle commands run from the workspace folder that holds the clones and write into its `temp/`
+folder, made when missing, one lower case file per dispatch, `<pfx>-<slice>-dispatch-<n>.txt`, and print the full path
+they wrote. A bundle is made again just before its dispatch is attached, so it matches the commit the page names, and
+the page is built at the commit its prompts should name, saying so when later commits carry only the review's own
+records. Bundles are scratch, outside every repo, never committed, and the owner deletes them after the round.
+
+**Alternatives considered.**
+
+- A gitignored folder inside the repo under review. Rejected, the review launcher counts every new file in a folder it
+  reviews, and a repo's own tools, the formatter, the linters and a recursive search, would read the bundles.
+- The system's temp folder, as before. Rejected, the owner can neither find nor manage it.
+
+**Trade-offs.** The workspace's `temp/` folder sits in no repo, so nothing cleans it, and the owner deletes the files by
+hand, which is what the owner asked for. A page built before this rule writes to the system's temp folder until its
+builder is changed.
+
+**Consequences.** Kit v1.11.0 and cicd's own copy in step. The kdf-sdk review's orchestrator was told directly and moves
+its page's bundle lines now, so the Distribute can wait for a later kit change.
 

@@ -450,8 +450,9 @@ requirement files inside the mirror through `scan_files`, and fences the token w
 The caller downloads the artifact, untars it under `$RUNNER_TEMP` and hands git the same rewrites the
 lanes do. A caller that calls it in a matrix gets one output, the last leg's, and an artifact name
 that is new per run, so no leg finds its own, so wrap one leg, the fetch and the job that uses it, in
-a reusable workflow of the caller's own and call that in the matrix. The fetch job in it and in each lane is one template, `scripts/fetch_private_job.template.yml`,
-written by `scripts/render_fetch_job.py`, and a test fails when a copy differs.
+a reusable workflow of the caller's own and call that in the matrix. The fetch job in it and in each
+lane is one template, `scripts/fetch_private_job.template.yml`, written by
+`scripts/render_fetch_job.py`, and a test fails when a copy differs.
 
 **`ci-python-integration.yml`** additionally provisions a `postgres:16` **service** (`kdf`/`kdf`/
 `kdf_test`, health checked) and exports the connection string under **two** names,
