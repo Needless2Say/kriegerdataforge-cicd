@@ -596,6 +596,19 @@ def test_the_hunt_finds_a_key_header_and_a_token_in_both_encodings():
     assert hunt.scan_bytes(data, target) == {"pem": 2, "tokens": 2, "matches": 1}
 
 
+def test_the_hunt_matches_a_token_of_any_length_beside_more_token_characters():
+    """
+    A run on 2026-10-02 found no `ghs_` with exactly 36 letters and digits, so the length is not assumed.
+    """
+    hunt   = _hunt()
+    token  = "ghs_" + "Ab9_" * 15
+    target = hashlib.sha256(token.encode()).hexdigest()
+    data   = b"{" + (token + "_tail").encode() + b"}" + ("x" + token).encode("utf-16-le")
+    found  = hunt.scan_bytes(data, target)
+    # two runs hold it, the UTF-8 one with more token characters after it and the UTF-16 one
+    assert found == {"pem": 0, "tokens": 2, "matches": 2}
+
+
 def test_the_hunt_counts_nothing_in_a_clean_buffer_and_matches_nothing_without_a_target():
     hunt = _hunt()
     assert hunt.scan_bytes(b"nothing secret here, ghs_short", "a" * 64) == {"pem": 0, "tokens": 0, "matches": 0}

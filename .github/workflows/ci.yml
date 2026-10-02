@@ -151,4 +151,9 @@ jobs:
           CONTROL_TOKEN: ${{ steps.control-token.outputs.token }}
         run: |
           token_sha256=$(printf '%s' "$CONTROL_TOKEN" | sha256sum | cut -d ' ' -f 1)
+          # the token's shape, never its value, so a hunt that misses it says why
+          shape="${#CONTROL_TOKEN} characters"
+          if [[ "$CONTROL_TOKEN" == ghs_* ]]; then shape="$shape, ghs_ prefix"; fi
+          if [[ "$CONTROL_TOKEN" =~ ^[A-Za-z0-9_]+$ ]]; then shape="$shape, letters, digits and underscores only"; fi
+          echo "the minted token is $shape"
           /usr/bin/python3 -I tests/fixtures/secretless/hunt.py present --token-sha256 "$token_sha256"

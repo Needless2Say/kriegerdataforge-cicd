@@ -37,8 +37,14 @@ from pathlib import Path
 PEM_UTF8  = b"PRIVATE KEY-----"
 PEM_UTF16 = "PRIVATE KEY-----".encode("utf-16-le")
 
-TOKEN_UTF8  = re.compile(rb"(?<![A-Za-z0-9_])(?:gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{82})")
-TOKEN_UTF16 = re.compile(rb"g\x00h\x00[pousr]\x00_\x00(?:[A-Za-z0-9]\x00){36}")
+# a token's known prefix and then every character a token may hold, its length not assumed. GitHub's tokens have
+# changed length before, and a run measured on 2026-10-02 found no `ghs_` followed by exactly 36 letters and digits
+TOKEN_UTF8  = re.compile(rb"(?<![A-Za-z0-9_])(?:gh[pousr]_|github_pat_)[A-Za-z0-9_.\-]{20,400}")
+TOKEN_UTF16 = re.compile(
+    rb"(?:g\x00h\x00[pousr]\x00_\x00|g\x00i\x00t\x00h\x00u\x00b\x00_\x00p\x00a\x00t\x00_\x00)(?:[A-Za-z0-9_.\-]\x00){20,400}"
+)
+
+SHORTEST_TOKEN = 24
 
 CHUNK   = 8 * 1024 * 1024
 OVERLAP = 256
@@ -53,15 +59,24 @@ PINNED_TAG = "v0.2.99"
 
 def scan_bytes(data: bytes, target: str) -> dict[str, int]:
     """
-    The counts in one buffer, private key headers, distinct token shaped strings, and tokens whose sha256 is target.
+    The counts in one buffer, private key headers, distinct token shaped runs, and runs that hold the target token.
+
+    A run is a token's prefix and every token character after it. The target is matched against each prefix of a run
+    from the shortest token on, so a token found beside more token characters, or of a length not known in advance,
+    still matches its sha256.
     """
     candidates = {match.group(0) for match in TOKEN_UTF8.finditer(data)}
     candidates |= {match.group(0).decode("utf-16-le").encode("ascii") for match in TOKEN_UTF16.finditer(data)}
-    hashes = [hashlib.sha256(candidate).hexdigest() for candidate in candidates]
+    matches = 0
+    if target:
+        for candidate in candidates:
+            if any(hashlib.sha256(candidate[:end]).hexdigest() == target
+                   for end in range(SHORTEST_TOKEN, len(candidate) + 1)):
+                matches += 1
     return {
         "pem": data.count(PEM_UTF8) + data.count(PEM_UTF16),
         "tokens": len(candidates),
-        "matches": sum(1 for value in hashes if target and value == target),
+        "matches": matches,
     }
 
 
