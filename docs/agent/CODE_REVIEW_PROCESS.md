@@ -2,8 +2,9 @@
 
 > **Status.** Kit standard, added in kit v1.5.0, the scales and the pinned reviews since v1.6.0, every review archived
 > in a dated folder of its own since v1.7.0, what a review finds that cicd owns fixed there as it is found since
-> v1.8.0, and an answer key at every slice's close and an exact reviewer line since v1.9.0. Kept byte identical across
-> every KDF repo by the kit sync engine, canonical source
+> v1.8.0, an answer key at every slice's close and an exact reviewer line since v1.9.0, and a supporting session that
+> builds what a review finds outside the reviewed repo since v1.10.0. Kept byte identical across every KDF repo by the
+> kit sync engine, canonical source
 > `kriegerdataforge-cicd/kit/common/docs/agent/CODE_REVIEW_PROCESS.md`. Never edit a synced copy, change the
 > canonical one. The tooling that keeps the process safe, the guard, the reviewer launcher and the installer, is not
 > synced. It lives in `kriegerdataforge-cicd/tools/claude-code/` and is installed on the owner's machine, section 11
@@ -63,6 +64,7 @@ pull request that the owner merges, when it changed anything.
 | --- | --- | --- | --- |
 | Owner | The person | Asks the question or approves the plan, answers decisions, runs Codex, pastes the Sol dispatches, reviews and merges every pull request, deploys | |
 | Orchestrator | One long running session of the strongest model the owner can spend, at high effort, started in the folder that holds the repos | Runs steps 0, 1, 1b, 1c, 3 and 6, writes and pins the briefs, launches the fresh reviewers, adjudicates, commits, opens the pull request, watches CI, notifies the owner | Merges, approves, pushes to `main`, tags, releases, deploys |
+| Supporting session | A second long running session the owner starts beside the orchestrator, in the same folder, of a model the owner chooses | Builds what a review finds outside the reviewed repo, in cicd, this kit, the reviewer tooling or another repo, from the orchestrator's handoff, each fix one pull request from a worktree, and reports the pull request back | Reviews, edits or checks out anything in the reviewed repo's folder, lets a fix take effect under an open pin, merges, approves, pushes to `main`, tags, releases, deploys |
 | Fresh Claude reviewer | A new session per review, in the repo folder at the pinned commit, with an empty memory | Reads the brief, reads and probes the code, writes one report | Edits anything but its report, commits, uses GitHub |
 | Codex reviewer | ChatGPT through Codex, in the same folder on the owner's machine, or in the cloud | Reads the same brief at the same pinned commit, writes its own report | The same |
 | Sol | ChatGPT Sol dispatches, pasted by the owner | Reads the scope in rounds against a settled list | |
@@ -72,6 +74,16 @@ Two independence rules hold the process together. A reviewer never inherits the 
 fresh session with an empty memory, briefed only by the brief, reading the pinned commit in the repo folder while the
 other reviewer's report of the scope is kept out of it. And two model families read everything reviewed, Claude and
 ChatGPT, because different models catch different things.
+
+**The supporting session.** The orchestrator stays on the review. What a review finds outside the reviewed repo goes
+to the supporting session as a handoff, a message that carries four things, the finding, the evidence that proves it,
+what is already done, and what would prove the fix. The supporting session builds the fix in a worktree of the repo
+that owns it, with its tests and an ADR where a rule changes, opens one pull request for it and reports the number
+back. A fix takes effect between pins and never under an open one, so every reviewer of a pin reads one tree. The
+orchestrator reads what the supporting session built before the reviewed repo relies on it, and the slice's log names
+that pull request where a register row would have stood. The supporting session never reviews, and never edits,
+commits, checks out or stashes anything in the reviewed repo's folder. A review without one runs as before, the
+orchestrator does that work itself, between pins the same way.
 
 Each role's limits are written for every model and tool in [`AGENT_ROLES.md`](AGENT_ROLES.md). Every brief states the
 reviewer's role in its own text, word for word from the template, so Codex, Sol or any other model is told the same
@@ -221,9 +233,11 @@ of refusing by one. A lane that will first run on another platform than the mach
 once before the pull request, in a container on a clean export of the tree.
 
 What a finding shows about something `kriegerdataforge-cicd` owns, this kit, the reviewer tooling, a distributed
-script or a reusable workflow, is not deferred. It is fixed there by a pull request from a worktree as it is found,
-the slice's log names that pull request where a register row would have stood, and the owner runs the distribution
-once the review is done. What only another repo owns stays a register row for that repo.
+script or a reusable workflow, is not deferred. The orchestrator hands it to the supporting session, section 2, which
+fixes it there by a pull request from a worktree as it is found and lets it take effect between pins, the slice's log
+names that pull request where a register row would have stood, and the owner runs the distribution once the review is
+done. What only another repo owns stays a register row for that repo, or becomes a follow up the supporting session
+opens there when the owner asks for it.
 
 **Step 1b. The common code**, for a shared library or platform repo. From the plan's survey of what consumers write
 for themselves, decide for each piece and say why whether it belongs in the shared repo. When it does, add the API
@@ -566,7 +580,8 @@ and goes on. Every step ends by updating them.
 7. Write the settled list from the repos' ADRs, their registers and any earlier review.
 8. Check the machine, `<cicd>/tools/claude-code/check-wiring.js`, and the rulesets of section 11.
 9. The owner approves the plan. Record the date in its status line.
-10. Start the orchestrator. Its first act is step 0 of slice 1.
+10. Start the orchestrator, and beside it the supporting session when the owner wants one, section 2. The
+    orchestrator's first act is step 0 of slice 1.
 11. Run each slice through section 4, in its own folder of the review folder, and mark the plan's progress table and
     the README when a step starts and when it closes.
 12. Run Phase B, then Phase C for a shared library.

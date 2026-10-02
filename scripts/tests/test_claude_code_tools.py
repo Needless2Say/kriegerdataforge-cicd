@@ -393,6 +393,26 @@ def test_every_slice_closes_with_an_answer_key_and_every_report_names_its_model(
     assert "the times the clock showed" in report, "the report's time spent is an estimate again"
 
 
+def test_a_supporting_session_builds_what_a_review_finds_outside_the_reviewed_repo() -> None:
+    """
+    The orchestrator stays on the review (D-034). The process names the supporting session as a role, says what its
+    handoff carries, keeps its fixes out from under an open pin and the session out of the reviewed repo's folder, and
+    hands it what cicd owns. The roles page gives an agent the same role.
+    """
+    process = " ".join((KIT / "docs" / "agent" / "CODE_REVIEW_PROCESS.md").read_text(encoding = "utf-8").split())
+    roles   = " ".join((KIT / "docs" / "agent" / "AGENT_ROLES.md").read_text(encoding = "utf-8").split())
+    assert "| Supporting session |" in process
+    assert "**The supporting session.**" in process
+    for part in ("the finding,", "the evidence that proves it,", "what is already done,", "what would prove the fix."):
+        assert part in process, f"the handoff lost its part {part!r}"
+    assert "takes effect between pins and never under an open one" in process
+    assert "never edits, commits, checks out or stashes anything in the reviewed repo's folder" in process
+    assert "The orchestrator hands it to the supporting session, section 2" in process
+    assert "since v1.10.0" in process
+    assert "- **Supporting session**, when the owner started you beside a review's orchestrator" in roles
+    assert "**The supporting session** is an implementer started beside the orchestrator." in roles
+
+
 @dataclass
 class Rig:
     """
