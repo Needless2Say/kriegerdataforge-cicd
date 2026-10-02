@@ -28,11 +28,15 @@ GUARD     = TOOLS / "kdf-guard.js"
 CHECKER   = TOOLS / "check-wiring.js"
 LAUNCHER  = TOOLS / "kdf-review.sh"
 BRIEF     = TOOLS / "kdf-brief.js"
+RETRO     = TOOLS / "kdf-retro.js"
 INSTALLER = TOOLS / "install.sh"
 NODE      = shutil.which("node")
 BASH      = os.environ.get("KDF_TEST_BASH") or shutil.which("bash")
 CASES     = json.loads((TOOLS / "guard-cases.json").read_text(encoding = "utf-8"))
 KIT       = TOOLS.parents[1] / "kit" / "common"
+
+# a closed slice's record in miniature, for the retrospective tool
+RETRO_SLICE = Path(__file__).resolve().parent / "fixtures" / "retro" / "s1-example"
 
 # what the guard refuses, in the words the role charter must keep, so a model that runs no guard is told the same
 GUARD_RULES_IN_WORDS = (
@@ -436,6 +440,45 @@ def test_sol_bundles_go_to_the_workspace_temp_folder_and_never_into_a_repo() -> 
     assert "never into the system's temp folder" in section_9
     assert "the owner deletes them after the round." in section_9
     assert "since v1.11.0" in process
+
+
+def test_every_slice_closes_with_a_measured_retrospective_the_owner_decides() -> None:
+    """
+    The process learns from each slice (D-037). It names the retrospective beside the answer key and the campaign's own,
+    the template is synced and laid out as the numbers, the escapes, the friction, the experiments, the proposals and
+    the owner's decisions, section 14 has the tool print the numbers, the owner say yes or no to every change, and
+    accuracy come before the owner's time and tokens, and the supporting session turns proposals into the owner's list.
+    """
+    process   = " ".join((KIT / "docs" / "agent" / "CODE_REVIEW_PROCESS.md").read_text(encoding = "utf-8").split())
+    templates = KIT / "docs" / "agent" / "templates"
+    assert "`<PFX>_REVIEW_<slice>_RETRO.md`" in process
+    assert "`<PFX>_REVIEW_CAMPAIGN_RETRO.md`" in process
+    assert "templates/review-retro.template.md" in process
+    assert "since v1.12.0" in process
+    registry = json.loads((TOOLS.parents[1] / "scripts" / "kit_registry.json").read_text(encoding = "utf-8"))
+    assert "docs/agent/templates/review-retro.template.md" in registry["files"]
+    retro    = (templates / "review-retro.template.md").read_text(encoding = "utf-8")
+    sections = (
+        "## 1. The numbers",
+        "## 2. Escapes",
+        "## 3. Friction",
+        "## 4. The experiments of earlier retrospectives",
+        "## 5. Proposals",
+        "## 6. The owner's decisions",
+    )
+    for heading in sections:
+        assert heading in retro, f"the retrospective template lost {heading!r}"
+    assert len(retro.splitlines()) < 150
+    section_14 = process.split("## 14. Closing a review", 1)[1]
+    assert "**Every slice closes with a measured retrospective**" in section_14
+    assert "`node <cicd>/tools/claude-code/kdf-retro.js <slice folder>`" in section_14
+    assert "Nothing changes without the owner's yes." in section_14
+    assert "Accuracy first, the escape rate, then the owner's time and waiting, then tokens" in section_14
+    assert "no change saves tokens at the cost of catches" in section_14
+    assert "improvement ledger of the bench repo" in section_14
+    assert "Turns a closed slice's retrospective into the owner's list of proposals" in process
+    for name in ("review-readme.template.md", "review-adjudication.template.md"):
+        assert "RETRO.md" in (templates / name).read_text(encoding = "utf-8"), f"{name} does not name the retrospective"
 
 
 @dataclass
@@ -1353,6 +1396,75 @@ def test_the_brief_tool_checks_a_scope_table_and_states_the_commit(rig: Rig) -> 
         "The pin is the commit that adds this brief and nothing else, on top of the slice's state "
         f"`{state[:10]}`, on branch `main`, which sits on `main` at `{state[:10]}`."
     ) in facts.stdout
+
+
+def _retro_tool(folder: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [str(NODE), str(RETRO), str(folder)],
+        capture_output = True,
+        text = True,
+        check = False,
+    )
+
+
+def test_the_retro_tool_counts_findings_escapes_minutes_and_missing_answers() -> None:
+    """
+    On the fixture slice, every source in the order the review ran, the deferred finding counted as agreed, the escapes
+    (a Sol and a final finding in the step 2 tree) and the one marked unsure left out, a run past midnight, both ways of
+    writing tokens and an unknown one, and the Sol dispatch whose answer is not archived. The same files print the same.
+    """
+    done = _retro_tool(RETRO_SLICE)
+    assert done.returncode == 0, done.stderr
+    lines = done.stdout.splitlines()
+    for row in (
+        "| Step 1, orchestrator | 1 | 1 | 0 | 0 | 0 | - |",
+        "| Step 2, Claude | 2 | 2 | 0 | 0 | 1 | - |",
+        "| Step 2, Codex | 1 | 0 | 1 | 0 | 0 | - |",
+        "| Sol R1, dispatch 1 | 1 | 1 | 0 | 0 | 1 | 1 |",
+        "| Step 5 final, Claude | 1 | 1 | 0 | 0 | 1 | 1 |",
+        "| Step 5 final, Codex | 1 | 1 | 0 | 0 | 0 | 0 |",
+        "| All | 7 | 6 | 1 | 0 | 3 | 2 |",
+        "| round-1 | 2 | 1 | `EX_REVIEW_S1_SOL_R1_D2_PROMPT.md` |",
+    ):
+        assert row in lines, f"missing {row!r} in\n{done.stdout}"
+    reports: dict[str, list[str]] = {}
+    for line in lines:
+        if line.startswith("| step-"):
+            row = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            reports[row[1]] = row[2:]
+    codex  = "`EX_REVIEW_S1_CODEX_REPORT.md`"
+    final  = "`EX_REVIEW_S1_FINAL_REPORT.md`"
+    claude = "`EX_REVIEW_S1_REPORT.md`"
+    fable  = "claude-fable-5-1, Claude Code, effort max."
+    assert sorted(reports) == [codex, final, claude], "a brief or another file was read as a report"
+    assert reports[codex] == ["gpt-5.5-codex, Codex in VS Code, effort high.", "45", "unknown", "unknown"]
+    assert reports[claude] == [fable, "42", "1,204,000", "38,500"]
+    assert reports[final] == [fable, "90", "900,000", "41,000"]
+    assert (
+        "Escapes, agreed findings in the step 2 tree that a later source found, 2 of 3 (67%), `EX-S1-D1-R1-1`, "
+        "`EX-S1-FIN-1`. 1 more agreed finding is marked unsure at the step 2 pin and is not counted."
+    ) in lines
+    assert any(line.startswith("1 Sol dispatch(es) without an archived answer") for line in lines)
+    assert _retro_tool(RETRO_SLICE).stdout == done.stdout
+
+
+def test_the_retro_tool_refuses_a_folder_without_a_key_or_a_key_it_does_not_know(tmp_path: Path) -> None:
+    """
+    Exit 2 and no table when there is no answer key, and when the key's findings table has columns other than the
+    template's, rather than counting from a table it would have to guess at.
+    """
+    empty = _retro_tool(tmp_path)
+    assert empty.returncode == 2
+    assert "no answer key" in empty.stderr
+    assert not empty.stdout
+    slice_ = tmp_path / "s1-example"
+    shutil.copytree(RETRO_SLICE, slice_)
+    key = slice_ / "EX_REVIEW_S1_ANSWER_KEY.md"
+    key.write_text(key.read_text(encoding = "utf-8").replace("| Needs |", "| Needed |"), encoding = "utf-8")
+    unknown = _retro_tool(slice_)
+    assert unknown.returncode == 2
+    assert "this tool reads only" in unknown.stderr
+    assert not unknown.stdout
 
 
 def _checker(home: Path) -> subprocess.CompletedProcess[str]:

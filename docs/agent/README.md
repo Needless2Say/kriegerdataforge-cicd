@@ -39,6 +39,7 @@ deep dives (`<slug>.md`) may live alongside these files and are repo-owned.
 | [`templates/review-report.template.md`](templates/review-report.template.md) | Copy me report format for a fresh reviewer, beside its brief | A reviewer writing its report |
 | [`templates/review-adjudication.template.md`](templates/review-adjudication.template.md) | Copy me adjudication log → `<slice folder>/<PFX>_REVIEW_<slice>_ADJUDICATION.md` | Step 0 of a slice |
 | [`templates/review-answer-key.template.md`](templates/review-answer-key.template.md) | Copy me answer key, the finished log as one table for scoring any reviewer → `<slice folder>/<PFX>_REVIEW_<slice>_ANSWER_KEY.md` | Step 6, when a slice closes |
+| [`templates/review-retro.template.md`](templates/review-retro.template.md) | Copy me retrospective, the slice measured by `kdf-retro.js` and the proposals the owner answers → `<slice folder>/<PFX>_REVIEW_<slice>_RETRO.md` | Step 6, after the answer key |
 | [`KIT_VERSION`](KIT_VERSION) | The kit version this repo carries | Checking sync state / reporting drift |
 
 ## How to use the kit to work well here

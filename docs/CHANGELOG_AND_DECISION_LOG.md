@@ -1982,3 +1982,53 @@ builder is changed.
 **Consequences.** Kit v1.11.0 and cicd's own copy in step. The kdf-sdk review's orchestrator was told directly and moves
 its page's bundle lines now, so the Distribute can wait for a later kit change.
 
+## D-037. Every slice closes with a measured retrospective, and the owner decides each change it proposes
+
+- **Date.** 2026-10-02
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Kit v1.12.0, reaching every
+  repo with the next Distribute.
+- **Tier / scope:** Standard · kit `docs/agent/CODE_REVIEW_PROCESS.md` sections 2, 3, 4 and 14 and its status line · the
+  new `review-retro` template · the readme and adjudication templates · `tools/claude-code/kdf-retro.js` · cicd's own
+  copies
+
+**Context.** Every change to the process so far came from friction, a step that went wrong, a handoff, the owner's yes
+and a kit pull request, D-031 to D-036 among them. Nothing stepped back after a slice to measure how it went. The owner,
+2026-10-02, asked that each round be evaluated for what went well and what can be improved, "to make the code review
+process more accurate, faster, more token efficient, and overall better structured", "something similar to model
+training, whether it be reinforcement learning or something to continuously improve upon and make the code-review
+process as good as it can be". Then the owner answered four questions. A retrospective at each slice's close, plus
+Phase B and the review's end. Its numbers produced by a script and not by the orchestrator. Proposals approved as a
+short list in the chat. And accuracy first, then the owner's time, then tokens.
+
+**Decision.** Once a slice's answer key is written, the orchestrator runs `tools/claude-code/kdf-retro.js` on the slice
+folder and writes `<PFX>_REVIEW_<slice>_RETRO.md` from the new template, the tool's tables pasted as printed and then
+its analysis, why each escape was missed, the friction with its evidence, how earlier changes did, and its proposals.
+The tool reads the answer key's findings table by the template's exact columns, and refuses a key with others, every
+report's Time spent, Reviewer and Usage lines, and the Sol rounds, and prints per source the findings raised, agreed and
+declined, the escapes, which are agreed findings in the tree the step 2 reviewers read that a later step found, each
+report's minutes and tokens, and every Sol dispatch without its archived answer. The supporting session, or the
+orchestrator when the review has none, turns the proposals into a short list in the chat, problem, change, the number
+it should move and the cost, and the owner says yes or no to each. Nothing changes without the owner's yes. An approved
+change lands between slices, a larger one at the review's end, and is recorded in the improvement ledger of the bench
+repo, and later retrospectives say whether it moved its number, a change that did not being reverted. Accuracy first,
+the escape rate, then the owner's time and waiting, then tokens, and never tokens at the cost of catches. A one off is
+noted and acted on only when its cost is clear, and a few changes land at a time so their effects can be told apart.
+
+**Alternatives considered.**
+
+- The orchestrator counts the numbers itself. Rejected by the owner's answer, it spends tokens on arithmetic and two
+  retrospectives would count in two ways.
+- A retrospective after every step. Rejected, it costs more tokens and more of the owner's time than it saves.
+- One retrospective when the whole review closes. Rejected, the later slices would repeat the first one's mistakes.
+- Changes made without the owner's yes, as the orchestrator sees fit. Rejected, the owner decides every change to the
+  process.
+
+**Trade-offs.** The tool reads only answer keys written from the v1.9.0 template on, so a review closed before that has
+no numbers until its key is written again. Minutes and tokens are as good as the reports' headers, and a report that
+does not state them prints unknown. The ledger lives in a private repo of its own, outside the reviewed repos.
+
+**Consequences.** Kit v1.12.0 and cicd's own copies in step, the template registered for the sync, `kdf-retro.js` beside
+`kdf-brief.js` and not synced, like the rest of the tooling. The kdf-sdk review's S1 closes with the first
+retrospective.
+
+
