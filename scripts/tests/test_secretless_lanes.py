@@ -746,6 +746,43 @@ def test_this_public_repo_runs_its_own_style_check_in_isolated_mode():
     assert "        run: python -I -m kdf_fmt.cli check --no-cache --baseline kdf-style-debt.json\n" in text
 
 
+def test_a_public_caller_runs_the_style_check_in_one_job_that_leaves_no_artifact():
+    """
+    D-044. The two public portfolios cannot call the shared lane either, so their check is this repo's own shape, one
+    job, the token minted for the formatter alone, a token required before the install, nothing uploaded, the command
+    fixed and isolated, and only a baseline file name taken from the caller.
+    """
+    text = _text("ci-kdf-fmt-public.yml")
+    jobs = _jobs(text)
+    assert list(jobs) == ["style"] and jobs["style"].startswith("    name: Style (kdf-fmt)\n")
+    assert "upload-artifact" not in text and "download-artifact" not in text
+    assert "check_command" not in text and "\n      lanes:" not in text
+    assert "          repositories: kriegerdataforge-fmt\n" in text
+    assert "          persist-credentials: false\n" in text
+    steps = re.findall(r"^      - name: (.+)$", text, flags = re.MULTILINE)
+    assert steps.index("Require a token for the formatter") < steps.index("Install kdf-fmt (pinned, isolated mode)")
+    assert "            python -I -m kdf_fmt.cli check --no-cache --baseline \"$BASELINE\"\n" in text
+    assert "            python -I -m kdf_fmt.cli check --no-cache\n" in text
+    check = text[text.index("      - name: kdf-fmt check\n"):]
+    assert "${{" not in check.split("        run: |\n", 1)[1], "no expression is written into the shell"
+
+
+def _block(text: str, first: str, after: str) -> str:
+    return text[text.index(first):text.index(after)]
+
+
+def test_the_public_lane_mints_and_installs_as_this_repos_own_check_does():
+    """
+    Two one job checks hold the same token, so the mint and the install are one text in both and cannot drift apart.
+    """
+    public = _text("ci-kdf-fmt-public.yml")
+    own    = _text("ci-kdf-fmt-self.yml")
+    mint   = "      - name: Mint GitHub App token for the formatter\n"
+    setup  = "      - name: Install kdf-fmt (pinned, isolated mode)\n"
+    assert _block(public, mint, "      # A fork's") == _block(own, mint, "      # SECURITY")
+    assert _block(public, setup, "      # The command") == _block(own, setup, "      # The command")
+
+
 def test_isolated_mode_keeps_the_checkout_from_standing_in_for_pip_and_the_formatter(tmp_path):
     """
     `python -m` puts the working directory first on the import path, so a pip.py or a kdf_fmt/ in a checkout runs in

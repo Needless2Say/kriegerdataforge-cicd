@@ -434,13 +434,16 @@ name `Style (kdf-fmt)`, names no secret and installs in isolated mode (`python -
 covers the install and the default command only, a caller's own command runs in a job with no
 secret to reach. A public caller cannot mirror the private formatter, so this repo runs its own one
 job check, `ci-kdf-fmt-self.yml`, minted for `kriegerdataforge-fmt` alone with its command fixed
-and isolated. Several lanes install `libpq-dev` so source built `psycopg2` compiles on the slim
+and isolated, and every other public repo calls `ci-kdf-fmt-public.yml`, the same one job shape
+with an optional `baseline` file name and a first step that fails when no token reaches it (D-044).
+Several lanes install `libpq-dev` so source built `psycopg2` compiles on the slim
 runner.
 
 | Workflow | Inputs (`string` unless noted) → default | `needs_sdk_auth`? | Top level `permissions` |
 |---|---|---|---|
 | `ci-python-format.yml` | `python_version`=`3.14`, `install_command`=`pip install -e ".[dev]"`, `format_command`=`python -m ruff format --check src/ tests/` | no | `contents: read` (`:4-5`) |
 | `ci-python-kdf-fmt.yml` | `python_version`=`3.14`, `kdf_fmt_ref` (**required**, pin a `vX.Y.Z` tag or a full commit id), `check_command`=`python -I -m kdf_fmt.cli check --no-cache`, `ref`=`""` | always, two jobs (D-038), the fetch mints for `kriegerdataforge-fmt` alone (App token first, `GH_PACKAGES_PAT` fallback, callers pass `secrets: inherit`), private callers only | `contents: read` |
+| `ci-kdf-fmt-public.yml` | `python_version`=`3.14`, `kdf_fmt_ref` (**required**), `baseline`=`""` (a plain file name) | always, one job (D-044), mints for `kriegerdataforge-fmt` alone (App token first, `GH_PACKAGES_PAT` fallback, `secrets: inherit`), fails when no token reaches it, PUBLIC callers, no artifact | `contents: read` |
 | `ci-python-lint.yml` | `python_version`=`3.14`, `install_command`=`pip install -r requirements.txt`, `lint_command`=`python -m ruff check .`, `needs_sdk_auth` (bool)=`false` | yes | `contents: read` |
 | `ci-python-typecheck.yml` | + `typecheck_command`=`python -m mypy api/` (same shape as lint) | yes | `contents: read` |
 | `ci-python-tests.yml` | + `test_command`=`python -m pytest unit_tests/ -q --tb=short` (fast, DB free unit lane), `ref`=`""` (the ref to check out, a release dispatch passes the tag, D-024) | yes | `contents: read` |

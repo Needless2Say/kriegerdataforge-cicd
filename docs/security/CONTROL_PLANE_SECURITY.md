@@ -198,8 +198,9 @@ its check job naming no secret and installing in isolated mode, because `python 
 request's `pip.py` or `kdf_fmt/` where the secret was and its `check_command` is the caller's own
 text. This public repo's own style check, `ci-kdf-fmt-self.yml`, holds the token in one job,
 minted for `kriegerdataforge-fmt` alone, with the checkout off the import path and its command
-fixed. The deploy lane still writes the token into its job's git config
-(`cd-python-vercel.yml:110-115`), a follow up of D-035.
+fixed, and the public portfolios call `ci-kdf-fmt-public.yml`, the same shape, which leaves no
+artifact and fails before the install when no token reaches it (D-044). The deploy lane still
+writes the token into its job's git config (`cd-python-vercel.yml:110-115`), a follow up of D-035.
 
 **Dual store reports cron secrets.** The reports triage trigger authenticates to each app's
 `POST /reports/triage/cron` with an `X-Cron-Secret` value held as a cicd side **copy**
