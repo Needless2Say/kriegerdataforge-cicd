@@ -95,6 +95,18 @@ INSTALLABLE       = re.compile("|".join(INSTALLABLE_FORMS), re.IGNORECASE)
 
 MAX_INCLUDE_DEPTH = 10
 
+# git's automatic maintenance off for every call, and anything that would still run kept in the foreground (D-045)
+NO_MAINTENANCE = (
+    "-c",
+    "gc.auto=0",
+    "-c",
+    "gc.autoDetach=false",
+    "-c",
+    "maintenance.auto=false",
+    "-c",
+    "maintenance.autoDetach=false",
+)
+
 Reader = Callable[[str], "str | None"]
 
 
@@ -502,7 +514,11 @@ def redact(text: str) -> str:
 
 def run_git(args: list[str]) -> str:
     """
-    Run git with no hook and no credential helper.
+    Run git with no hook, no credential helper and no automatic maintenance.
+
+    A fetch ends by starting git's automatic maintenance, a gc that detaches and keeps writing the mirror's
+    objects/pack after the fetch returns, so the step that packs the mirrors read a folder that was still changing
+    and tar failed (D-045). Every call turns it off, and nothing that would run detaches.
 
     Args:
         args: git's arguments
@@ -514,7 +530,7 @@ def run_git(args: list[str]) -> str:
         FetchError: when git fails, with git's error redacted
     """
     done = subprocess.run(
-        ["git", "-c", "core.hooksPath=/dev/null", "-c", "credential.helper=", *args],
+        ["git", "-c", "core.hooksPath=/dev/null", "-c", "credential.helper=", *NO_MAINTENANCE, *args],
         capture_output = True,
         text = True,
         check = False,
@@ -627,34 +643,47 @@ class Mirrors:
         return self.remotes[repo]
 
 
-    def fetch(self, repo: str, ref: str, kind: str, sha: str, sources: list[str]) -> None:
+    def fetch(self, repo: str, wanted: list[dict]) -> None:
         """
-        Fetch one ref into the repo's bare mirror, which has no working tree, so no hook and no filter runs.
+        Fetch every wanted ref of one repo into its bare mirror in one fetch. The mirror has no working tree, so no
+        hook and no filter runs.
 
-        The ref comes with its full history, since pip clones with a filter and a filtered clone of a shallow mirror
-        fails (measured). Its commit also gets a branch of its own, which the mirror's HEAD names when it is the first.
+        Each ref comes with its full history, since pip clones with a filter and a filtered clone of a shallow mirror
+        fails (measured). Each commit also gets a branch of its own, and the mirror's HEAD names the first. One fetch a
+        repo, with automatic maintenance off, leaves nothing writing the mirror once it returns (D-045).
 
         Args:
             repo: the repo's name under the owner
-            ref: the ref as written
-            kind: tag, sha or branch
-            sha: the commit the ref names
-            sources: every place that asked for it
+            wanted: each ref as written with its kind (tag, sha or branch), its commit and every place that asked
         """
-        mirror     = self.path(repo)
-        pin_branch = f"kdf-pin-{sha[:12]}"
+        mirror = self.path(repo)
+        refspecs: list[str] = []
+        for item in wanted:
+            ref, kind, sha = item["ref"], item["kind"], item["sha"]
+            refspecs.append(f"{sha}:refs/heads/kdf-pin-{sha[:12]}")
+            if kind == "tag":
+                refspecs.append(f"+refs/tags/{ref}:refs/tags/{ref}")
+            if kind == "branch":
+                refspecs.append(f"{sha}:refs/heads/{ref}")
         if not mirror.exists():
             mirror.parent.mkdir(parents = True, exist_ok = True)
-            self.git(["init", "--quiet", "--bare", f"--initial-branch={pin_branch}", str(mirror)])
-        refspecs = [f"{sha}:refs/heads/{pin_branch}"]
-        if kind == "tag":
-            refspecs.append(f"+refs/tags/{ref}:refs/tags/{ref}")
-        if kind == "branch":
-            refspecs.append(f"{sha}:refs/heads/{ref}")
-        self.git(["--git-dir", str(mirror), "fetch", "--quiet", "--no-tags", repo_url(repo), *refspecs])
-        self.git(["--git-dir", str(mirror), "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}"])
-        self.entries.append({"repo": repo, "ref": ref, "kind": kind, "sha": sha, "sources": sources})
-        print(f"  {repo}@{ref} ({kind}) at {sha}")
+            first = wanted[0]["sha"]
+            self.git(["init", "--quiet", "--bare", f"--initial-branch=kdf-pin-{first[:12]}", str(mirror)])
+        self.git([
+            "--git-dir",
+            str(mirror),
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            "--no-auto-maintenance",
+            repo_url(repo),
+            *dict.fromkeys(refspecs),
+        ])
+        for item in wanted:
+            ref, kind, sha = item["ref"], item["kind"], item["sha"]
+            self.git(["--git-dir", str(mirror), "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}"])
+            self.entries.append({"repo": repo, "ref": ref, "kind": kind, "sha": sha, "sources": item["sources"]})
+            print(f"  {repo}@{ref} ({kind}) at {sha}")
 
 
     def reader(self, repo: str, sha: str) -> Reader:
@@ -709,7 +738,7 @@ def fetch(plan_data: dict, dest: Path, git: Callable[[list[str]], str] = run_git
     for extra in plan_data["extras"]:
         repo, ref = extra["repo"], extra["ref"]
         kind, sha = classify(repo, ref, mirrors.refs(repo), True, "extra_repos")
-        mirrors.fetch(repo, ref, kind, sha, ["extra_repos"])
+        mirrors.fetch(repo, [{"ref": ref, "kind": kind, "sha": sha, "sources": ["extra_repos"]}])
         resolved[repo] = sha
     pins: dict[
         tuple[str, str],
@@ -723,9 +752,12 @@ def fetch(plan_data: dict, dest: Path, git: Callable[[list[str]], str] = run_git
             if pin.repo not in repositories:
                 raise FetchError(f"{pin.sources[0]}: {pin.repo} is pinned there, add it to token_repositories")
             pins.setdefault((pin.repo, pin.ref), []).extend(pin.sources)
+    by_repo: dict[str, list[dict]] = {}
     for (repo, ref), sources in sorted(pins.items()):
         kind, sha = classify(repo, ref, mirrors.refs(repo), False, sources[0])
-        mirrors.fetch(repo, ref, kind, sha, sources)
+        by_repo.setdefault(repo, []).append({"ref": ref, "kind": kind, "sha": sha, "sources": sources})
+    for repo, wanted in by_repo.items():
+        mirrors.fetch(repo, wanted)
     return mirrors.entries
 
 # ======================================================================================================================

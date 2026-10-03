@@ -2309,4 +2309,35 @@ and without the engine, and fails on the old step in both.
 **Consequences.** A new repo that runs Python mutants receives the engine from the scripts sync before its lane can
 pass, the registry entry naming it. An engine fix lands in cicd alone and reaches the four repos with the next sync.
 
+---
+
+## D-045. The fetch leaves nothing writing a mirror once it returns
+
+- **Date.** 2026-10-03
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Corrects D-035's fetch.
+- **Tier / scope:** Quick · `scripts/fetch_private_packages.py` and every copy of the fetch job rendered from it
+  (the eight lanes and `fetch-private-packages.yml`) · `scripts/tests/test_secretless_lanes.py`
+
+**Context.** template-python-package pull request 58's lint and unit test fetch jobs failed at the pack step with
+`tar: kdf-private/mirrors/kriegerdataforge-fmt.git/objects/pack: file changed as we read it`, and the job's cleanup
+then killed an orphan git. That repo pinned kriegerdataforge-fmt at two refs, v1.1.0 in a stale `requirements.txt`
+and v1.3.0 in `requirements-dev.in`. The fetch ran one `git fetch` per ref, so the second went into a mirror that
+already held objects, and a fetch ends by starting git's automatic maintenance, a gc that detaches by default and
+keeps writing `objects/pack` after the fetch returns. The pack step's tar read the folder while it changed. D-041's
+wider default list reads the `.in` files beside their locks, which makes two refs of one repo more likely.
+
+**Decision.** Every git call the fetch makes passes `-c gc.auto=0 -c gc.autoDetach=false -c maintenance.auto=false
+-c maintenance.autoDetach=false`, so no maintenance starts and nothing that would start detaches. The pins of one repo
+are fetched in one `git fetch`, which also passes `--no-auto-maintenance`. An extra repo that a file read inside it
+also pins is still fetched twice, which is why the settings, and not the single fetch, are the guarantee. Every copy
+of the fetch job was rendered again from the script. A test plans two tags of one repo and finds one fetch with
+maintenance off, and a test finds every setting on the command line of a git call before its own arguments. Both fail
+on the old script. Rehearsed in `python:3.14.7-slim` with git 2.47.3, a source of 4,560 loose objects, two tags, and a
+global config with `gc.auto=1` and `gc.autoPackLimit=1` standing for a mirror past git's thresholds. The old script
+left a detached gc running at the moment tar started in five rounds of five, and the new one in none.
+
+**Consequences.** The pack step reads mirrors no process is writing. A caller whose fetch failed this way passes once
+it runs again at this commit or later. The mirror's own config is unchanged, so the install job's git reads it as
+before.
+
 
