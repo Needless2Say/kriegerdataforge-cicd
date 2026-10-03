@@ -1310,7 +1310,8 @@ would then show a skipped check named PROD Gate, and the old release runs would 
 as a job with no condition, which GitHub skips when a lane fails (rejected, the run is red either way and the
 owner asked which lane, a job that runs says so) · the verdict in `jq` (rejected, no test on a developer's
 machine could run it) · the mutation runner handed out by the scripts sync (rejected for now, it would land in
-seventeen repos, the tenants hold a copy each and a test holds the copies equal).
+seventeen repos, the tenants hold a copy each and a test holds the copies equal). **Reopened by D-040.** A file the
+sync hands out may now name its repos, and the engine reaches the four that run Python mutants alone.
 
 **Trade-offs.** A release waits on the mutation lanes, minutes each. `pip-audit` and `npm audit` read the
 advisories of the day, so a release can fail on one published after its pull request merged. The style check
@@ -2092,5 +2093,67 @@ the secretless proof runs on every pull request and its check job is held to the
 **Consequences.** Every private repo's style check runs on two jobs from its next CI run, and no caller changes. The
 kdf-sdk's own `check_command`, with its baseline, keeps working and reaches no secret. A release's tag can no longer
 name another commit than the one whose `VERSION` it carries. D-035's paragraph on the style lane now points here.
+
+## D-040. One mutation engine for every repo that runs Python mutants, vendored by the scripts sync
+
+- **Date.** 2026-10-03
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Reopens the alternative
+  D-027 rejected, the runner handed out by the scripts sync. Merges after D-039's pull request, `VERSION` 0.2.120.
+- **Tier / scope:** Standard · `scripts/common/mutation_runner.py` · `scripts/scripts_registry.json` and
+  `scripts/distribute_scripts.py`, a file entry may name its repos · `ci-python-mutation.yml` · the tests · then one
+  pull request each in the hub, fitness-app-backend and tiffanys-space-backend, and the SDK's after its pull request 125
+
+**Context.** Four repos held a Python mutation runner of their own, the hub's of 672 lines, one file of 645 in both
+tenant backends, and the SDK's, 1,053 lines after its review's slice S1. That slice found that `--worktree .` forced a
+checkout and ran `git clean -fdx` in the developer's own checkout, which deleted uncommitted work, the credentials file
+and the environment and reported a green run (SDK-S1-D3-R1-2). Its final reads and four narrow reads then found git
+acting where the runner had not looked, through the caller's `GIT_` variables, a repository that appeared after the
+judgement, a link at the mutated path, and a link swapped in between a judgement and the act. The SDK's runner at
+`50150fe` closes each, and the other three still carry the two bare commands, since a fix made to one copy reaches no
+other. The owner, 2026-10-02, "All workflows related to functionality like this should be in the common cicd repo so
+that all tenant repos benefit from 1 reusable workflow engine ... and each repo can have its own type of tests", and on
+2026-10-03, "Build now, before S2".
+
+**Decision.**
+
+- **One engine, here.** `scripts/common/mutation_runner.py` is the SDK's runner at `50150fe` with every rule carried
+  whole, the `GIT_` free environment, the two judgements, the folders it owns, the walk for a link, each act asked of
+  git first, the restore, the results file's shape, the path resolved once and the prune hint. What changed is what a
+  repo alone knows. The repo is two folders up from either seat, and a repo's unit settings come from its tables
+  package, whose `mutation_tests/__init__.py` may define `unit_settings(environment)`, returning names mapped to
+  strings, the SDK's two values, a backend's own, the hub's with the throwaway keypair it makes when the process holds
+  none. The engine stays stdlib only. The worktree's mark `kdf-mutation` in git's folder, the default worktree
+  `<temp>/kdf-mutation/<repo>/<lane>` and the results file `mutation-<lane>.json` beside it are the SDK's, so a
+  worktree the SDK's runner made is still recognised and the lane uploads from the same place.
+- **Vendored like the version scripts.** The scripts sync hands it byte for byte to
+  `scripts/kdf_scripts/mutation_runner.py`, the folder every repo's style and lint configs already exclude. A `files[]`
+  entry of the registry may now name its `repos`, and this one names the four, so the other thirteen repos are never
+  handed it, which answers D-027's reason. `SCRIPTS_VERSION` 1.5.0.
+- **The reusable lane runs it.** `ci-python-mutation.yml` runs the vendored engine, and a caller that still holds
+  `mutation_tests/run.py` has not moved and runs its own, so no merge order breaks a caller. The pull request that
+  moves a repo deletes its runner. The fallback goes once the SDK, the last to move, has.
+- **The tests split by owner.** The engine's tests are here, the SDK's two files pointed at a repository made for each
+  case, with the unit settings and whole runs in such a repository. A repo keeps the tests of its tables, the lanes its
+  gate and Makefile name, every node id and every anchor, against the vendored engine, and the hub keeps its keypair's.
+
+**Alternatives considered.**
+
+- A package installed from this repo by a git URL. Rejected, every repo would pin and bump one more dependency, and
+  the scripts sync already owns this shape.
+- The lane running this repo's copy instead of the caller's. Rejected, a developer's `make test-mutation` and the lane
+  would run two engines between a merge here and the sync.
+- The engine split in two modules under the 1,000 line limit. Rejected, a repo vendors one file and the worktree's
+  rules read in one place, so `kdf-fmt.toml` turns KDF-605 off for this file alone.
+
+**Trade-offs.** A fix here reaches a repo when the owner runs the scripts sync and merges its pull request, as the
+version scripts do. The hub's default worktree moves from `<temp>/kdf-mutation/<lane>` to
+`<temp>/kdf-mutation/kriegerdataforge/<lane>`. A worktree an older runner made carries no mark, so the engine refuses
+it and names `git worktree remove --force`, once per developer machine.
+
+**Consequences.** Merge order, D-039's pull request, this one, then each repo's switch in any order, then the scripts
+sync, whose pull request carries nothing for a repo that already holds the engine. The SDK's switch follows its pull
+request 125 and is the same change as the others. Pinned in `scripts/tests/test_mutation_runner.py`,
+`scripts/tests/test_mutation_runner_worktree.py`, `scripts/tests/test_distribute_scripts.py`,
+`scripts/tests/test_workflow_contracts.py` and `scripts/tests/test_consumer_test_tooling.py`.
 
 

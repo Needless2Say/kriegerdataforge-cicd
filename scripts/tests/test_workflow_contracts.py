@@ -321,7 +321,9 @@ def test_the_nextjs_integration_lane_holds_a_read_only_token_and_its_own_job_nam
     ("ci-nextjs-mutation.yml", 'node mutation_tests/run.mjs --lane "$LANE" --report "$RUNNER_TEMP/kdf-mutation"'),
     (
         "ci-python-mutation.yml",
-        'python mutation_tests/run.py --lane "$LANE" --worktree "$RUNNER_TEMP/kdf-mutation/$LANE"',
+        '|\n          runner=scripts/kdf_scripts/mutation_runner.py\n'
+        '          if [ -f mutation_tests/run.py ]; then runner=mutation_tests/run.py; fi\n'
+        '          python "$runner" --lane "$LANE" --worktree "$RUNNER_TEMP/kdf-mutation/$LANE"',
     ),
 ], ids = ["nextjs", "python"])
 def test_a_mutation_lane_runs_each_lane_the_caller_names_and_a_survivor_fails_it(name, runner):

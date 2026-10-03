@@ -284,6 +284,36 @@ def test_build_items_only_no_match_exits():
         ds._build_items(_fake_registry(), "does-not-exist", {"repo": "o/r"})
 
 
+def test_a_file_that_names_its_repos_reaches_those_and_no_other():
+    """
+    The mutation engine (D-040) is for the repos that run Python mutants, a frontend is never handed it.
+    """
+    registry = _fake_registry()
+    engine   = {"src": "scripts/common/mutation_runner.py", "dest": "scripts/kdf_scripts/mutation_runner.py"}
+    registry["files"].append({**engine, "repos": ["o/r"]})
+    named = [item.dest for item in ds._build_items(registry, None, {"repo": "o/r"})]
+    other = [item.dest for item in ds._build_items(registry, None, {"repo": "o/frontend"})]
+
+    assert "scripts/kdf_scripts/mutation_runner.py" in named
+    assert "scripts/kdf_scripts/mutation_runner.py" not in other
+    assert "scripts/kdf_scripts/check_version.py" in other, "a file that names no repos still reaches every repo"
+
+
+def test_the_mutation_engine_reaches_the_four_repos_that_run_python_mutants():
+    registry = ds._load_registry()
+    engine   = next(entry for entry in registry["files"] if entry["src"] == "scripts/common/mutation_runner.py")
+    repos    = {entry["repo"] for entry in registry["repos"]}
+
+    assert engine["dest"] == "scripts/kdf_scripts/mutation_runner.py"
+    assert sorted(engine["repos"]) == [
+        "Needless2Say/fitness-app-backend",
+        "Needless2Say/kriegerdataforge",
+        "Needless2Say/kriegerdataforge-sdk",
+        "Needless2Say/tiffanys-space-backend",
+    ]
+    assert set(engine["repos"]) <= repos, "every repo the engine names is a repo the sync reaches"
+
+
 # ── REAL-FILE consistency guards ─────────────────────────────────────────────
 def test_real_registry_srcs_all_exist():
     registry = ds._load_registry()

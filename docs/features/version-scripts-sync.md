@@ -1,6 +1,6 @@
 # Feature. Version scripts sync engine
 
-_Last updated: 2026-09-25 (the bump moves a FastAPI app's openapi.json, ADR D-017) · Status: draft_
+_Last updated: 2026-10-03 (the shared mutation engine, a file for the repos that run it, ADR D-040) · Status: draft_
 
 > **Vendored layout (since 1.1.0, ADR D-014).** The scripts are vendored to each repo's
 > **`scripts/kdf_scripts/`** directory, which every tenant's `kdf-fmt.toml`, and ruff
@@ -100,3 +100,16 @@ raise `PatchError` when they cannot). `distribute_kit.py` shares the transport l
 own loops (its white box tests patch module level names). Tests:
 `scripts/tests/test_repo_sync.py`, `test_distribute_scripts.py`, `test_version_targets.py`,
 `test_bump_version.py`, `test_check_version.py`.
+
+## 6. The mutation engine, a file for the repos that run it
+
+Since 1.5.0 (ADR D-040) the sync also carries the shared mutation engine,
+[`scripts/common/mutation_runner.py`](../../scripts/common/mutation_runner.py), to
+`scripts/kdf_scripts/mutation_runner.py`. A `files[]` entry may name its `repos`, and this one names
+the four that run hand written Python mutants, the hub, the SDK and both tenant backends, so no other
+repo is handed it. A repo keeps its tables in `mutation_tests/<lane>.py`, says what its unit suite
+needs in `mutation_tests/__init__.py` (`unit_settings(environment)`, names mapped to strings), and
+keeps the tests of its tables. `make test-mutation` runs the vendored engine, and so does
+`ci-python-mutation.yml`, which runs a caller's own `mutation_tests/run.py` while it still holds one.
+The engine's own tests are `scripts/tests/test_mutation_runner.py` and
+`test_mutation_runner_worktree.py`.

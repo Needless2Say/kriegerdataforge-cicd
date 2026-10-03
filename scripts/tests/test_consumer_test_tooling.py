@@ -1,17 +1,16 @@
 """
 The test tooling the deploying repos share, held equal wherever their checkouts sit beside this one.
 
-The mutation runners and the system harness are copies and not packages (D-027). The auth UI's runner is the Node
-original, and the two tenant frontends hold it byte for byte with its own test. The two tenant backends hold one
-Python runner, the hub's less the signing keypair the hub's unit suite needs, and one system harness. A fix made to one
-copy and not the others leaves a release judged by a runner that behaves differently in the next repo, so the copies
-are compared here, where the repos sit side by side. On a runner this repo is alone and every case reports itself
-skipped.
+The Node mutation runner and the system harness are copies and not packages (D-027). The auth UI's runner is the Node
+original, and the two tenant frontends hold it byte for byte with its own test. The two tenant backends hold one system
+harness. The Python mutation runner is one engine, this repo's scripts/common/mutation_runner.py, vendored by the
+scripts sync to every repo that runs Python mutants (D-040). A fix made to one copy and not the others leaves a release
+judged by a runner that behaves differently in the next repo, so the copies are compared here, where the repos sit side
+by side. On a runner this repo is alone and every case reports itself skipped.
 """
 
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 
 import pytest
@@ -28,29 +27,21 @@ SHARED = {
         "src/__tests__/mutation-runner.test.ts",
         ("kriegerdataforge-auth-ui", "fitness-app-frontend", "tiffanys-space"),
     ),
-    "the Python mutation runner": ("mutation_tests/run.py", ("fitness-app-backend", "tiffanys-space-backend")),
     "the system harness": ("system_tests/harness.py", ("fitness-app-backend", "tiffanys-space-backend")),
     "the system fixtures": ("system_tests/conftest.py", ("fitness-app-backend", "tiffanys-space-backend")),
 }
 
-# what the tenants' Python runner holds as the hub's does, every rule of how a mutant is applied, run, read and restored
-SAME_AS_THE_HUBS = (
-    "MutantTableError",
-    "Mutant",
-    "parse_mutants",
-    "load_table",
-    "apply_mutant",
-    "classify",
-    "changed_paths",
-    "_git",
-    "prepare_worktree",
-    "run_pytest",
-    "_masked",
-    "Result",
-    "run_mutant",
-    "summary",
-    "exit_status",
+# the repos that run Python mutants, where the scripts sync vendors the shared engine (D-040)
+PYTHON_MUTANT_REPOS: tuple[str, ...] = (
+    "kriegerdataforge",
+    "kriegerdataforge-sdk",
+    "fitness-app-backend",
+    "tiffanys-space-backend",
 )
+
+# the engine as a repo holds it, and the runner of its own a repo held before it moved
+VENDORED_ENGINE: str = "scripts/kdf_scripts/mutation_runner.py"
+OWN_RUNNER:      str = "mutation_tests/run.py"
 
 
 def _text(repo: str, name: str) -> str:
@@ -64,15 +55,6 @@ def _text(repo: str, name: str) -> str:
     return path.read_text(encoding = "utf-8").replace("\r\n", "\n")
 
 
-def _definitions(source: str) -> dict[str, str]:
-    """
-    Each top level function and class of a module, by name, as written.
-    """
-    tree  = ast.parse(source)
-    kinds = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-    return {node.name: ast.get_source_segment(source, node) or "" for node in tree.body if isinstance(node, kinds)}
-
-
 @pytest.mark.parametrize("what", sorted(SHARED))
 def test_every_copy_is_the_same_file(what):
     name, repos = SHARED[what]
@@ -81,16 +63,18 @@ def test_every_copy_is_the_same_file(what):
     assert differ == [], f"{what}, {name}, differs from {repos[0]}'s in {differ}"
 
 
-def test_the_tenants_python_runner_applies_runs_and_reads_a_mutant_as_the_hubs_does():
+def test_every_repo_that_moved_to_the_shared_engine_holds_the_same_engine():
     """
-    A fix to how a mutant is applied, restored or read as killed belongs in every runner, the class of bug is the
-    same. The two may differ in the unit suite's settings, the keypair and the default worktree path alone.
+    A repo that moved deleted its own runner and runs the engine the scripts sync vendored, so every such repo holds
+    one file. A repo that still holds a runner of its own has not moved, and the reusable lane runs its own until then.
     """
-    hub    = _definitions(_text("kriegerdataforge", "mutation_tests/run.py"))
-    tenant = _definitions(_text("fitness-app-backend", "mutation_tests/run.py"))
-    differ = sorted(name for name in SAME_AS_THE_HUBS if hub.get(name) != tenant.get(name))
-    assert differ == [], f"the tenants' runner differs from the hub's in {differ}"
-    assert "throwaway_keypair" in hub and "throwaway_keypair" not in tenant, "the tenants sign no token"
+    present = [repo for repo in PYTHON_MUTANT_REPOS if (WORKSPACE / repo).is_dir()]
+    if not present:
+        pytest.skip("no repo that runs Python mutants is checked out beside this repo")
+    moved  = [repo for repo in present if not (WORKSPACE / repo / OWN_RUNNER).is_file()]
+    found  = {repo: _text(repo, VENDORED_ENGINE) for repo in moved}
+    differ = sorted(repo for repo, text in found.items() if text != found[moved[0]])
+    assert differ == [], f"the engine differs from {moved[0]}'s in {differ}, run the scripts sync"
 
 
 def test_each_tenant_backend_says_what_it_alone_knows_in_a_file_of_its_own():
