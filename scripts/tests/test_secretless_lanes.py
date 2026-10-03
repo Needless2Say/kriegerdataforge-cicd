@@ -489,6 +489,56 @@ def test_the_fetch_clones_each_pin_whole_into_a_bare_mirror_and_records_it(tmp_p
     assert all("@github.com" not in part for call in git.calls for part in call), "no URL carries a credential"
 
 
+def test_two_refs_of_one_repo_are_one_fetch_with_automatic_maintenance_off(tmp_path):
+    """
+    template-python-package pinned kdf-fmt at v1.1.0 in requirements.txt and v1.3.0 in requirements-dev.in. The
+    second fetch into the mirror started git's automatic gc in the background, which wrote objects/pack while the
+    pack step's tar read it, "file changed as we read it" (D-045). One fetch a repo, with maintenance off.
+    """
+    git     = FakeGit({"kriegerdataforge-fmt": f"{'1' * 40}\trefs/tags/v1.1.0\n{'3' * 40}\trefs/tags/v1.3.0"})
+    data    = {
+        "caller_private": True,
+        "repositories": ["kriegerdataforge-fmt"],
+        "extras": [],
+        "scan": [],
+        "pins": [
+            {"repo": "kriegerdataforge-fmt", "ref": "v1.1.0", "sources": ["requirements.txt"]},
+            {"repo": "kriegerdataforge-fmt", "ref": "v1.3.0", "sources": ["requirements-dev.in"]},
+        ],
+    }
+    entries = fpp.fetch(data, tmp_path, git)
+    assert [(entry["ref"], entry["sha"]) for entry in entries] == [("v1.1.0", "1" * 40), ("v1.3.0", "3" * 40)]
+    fetches = [call for call in git.calls if "fetch" in call]
+    assert len(fetches) == 1, "a second fetch into a mirror starts git's automatic maintenance"
+    assert "--no-auto-maintenance" in fetches[0]
+    assert "+refs/tags/v1.1.0:refs/tags/v1.1.0" in fetches[0] and "+refs/tags/v1.3.0:refs/tags/v1.3.0" in fetches[0]
+    assert f"{'1' * 40}:refs/heads/kdf-pin-111111111111" in fetches[0]
+    assert f"{'3' * 40}:refs/heads/kdf-pin-333333333333" in fetches[0]
+    init = next(call for call in git.calls if call[0] == "init")
+    assert "--initial-branch=kdf-pin-111111111111" in init, "the mirror's HEAD names the first pin"
+
+
+def test_every_git_call_turns_automatic_maintenance_off_and_keeps_it_in_the_foreground(monkeypatch):
+    """
+    An extra repo that a scanned file also pins is fetched twice, so the single fetch alone does not close D-045.
+    Every call git runs carries the settings, before its own arguments.
+    """
+    seen: list[list[str]] = []
+
+
+    def fake_run(argv, **kwargs):
+        seen.append(argv)
+        return subprocess.CompletedProcess(argv, 0, stdout = "", stderr = "")
+
+
+    monkeypatch.setattr(fpp.subprocess, "run", fake_run)
+    fpp.run_git(["--git-dir", "mirror.git", "fetch", "--quiet", "origin"])
+    argv = seen[0]
+    for setting in ("gc.auto=0", "gc.autoDetach=false", "maintenance.auto=false", "maintenance.autoDetach=false"):
+        index = argv.index(setting)
+        assert argv[index - 1] == "-c" and index < argv.index("--git-dir"), setting
+
+
 def test_the_fetch_resolves_an_extra_branch_reads_its_files_and_fetches_their_pins(tmp_path):
     backend = "1" * 40
     git     = FakeGit(
@@ -586,11 +636,12 @@ def test_the_script_holds_nothing_the_heredoc_or_an_expression_would_change():
 
 def test_the_script_runs_git_and_nothing_else():
     """
-    One subprocess call, git, with no hook and no credential helper, and the API read of the caller's visibility.
+    One subprocess call, git, with no hook, no credential helper and no automatic maintenance, and the API read of the
+    caller's visibility.
     """
     script = (ROOT / "scripts" / "fetch_private_packages.py").read_text(encoding = "utf-8")
     assert script.count("subprocess.run(") == 1
-    assert '["git", "-c", "core.hooksPath=/dev/null", "-c", "credential.helper=", *args]' in script
+    assert '["git", "-c", "core.hooksPath=/dev/null", "-c", "credential.helper=", *NO_MAINTENANCE, *args]' in script
     for forbidden in ("os.system", "exec(", "eval(", "import pip", "shell = True", "shell=True", "Popen"):
         assert forbidden not in script, forbidden
     assert script.count("urllib.request.urlopen(") == 1
