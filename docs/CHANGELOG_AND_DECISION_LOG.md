@@ -2135,6 +2135,10 @@ that all tenant repos benefit from 1 reusable workflow engine ... and each repo 
 - **The tests split by owner.** The engine's tests are here, the SDK's two files pointed at a repository made for each
   case, with the unit settings and whole runs in such a repository. A repo keeps the tests of its tables, the lanes its
   gate and Makefile name, every node id and every anchor, against the vendored engine, and the hub keeps its keypair's.
+- **The engine's own mutants are here too.** Every fix is pinned twice, a test and a mutant, and the engine's mutants
+  were the SDK's 36 of its runner and the hub's RE-M-84. They are `mutation_tests/engine.py` here, EN-1 to EN-37, with
+  EN-38 to EN-44 for what this decision added, and the engine runs that table on itself in the CI job `Mutation
+  (engine)`. A repo's switch drops its mutants of its old runner, the SDK's 36 and the hub's one.
 
 **Alternatives considered.**
 
@@ -2152,7 +2156,8 @@ it and names `git worktree remove --force`, once per developer machine.
 
 **Consequences.** Merge order, D-039's pull request, this one, then each repo's switch in any order, then the scripts
 sync, whose pull request carries nothing for a repo that already holds the engine. The SDK's switch follows its pull
-request 125 and is the same change as the others. Pinned in `scripts/tests/test_mutation_runner.py`,
+request 125 and is the same change as the others. `Mutation (engine)` is a required check only once the owner adds it
+to the ruleset. Pinned in `mutation_tests/engine.py`, `scripts/tests/test_mutation_runner.py`,
 `scripts/tests/test_mutation_runner_worktree.py`, `scripts/tests/test_distribute_scripts.py`,
 `scripts/tests/test_workflow_contracts.py` and `scripts/tests/test_consumer_test_tooling.py`.
 

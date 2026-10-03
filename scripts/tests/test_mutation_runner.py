@@ -14,6 +14,7 @@ own tests. What one repo's unit suite needs, it says in ``mutation_tests/__init_
 from __future__ import annotations
 
 # standard imports
+import ast
 import importlib
 import json
 import os
@@ -42,6 +43,9 @@ TEST: str = (
     '    assert allowed("owner") and not allowed("guest")\n'
 )
 
+# the repo the engine found from its own seat, read when this file is imported, before any case points it elsewhere
+SEAT_ROOT: Path = run.REPO_ROOT
+
 # ======================================================================================================================
 # Helpers
 # ======================================================================================================================
@@ -58,9 +62,10 @@ def _forget_tables() -> None:
 def _a_folder_of_this_case_alone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """
     Every case runs the engine for a folder of its own, which holds no repo until a case makes one, and the import
-    path the engine adds to and the tables it imports are put back after.
+    path the engine adds to and the tables it imports are put back after. A folder on the path that holds tables of
+    its own, this repo's root when its lane runs these cases, is left off, or a case would read those.
     """
-    monkeypatch.setattr(sys, "path", list(sys.path))
+    monkeypatch.setattr(sys, "path", [entry for entry in sys.path if not Path(entry or ".", "mutation_tests").is_dir()])
     monkeypatch.setattr(run, "REPO_ROOT", (tmp_path / "no-repo").resolve())
     _forget_tables()
     yield
@@ -122,6 +127,18 @@ def _write_table(repo: Path, table: list[dict[str, object]]) -> None:
     """
     (repo / "mutation_tests" / "demo.py").write_text(f"MUTANTS = {table!r}\n", encoding = "utf-8")
     importlib.invalidate_caches()
+
+# ======================================================================================================================
+# The Seat
+# ======================================================================================================================
+
+class TestTheEngineFindsItsRepo:
+    """
+    The engine sits two folders down from the repo it runs for, at ``scripts/kdf_scripts/`` in a repo and at
+    ``scripts/common/`` here, and reads that repo's tables and runs git there.
+    """
+    def test_the_repo_is_two_folders_up_from_the_engine(self):
+        assert (SEAT_ROOT / "scripts" / "common" / "mutation_runner.py").is_file()
 
 # ======================================================================================================================
 # The Table
@@ -624,3 +641,54 @@ class TestALaneRunsInTheRepoTheEngineIsVendoredTo:
 
         results = json.loads((worktree.parent / "mutation-demo.json").read_text(encoding = "utf-8"))
         assert [result["result"] for result in results] == ["survived"]
+
+# ======================================================================================================================
+# The Engine's Own Table
+# ======================================================================================================================
+
+def _defined(node_id: str) -> bool:
+    """
+    Whether a node id names a file, and inside it a class and a test, that this repo defines.
+    """
+    path, *parts = node_id.split("::")
+    source = SEAT_ROOT / path
+    if not source.is_file():
+        return False
+    scope: list[ast.AST] = list(ast.iter_child_nodes(ast.parse(source.read_text(encoding = "utf-8"))))
+    for name in (part.split("[", 1)[0] for part in parts):
+        definitions = (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+        found       = next((node for node in scope if isinstance(node, definitions) and node.name == name), None)
+        if found is None:
+            return False
+        scope = list(ast.iter_child_nodes(found))
+    return True
+
+
+class TestTheEngineSOwnTableAsCommitted:
+    """
+    The engine's own mutants are a lane like any repo's, ``mutation_tests/engine.py``. A rewritten line or a renamed
+    test leaves a mutant that cannot run, which only the lane would report. Both are held here, every pull request, and
+    the lane is held to the job that runs it.
+    """
+    @staticmethod
+    def _table(monkeypatch: pytest.MonkeyPatch) -> list[run.Mutant]:
+        monkeypatch.setattr(run, "REPO_ROOT", SEAT_ROOT)
+        return run.load_table("engine")
+
+
+    def test_every_anchor_occurs_once_in_the_engine(self, monkeypatch):
+        engine    = (SEAT_ROOT / "scripts" / "common" / "mutation_runner.py").read_bytes().decode("utf-8")
+        table     = self._table(monkeypatch)
+        unapplied = sorted(mutant.id for mutant in table if run.apply_mutant(engine, mutant)[1] != "applied")
+        assert unapplied == []
+
+
+    def test_every_test_a_mutant_names_is_one_this_repo_defines(self, monkeypatch):
+        stale = sorted({test for mutant in self._table(monkeypatch) for test in mutant.tests if not _defined(test)})
+        assert stale == []
+
+
+    def test_ci_runs_the_engine_s_lane(self):
+        ci = (SEAT_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding = "utf-8")
+        assert "run: python scripts/common/mutation_runner.py --lane engine --worktree" in ci
+        assert '"$RUNNER_TEMP/kdf-mutation/engine"' in ci

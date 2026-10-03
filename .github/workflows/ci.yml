@@ -4,6 +4,7 @@
 #   lint            actionlint validates every .github/workflows/*.yml file
 #   style           kdf-fmt, the KDF house style, over scripts/
 #   test            pytest runs the Python unit tests in scripts/tests/
+#   mutation        the shared mutation engine's own mutants, mutation_tests/engine.py (D-040)
 #   version-check   VERSION is exactly one step ahead of main
 #   secret-scan     gitleaks over the pull request's commits
 #   secretless-proof, secretless-control
@@ -91,6 +92,35 @@ jobs:
 
       - name: Run tests
         run: cd scripts && pytest tests/ --tb=short
+
+  # D-040. The shared mutation engine runs its own table, mutation_tests/engine.py, each rule of the engine broken in
+  #   a worktree outside the checkout and a test in scripts/tests that must go red. Five mutants are bound to Linux,
+  #   where the modes and the owners of folders exist, so a runner is where they run
+  mutation:
+    name: Mutation (engine)
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+          cache: "pip"
+          cache-dependency-path: scripts/requirements-test.txt
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements-test.txt
+
+      - name: Run the engine's mutants
+        run: python scripts/common/mutation_runner.py --lane engine --worktree "$RUNNER_TEMP/kdf-mutation/engine"
 
   version-check:
     uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/bump-version-check.yml@main

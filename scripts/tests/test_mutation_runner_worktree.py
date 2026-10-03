@@ -33,9 +33,12 @@ from common import mutation_runner as run
 def _a_folder_of_this_case_alone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """
     Every case runs the engine for a folder of its own, which holds no repo until a case makes one, and the import
-    path the engine adds to is put back after.
+    path the engine adds to is put back after. A folder on the path that holds tables of its own, this repo's root when
+    its lane runs these cases, is left off, or a case would read those.
     """
-    monkeypatch.setattr(sys, "path", list(sys.path))
+    monkeypatch.setattr(sys, "path", [entry for entry in sys.path if not Path(entry or ".", "mutation_tests").is_dir()])
+    for name in [name for name in sys.modules if name == "mutation_tests" or name.startswith("mutation_tests.")]:
+        monkeypatch.delitem(sys.modules, name)
     monkeypatch.setattr(run, "REPO_ROOT", (tmp_path / "no-repo").resolve())
 
 

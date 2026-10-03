@@ -112,4 +112,5 @@ needs in `mutation_tests/__init__.py` (`unit_settings(environment)`, names mappe
 keeps the tests of its tables. `make test-mutation` runs the vendored engine, and so does
 `ci-python-mutation.yml`, which runs a caller's own `mutation_tests/run.py` while it still holds one.
 The engine's own tests are `scripts/tests/test_mutation_runner.py` and
-`test_mutation_runner_worktree.py`.
+`test_mutation_runner_worktree.py`, and its own mutants `mutation_tests/engine.py`, which the CI job
+`Mutation (engine)` runs with the engine itself.
