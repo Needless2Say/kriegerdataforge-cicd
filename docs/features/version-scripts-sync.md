@@ -110,7 +110,9 @@ the four that run hand written Python mutants, the hub, the SDK and both tenant 
 repo is handed it. A repo keeps its tables in `mutation_tests/<lane>.py`, says what its unit suite
 needs in `mutation_tests/__init__.py` (`unit_settings(environment)`, names mapped to strings), and
 keeps the tests of its tables. `make test-mutation` runs the vendored engine, and so does
-`ci-python-mutation.yml`, which runs a caller's own `mutation_tests/run.py` while it still holds one.
+`ci-python-mutation.yml`, which runs nothing else since D-042. The four repos first held the file with their switches
+on 2026-10-03, hub pull request 392, fitness-app-backend 201, tiffanys-space-backend 132 and the SDK's 127 (`59ac7fc`),
+where git reads it as a rename of the SDK's old `mutation_tests/run.py`, no earlier sync having placed it.
 The engine's own tests are `scripts/tests/test_mutation_runner.py` and
 `test_mutation_runner_worktree.py`, and its own mutants `mutation_tests/engine.py`, which the CI job
 `Mutation (engine)` runs with the engine itself.

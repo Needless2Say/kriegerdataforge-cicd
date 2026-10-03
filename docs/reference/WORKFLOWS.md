@@ -480,8 +480,8 @@ the job hands it the database alone. **`ci-python-mutation.yml`** provisions one
 a second database `kdf_mutation_sys` beside it, and exports both `KDF_TEST_DATABASE_URL` and
 `KDF_SYSTEM_DATABASE_URL`, a lane may hold mutants of all three suites and the system suite commits rows
 the integration suite must never read. It runs the shared engine the scripts sync vendors,
-`scripts/kdf_scripts/mutation_runner.py`, or a caller's own `mutation_tests/run.py` while it still holds one
-(D-040).
+`scripts/kdf_scripts/mutation_runner.py` (D-040), and nothing else, a caller's own runner left behind is never run,
+and a caller without the engine fails naming the scripts sync (D-042).
 
 **`ci-python-security.yml`** runs two jobs. `bandit` SAST over `bandit_paths` and `pip-audit` (CVE
 check) against `requirements.txt`. No SARIF upload, hence no `security-events: write`.

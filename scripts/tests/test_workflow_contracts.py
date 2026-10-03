@@ -322,7 +322,11 @@ def test_the_nextjs_integration_lane_holds_a_read_only_token_and_its_own_job_nam
     (
         "ci-python-mutation.yml",
         '|\n          runner=scripts/kdf_scripts/mutation_runner.py\n'
-        '          if [ -f mutation_tests/run.py ]; then runner=mutation_tests/run.py; fi\n'
+        '          if [ ! -f "$runner" ]; then\n'
+        '            echo "::error::$runner is missing, the scripts sync vendors cicd\'s shared mutation engine'
+        ' (D-040)"\n'
+        '            exit 1\n'
+        '          fi\n'
         '          python "$runner" --lane "$LANE" --worktree "$RUNNER_TEMP/kdf-mutation/$LANE"',
     ),
 ], ids = ["nextjs", "python"])
@@ -342,6 +346,45 @@ def test_a_mutation_lane_runs_each_lane_the_caller_names_and_a_survivor_fails_it
     assert f"        run: {runner}\n" in step
     assert "${{" not in step.split("        run: ", 1)[1], "no expression is written into the shell"
     assert "continue-on-error" not in text
+
+
+@pytest.mark.parametrize("engine, code", [(True, 0), (False, 1)], ids = ["engine", "no-engine"])
+def test_the_python_mutation_lane_runs_the_vendored_engine_alone(tmp_path, engine, code):
+    """
+    Every caller holds the shared engine since the SDK's switch, so a runner of the caller's own is never run, even one
+    left behind, and a caller without the engine fails naming the scripts sync (D-042). The step's shell runs here.
+    """
+    bash = _bash()
+    if bash is None:
+        pytest.skip("no bash to run the step's shell")
+    step  = _step(_lane("ci-python-mutation.yml"), "Run the lane's mutants")
+    block = step.split("run: |\n", 1)[1]
+    shell = tmp_path / "step.sh"
+    shell.write_text("\n".join(line[10:] for line in block.split("\n")) + "\n", encoding = "utf-8", newline = "\n")
+    repo = tmp_path / "repo"
+    (repo / "mutation_tests").mkdir(parents = True)
+    (repo / "mutation_tests" / "run.py").write_text("", encoding = "utf-8")
+    if engine:
+        (repo / "scripts" / "kdf_scripts").mkdir(parents = True)
+        (repo / "scripts" / "kdf_scripts" / "mutation_runner.py").write_text("", encoding = "utf-8")
+    fakebin = tmp_path / "bin"
+    fakebin.mkdir()
+    fake = fakebin / "python"
+    fake.write_text('#!/usr/bin/env bash\necho "$@" > "$FAKE_PYTHON_ARGS"\n', encoding = "utf-8", newline = "\n")
+    fake.chmod(0o755)
+    called = tmp_path / "called"
+    env    = dict(os.environ)
+    env["PATH"] = os.pathsep.join([str(fakebin), env.get("PATH", "")])
+    env["FAKE_PYTHON_ARGS"] = called.as_posix()
+    env["LANE"] = "core"
+    env["RUNNER_TEMP"] = tmp_path.as_posix()
+    run = subprocess.run([bash, "-e", shell.as_posix()], cwd = repo, env = env, capture_output = True, text = True)
+    assert run.returncode == code, run.stdout + run.stderr
+    if engine:
+        assert called.read_text().split()[:3] == ["scripts/kdf_scripts/mutation_runner.py", "--lane", "core"]
+    else:
+        assert not called.exists(), "no runner ran"
+        assert "the scripts sync vendors" in run.stdout
 
 
 def test_the_nextjs_mutation_lane_leaves_no_credential_in_the_tree_it_mutates():
