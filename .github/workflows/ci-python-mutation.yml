@@ -1037,14 +1037,17 @@ jobs:
         run: psql -h localhost -U kdf -d kdf_mutation -c "CREATE DATABASE kdf_mutation_sys"
 
       # the lane's name reaches the shell as a variable and never as text of the script. D-040, the engine is cicd's
-      #   scripts/common/mutation_runner.py, vendored to the caller's scripts/kdf_scripts/. A caller that still holds
-      #   its own mutation_tests/run.py has not moved and runs that, the pull request that moves it deletes the file
+      #   scripts/common/mutation_runner.py, vendored to the caller's scripts/kdf_scripts/ by the scripts sync. Every
+      #   caller holds it since the SDK's switch, so the lane runs it alone and names the sync when it is gone (D-042)
       - name: Run the lane's mutants
         env:
           LANE: ${{ matrix.lane }}
         run: |
           runner=scripts/kdf_scripts/mutation_runner.py
-          if [ -f mutation_tests/run.py ]; then runner=mutation_tests/run.py; fi
+          if [ ! -f "$runner" ]; then
+            echo "::error::$runner is missing, the scripts sync vendors cicd's shared mutation engine (D-040)"
+            exit 1
+          fi
           python "$runner" --lane "$LANE" --worktree "$RUNNER_TEMP/kdf-mutation/$LANE"
 
       - name: Keep the lane's report

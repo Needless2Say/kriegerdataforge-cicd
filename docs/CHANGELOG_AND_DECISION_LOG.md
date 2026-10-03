@@ -2282,4 +2282,31 @@ a pin that sits in both a `.in` file and its lock once.
 passes its own list keeps it, so the three engine pull requests' lists stay right and can be dropped later. A caller
 gets the fix when it next runs a lane at this commit or later.
 
+---
+
+## D-042. The shared mutation lane runs the vendored engine alone
+
+- **Date.** 2026-10-03
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Ends D-040's transition.
+- **Tier / scope:** Quick · `ci-python-mutation.yml` · `docs/reference/WORKFLOWS.md` ·
+  `docs/features/version-scripts-sync.md` · the tests
+
+**Context.** D-040 let `ci-python-mutation.yml` run a caller's own `mutation_tests/run.py` while one existed, so no
+merge order broke a caller, and said the fallback goes once the SDK, the last to move, has. It has. The SDK's switch
+merged as its pull request 127 on 2026-10-03, after hub 392, fitness-app-backend 201 and tiffanys-space-backend 132.
+The lane's callers were read on GitHub that day, the SDK's `merge-gate.yml` and both backends' `prod-gate.yml`, the
+hub running the engine from its own `mutation-tests.yml`, and no other repo naming the lane. Each caller's `main`
+holds no `mutation_tests/run.py` and holds `scripts/kdf_scripts/mutation_runner.py` as blob `4820a7e`, cicd's own.
+The SDK's pull request showed the engine's file as changed rather than added, which read as a copy an earlier sync had
+placed. Its history says otherwise, the path first appears in that pull request's `59ac7fc`, and git pairs it with
+the deleted `mutation_tests/run.py` as a rename.
+
+**Decision.** The lane runs `scripts/kdf_scripts/mutation_runner.py` alone. A runner of the caller's own left in the
+tree is never run, and a caller without the engine fails at once with an error naming the scripts sync, before any
+mutant is applied. A test runs the step's own shell both ways, with a stale `mutation_tests/run.py` beside the engine
+and without the engine, and fails on the old step in both.
+
+**Consequences.** A new repo that runs Python mutants receives the engine from the scripts sync before its lane can
+pass, the registry entry naming it. An engine fix lands in cicd alone and reaches the four repos with the next sync.
+
 
