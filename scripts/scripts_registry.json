@@ -36,11 +36,11 @@
   "requirements_patch": {
     "_comment": "Canonical Python toolchain pins merged into every repo's requirements-dev.in. The vendored scripts are stdlib-only and need nothing to RUN; this pins the tools that LINT and FORMAT them, so local dev and CI agree. A package already declared at a different version fails the sync as NEEDS MANUAL ATTENTION -- never rewritten, because a kdf-fmt version change moves style baselines. 'kdf_fmt_ref' is checked read-only against .github/workflows/ci.yml and never written (pushing workflow files needs the 'workflow' token scope).",
     "target": "requirements-dev.in",
-    "kdf_fmt_ref": "v1.1.1",
+    "kdf_fmt_ref": "v1.3.0",
     "packages": [
       {
         "name": "kdf-fmt",
-        "spec": "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@v1.1.1"
+        "spec": "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@v1.3.0"
       }
     ]
   },

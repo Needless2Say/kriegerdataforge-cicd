@@ -160,3 +160,18 @@ def test_ci_yaml_absent_file_raises() -> None:
     """
     with pytest.raises(PatchError):
         ds.patch_ci_yaml(None, "v1.1.1")
+
+
+# ── the live registry, one kdf-fmt version across cicd (ADR D-043) ───────────
+def test_the_canonical_ref_its_spec_and_cicds_own_style_job_name_one_version() -> None:
+    """
+    The registry's ref is what every repo's ci.yml is checked against, its spec is what every requirements-dev.in
+    gets, and cicd's own style job is the version this repo formats with. D-043 found the canonical pin two minor
+    versions behind kdf-fmt and the hub ahead of it, so ten repos failed the sync. The three move together.
+    """
+    patch   = ds._load_registry()["requirements_patch"]
+    ref     = patch["kdf_fmt_ref"]
+    spec    = next(package["spec"] for package in patch["packages"] if package["name"] == "kdf-fmt")
+    ci_yaml = (ds.REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding = "utf-8")
+    assert spec.endswith(f".git@{ref}")
+    assert ds.patch_ci_yaml(ci_yaml, ref) is ci_yaml
