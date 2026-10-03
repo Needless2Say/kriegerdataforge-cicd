@@ -506,3 +506,16 @@ def test_every_release_tags_the_commit_it_read():
     assert "          COMMIT: ${{ steps.version.outputs.commit }}\n" in release
     assert '            --target "$COMMIT" \\\n' in release
     assert "${{" not in release.split('gh release create "$TAG"', 1)[1], "no expression is written into the shell"
+
+
+def test_the_release_reads_its_tag_from_the_environment_in_every_step():
+    """
+    Every step that names the tag reads it from its environment, the tag check as the release step does (D-039 tidy of
+    D-038), so no run block holds an expression, and the check matches the tag as a fixed string, a dot no wildcard.
+    """
+    release = _lane("create-github-release.yml")
+    check   = release.split("- name: Check if tag already exists", 1)[1].split("- name:", 1)[0]
+    assert "          TAG: ${{ steps.version.outputs.tag }}\n" in check
+    assert 'grep -qxF -- "$TAG"' in check
+    for block in re.findall(r"run: \|\n((?:          .*\n|\n)+)", release):
+        assert "${{" not in block, f"a run block writes an expression into the shell:\n{block}"

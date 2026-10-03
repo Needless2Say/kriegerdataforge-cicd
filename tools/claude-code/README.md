@@ -9,9 +9,12 @@ machine installs them from a clone of this repo.
 | --- | --- |
 | `kdf-guard.js` | A Claude Code PreToolUse hook. It reads each Bash and PowerShell command the way a shell does, each Read, Grep and Glob, and each file edit and outward facing tool call, and exits 2 to refuse with the reason. No dependencies, one file |
 | `guard-cases.json` | The table the guard is held to, one case per tool call with its role and whether it is allowed or refused. Every rule change adds cases |
-| `kdf-review.sh` | Starts one fresh Claude reviewer with the reviewer role in the repo folder itself, or opens and closes the folder for Codex, checking first that the pin is pushed, the folder is at it and the brief's counts match it. Compares git before and after and fails the review if the reviewer changed anything but a new file under `docs/reviews`, the review archive. Brings a report Codex wrote in the cloud in from its branch |
+| `kdf-review.sh` | Starts one fresh Claude reviewer with the reviewer role in the repo folder itself, for at most four hours by default, or opens and closes the folder for Codex, checking first that the pin is pushed, the folder is at it and the brief's counts match it. Compares git before and after and fails the review if the reviewer changed anything but a new file under `docs/reviews`, the review archive. After a clean Claude run writes Claude Code's own count of it beside the report, `<report stem>.usage.json`. Brings a report Codex wrote in the cloud in from its branch, and warns when a report it did not start lacks its time or usage line |
 | `kdf-brief.js` | Read only. The facts a brief states, measured at the pin, the commit line and the scope table's line counts, and a check of a written brief's table |
-| `kdf-retro.js` | Read only. The numbers a slice's retrospective starts from, counted from its answer key, its reports' headers and its Sol rounds, the escapes first |
+| `kdf-retro.js` | Read only. The numbers a slice's retrospective starts from, counted from its answer key, the launcher's counts beside its reports or else their headers, and its Sol rounds, the escapes first |
+
+`../codex-cloud/kdf-codex-setup.sh` is not run here. The owner pastes it into a repo's Codex cloud environment as its
+setup script, on trial for the kdf-sdk's S2 (ADR D-039), and the process's section 11 says how.
 | `check-wiring.js` | Read only. Says whether this machine's settings wire the guard as the process needs, and prints the block to add when they do not |
 | `install.sh` | Copies the guard to `~/.claude/hooks/`, smoke tests it, and prints the settings block. It edits no settings and refuses to run inside a Claude Code session |
 

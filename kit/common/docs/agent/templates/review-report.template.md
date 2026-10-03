@@ -14,11 +14,12 @@
 - **Read first.** {The files you read before the code, in the order you read them, from `AGENTS.md` to the brief's
   reading list. The launcher warns when this line or the pin is missing.}
 - **Baseline reproduced.** {lint, type check, tests, the counts.} {A red baseline goes here first.}
-- **Time spent.** {From {start} to {end}, the times the clock showed when you began and when you wrote this line, not
-  an estimate.}
+- **Time spent.** From {HH:MM} to {HH:MM} {zone} on {YYYY-MM-DD}, the times the clock showed when you began and when
+  you wrote this line, not an estimate. {Keep this line to itself and in this form, a retrospective reads it.}
 - **Reviewer.** {The exact model and version as your tool names it, the tool you ran in, Claude Code, Codex CLI, Codex
   in VS Code or ChatGPT chat, and the effort.}
-- **Usage.** {Tokens in and out, when your tool reports them, otherwise unknown.}
+- **Usage.** {`{n} tokens in, {n} tokens out` when your tool shows them, otherwise unknown. A Claude review the
+  launcher started may write unknown, the launcher writes Claude Code's own count beside this report.}
 
 ## 2. Verdict
 
@@ -29,7 +30,8 @@
 Severity is P, M, L or E as the process defines them. Blocks is yes for a P, or an M that reaches an account, a token,
 a credential, a privilege or someone else's data. Most severe first. Ids are `{PFX}-{slice}-1` from Claude and
 `{PFX}-{slice}-C1` from Codex, `{PFX}-{slice}-FIN-1` and `-FIN-C1` in a final review, and `{PFX}-1` and `{PFX}-C1` at
-spot scale.
+spot scale. A probe of a check that reads a string another program reads again, a URL, a path, a version, runs the
+consumer's own parser on the check's inputs beside the check's, and names both parsers and how many inputs it ran.
 
 | Id | Sev | Blocks | `file:line` | What | Proof, probe or read | Fix I would make |
 | --- | --- | --- | --- | --- | --- | --- |

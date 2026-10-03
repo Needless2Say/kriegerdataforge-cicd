@@ -92,7 +92,18 @@ GUARD_RULES_IN_WORDS = (
     "follows no redirect",
 )
 
-# a stand in for claude, it writes what STUB_MODE says a reviewer did, and records how it was started
+# What claude -p prints with --output-format json, the shape of a real run's result trimmed to what the launcher reads,
+# two models as a run that started a helper model has
+RESULT = (
+    '{"type":"result","subtype":"success","is_error":false,"duration_ms":2580000,"duration_api_ms":2410000,'
+    '"num_turns":41,"result":"THE REVIEWER WROTE THIS","session_id":"s-1","total_cost_usd":12.5,'
+    '"usage":{"input_tokens":9,"output_tokens":9},'
+    '"modelUsage":{"claude-test-1":{"inputTokens":1200,"outputTokens":38000,"cacheReadInputTokens":900000,'
+    '"cacheCreationInputTokens":60000,"costUSD":12.0},"claude-helper-1":{"inputTokens":300,"outputTokens":500,'
+    '"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.5}}}'
+)
+
+# a stand in for claude, it writes what STUB_MODE says a reviewer did, records how it was started, and prints a result
 STUB = """#!/usr/bin/env bash
 echo "role=${KDF_ROLE:-} selfedit=${KDF_GUARD_ALLOW_SELF_EDIT:-unset}" >> "$STUB_LOG"
 echo "args=$*" >> "$STUB_LOG"
@@ -110,8 +121,15 @@ case "${STUB_MODE:-clean}" in
 	branch) printf '# report\\n' > "$report"; git checkout -q -b sneaky ;;
 	delete) printf '# report\\n' > "$report"; rm src/app.py ;;
 	noreport) : ;;
-	fail) printf '# report\\n' > "$report"; exit 9 ;;
+	plain) printf '# report\\n' > "$report"; echo "a plain text answer"; exit 0 ;;
+	slow) sleep 5; printf '# report\\n' > "$report" ;;
+	fail)
+		printf '# report\\n' > "$report"
+		echo '{"type":"result","subtype":"error_during_execution","is_error":true,"result":"the API said no"}'
+		echo "a line on stderr" >&2
+		exit 9 ;;
 esac
+printf '%s\\n' "$STUB_RESULT"
 """
 
 pytestmark = pytest.mark.skipif(
@@ -481,6 +499,51 @@ def test_every_slice_closes_with_a_measured_retrospective_the_owner_decides() ->
         assert "RETRO.md" in (templates / name).read_text(encoding = "utf-8"), f"{name} does not name the retrospective"
 
 
+def test_the_first_retrospective_s_changes_are_in_the_kit() -> None:
+    """
+    The owner approved the kdf-sdk's S1 retrospective whole (D-039). Every brief closes its look for list with three
+    standing questions, the readers named for both stacks, and its scope table marks a tool that destroys. A final
+    brief reads the last Sol round's Blocks fixes first, in place of a narrow read. A report clocks its time and probes
+    with the consumer's own parser. The launcher counts a run and stops one past four hours. Codex in the cloud is on
+    trial for one slice with a token of its own.
+    """
+    process   = " ".join((KIT / "docs" / "agent" / "CODE_REVIEW_PROCESS.md").read_text(encoding = "utf-8").split())
+    templates = KIT / "docs" / "agent" / "templates"
+    brief     = " ".join((templates / "review-brief.template.md").read_text(encoding = "utf-8").split())
+    report    = " ".join((templates / "review-report.template.md").read_text(encoding = "utf-8").split())
+    standing  = (
+        "- **Paths a tool acts on.** Every path a tool is told to act on,",
+        "by an argument, a setting or the environment,",
+        "what stops it being the caller's own tree, a link, or another repository,",
+        "before and at the moment the act runs.",
+        "- **The environment a child is handed.** A child's environment is an allowlist.",
+        "make, git, pip, uv, libpq, pydantic-settings and Python's own `PYTHON*` variables in a Python repo,",
+        "and node, npm, next and git in a Next.js or Node one.",
+        "- **Two parsers of one string.** Wherever a check reads a string that another program reads again,",
+        "run both parsers, the check's and the consumer's own, on the same inputs",
+    )
+    for line in standing:
+        assert line in brief, f"the brief template lost {line!r}"
+    assert "| Files | Lines | Destroys |" in brief
+    assert "A final brief names first in its look for list every Blocks fix of the last Sol" in brief
+    assert "In a final brief, every Blocks fix of the last Sol round comes first, with its finding id." in brief
+    assert "From {HH:MM} to {HH:MM} {zone} on {YYYY-MM-DD}" in report
+    assert "`{n} tokens in, {n} tokens out`" in report
+    assert "runs the consumer's own parser on the check's inputs beside the check's" in report
+    assert "since v1.13.0" in process
+    assert "Three standing questions close every list, word for word from the template" in process
+    assert "A Blocks fix of the last Sol round does not. The final brief names it first" in process
+    assert "for a fix of the last Sol round the first place in the final brief, section 4 step 5." in process
+    assert "The table's Destroys column marks every tool in it that deletes, resets, cleans or overwrites" in process
+    assert "**Time and tokens are counted, not reported.**" in process
+    assert "`--timeout 14400` by default" in process
+    assert "`<report stem>.usage.json`" in process
+    assert "**Codex in the cloud is on trial, for the kdf-sdk's S2 alone.**" in process
+    assert "never `GH_PACKAGES_PAT` and never a token used anywhere else" in process
+    assert "an expiry of 30 days" in process
+    assert "**The first retrospective**, the kdf-sdk's S1" in process
+
+
 @dataclass
 class Rig:
     """
@@ -562,6 +625,7 @@ def _run(
         "KDF_CLAUDE_BIN": rig.stub.as_posix(),
         "STUB_LOG": rig.log.as_posix(),
         "STUB_MODE": mode,
+        "STUB_RESULT": RESULT,
         "TMPDIR": rig.tmp.as_posix(),
         **(env or {}),
     }
@@ -660,6 +724,81 @@ def test_a_missing_report_and_a_failing_claude_are_told_apart(rig: Rig) -> None:
     assert _launch(rig, mode = "noreport").returncode == 4
     (rig.repo / "docs" / "reviews" / "REPORT.md").unlink(missing_ok = True)
     assert _launch(rig, mode = "fail").returncode == 6
+
+
+def test_a_clean_run_leaves_claude_code_s_own_count_beside_the_report(rig: Rig) -> None:
+    """
+    The launcher asks claude for its JSON result and writes Claude Code's own count beside the report, the models, the
+    duration, the turns, the tokens summed over every model and the cost, with the start and end it saw and the pin.
+    The report is the reviewer's alone, untouched, and the result's own text is not copied. A retrospective reads the
+    run from here and not from what the reviewer wrote about itself.
+    """
+    done = _launch(rig, "--pin", "HEAD", "--model", "opus", "--effort", "max")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "--output-format json" in rig.log.read_text(encoding = "utf-8")
+    assert "for at most 14400 seconds" in done.stdout
+    assert "Claude Code counted the run, docs/reviews/REPORT.usage.json" in done.stdout
+    assert (rig.repo / "docs" / "reviews" / "REPORT.md").read_text(encoding = "utf-8") == "# report\nfinding\n"
+    count = json.loads((rig.repo / "docs" / "reviews" / "REPORT.usage.json").read_text(encoding = "utf-8"))
+    assert count["report"] == "docs/reviews/REPORT.md"
+    assert len(count["pin"]) == 40
+    assert (count["model_asked"], count["effort"]) == ("opus", "max")
+    assert count["models"] == ["claude-test-1", "claude-helper-1"]
+    assert (count["duration_ms"], count["duration_api_ms"], count["num_turns"]) == (2580000, 2410000, 41)
+    assert count["tokens"] == {"input": 1500, "cache_read": 900000, "cache_creation": 60000, "output": 38500}
+    assert count["total_cost_usd"] == 12.5
+    assert count["by_model"]["claude-helper-1"]["output"] == 500
+    assert count["started_at"].endswith("Z") and count["ended_at"] >= count["started_at"]
+    assert "THE REVIEWER WROTE THIS" not in json.dumps(count)
+
+
+def test_a_run_whose_result_is_not_json_says_so_and_writes_no_count(rig: Rig) -> None:
+    """
+    An older claude, or one that printed text, still closes the review clean, warns, and leaves no usage file.
+    """
+    done = _launch(rig, mode = "plain")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "claude gave no JSON result, so the run has no usage file" in done.stderr
+    assert not (rig.repo / "docs" / "reviews" / "REPORT.usage.json").exists()
+
+
+def test_a_failed_run_says_why_from_its_result_and_its_log(rig: Rig) -> None:
+    """
+    Exit 6 names claude's exit, the reason its JSON result gives, and the last lines of what it wrote on stderr.
+    """
+    done = _launch(rig, mode = "fail")
+    assert done.returncode == 6
+    assert "claude exited 9" in done.stderr
+    assert "its result says, error_during_execution, the API said no" in done.stderr
+    assert "a line on stderr" in done.stderr
+    assert not (rig.repo / "docs" / "reviews" / "REPORT.usage.json").exists()
+
+
+def test_a_run_past_its_time_is_stopped_and_says_so(rig: Rig) -> None:
+    """
+    --timeout stops a reviewer that runs longer, exit 6 with the reason, and the default is four hours.
+    """
+    has_timeout = subprocess.run(
+        [str(BASH), "-c", "timeout --version 2>/dev/null | grep -q coreutils"],
+        check = False,
+    ).returncode == 0
+    if not has_timeout:
+        pytest.skip("coreutils timeout is needed")
+    done = _launch(rig, "--timeout", "1", mode = "slow")
+    assert done.returncode == 6, done.stdout + done.stderr
+    assert "the reviewer ran past --timeout 1 seconds and was stopped" in done.stderr
+    assert "timeout_s=14400" in LAUNCHER.read_text(encoding = "utf-8")
+
+
+def test_an_earlier_run_s_count_is_never_overwritten(rig: Rig) -> None:
+    """
+    A usage file already beside the report belongs to another run, so the launcher refuses before claude starts.
+    """
+    (rig.repo / "docs" / "reviews" / "REPORT.usage.json").write_text("{}\n", encoding = "utf-8")
+    done = _launch(rig)
+    assert done.returncode == 2
+    assert "REPORT.usage.json already exists" in done.stderr
+    assert not rig.log.exists()
 
 
 def test_the_arguments_are_checked_before_anything_runs(rig: Rig) -> None:
@@ -935,6 +1074,7 @@ def test_codex_first_its_report_waits_outside_the_tree_while_claude_reads(rig: R
     assert "--prepare" not in done.stdout
     assert (rig.repo / "docs" / "reviews" / "CODEX.md").is_file()
     (rig.repo / "docs" / "reviews" / "REPORT.md").unlink()
+    (rig.repo / "docs" / "reviews" / "REPORT.usage.json").unlink()
     assert _launch(rig, "--codex-report", "docs/reviews/CODEX.md", mode = "tamper").returncode == 3
     assert (rig.repo / "docs" / "reviews" / "CODEX.md").is_file()
     assert not (_hold(rig) / "open").exists()
@@ -992,19 +1132,22 @@ def test_the_first_reviewer_s_notes_wait_outside_the_tree_with_its_report(rig: R
     """
     A brief lets a reviewer keep scratch notes beside its report, and they say what it found as plainly as the report
     does. A review of the SDK left three probes there and the orchestrator moved them out by hand. Every other
-    untracked file in the brief's folder waits with the report and comes back with it, byte for byte.
+    untracked file in the brief's folder waits with the report and comes back with it, byte for byte, the launcher's
+    count of the run among them.
     """
     archive = rig.repo / "docs" / "reviews"
     first   = _launch(rig, "--pin", "HEAD", "--codex-report", "docs/reviews/CODEX.md", mode = "scratch")
     assert first.returncode == 0, first.stdout + first.stderr
-    assert _names(archive) == ["BRIEF.md", "REPORT.md", "scratch.md"]
+    assert _names(archive) == ["BRIEF.md", "REPORT.md", "REPORT.usage.json", "scratch.md"]
+    count = (archive / "REPORT.usage.json").read_text(encoding = "utf-8")
     assert _prepare(rig).returncode == 0
     assert _names(archive) == ["BRIEF.md"]
     assert (_hold(rig) / "held" / "docs" / "reviews" / "scratch.md").read_text(encoding = "utf-8") == "notes\n"
     _codex_writes_its_report(rig)
     assert _collect(rig).returncode == 0
-    assert _names(archive) == ["BRIEF.md", "CODEX.md", "REPORT.md", "scratch.md"]
+    assert _names(archive) == ["BRIEF.md", "CODEX.md", "REPORT.md", "REPORT.usage.json", "scratch.md"]
     assert (archive / "scratch.md").read_text(encoding = "utf-8") == "notes\n"
+    assert (archive / "REPORT.usage.json").read_text(encoding = "utf-8") == count
     assert not (_hold(rig) / "open").exists()
 
 
@@ -1022,7 +1165,7 @@ def test_codex_first_its_notes_wait_while_claude_reads(rig: Rig) -> None:
     saw = rig.log.read_text(encoding = "utf-8").split("saw=")[1].splitlines()[0]
     assert "BRIEF.md" in saw
     assert "codex_probe.py" not in saw and "CODEX.md" not in saw
-    assert _names(archive) == ["BRIEF.md", "CODEX.md", "REPORT.md", "codex_probe.py"]
+    assert _names(archive) == ["BRIEF.md", "CODEX.md", "REPORT.md", "REPORT.usage.json", "codex_probe.py"]
     assert (archive / "codex_probe.py").read_text(encoding = "utf-8") == "print('probe')\n"
 
 
@@ -1329,7 +1472,10 @@ def test_a_report_that_does_not_show_what_it_read_is_warned_about(rig: Rig) -> N
         text = True,
         check = True,
     ).stdout.strip()
-    header = f"# report\n\nPin read, `{pin[:10]}`. Read first, AGENTS.md, WORKFLOW.md, the brief.\n"
+    header = (
+        f"# report\n\n- **Pin read.** `{pin[:10]}`.\n- **Read first.** AGENTS.md, WORKFLOW.md, the brief.\n"
+        "- **Time spent.** From 14:02 to 14:47 CDT on 2026-10-03.\n- **Usage.** 812,000 tokens in, 21,000 tokens out.\n"
+    )
     _cloud_branch(rig, "codex/named", {"docs/reviews/CODEX.md": header})
     named = _collect_branch(rig, "codex/named")
     assert named.returncode == 0, named.stderr
@@ -1340,6 +1486,37 @@ def test_a_report_that_does_not_show_what_it_read_is_warned_about(rig: Rig) -> N
     assert bare.returncode == 0
     assert "does not name the pin" in bare.stderr
     assert "does not list the files it read first" in bare.stderr
+    assert "has no Time spent line" in bare.stderr
+    assert "has no Usage line" in bare.stderr
+
+
+@pytest.mark.parametrize(
+    ("time_spent", "warned"),
+    [
+        ("- **Time spent.** From 14:02 to 14:47.", False),
+        ("- **Time/reviewer.** 2026-10-02 20:08:22 to 20:26:47 CDT, GPT-6 in Codex desktop.", False),
+        ("- **Time spent:** approximately 0.75 hours, not separately timed.", True),
+        ("- **Time spent.** About three hours.", True),
+    ],
+)
+def test_collect_warns_when_a_codex_report_gives_its_time_without_the_clock(
+    rig: Rig,
+    time_spent: str,
+    warned: bool,
+) -> None:
+    """
+    Seven of the kdf-sdk's first twelve reports gave minutes no tool could read. A collect of a report the launcher did
+    not start warns when its Time spent line holds no two clock times, and is quiet when it holds them, whatever label.
+    """
+    assert _prepare(rig).returncode == 0
+    (rig.repo / "docs" / "reviews" / "CODEX.md").write_text(
+        f"# codex report\n\n{time_spent}\n- **Usage.** unknown, the tool does not show it.\n",
+        encoding = "utf-8",
+    )
+    done = _collect(rig)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert ("gives its time without the clock" in done.stderr) is warned
+    assert "has no Usage line" not in done.stderr
 
 
 def _brief_tool(rig: Rig, command: str, *args: str) -> subprocess.CompletedProcess[str]:
@@ -1398,6 +1575,25 @@ def test_the_brief_tool_checks_a_scope_table_and_states_the_commit(rig: Rig) -> 
     ) in facts.stdout
 
 
+def test_the_brief_tool_checks_a_scope_table_with_its_destroys_column(rig: Rig) -> None:
+    """
+    The template's scope table has a third column that marks a tool which destroys. The counts are still checked, a
+    row with the cell filled or empty passes, and a stale count still fails.
+    """
+    brief = rig.tmp / "brief.md"
+    table = (
+        "| Files | Lines | Destroys |\n| --- | --- | --- |\n"
+        "| `src/app.py` | 1 | `git clean -fdx` at the `--worktree` path the caller names |\n"
+        "| Tests, `docs` | 1 | |\n"
+    )
+    brief.write_text(table, encoding = "utf-8", newline = "\n")
+    passed = _brief_tool(rig, "check", brief.as_posix())
+    assert passed.returncode == 0, passed.stdout
+    assert "ok    src/app.py, 1" in passed.stdout
+    brief.write_text(table.replace("| 1 | `git", "| 7 | `git"), encoding = "utf-8", newline = "\n")
+    assert _brief_tool(rig, "check", brief.as_posix()).returncode == 1
+
+
 def _retro_tool(folder: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [str(NODE), str(RETRO), str(folder)],
@@ -1437,9 +1633,9 @@ def test_the_retro_tool_counts_findings_escapes_minutes_and_missing_answers() ->
     claude = "`EX_REVIEW_S1_REPORT.md`"
     fable  = "claude-fable-5-1, Claude Code, effort max."
     assert sorted(reports) == [codex, final, claude], "a brief or another file was read as a report"
-    assert reports[codex] == ["gpt-5.5-codex, Codex in VS Code, effort high.", "45", "unknown", "unknown"]
-    assert reports[claude] == [fable, "42", "1,204,000", "38,500"]
-    assert reports[final] == [fable, "90", "900,000", "41,000"]
+    assert reports[codex] == ["gpt-5.5-codex, Codex in VS Code, effort high.", "45", "unknown", "unknown", "report"]
+    assert reports[claude] == [fable, "42", "1,204,000", "38,500", "report"]
+    assert reports[final] == [fable, "90", "900,000", "41,000", "report"]
     assert (
         "Escapes, agreed findings in the step 2 tree that a later source found, 2 of 3 (67%), `EX-S1-D1-R1-1`, "
         "`EX-S1-FIN-1`. 1 more agreed finding is marked unsure at the step 2 pin and is not counted."
@@ -1503,6 +1699,72 @@ def test_the_retro_tool_reads_a_stated_duration_marked_and_leaves_words_unknown(
     assert minutes["`EX_REVIEW_S1_REPORT.md`"] == "unknown"
     assert minutes["`EX_REVIEW_S1_FINAL_REPORT.md`"] == "90"
     assert "A number marked stated is the duration the report wrote, an estimate and not a clock" in done.stdout
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        ("- **Time spent.** 19:03 to 19:35 CDT, 2026-10-02, the clock's times.", "32"),
+        ("- **Time spent.** 14:02 CDT to 14:34 CDT.", "32"),
+        ("- **Time spent.** Recorded clock interval 2026-10-02 22:28:02–23:15:25 UTC, 47 minutes.", "47"),
+        ("- **Time spent.** 23:50-00:20, past midnight.", "30"),
+        ("- **Time spent:** approximately 0.75 hours, not separately timed.", "45 stated"),
+        ("- **Time/reviewer.** 2026-10-02 20:08:22 to 20:26:47 CDT, GPT-6 in Codex desktop.", "18"),
+        ("- **Reviewer/time:** Codex, a fresh session, approximately 0.25 hours.", "15 stated"),
+    ],
+)
+def test_the_retro_tool_clocks_the_ways_reports_wrote_their_time(tmp_path: Path, line: str, expected: str) -> None:
+    """
+    The kdf-sdk's first slice wrote its times seven ways, and five of its twelve reports printed unknown minutes. Two
+    clock times joined by "to" or a dash are clocked without From, a bare end after a dated start is that day's, a
+    label closed by a colon or shared with another, "Time/reviewer", is read, and a duration in digits stays stated.
+    """
+    slice_ = tmp_path / "s1-example"
+    shutil.copytree(RETRO_SLICE, slice_)
+    report = slice_ / "step-2-review" / "EX_REVIEW_S1_CODEX_REPORT.md"
+    text   = report.read_text(encoding = "utf-8")
+    old    = next(row for row in text.splitlines() if row.startswith("- **Time spent.**"))
+    report.write_text(text.replace(old, line), encoding = "utf-8")
+    done = _retro_tool(slice_)
+    assert done.returncode == 0, done.stderr
+    assert _report_minutes(done.stdout)["`EX_REVIEW_S1_CODEX_REPORT.md`"] == expected
+
+
+def test_the_retro_tool_reads_the_launcher_s_count_before_the_report_s_words(tmp_path: Path) -> None:
+    """
+    A report the launcher started has Claude Code's own count beside it. Its minutes and tokens come from there, tokens
+    in counting every input token, fresh and cached, the row says the launcher counted it, and a report with no
+    Reviewer line takes the count's models. A count that cannot be read leaves the report's own lines in charge.
+    """
+    slice_ = tmp_path / "s1-example"
+    shutil.copytree(RETRO_SLICE, slice_)
+    step2 = slice_ / "step-2-review"
+    count = {
+        "models": ["claude-test-1"],
+        "duration_ms": 2580000,
+        "tokens": {"input": 1500, "cache_read": 900000, "cache_creation": 60000, "output": 38500},
+    }
+    (step2 / "EX_REVIEW_S1_REPORT.usage.json").write_text(json.dumps(count), encoding = "utf-8")
+    report = step2 / "EX_REVIEW_S1_REPORT.md"
+    text   = report.read_text(encoding = "utf-8")
+    report.write_text(
+        "\n".join(row for row in text.splitlines() if not row.startswith("- **Reviewer.**")) + "\n",
+        encoding = "utf-8",
+    )
+    (step2 / "EX_REVIEW_S1_CODEX_REPORT.usage.json").write_text("not json", encoding = "utf-8")
+    done = _retro_tool(slice_)
+    assert done.returncode == 0, done.stderr
+    rows = {
+        cells[1]: cells[2:]
+        for cells in (
+            [cell.strip() for cell in line.strip().strip("|").split("|")]
+            for line in done.stdout.splitlines()
+            if line.startswith("| step-")
+        )
+    }
+    assert rows["`EX_REVIEW_S1_REPORT.md`"] == ["claude-test-1", "43", "961,500", "38,500", "launcher"]
+    assert rows["`EX_REVIEW_S1_CODEX_REPORT.md`"][1:] == ["45", "unknown", "unknown", "report"]
+    assert "Counted by the launcher is Claude Code's own count" in done.stdout
 
 
 def test_the_retro_tool_places_a_late_orchestrator_finding_and_shows_how_it_read_each_source(tmp_path: Path) -> None:
