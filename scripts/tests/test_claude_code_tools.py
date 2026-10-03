@@ -92,9 +92,13 @@ GUARD_RULES_IN_WORDS = (
     "follows no redirect",
 )
 
-# What claude -p prints with --output-format json, the shape of a real run's result trimmed to what the launcher reads,
-# two models as a run that started a helper model has
-RESULT = (
+# What claude -p prints with --output-format stream-json --verbose, one event a line, the shape of a real run's events
+# trimmed to what the launcher reads. The result comes last, with two models as a run that started a helper model has
+STREAM_START = (
+    '{"type":"system","subtype":"init","session_id":"s-1","model":"claude-test-1"}\n'
+    '{"type":"assistant","message":{"content":[{"type":"text","text":"reading the brief"}]},"session_id":"s-1"}'
+)
+RESULT       = (
     '{"type":"result","subtype":"success","is_error":false,"duration_ms":2580000,"duration_api_ms":2410000,'
     '"num_turns":41,"result":"THE REVIEWER WROTE THIS","session_id":"s-1","total_cost_usd":12.5,'
     '"usage":{"input_tokens":9,"output_tokens":9},'
@@ -103,14 +107,17 @@ RESULT = (
     '"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.5}}}'
 )
 
-# a stand in for claude, it writes what STUB_MODE says a reviewer did, records how it was started, and prints a result
+# a stand in for claude, it writes what STUB_MODE says a reviewer did, records how it was started and whether anything
+# reached its stdin, and streams its events with the result last
 STUB = """#!/usr/bin/env bash
 echo "role=${KDF_ROLE:-} selfedit=${KDF_GUARD_ALLOW_SELF_EDIT:-unset}" >> "$STUB_LOG"
 echo "args=$*" >> "$STUB_LOG"
 echo "pwd=$(pwd)" >> "$STUB_LOG"
 echo "app=$(head -n 1 src/app.py 2>/dev/null)" >> "$STUB_LOG"
 echo "saw=$(ls docs/reviews | tr '\\n' ' ')" >> "$STUB_LOG"
+if IFS= read -r -t 2 fed; then echo "stdin=fed" >> "$STUB_LOG"; else echo "stdin=empty" >> "$STUB_LOG"; fi
 report=$(printf '%s' "$2" | sed -n 's/.*write your report to \\(.*\\), edit nothing else\\./\\1/p')
+[ "${STUB_MODE:-clean}" = plain ] || printf '%s\\n' "$STUB_START"
 case "${STUB_MODE:-clean}" in
 	clean) printf '# report\\nfinding\\n' > "$report" ;;
 	tamper) printf '# report\\n' > "$report"; echo "x = 2" >> src/app.py ;;
@@ -128,8 +135,10 @@ case "${STUB_MODE:-clean}" in
 		echo '{"type":"result","subtype":"error_during_execution","is_error":true,"result":"the API said no"}'
 		echo "a line on stderr" >&2
 		exit 9 ;;
+	crash) printf '# report\\n' > "$report"; echo "Segmentation fault" >&2; exit 139 ;;
 esac
 printf '%s\\n' "$STUB_RESULT"
+echo "Warning: a notice claude printed after its result" >&2
 """
 
 pytestmark = pytest.mark.skipif(
@@ -538,6 +547,8 @@ def test_the_first_retrospective_s_changes_are_in_the_kit() -> None:
     assert "**Time and tokens are counted, not reported.**" in process
     assert "`--timeout 14400` by default" in process
     assert "`<report stem>.usage.json`" in process
+    assert "`--output-format stream-json --verbose`, so the run's log holds each event as it happens" in process
+    assert "from the stream's last result event" in process
     assert "**Codex in the cloud is on trial, for the kdf-sdk's S2 alone.**" in process
     assert "never `GH_PACKAGES_PAT` and never a token used anywhere else" in process
     assert "an expiry of 30 days" in process
@@ -625,16 +636,19 @@ def _run(
         "KDF_CLAUDE_BIN": rig.stub.as_posix(),
         "STUB_LOG": rig.log.as_posix(),
         "STUB_MODE": mode,
+        "STUB_START": STREAM_START,
         "STUB_RESULT": RESULT,
         "TMPDIR": rig.tmp.as_posix(),
         **(env or {}),
     }
+    # input is fed to the launcher's stdin, so a claude that inherited it would read it
     return subprocess.run(
         [str(BASH), str(LAUNCHER), *args],
         capture_output = True,
         text = True,
         env = environment,
         check = False,
+        input = "a line a reviewer must never read\n",
     )
 
 
@@ -726,16 +740,35 @@ def test_a_missing_report_and_a_failing_claude_are_told_apart(rig: Rig) -> None:
     assert _launch(rig, mode = "fail").returncode == 6
 
 
+def _launcher_log(rig: Rig, done: subprocess.CompletedProcess[str]) -> Path:
+    """
+    The run's log, in the work folder the launcher made under the rig's TMPDIR. Git Bash prints that folder in its own
+    spelling, /tmp for the Windows temp folder, so the log is found in the rig rather than read from the message.
+    """
+    assert ", its log " in next(row for row in done.stdout.splitlines() if row.startswith("kdf-review: starting"))
+    logs = sorted(rig.tmp.glob("kdf-review.*/claude.log"))
+    assert len(logs) == 1, logs
+    return logs[0]
+
+
 def test_a_clean_run_leaves_claude_code_s_own_count_beside_the_report(rig: Rig) -> None:
     """
-    The launcher asks claude for its JSON result and writes Claude Code's own count beside the report, the models, the
-    duration, the turns, the tokens summed over every model and the cost, with the start and end it saw and the pin.
-    The report is the reviewer's alone, untouched, and the result's own text is not copied. A retrospective reads the
-    run from here and not from what the reviewer wrote about itself.
+    The launcher runs claude with stream-json, so its log holds every event as the run goes and can be watched, and
+    writes Claude Code's own count beside the report from the stream's last result event, the models, the duration,
+    the turns, the tokens summed over every model and the cost, with the start and end it saw and the pin. A notice
+    claude prints after its result does not hide it. The report is the reviewer's alone, untouched, and the result's
+    own text is not copied. Nothing reaches claude's stdin. A retrospective reads the run from here and not from what
+    the reviewer wrote about itself.
     """
     done = _launch(rig, "--pin", "HEAD", "--model", "opus", "--effort", "max")
     assert done.returncode == 0, done.stdout + done.stderr
-    assert "--output-format json" in rig.log.read_text(encoding = "utf-8")
+    stub = rig.log.read_text(encoding = "utf-8")
+    assert "--output-format stream-json --verbose" in stub
+    assert "stdin=empty" in stub
+    events = _launcher_log(rig, done).read_text(encoding = "utf-8").splitlines()
+    assert events[0].startswith('{"type":"system","subtype":"init"')
+    assert '"text":"reading the brief"' in events[1]
+    assert events[-1] == "Warning: a notice claude printed after its result"
     assert "for at most 14400 seconds" in done.stdout
     assert "Claude Code counted the run, docs/reviews/REPORT.usage.json" in done.stdout
     assert (rig.repo / "docs" / "reviews" / "REPORT.md").read_text(encoding = "utf-8") == "# report\nfinding\n"
@@ -752,19 +785,20 @@ def test_a_clean_run_leaves_claude_code_s_own_count_beside_the_report(rig: Rig) 
     assert "THE REVIEWER WROTE THIS" not in json.dumps(count)
 
 
-def test_a_run_whose_result_is_not_json_says_so_and_writes_no_count(rig: Rig) -> None:
+def test_a_run_whose_log_holds_no_result_says_so_and_writes_no_count(rig: Rig) -> None:
     """
     An older claude, or one that printed text, still closes the review clean, warns, and leaves no usage file.
     """
     done = _launch(rig, mode = "plain")
     assert done.returncode == 0, done.stdout + done.stderr
-    assert "claude gave no JSON result, so the run has no usage file" in done.stderr
+    assert "the log holds no result from claude, so the run has no usage file" in done.stderr
     assert not (rig.repo / "docs" / "reviews" / "REPORT.usage.json").exists()
 
 
 def test_a_failed_run_says_why_from_its_result_and_its_log(rig: Rig) -> None:
     """
-    Exit 6 names claude's exit, the reason its JSON result gives, and the last lines of what it wrote on stderr.
+    Exit 6 names claude's exit, the reason the stream's result event gives, and the last lines of its log, stderr
+    among them.
     """
     done = _launch(rig, mode = "fail")
     assert done.returncode == 6
@@ -774,9 +808,23 @@ def test_a_failed_run_says_why_from_its_result_and_its_log(rig: Rig) -> None:
     assert not (rig.repo / "docs" / "reviews" / "REPORT.usage.json").exists()
 
 
+def test_a_run_that_crashed_before_its_result_says_so(rig: Rig) -> None:
+    """
+    A claude that died before it wrote a result event leaves a stream with no result. Exit 6 says the log holds none,
+    and shows the log's last lines, the crash's own words among them.
+    """
+    done = _launch(rig, mode = "crash")
+    assert done.returncode == 6
+    assert "claude exited 139" in done.stderr
+    assert "its log holds no result, the run ended before claude wrote one" in done.stderr
+    assert "its result says" not in done.stderr
+    assert "Segmentation fault" in done.stderr
+
+
 def test_a_run_past_its_time_is_stopped_and_says_so(rig: Rig) -> None:
     """
-    --timeout stops a reviewer that runs longer, exit 6 with the reason, and the default is four hours.
+    --timeout stops a reviewer that runs longer, exit 6 with the reason, and the default is four hours. A stopped run
+    wrote no result, the log says what it had streamed so far.
     """
     has_timeout = subprocess.run(
         [str(BASH), "-c", "timeout --version 2>/dev/null | grep -q coreutils"],
@@ -787,6 +835,8 @@ def test_a_run_past_its_time_is_stopped_and_says_so(rig: Rig) -> None:
     done = _launch(rig, "--timeout", "1", mode = "slow")
     assert done.returncode == 6, done.stdout + done.stderr
     assert "the reviewer ran past --timeout 1 seconds and was stopped" in done.stderr
+    assert "its log holds no result, the run ended before claude wrote one" in done.stderr
+    assert '"subtype":"init"' in done.stderr
     assert "timeout_s=14400" in LAUNCHER.read_text(encoding = "utf-8")
 
 

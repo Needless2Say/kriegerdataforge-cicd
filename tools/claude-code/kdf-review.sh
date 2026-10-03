@@ -19,9 +19,10 @@
 # without the owner's self edit switch, snapshots again, and fails the run when anything but a new file under
 # docs/reviews, the review archive, changed. The review opens when claude starts and closes when it ends. --timeout
 # stops a reviewer that runs longer, 14400 seconds by default, four hours, since a slice's first read has taken three.
-# A clean run leaves Claude Code's own count of it beside the report, <report stem>.usage.json, the models, the start
-# and end, the duration, the turns, the tokens and the cost, so a retrospective measures the run rather than reading
-# what the reviewer wrote about itself. The report itself is never touched.
+# The run's log is claude's stream-json, one event a line as the run goes, so a detached run is watched by its log. A
+# clean run leaves Claude Code's own count of it beside the report, <report stem>.usage.json, read from the stream's
+# last result event, the models, the start and end, the duration, the turns, the tokens and the cost, so a
+# retrospective measures the run rather than reading what the reviewer wrote about itself. The report is never touched.
 #
 # A reviewer without the guard, Codex. --prepare checks the pin, snapshots git, opens the review, and prints the one
 # line the owner gives the reviewer in this folder. --collect, once the report is written, checks git the same way and
@@ -274,16 +275,33 @@ usage_path() {
 	esac
 }
 
-# write_usage <claude's result> <the usage file>, Claude Code's own count of the run, read from its JSON result. The
-# models, the start and end the launcher saw, the duration, the turns, the tokens summed over every model, and the cost.
-# Never the result's text and never the report. A result that is not JSON writes nothing and fails
+# The run's log is claude's stream, one JSON event a line as the run goes, with what claude writes on stderr between
+# them. Its result is the last event whose type is result, which claude writes when the run ends, so a run that was
+# stopped or crashed has none. Lines that are not JSON, a warning, a cut off last line, are passed over
+LAST_RESULT_JS='
+const lastResult = (file) => {
+  let lines;
+  try { lines = require("fs").readFileSync(file, "utf8").split(/\r?\n/); } catch (err) { return null; }
+  for (let k = lines.length - 1; k >= 0; k--) {
+    const line = lines[k].trim();
+    if (!line.startsWith("{")) continue;
+    let event;
+    try { event = JSON.parse(line); } catch (err) { continue; }
+    if (event && typeof event === "object" && !Array.isArray(event) && event.type === "result") return event;
+  }
+  return null;
+};
+'
+
+# write_usage <the run's log> <the usage file>, Claude Code's own count of the run, read from the result event at the
+# end of its stream. The models, the start and end the launcher saw, the duration, the turns, the tokens summed over
+# every model, and the cost. Never the result's text and never the report. A log with no result writes nothing and fails
 write_usage() {
-	node -e '
+	node -e "$LAST_RESULT_JS"'
 const fs = require("fs");
 const [from, to, report, pin, asked, effort, started, ended] = process.argv.slice(1);
-let r;
-try { r = JSON.parse(fs.readFileSync(from, "utf8")); } catch (err) { process.exit(1); }
-if (!r || typeof r !== "object" || Array.isArray(r)) process.exit(1);
+const r = lastResult(from);
+if (!r) process.exit(1);
 const per = r.modelUsage && typeof r.modelUsage === "object" ? r.modelUsage : {};
 const models = Object.keys(per);
 const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
@@ -309,14 +327,14 @@ fs.writeFileSync(to, JSON.stringify(record, null, 2) + "\n");
 ' "$1" "$2" "$report_rel" "$sha" "$model" "$effort" "$started_at" "$ended_at"
 }
 
-# result_says <claude's result>, what a failed run's JSON result gives as its reason, on one line, or nothing
+# result_says <the run's log>, what a failed run's result event gives as its reason, on one line. Exit 1 when the log
+# holds no result event, exit 2 when it holds one that gives no reason
 result_says() {
-	node -e '
-const fs = require("fs");
-let r;
-try { r = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch (err) { process.exit(1); }
+	node -e "$LAST_RESULT_JS"'
+const r = lastResult(process.argv[1]);
+if (!r) process.exit(1);
 const said = [r.subtype, r.api_error_status, typeof r.result === "string" ? r.result : ""].filter(Boolean).join(", ");
-if (!said) process.exit(1);
+if (!said) process.exit(2);
 process.stdout.write(said.replace(/\s+/g, " ").slice(0, 400));
 ' "$1" 2>/dev/null
 }
@@ -456,7 +474,6 @@ fi
 # ---- 6. a Claude reviewer, which needs the guard installed and wired
 work="$(mktemp -d "${TMPDIR:-/tmp}/kdf-review.XXXXXX")"
 log="$work/claude.log"
-result="$work/claude.json"
 usage_rel="$(usage_path "$report_rel")"
 [ ! -e "$repo/$usage_rel" ] \
 	|| die 2 "$usage_rel already exists, it belongs to an earlier run of this report. Move it first"
@@ -472,7 +489,9 @@ canary() {
 canary 2 reviewer "git add ."
 canary 2 "" "git push origin main"
 
-args=(-p "$claude_line" --output-format json)
+# stream-json writes each event of the run as it happens, so a detached run's log shows its progress, and its last
+# event is the result the usage file is read from. --verbose is what stream-json needs with -p
+args=(-p "$claude_line" --output-format stream-json --verbose)
 [ -n "$model" ] && args+=(--model "$model")
 [ -n "$effort" ] && args+=(--effort "$effort")
 runner=()
@@ -488,11 +507,11 @@ trap 'exit 143' TERM
 hold_out "$codex_rel"
 hold_notes
 snapshot >"$work/before"
-printf 'kdf-review: starting the reviewer in %s, for at most %s seconds, its result %s and its log %s\n' \
-	"$repo" "$timeout_s" "$result" "$log"
+printf 'kdf-review: starting the reviewer in %s, for at most %s seconds, its log %s\n' "$repo" "$timeout_s" "$log"
 started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+# stdin from /dev/null, or claude waits for piped input before it starts
 (cd "$repo" && env -u KDF_GUARD_ALLOW_SELF_EDIT KDF_ROLE=reviewer "${runner[@]}" "$claude_bin" "${args[@]}") \
-	>"$result" 2>"$log"
+	</dev/null >"$log" 2>&1
 rc=$?
 ended_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 snapshot >"$work/after"
@@ -500,7 +519,7 @@ mapfile -t violations < <(compare "$work/before" "$work/after")
 if [ "${#violations[@]}" -gt 0 ]; then
 	printf 'kdf-review: CONTAMINATION. The reviewer changed what it must not. Nothing was reverted.\n' >&2
 	printf '  %s\n' "${violations[@]}" | sort -u >&2
-	printf 'kdf-review: result %s, log %s\n' "$result" "$log" >&2
+	printf 'kdf-review: log %s\n' "$log" >&2
 	exit 3
 fi
 if [ "$rc" -ne 0 ]; then
@@ -509,19 +528,23 @@ if [ "$rc" -ne 0 ]; then
 	else
 		printf 'kdf-review: claude exited %s\n' "$rc" >&2
 	fi
-	said="$(result_says "$result")" && printf 'kdf-review: its result says, %s\n' "$said" >&2
+	said="$(result_says "$log")"
+	case $? in
+		0) printf 'kdf-review: its result says, %s\n' "$said" >&2 ;;
+		1) printf 'kdf-review: its log holds no result, the run ended before claude wrote one\n' >&2 ;;
+	esac
+	# an event of the stream can be a whole file a tool read, so each line is cut short
 	printf 'kdf-review: last lines of %s\n' "$log" >&2
-	tail -n 15 "$log" >&2
+	tail -n 15 "$log" | cut -c 1-300 >&2
 	exit 6
 fi
-[ -s "$repo/$report_rel" ] || die 4 "the reviewer wrote no report at $report_rel, see $result and $log"
+[ -s "$repo/$report_rel" ] || die 4 "the reviewer wrote no report at $report_rel, see $log"
 
-printf 'kdf-review: clean. Report %s, %s lines, result %s, log %s\n' \
-	"$report_rel" "$(wc -l <"$repo/$report_rel" | tr -d ' ')" "$result" "$log"
-if write_usage "$result" "$repo/$usage_rel"; then
+printf 'kdf-review: clean. Report %s, %s lines, log %s\n' "$report_rel" "$(wc -l <"$repo/$report_rel" | tr -d ' ')" "$log"
+if write_usage "$log" "$repo/$usage_rel"; then
 	printf 'kdf-review: Claude Code counted the run, %s\n' "$usage_rel"
 else
-	printf 'kdf-review: warning, claude gave no JSON result, so the run has no usage file. See %s\n' "$result" >&2
+	printf 'kdf-review: warning, the log holds no result from claude, so the run has no usage file. See %s\n' "$log" >&2
 fi
 check_header "$repo/$report_rel" "$sha"
 if [ -n "$codex_rel" ] && [ ! -e "$repo/$codex_rel" ] && [ ! -e "$hold/held/$codex_rel" ]; then

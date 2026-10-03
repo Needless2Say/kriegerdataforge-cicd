@@ -2127,11 +2127,13 @@ built them.
   as before. The report template asks a probe of such a check to run the consumer's own parser on the check's inputs.
 - **The last Sol round's Blocks fixes are read by the final reviews.** The final brief names each first in its look for
   list, and it earns no narrow second read of its own. A Blocks finding of the final reviews still does.
-- **Runs are counted, not reported.** The launcher runs `claude -p` with `--output-format json`, keeps the result and
-  the log apart, and after a clean run writes `<report stem>.usage.json` beside the report, Claude Code's own count, the
-  models, the start and end it saw, the duration, the turns, the tokens summed over every model, fresh and cached, and
-  the cost. The report is never touched and the result's text is not copied. A failed run names claude's exit, the
-  reason its result gives and the log's last lines. `kdf-retro.js` reads a report's minutes and tokens from that file
+- **Runs are counted, not reported.** The launcher runs `claude -p` with `--output-format stream-json --verbose`, its
+  stdin closed, so the run's log holds each event as it happens, one JSON object a line, and a detached run is watched
+  by its log. After a clean run it writes `<report stem>.usage.json` beside the report from the stream's last result
+  event, Claude Code's own count, the models, the start and end it saw, the duration, the turns, the tokens summed over
+  every model, fresh and cached, and the cost. The report is never touched and the result's text is not copied. A
+  failed run names claude's exit, the reason its result event gives, or that the log holds none when the run was
+  stopped or crashed first, and the log's last lines. `kdf-retro.js` reads a report's minutes and tokens from that file
   first, and marks the row counted by the launcher. For the reports it did not start it now clocks two times joined by
   "to" or a dash, a bare end after a dated start, and a label closed by a colon or shared with another, "Time/reviewer".
   On S1's own folder that turns five readable times of twelve into ten. Every collect warns when a report the launcher
@@ -2154,17 +2156,19 @@ built them.
 
 - The report template's lines made exact and checked, with no count by the launcher. Taken too, for Codex and any
   reviewer the launcher does not start, but a model cannot count its own tokens, so for Claude the launcher counts.
-- `--output-format stream-json`, a live log of the run. Not now, the one result at the end carries every number the
-  retrospective reads, and the log stays readable.
+- `--output-format json`, one result object when the run ends. Built first and replaced before the merge at the
+  orchestrator's reading, since S1's long reads were watched by their log and a single object at the end shows nothing
+  while a read runs. The stream's last event is the same result.
 - Codex in the cloud as the default road at once. Not taken, the owner chose one slice on trial, and the product page
   now calls the environments "Codex Cloud (Legacy)".
 - The setup script writing the token into git's config or a requirements file. Rejected, the rehearsal below shows an
   image's credential helper writes a token git saw in a URL to `~/.git-credentials` when git reads the global config.
 
-**Trade-offs.** A Claude run's live text is no longer in the log, since the result arrives as one JSON object at the
-end, so a stuck run shows only what claude wrote on stderr. The usage file is one more file per Claude report for the
-orchestrator to commit. A Codex review in the cloud cannot run the consumer check, which needs the token after setup,
-and the token lives in OpenAI's store for 30 days. Three standing bullets lengthen every brief by six lines.
+**Trade-offs.** The log is JSON a line rather than plain text, and holds every event of the run, what each tool read
+among them, in the launcher's work folder in the system temp folder as before. The usage file is one more file per
+Claude report for the orchestrator to commit. A Codex review in the cloud cannot run the consumer check, which needs
+the token after setup, and the token lives in OpenAI's store for 30 days. Three standing bullets lengthen every brief
+by six lines.
 
 **Proof.** The setup script was rehearsed in `python:3.14.7-slim` with a fake token and a local git server standing in
 for GitHub, the reviewed repo's Makefile handing the token to git as the kdf-sdk's does. A token planted in the home
@@ -2172,8 +2176,9 @@ folder failed the setup with exit 3 and its path alone printed. With the script'
 helper set up as an image might, git stored the token in `~/.git-credentials` and the self check failed the setup. The
 shipped script then installed the private stand in, its `direct_url.json` recorded the URL without the token, and the
 value was found nowhere on the container's disk. The tests repeat each case with a stub install, and the launcher's
-and the retrospective tool's tests run on a stub claude that prints a real result's shape, measured with
-`claude -p --output-format json` on 2026-10-03.
+and the retrospective tool's tests run on a stub claude that streams a real run's shape, measured with
+`claude -p --output-format stream-json --verbose` on 2026-10-03, an init event, the assistant's events, a rate limit
+event and the result last.
 
 **Consequences.** S2's briefs carry the three questions and its final reviews read the last round's fixes, its Claude
 reports arrive with their counts, and S2's retrospective reads the trial and the escape rate against S1's 72 percent.

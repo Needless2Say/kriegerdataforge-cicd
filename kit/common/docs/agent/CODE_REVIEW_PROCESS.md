@@ -548,12 +548,14 @@ scope table or another review of the folder open, 3 contamination, 4 no report, 
 ran past its time. Without `--pin` the reviewer reads the folder as it stands, for a quick look at uncommitted work.
 
 **Time and tokens are counted, not reported.** A Claude reviewer runs for at most four hours, `--timeout 14400` by
-default, since a slice's first read has taken three, and a run past that is stopped and exits 6 saying so. A clean run
-leaves `<report stem>.usage.json` beside the report, Claude Code's own count of the run from the JSON result of
-`claude -p`, the models, the start and end, the duration, the turns, the tokens and the cost. The reviewer never
-writes it and the report is never touched. `kdf-retro.js` reads a report's minutes and tokens from it, the orchestrator
-commits it with the report, and while the other reviewer of the pin reads it waits outside the tree with the first
-report's scratch notes.
+default, since a slice's first read has taken three, and a run past that is stopped and exits 6 saying so. The
+launcher runs `claude -p` with `--output-format stream-json --verbose`, so the run's log holds each event as it
+happens, one JSON object a line, and a detached run is watched by its log. A clean run leaves
+`<report stem>.usage.json` beside the report, Claude Code's own count of the run from the stream's last result event,
+the models, the start and end, the duration, the turns, the tokens and the cost. A run stopped or crashed before that
+event has no count, and the launcher says so. The reviewer never writes it and the report is never touched.
+`kdf-retro.js` reads a report's minutes and tokens from it, the orchestrator commits it with the report, and while the
+other reviewer of the pin reads it waits outside the tree with the first report's scratch notes.
 
 **The brief's facts.** `node <cicd>/tools/claude-code/kdf-brief.js counts --repo <repo> --pin HEAD <label>=<paths>`
 prints the scope table's rows with the line counts at the pin, and `facts`, run on the state commit before the brief's
