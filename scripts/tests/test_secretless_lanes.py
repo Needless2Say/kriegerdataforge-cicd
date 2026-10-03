@@ -731,19 +731,43 @@ def test_the_style_lanes_fetch_always_runs_and_mirrors_the_formatter_alone():
 def test_this_public_repo_runs_its_own_style_check_in_isolated_mode():
     """
     The fetch refuses a public caller's mirror of a private repo, so this public repo's CI cannot call the shared lane.
-    Its own check holds the token in one job, minted for the formatter alone, with the command fixed and isolated.
+    It calls the lane for public repos (D-044), one job that holds the token, with its own baseline, and the check
+    keeps the name `style / Style (kdf-fmt)`. The lane's own shape is held by the public lane's tests below.
     """
     style = _jobs(_text("ci.yml"))["style"]
-    assert "    uses: ./.github/workflows/ci-kdf-fmt-self.yml\n" in style and "check_command" not in style
-    text = _text("ci-kdf-fmt-self.yml")
+    assert "    uses: ./.github/workflows/ci-kdf-fmt-public.yml\n" in style and "check_command" not in style
+    assert "      baseline: kdf-style-debt.json\n" in style
+    assert not (WORKFLOWS / "ci-kdf-fmt-self.yml").exists(), "one one job style check, not two that can drift"
+
+
+def test_a_public_caller_runs_the_style_check_in_one_job_that_leaves_no_artifact():
+    """
+    D-044. The two public portfolios cannot call the shared lane either, so their check is this repo's own shape, one
+    job, the token minted for the formatter alone, a token required before the install, nothing uploaded, the command
+    fixed and isolated, and only a baseline file name taken from the caller.
+    """
+    text = _text("ci-kdf-fmt-public.yml")
     jobs = _jobs(text)
     assert list(jobs) == ["style"] and jobs["style"].startswith("    name: Style (kdf-fmt)\n")
-    assert "check_command" not in text and "inputs.check_command" not in text
+    assert "upload-artifact" not in text and "download-artifact" not in text
+    assert "check_command" not in text and "\n      lanes:" not in text
     assert "          repositories: kriegerdataforge-fmt\n" in text
     assert "          persist-credentials: false\n" in text
+    steps = re.findall(r"^      - name: (.+)$", text, flags = re.MULTILINE)
+    assert steps.index("Require a token for the formatter") < steps.index("Install kdf-fmt (pinned, isolated mode)")
+    assert "            python -I -m kdf_fmt.cli check --no-cache --baseline \"$BASELINE\"\n" in text
+    assert "            python -I -m kdf_fmt.cli check --no-cache\n" in text
+    check = text[text.index("      - name: kdf-fmt check\n"):]
+    assert "${{" not in check.split("        run: |\n", 1)[1], "no expression is written into the shell"
+
+
+def test_the_public_lane_mints_for_the_formatter_alone_and_installs_isolated():
+    text = _text("ci-kdf-fmt-public.yml")
+    assert "        if: ${{ vars.USE_GITHUB_APP == 'true' }}\n" in text
+    assert "          permission-contents: read\n" in text
+    assert "          GIT_CONFIG_GLOBAL: /dev/null\n" in text and "          GIT_CONFIG_NOSYSTEM: \"1\"\n" in text
     assert 'run: python -I -m pip install --quiet "kdf-fmt @ git+https://github.com/Needless2Say/' \
            'kriegerdataforge-fmt.git@$KDF_FMT_REF"\n' in text
-    assert "        run: python -I -m kdf_fmt.cli check --no-cache --baseline kdf-style-debt.json\n" in text
 
 
 def test_isolated_mode_keeps_the_checkout_from_standing_in_for_pip_and_the_formatter(tmp_path):

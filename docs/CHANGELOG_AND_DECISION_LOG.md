@@ -2337,4 +2337,42 @@ pull request, which runs its style check on v1.3.0 and fixes any new finding the
 again, and the ten repos receive scripts 1.5.0. The seven sync pull requests already opened carry v1.1.1 in
 `requirements-dev.in`, and their repos' pin pull requests move it.
 
+---
+
+## D-044. A public repo's style check is one job that leaves no artifact
+
+- **Date.** 2026-10-03
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Completes D-038 for public
+  callers, this repo among them, and retires its `ci-kdf-fmt-self.yml`.
+- **Tier / scope:** Standard · the new `ci-kdf-fmt-public.yml` · `ci-kdf-fmt-self.yml` removed · this repo's `ci.yml` ·
+  `ci-python-kdf-fmt.yml`'s header ·
+  `docs/reference/WORKFLOWS.md` · `docs/security/CONTROL_PLANE_SECURITY.md` · the tests · the two public portfolios'
+  `ci.yml`
+
+**Context.** D-038 split the style lane so its check job names no secret, the formatter reaching it as a mirror in a
+run artifact. A run artifact of a public repo is readable by anyone, so the fetch refuses a public caller's mirror of
+the private formatter. D-038 gave this public repo its own one job check, `ci-kdf-fmt-self.yml`, and left the two
+public portfolios, `arthurs-portfolio` and `kriegerdataforge-portfolio`, calling the shared lane, whose fetch now fails
+them on every run with "kriegerdataforge-fmt is private and the calling repo is public". The kdf-fmt v1.3.0 pin pull
+requests of 2026-10-03 (arthurs-portfolio 99, kriegerdataforge-portfolio 69) showed it, no pin can make it green.
+
+**Decision.** The owner chose, 2026-10-03, "A public-repo lane". `ci-kdf-fmt-public.yml` is this repo's own check
+made callable. One job named `Style (kdf-fmt)`, so a caller's check keeps the name `style / Style (kdf-fmt)`. The token
+is minted for `kriegerdataforge-fmt` alone and read only, App token first and `GH_PACKAGES_PAT` after. A first step
+fails by name when no token reaches the job, a fork's or Dependabot's run, so such a run never passes. The install and
+the check run in isolated mode, the check's command is fixed, and the caller names only an optional `baseline` file,
+a plain name in the repo's root. Nothing is uploaded. This repo's own `ci.yml` calls the new lane too, with its
+`kdf-style-debt.json` baseline, so its check keeps the name `style / Style (kdf-fmt)`, and `ci-kdf-fmt-self.yml` is
+retired, leaving one one job style check that cannot drift from a second.
+
+**Consequences.** This repo's check runs on the new lane from this pull request on. The two portfolios' style check
+passes once this merges and each repo holds the token,
+`USE_GITHUB_APP` with `KDF_APP_ID` and `KDF_APP_PRIVATE_KEY` or `GH_PACKAGES_PAT`, which the owner sets. Without one it
+fails with the message that says so, as a fork's run does. Pinned by
+`test_a_public_caller_runs_the_style_check_in_one_job_that_leaves_no_artifact`,
+`test_the_public_lane_mints_for_the_formatter_alone_and_installs_isolated`,
+`test_this_public_repo_runs_its_own_style_check_in_isolated_mode`,
+`test_the_public_style_lane_fails_closed_without_a_token` (whose cases fail on a step that never checks) and
+`test_the_public_style_lane_runs_one_fixed_command`.
+
 
