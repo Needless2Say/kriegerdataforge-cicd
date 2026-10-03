@@ -164,12 +164,54 @@ def test_a_pyproject_with_project_urls_plans_on_the_default_files(tmp_path):
         'Repository = "https://github.com/Needless2Say/kriegerdataforge-sdk"',
         "",
     ])
-    data      = _plan(
-        tmp_path,
-        {"pyproject.toml": pyproject},
-        REQUIREMENT_FILES = "requirements.txt requirements-dev.txt requirements-test.txt pyproject.toml",
-    )
+    data      = _plan(tmp_path, {"pyproject.toml": pyproject}, REQUIREMENT_FILES = _default_requirement_files())
     assert [(pin["repo"], pin["ref"]) for pin in data["pins"]] == [("kriegerdataforge-sdk", SDK_SHA)]
+
+
+def _requirement_files_default(text: str) -> str:
+    found = re.search(
+        r'^      requirement_files:\n(?:        .*\n)*?        default: "([^"]*)"$',
+        text.replace("\r\n", "\n"),
+        flags = re.MULTILINE,
+    )
+    assert found, "no requirement_files input with a default"
+    return found.group(1)
+
+
+def _default_requirement_files() -> str:
+    template = ROOT / "scripts" / "fetch_private_job.template.yml"
+    return _requirement_files_default(template.read_text(encoding = "utf-8"))
+
+
+@pytest.mark.parametrize("name", [*JOB_B, "fetch-private-packages.yml"])
+def test_every_lane_declares_the_templates_default_files(name):
+    """
+    Each lane declares its own inputs, outside the rendered sections, so nothing else holds its default to the
+    template's. D-041 found the copies equal and the list short.
+    """
+    assert _requirement_files_default(_text(name)) == _default_requirement_files()
+
+
+@pytest.mark.parametrize("name", ["requirements.in", "requirements-dev.in", "requirements-test.in"])
+def test_a_pin_in_a_compile_input_is_read_on_the_default_files(tmp_path, name):
+    """
+    A repo that locks with uv or pip-compile keeps its private pins in the `.in` files, a backend's kdf-fmt pin in
+    `requirements-dev.in`. The default once named the compiled files alone, and a lane that installs
+    `requirements-dev.in` failed at install with its private package missing from the mirrors (D-041).
+    """
+    data = _plan(tmp_path, {name: f"kdf-fmt @ {FMT_URL}@v1.3.0\n"}, REQUIREMENT_FILES = _default_requirement_files())
+    assert [(pin["repo"], pin["ref"]) for pin in data["pins"]] == [("kriegerdataforge-fmt", "v1.3.0")]
+
+
+def test_a_pin_in_a_compile_input_and_its_lock_is_planned_once(tmp_path):
+    line = f"kdf-fmt @ {FMT_URL}@v1.3.0\n"
+    data = _plan(
+        tmp_path,
+        {"requirements-dev.in": line, "requirements-dev.txt": line},
+        REQUIREMENT_FILES = _default_requirement_files(),
+    )
+    assert [(pin["repo"], pin["ref"]) for pin in data["pins"]] == [("kriegerdataforge-fmt", "v1.3.0")]
+    assert data["repositories"] == ["kriegerdataforge-fmt"]
 
 
 def _link(link: Path, target: Path) -> None:

@@ -35,7 +35,7 @@ on:
       requirement_files:
         description: The caller's requirement files the fetch reads for git+https pins of the owner's private repos, space separated, a missing one skipped
         type: string
-        default: "requirements.txt requirements-dev.txt requirements-test.txt pyproject.toml"
+        default: "requirements.txt requirements.in requirements-dev.txt requirements-dev.in requirements-test.txt requirements-test.in pyproject.toml"
       extra_repos:
         description: More repos to mirror, repo@ref items, a branch allowed here alone and resolved to its commit
         type: string
