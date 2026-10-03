@@ -24,3 +24,5 @@ exclude = ["scripts/backups/"]
 [rules.overrides]
 # pytest tests are self-documenting; the operational scripts keep every rule strict
 "scripts/tests/**" = { "KDF-104" = "off", "KDF-403" = "off", "KDF-404" = "off", "KDF-405" = "off", "KDF-406" = "off", "KDF-602" = "off" }
+# the mutation engine is one file, so a repo vendors it whole and its worktree rules read in one place (D-040)
+"scripts/common/mutation_runner.py" = { "KDF-605" = "off" }

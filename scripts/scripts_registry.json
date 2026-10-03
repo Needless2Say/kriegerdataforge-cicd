@@ -13,6 +13,17 @@
     {
       "src": "scripts/common/version_targets.py",
       "dest": "scripts/kdf_scripts/version_targets.py"
+    },
+    {
+      "_comment": "The shared mutation engine (ADR D-040). Only the repos that run hand written Python mutants carry it, so the entry names them in 'repos' and every other repo is left without it. Each repo keeps its tables in mutation_tests/ and its unit settings in mutation_tests/__init__.py.",
+      "src": "scripts/common/mutation_runner.py",
+      "dest": "scripts/kdf_scripts/mutation_runner.py",
+      "repos": [
+        "Needless2Say/kriegerdataforge",
+        "Needless2Say/kriegerdataforge-sdk",
+        "Needless2Say/fitness-app-backend",
+        "Needless2Say/tiffanys-space-backend"
+      ]
     }
   ],
   "deletes": [

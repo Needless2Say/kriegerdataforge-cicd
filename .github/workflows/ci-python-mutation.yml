@@ -1,8 +1,9 @@
 name: Python · Mutation tests
 
-# Reusable mutation lane for the KDF Python backends (D-027). The caller's `mutation_tests/run.py` applies
-# every hand written mutant of a lane in a worktree outside the checkout, runs the tests that pin the
-# rule, and restores the file. A mutant counts as killed only when its tests go red, and a survivor, a
+# Reusable mutation lane for the KDF Python backends (D-027). The shared engine (D-040), cicd's
+# scripts/common/mutation_runner.py vendored to the caller's scripts/kdf_scripts/, applies every hand
+# written mutant of a lane in a worktree outside the checkout, runs the tests that pin the rule, and
+# restores the file. A mutant counts as killed only when its tests go red, and a survivor, a
 # rule no test pins any more, fails its lane. Minutes per lane, so the PROD Gate runs it on the release
 # tag and a pull request does not.
 #
@@ -1035,11 +1036,16 @@ jobs:
           PGPASSWORD: kdf
         run: psql -h localhost -U kdf -d kdf_mutation -c "CREATE DATABASE kdf_mutation_sys"
 
-      # the lane's name reaches the shell as a variable and never as text of the script
+      # the lane's name reaches the shell as a variable and never as text of the script. D-040, the engine is cicd's
+      #   scripts/common/mutation_runner.py, vendored to the caller's scripts/kdf_scripts/. A caller that still holds
+      #   its own mutation_tests/run.py has not moved and runs that, the pull request that moves it deletes the file
       - name: Run the lane's mutants
         env:
           LANE: ${{ matrix.lane }}
-        run: python mutation_tests/run.py --lane "$LANE" --worktree "$RUNNER_TEMP/kdf-mutation/$LANE"
+        run: |
+          runner=scripts/kdf_scripts/mutation_runner.py
+          if [ -f mutation_tests/run.py ]; then runner=mutation_tests/run.py; fi
+          python "$runner" --lane "$LANE" --worktree "$RUNNER_TEMP/kdf-mutation/$LANE"
 
       - name: Keep the lane's report
         if: ${{ always() }}

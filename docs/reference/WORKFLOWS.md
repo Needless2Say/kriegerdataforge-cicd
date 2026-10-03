@@ -479,7 +479,9 @@ exports `KDF_SYSTEM_DATABASE_URL`. The suite's harness builds each server's envi
 the job hands it the database alone. **`ci-python-mutation.yml`** provisions one too, `kdf_mutation`, makes
 a second database `kdf_mutation_sys` beside it, and exports both `KDF_TEST_DATABASE_URL` and
 `KDF_SYSTEM_DATABASE_URL`, a lane may hold mutants of all three suites and the system suite commits rows
-the integration suite must never read.
+the integration suite must never read. It runs the shared engine the scripts sync vendors,
+`scripts/kdf_scripts/mutation_runner.py`, or a caller's own `mutation_tests/run.py` while it still holds one
+(D-040).
 
 **`ci-python-security.yml`** runs two jobs. `bandit` SAST over `bandit_paths` and `pip-audit` (CVE
 check) against `requirements.txt`. No SARIF upload, hence no `security-events: write`.
