@@ -2094,11 +2094,102 @@ the secretless proof runs on every pull request and its check job is held to the
 kdf-sdk's own `check_command`, with its baseline, keeps working and reaches no secret. A release's tag can no longer
 name another commit than the one whose `VERSION` it carries. D-035's paragraph on the style lane now points here.
 
+---
+
+## D-039. The first retrospective's changes, standing questions, counted runs and Codex in the cloud on trial
+
+- **Date.** 2026-10-03
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Kit v1.13.0, reaching every
+  repo with the next Distribute. Applies D-037 for the first time.
+- **Tier / scope:** Standard · kit `docs/agent/CODE_REVIEW_PROCESS.md` sections 4, 6, 7, 8, 11 and 14 and its status
+  line · the brief and report templates · `tools/claude-code/kdf-review.sh` and `kdf-retro.js` · the new
+  `tools/codex-cloud/kdf-codex-setup.sh` · `create-github-release.yml` · cicd's own copies · the tests
+
+**Context.** The kdf-sdk's S1 closed on 2026-10-03 with the first retrospective D-037 asked for. Its answer key held
+60 agreed findings in the tree the step 2 reviewers read, and 43 of them, 72 percent, were found by a later step. 26 of
+the 43 fell into three classes no brief had asked about. Twelve were a tool acting on a path the caller names, the
+mutation runner's `--worktree` among them, eight were the environment a child program is handed, one more reader each
+time, make, pydantic-settings, git, pip, uv, Python, and six were two parsers of one string, the database fence's
+`urlsplit` against the driver's `make_url`. A Blocks fix found in the last Sol round earned a narrow second read of its
+own, one more turn of Codex at the owner's machine, and S1 already read one such fix in its final reviews, which found
+four more defects in it. Six Codex turns waited for the owner at the machine, hours to a day each. Seven of the twelve
+reports printed unknown minutes and every one printed unknown tokens, since reviewers wrote their time in words, as an
+estimate or inside another line, and no reviewer could count its own tokens. The step 2 Claude read took about three
+hours against the launcher's two hour default. The orchestrator's handoff also carried a tidy of D-038, the release
+workflow's tag check still pasted the tag into its script.
+
+**Decision.** The owner approved all six proposals on 2026-10-03, a yes to each in the chat, and the supporting session
+built them.
+
+- **Three standing look for questions.** Every brief's look for list ends with three bullets kept word for word from
+  the template, the paths a tool acts on, the environment a child is handed with its readers named for Python and for
+  Next.js and Node, and two parsers of one string. The scope table gains a Destroys column that marks every tool which
+  deletes, resets, cleans or overwrites, and where it is told to act. `kdf-brief.js check` reads the first two columns
+  as before. The report template asks a probe of such a check to run the consumer's own parser on the check's inputs.
+- **The last Sol round's Blocks fixes are read by the final reviews.** The final brief names each first in its look for
+  list, and it earns no narrow second read of its own. A Blocks finding of the final reviews still does.
+- **Runs are counted, not reported.** The launcher runs `claude -p` with `--output-format stream-json --verbose`, its
+  stdin closed, so the run's log holds each event as it happens, one JSON object a line, and a detached run is watched
+  by its log. After a clean run it writes `<report stem>.usage.json` beside the report from the stream's last result
+  event, Claude Code's own count, the models, the start and end it saw, the duration, the turns, the tokens summed over
+  every model, fresh and cached, and the cost. The report is never touched and the result's text is not copied. A
+  failed run names claude's exit, the reason its result event gives, or that the log holds none when the run was
+  stopped or crashed first, and the log's last lines. `kdf-retro.js` reads a report's minutes and tokens from that file
+  first, and marks the row counted by the launcher. For the reports it did not start it now clocks two times joined by
+  "to" or a dash, a bare end after a dated start, and a label closed by a colon or shared with another, "Time/reviewer".
+  On S1's own folder that turns five readable times of twelve into ten. Every collect warns when a report the launcher
+  did not start lacks its Usage line or a Time spent line with two clock times, and the report template asks for
+  `From HH:MM to HH:MM` on a line of its own.
+- **Four hours.** The launcher's default `--timeout` is 14400 seconds, and a run past it says it was stopped.
+- **Codex in the cloud, on trial for the kdf-sdk's S2 alone.** The owner makes a fine grained token for that one
+  environment, Contents read only on the private repos the reviewed repo installs, 30 days, never `GH_PACKAGES_PAT`,
+  stores it as the environment's secret `KDF_CODEX_PACKAGES_TOKEN` and pastes `tools/codex-cloud/kdf-codex-setup.sh` as
+  its setup script. OpenAI's documentation says an environment's secrets reach the setup script alone and are removed
+  before the agent phase, and that the agent has no internet by default. The script runs the repo's own `make setup`
+  with the token in the environment of that command alone, git reading no global or system config, pip keeping no
+  cache, and its output masked. It then searches the home folder, the repo with its environment, the temp folder and
+  pip's cache for the token's value, in every file's text and every path's name, the value read from a pipe and never
+  from a command line, and fails the setup, naming only the paths, when it finds it.
+- **The tidy.** The release workflow's tag check reads the tag from its environment, as the release step does, and
+  matches it as a fixed string.
+
+**Alternatives considered.**
+
+- The report template's lines made exact and checked, with no count by the launcher. Taken too, for Codex and any
+  reviewer the launcher does not start, but a model cannot count its own tokens, so for Claude the launcher counts.
+- `--output-format json`, one result object when the run ends. Built first and replaced before the merge at the
+  orchestrator's reading, since S1's long reads were watched by their log and a single object at the end shows nothing
+  while a read runs. The stream's last event is the same result.
+- Codex in the cloud as the default road at once. Not taken, the owner chose one slice on trial, and the product page
+  now calls the environments "Codex Cloud (Legacy)".
+- The setup script writing the token into git's config or a requirements file. Rejected, the rehearsal below shows an
+  image's credential helper writes a token git saw in a URL to `~/.git-credentials` when git reads the global config.
+
+**Trade-offs.** The log is JSON a line rather than plain text, and holds every event of the run, what each tool read
+among them, in the launcher's work folder in the system temp folder as before. The usage file is one more file per
+Claude report for the orchestrator to commit. A Codex review in the cloud cannot run the consumer check, which needs
+the token after setup, and the token lives in OpenAI's store for 30 days. Three standing bullets lengthen every brief
+by six lines.
+
+**Proof.** The setup script was rehearsed in `python:3.14.7-slim` with a fake token and a local git server standing in
+for GitHub, the reviewed repo's Makefile handing the token to git as the kdf-sdk's does. A token planted in the home
+folder failed the setup with exit 3 and its path alone printed. With the script's git guard removed and a credential
+helper set up as an image might, git stored the token in `~/.git-credentials` and the self check failed the setup. The
+shipped script then installed the private stand in, its `direct_url.json` recorded the URL without the token, and the
+value was found nowhere on the container's disk. The tests repeat each case with a stub install, and the launcher's
+and the retrospective tool's tests run on a stub claude that streams a real run's shape, measured with
+`claude -p --output-format stream-json --verbose` on 2026-10-03, an init event, the assistant's events, a rate limit
+event and the result last.
+
+**Consequences.** S2's briefs carry the three questions and its final reviews read the last round's fixes, its Claude
+reports arrive with their counts, and S2's retrospective reads the trial and the escape rate against S1's 72 percent.
+The owner deletes the trial's token when the trial ends.
+
 ## D-040. One mutation engine for every repo that runs Python mutants, vendored by the scripts sync
 
 - **Date.** 2026-10-03
 - **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Reopens the alternative
-  D-027 rejected, the runner handed out by the scripts sync. Merges after D-039's pull request, `VERSION` 0.2.120.
+  D-027 rejected, the runner handed out by the scripts sync. Follows D-039, cicd #255, `VERSION` 0.2.120.
 - **Tier / scope:** Standard · `scripts/common/mutation_runner.py` · `scripts/scripts_registry.json` and
   `scripts/distribute_scripts.py`, a file entry may name its repos · `ci-python-mutation.yml` · the tests · then one
   pull request each in the hub, fitness-app-backend and tiffanys-space-backend, and the SDK's after its pull request 125

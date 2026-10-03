@@ -17,7 +17,12 @@
 #
 # Claude. The launcher checks the arguments and the guard, snapshots git, runs claude -p with KDF_ROLE=reviewer and
 # without the owner's self edit switch, snapshots again, and fails the run when anything but a new file under
-# docs/reviews, the review archive, changed. The review opens when claude starts and closes when it ends.
+# docs/reviews, the review archive, changed. The review opens when claude starts and closes when it ends. --timeout
+# stops a reviewer that runs longer, 14400 seconds by default, four hours, since a slice's first read has taken three.
+# The run's log is claude's stream-json, one event a line as the run goes, so a detached run is watched by its log. A
+# clean run leaves Claude Code's own count of it beside the report, <report stem>.usage.json, read from the stream's
+# last result event, the models, the start and end, the duration, the turns, the tokens and the cost, so a
+# retrospective measures the run rather than reading what the reviewer wrote about itself. The report is never touched.
 #
 # A reviewer without the guard, Codex. --prepare checks the pin, snapshots git, opens the review, and prints the one
 # line the owner gives the reviewer in this folder. --collect, once the report is written, checks git the same way and
@@ -29,11 +34,13 @@
 #
 # Codex in the cloud. --collect-branch fetches the branch Codex's pull request came from, checks that it is built on
 # the pin and adds nothing but new files under docs/reviews, and writes the report into the folder. The owner closes
-# that pull request unmerged. Every collect warns when a report's header does not name the pin or what it read first.
+# that pull request unmerged. Every collect warns when a report's header does not name the pin or what it read first,
+# and when it lacks the Time spent line with the clock's start and end, or the Usage line, that a retrospective reads
+# for a reviewer the launcher did not start.
 #
 # Exit codes. 0 clean. 2 bad arguments, the folder is not at the pin, or another review of it is open. 3 the reviewer
 # changed something it must not, nothing is reverted. 4 no report was written. 5 the guard is not installed or wired.
-# 6 claude itself failed, or a Claude run was cut off before it closed its review.
+# 6 claude itself failed or ran past --timeout, or a Claude run was cut off before it closed its review.
 #
 # The reviewer writes its report, the owner or the orchestrator reads it. Nothing here reverts a change, it reports.
 set -uo pipefail
@@ -46,7 +53,7 @@ claude_bin="${KDF_CLAUDE_BIN:-claude}"
 die() { local code=$1; shift; printf 'kdf-review: %s\n' "$*" >&2; exit "$code"; }
 usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"; }
 
-repo="" brief="" report="" model="" effort="" codex_report="" timeout_s=7200 dry=0 pin="" prepare=0 collect=0
+repo="" brief="" report="" model="" effort="" codex_report="" timeout_s=14400 dry=0 pin="" prepare=0 collect=0
 collect_branch=""
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -225,6 +232,113 @@ check_header() {
 		|| printf 'kdf-review: warning, %s does not list the files it read first. Check its header.\n' "$1" >&2
 }
 
+# check_time_lines <report file>, a warning when a report the launcher did not start lacks what a retrospective
+# measures it by, a Time spent line holding the clock's start and end, and a Usage line. Seven of the twelve reports
+# of the kdf-sdk's first slice gave minutes no tool could read, in words, as an estimate, or folded into another line
+check_time_lines() {
+	local spent
+	spent="$(header_line "$1" 'time spent')"
+	[ -n "$spent" ] || spent="$(header_line "$1" time)"
+	if [ -z "$spent" ]; then
+		printf 'kdf-review: warning, %s has no Time spent line, so its minutes are unknown. Check its header.\n' "$1" >&2
+	elif [ "$(printf '%s\n' "$spent" | grep -oE '[0-9]{1,2}:[0-9]{2}' | wc -l | tr -d ' ')" -lt 2 ]; then
+		printf 'kdf-review: warning, %s gives its time without the clock. %s\n' "$1" \
+			'The template asks for From HH:MM to HH:MM.' >&2
+	fi
+	[ -n "$(header_line "$1" usage)$(header_line "$1" tokens)" ] \
+		|| printf 'kdf-review: warning, %s has no Usage line, so its tokens are unknown. Check its header.\n' "$1" >&2
+}
+
+# header_line <report file> <label>, the first header line, "- **Label.** value", whose label is the one asked for or
+# shares a line with it, "- **Reviewer / usage.**", the label's case and its closing period or colon set aside. The
+# same reading kdf-retro.js makes
+header_line() {
+	awk -v want="$2" '
+		match($0, /^[[:space:]]*-[[:space:]]*\*\*[^*]+\*\*/) {
+			label = tolower(substr($0, RSTART, RLENGTH))
+			sub(/^[[:space:]]*-[[:space:]]*\*\*/, "", label)
+			sub(/[.:]?\*\*$/, "", label)
+			n = split(label, parts, "/")
+			for (i = 1; i <= n; i++) {
+				part = parts[i]
+				gsub(/^[[:space:]]+|[[:space:]]+$/, "", part)
+				if (part == want) { print; exit }
+			}
+		}' "$1"
+}
+
+# usage_path <report path>, where the launcher writes Claude Code's own count of a run, beside the report
+usage_path() {
+	case "$1" in
+		*.md) printf '%s.usage.json' "${1%.md}" ;;
+		*) printf '%s.usage.json' "$1" ;;
+	esac
+}
+
+# The run's log is claude's stream, one JSON event a line as the run goes, with what claude writes on stderr between
+# them. Its result is the last event whose type is result, which claude writes when the run ends, so a run that was
+# stopped or crashed has none. Lines that are not JSON, a warning, a cut off last line, are passed over
+LAST_RESULT_JS='
+const lastResult = (file) => {
+  let lines;
+  try { lines = require("fs").readFileSync(file, "utf8").split(/\r?\n/); } catch (err) { return null; }
+  for (let k = lines.length - 1; k >= 0; k--) {
+    const line = lines[k].trim();
+    if (!line.startsWith("{")) continue;
+    let event;
+    try { event = JSON.parse(line); } catch (err) { continue; }
+    if (event && typeof event === "object" && !Array.isArray(event) && event.type === "result") return event;
+  }
+  return null;
+};
+'
+
+# write_usage <the run's log> <the usage file>, Claude Code's own count of the run, read from the result event at the
+# end of its stream. The models, the start and end the launcher saw, the duration, the turns, the tokens summed over
+# every model, and the cost. Never the result's text and never the report. A log with no result writes nothing and fails
+write_usage() {
+	node -e "$LAST_RESULT_JS"'
+const fs = require("fs");
+const [from, to, report, pin, asked, effort, started, ended] = process.argv.slice(1);
+const r = lastResult(from);
+if (!r) process.exit(1);
+const per = r.modelUsage && typeof r.modelUsage === "object" ? r.modelUsage : {};
+const models = Object.keys(per);
+const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+const add = (k) => models.reduce((n, m) => n + (num(per[m][k]) || 0), 0);
+const u = r.usage && typeof r.usage === "object" ? r.usage : {};
+const tokens = models.length
+  ? { input: add("inputTokens"), cache_read: add("cacheReadInputTokens"),
+      cache_creation: add("cacheCreationInputTokens"), output: add("outputTokens") }
+  : { input: num(u.input_tokens), cache_read: num(u.cache_read_input_tokens),
+      cache_creation: num(u.cache_creation_input_tokens), output: num(u.output_tokens) };
+const record = {
+  written_by: "kdf-review.sh, from the JSON result of claude -p",
+  report, pin: pin || null, model_asked: asked || null, effort: effort || null, models,
+  started_at: started, ended_at: ended,
+  duration_ms: num(r.duration_ms), duration_api_ms: num(r.duration_api_ms), num_turns: num(r.num_turns),
+  tokens, total_cost_usd: num(r.total_cost_usd),
+  by_model: Object.fromEntries(models.map((m) => [m, {
+    input: num(per[m].inputTokens), cache_read: num(per[m].cacheReadInputTokens),
+    cache_creation: num(per[m].cacheCreationInputTokens), output: num(per[m].outputTokens),
+    cost_usd: num(per[m].costUSD) }]))
+};
+fs.writeFileSync(to, JSON.stringify(record, null, 2) + "\n");
+' "$1" "$2" "$report_rel" "$sha" "$model" "$effort" "$started_at" "$ended_at"
+}
+
+# result_says <the run's log>, what a failed run's result event gives as its reason, on one line. Exit 1 when the log
+# holds no result event, exit 2 when it holds one that gives no reason
+result_says() {
+	node -e "$LAST_RESULT_JS"'
+const r = lastResult(process.argv[1]);
+if (!r) process.exit(1);
+const said = [r.subtype, r.api_error_status, typeof r.result === "string" ? r.result : ""].filter(Boolean).join(", ");
+if (!said) process.exit(2);
+process.stdout.write(said.replace(/\s+/g, " ").slice(0, 400));
+' "$1" 2>/dev/null
+}
+
 # pinned <commit>, the full sha of a commit origin holds, or a refusal
 pinned() {
 	local s
@@ -257,6 +371,7 @@ if [ "$collect" -eq 1 ]; then
 	printf 'kdf-review: clean. Report %s, %s lines. The review of %s is closed\n' \
 		"$codex_rel" "$(wc -l <"$repo/$codex_rel" | tr -d ' ')" "$(basename "$repo")"
 	check_header "$repo/$codex_rel" "$pin_read"
+	check_time_lines "$repo/$codex_rel"
 	exit 0
 fi
 
@@ -288,6 +403,7 @@ if [ -n "$collect_branch" ]; then
 	printf 'kdf-review: clean. Report %s, %s lines, from %s at %s. Close its pull request unmerged.\n' \
 		"$codex_rel" "$(wc -l <"$repo/$codex_rel" | tr -d ' ')" "$collect_branch" "${tip:0:10}"
 	check_header "$repo/$codex_rel" "$sha"
+	check_time_lines "$repo/$codex_rel"
 	exit 0
 fi
 
@@ -358,6 +474,9 @@ fi
 # ---- 6. a Claude reviewer, which needs the guard installed and wired
 work="$(mktemp -d "${TMPDIR:-/tmp}/kdf-review.XXXXXX")"
 log="$work/claude.log"
+usage_rel="$(usage_path "$report_rel")"
+[ ! -e "$repo/$usage_rel" ] \
+	|| die 2 "$usage_rel already exists, it belongs to an earlier run of this report. Move it first"
 command -v node >/dev/null 2>&1 || die 5 "node is not on PATH, the guard is a Node script"
 node "$here/check-wiring.js" --home "$home" --quiet >&2 || die 5 "the guard is not wired. Run node tools/claude-code/check-wiring.js and follow it."
 canary() {
@@ -370,7 +489,9 @@ canary() {
 canary 2 reviewer "git add ."
 canary 2 "" "git push origin main"
 
-args=(-p "$claude_line" --output-format text)
+# stream-json writes each event of the run as it happens, so a detached run's log shows its progress, and its last
+# event is the result the usage file is read from. --verbose is what stream-json needs with -p
+args=(-p "$claude_line" --output-format stream-json --verbose)
 [ -n "$model" ] && args+=(--model "$model")
 [ -n "$effort" ] && args+=(--effort "$effort")
 runner=()
@@ -386,9 +507,13 @@ trap 'exit 143' TERM
 hold_out "$codex_rel"
 hold_notes
 snapshot >"$work/before"
-printf 'kdf-review: starting the reviewer in %s, log %s\n' "$repo" "$log"
-(cd "$repo" && env -u KDF_GUARD_ALLOW_SELF_EDIT KDF_ROLE=reviewer "${runner[@]}" "$claude_bin" "${args[@]}") >"$log" 2>&1
+printf 'kdf-review: starting the reviewer in %s, for at most %s seconds, its log %s\n' "$repo" "$timeout_s" "$log"
+started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+# stdin from /dev/null, or claude waits for piped input before it starts
+(cd "$repo" && env -u KDF_GUARD_ALLOW_SELF_EDIT KDF_ROLE=reviewer "${runner[@]}" "$claude_bin" "${args[@]}") \
+	</dev/null >"$log" 2>&1
 rc=$?
+ended_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 snapshot >"$work/after"
 mapfile -t violations < <(compare "$work/before" "$work/after")
 if [ "${#violations[@]}" -gt 0 ]; then
@@ -398,13 +523,29 @@ if [ "${#violations[@]}" -gt 0 ]; then
 	exit 3
 fi
 if [ "$rc" -ne 0 ]; then
-	printf 'kdf-review: claude exited %s, last lines of %s\n' "$rc" "$log" >&2
-	tail -n 15 "$log" >&2
+	if [ "$rc" -eq 124 ] && [ "${#runner[@]}" -gt 0 ]; then
+		printf 'kdf-review: the reviewer ran past --timeout %s seconds and was stopped\n' "$timeout_s" >&2
+	else
+		printf 'kdf-review: claude exited %s\n' "$rc" >&2
+	fi
+	said="$(result_says "$log")"
+	case $? in
+		0) printf 'kdf-review: its result says, %s\n' "$said" >&2 ;;
+		1) printf 'kdf-review: its log holds no result, the run ended before claude wrote one\n' >&2 ;;
+	esac
+	# an event of the stream can be a whole file a tool read, so each line is cut short
+	printf 'kdf-review: last lines of %s\n' "$log" >&2
+	tail -n 15 "$log" | cut -c 1-300 >&2
 	exit 6
 fi
 [ -s "$repo/$report_rel" ] || die 4 "the reviewer wrote no report at $report_rel, see $log"
 
 printf 'kdf-review: clean. Report %s, %s lines, log %s\n' "$report_rel" "$(wc -l <"$repo/$report_rel" | tr -d ' ')" "$log"
+if write_usage "$log" "$repo/$usage_rel"; then
+	printf 'kdf-review: Claude Code counted the run, %s\n' "$usage_rel"
+else
+	printf 'kdf-review: warning, the log holds no result from claude, so the run has no usage file. See %s\n' "$log" >&2
+fi
 check_header "$repo/$report_rel" "$sha"
 if [ -n "$codex_rel" ] && [ ! -e "$repo/$codex_rel" ] && [ ! -e "$hold/held/$codex_rel" ]; then
 	printf 'kdf-review: next, open the folder for Codex at the same commit with\n'

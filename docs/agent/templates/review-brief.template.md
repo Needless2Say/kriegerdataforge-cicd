@@ -5,7 +5,9 @@
 > `{review}/step-2-review/{PFX}_REVIEW_PROMPT.md`, where `{review}` is `docs/reviews/{YYYY-MM-DD}-{scope}`.
 > Fill every `{...}` and delete this box. One brief serves the fresh Claude reviewer and Codex, and both reports land
 > beside it. The same text with the closing line changed is the final brief, `{PFX}_REVIEW_{slice}_FINAL_PROMPT.md` in
-> the slice's `step-5-final` folder. The process is [`../CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md),
+> the slice's `step-5-final` folder. A final brief names first in its look for list every Blocks fix of the last Sol
+> round, which the final reviews read there in place of a narrow read of its own, section 4 step 5 of the process.
+> The process is [`../CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md),
 > sections 6, 7 and 8 define what this brief must hold. The reviewer starts from one line, `Read <this file> and run
 > the review, write your report to <report>, edit nothing else.` A brief that needs more than that line to start a
 > reviewer is missing something from its own text.
@@ -64,15 +66,17 @@ drifted. Rank within each grade.
 {The unit of review, the files below and nothing else. Line counts are measured at the pin. At spot scale name the
 function or the files with their line ranges, and the callers or neighbours read only for context.}
 
-| Files | Lines |
-| --- | --- |
-| {`path/one`, `path/two`} | {n, n} |
-| Tests, {paths} | {n} |
-| Build and run, {Dockerfile, Makefile, workflows, lint and type configs} | {n} |
-| Docs whose cites into this slice you verify, {paths} | {n} |
+| Files | Lines | Destroys |
+| --- | --- | --- |
+| {`path/one`, `path/two`} | {n, n} | {What a tool here deletes, resets, cleans or overwrites, and at which path it is told, or nothing} |
+| Tests, {paths} | {n} | |
+| Build and run, {Dockerfile, Makefile, workflows, lint and type configs} | {n} | |
+| Docs whose cites into this slice you verify, {paths} | {n} | |
 
 {A file another slice reads is owned by the earlier one and read as reference by the later. Name any file read only
-for its change here.}
+for its change here. Fill the Destroys cell of every row that holds a tool which deletes, resets, cleans or overwrites,
+a runner's `git clean` or forced checkout, a script's `rm -rf`, a make target's reset, so the look for line on paths
+below has its list.}
 
 ## Learn the repo yourself
 
@@ -114,9 +118,21 @@ implementation does not do what the decision says, and then the finding names wh
 ## Look for
 
 {The plan's list for this slice is the starting point. What step 1 settled is above, what is left, and what step 1
-added, is where a finding is likeliest. One bullet per area, each naming the specific question, not the topic.}
+added, is where a finding is likeliest. One bullet per area, each naming the specific question, not the topic. In a
+final brief, every Blocks fix of the last Sol round comes first, with its finding id. Keep the three standing bullets
+after the areas, word for word, and delete a stack's readers only when the slice holds none of that stack.}
 
 - **{Area}.** {Whether X could ever Y, whether Z holds when W, what happens to V when U.}
+- **Paths a tool acts on.** Every path a tool is told to act on, by an argument, a setting or the environment, and
+  what stops it being the caller's own tree, a link, or another repository, before and at the moment the act runs.
+  Start from the scope table's Destroys column.
+- **The environment a child is handed.** A child's environment is an allowlist. Name every program the run starts and
+  what each reads from the environment, then whether a variable the caller set can steer it. The readers are make,
+  git, pip, uv, libpq, pydantic-settings and Python's own `PYTHON*` variables in a Python repo, and node, npm, next
+  and git in a Next.js or Node one.
+- **Two parsers of one string.** Wherever a check reads a string that another program reads again, a URL, a path, a
+  version, a header, run both parsers, the check's and the consumer's own, on the same inputs and report where they
+  disagree.
 - **The new tests.** Whether each pins what its name claims. A test that would pass against a broken implementation
   is a finding.
 - **The docs.** Every `file:line` cite into this slice against the code, and every claim in the adjudication log's
@@ -137,7 +153,7 @@ for Codex, beside this brief, under 250 lines, ids `{PFX}-{slice}-1` onward for 
 for Codex, in this order. Copy [`review-report.template.md`](../agent/templates/review-report.template.md).
 
 1. **Header.** The pin you read, the files you read before the code in the order you read them, your baseline counts,
-   and the time you spent.
+   the time you spent as `From HH:MM to HH:MM` by the clock, and your tokens in and out when your tool shows them.
 2. **Verdict.** One paragraph, is the slice fit to close, and what would change that.
 3. **Findings.** A table, id, severity (P, M, L, E), Blocks (yes or no), `file:line`, what, how you proved it (probe
    or read), the fix you would make. Most severe first.

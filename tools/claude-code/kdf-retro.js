@@ -14,9 +14,13 @@
  * since it counts the defects the step 2 reviews had in front of them and missed.
  *
  * The answer key's findings table must carry the columns of templates/review-answer-key.template.md, in its order. A
- * key with other columns is refused rather than guessed at. A report's Time spent, Reviewer and Usage lines are read as
- * templates/review-report.template.md writes them, and a value the report does not give prints as unknown. A Time spent
- * line with no From and To but a duration in digits, as older reports wrote it, prints that duration marked stated.
+ * key with other columns is refused rather than guessed at. A report the launcher started has Claude Code's own count
+ * beside it, <report stem>.usage.json, and its minutes and tokens are read from there, counted by the launcher. Any
+ * other report's Time spent, Reviewer and Usage lines are read as templates/review-report.template.md writes them, a
+ * label closed by a colon or shared with another, "Reviewer / usage", included, and a value the report does not give
+ * prints as unknown. A Time spent line is clocked from its From and To, or from two clock times joined by "to", "until"
+ * or a dash, a bare time after a dated one taken on that date. A line with no clock but a duration in digits, as older
+ * reports wrote it, prints that duration marked stated.
  *
  * Exit codes. 0 the tables printed. 2 no answer key, more than one, a key that cannot be read, or a findings table
  * whose columns this tool does not know.
@@ -164,18 +168,35 @@ out.push('Escapes, agreed findings in the step 2 tree that a later source found,
 
 // ------------------------------------------------------------ the reports
 
+// The value of a header line, "- **Label.** value", the label closed by a period or a colon inside or after the bold.
+// A line of the label itself is read first, then one that serves it with another, "- **Reviewer / usage.**", then one
+// that names it by a shorter word, "- **Time/reviewer.**" for Time spent. The lines indented under it continue it.
+const SHORTER = { 'time spent': ['time'], usage: ['tokens'] };
 function headerValue(text, label) {
   const ls = text.split('\n');
-  const k = ls.findIndex((l) => l.trim().startsWith('- **' + label + '.**'));
+  const want = label.toLowerCase();
+  const labelled = ls.map((l) => /^\s*-\s*\*\*([^*]+?)[.:]?\*\*[.:]?(.*)$/.exec(l));
+  const parts = (m) => m[1].split('/').map((s) => s.trim().toLowerCase());
+  const tests = [
+    (m) => m[1].trim().toLowerCase() === want,
+    (m) => parts(m).includes(want),
+    (m) => parts(m).some((p) => (SHORTER[want] || []).includes(p))
+  ];
+  let k = -1;
+  for (const test of tests) {
+    k = labelled.findIndex((m) => m && test(m));
+    if (k >= 0) break;
+  }
   if (k < 0) return '';
-  let value = ls[k].trim().slice(('- **' + label + '.**').length);
+  let value = labelled[k][2];
   for (let j = k + 1; j < ls.length && /^\s{2,}\S/.test(ls[j]) && !ls[j].trim().startsWith('- **'); j++) {
     value += ' ' + ls[j].trim();
   }
   return value.replace(/\s+/g, ' ').trim();
 }
 
-// A clock time as minutes since the epoch when it carries a date, or since midnight when it does not.
+// A clock time as minutes since the epoch when it carries a date, or since midnight when it does not, and in both
+// cases the minutes since its own midnight.
 function clock(text) {
   const dated = /(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?\s*(Z|[+-]\d{2}:?\d{2})?/.exec(text);
   if (dated) {
@@ -185,22 +206,42 @@ function clock(text) {
       const hhmm = dated[7].slice(1).replace(':', '');
       ms -= sign * (Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(2))) * 60000;
     }
-    return { dated: true, minutes: ms / 60000 };
+    return { dated: true, minutes: ms / 60000, ofDay: Number(dated[4]) * 60 + Number(dated[5]) };
   }
   const bare = /\b(\d{1,2}):(\d{2})\b/.exec(text);
-  if (bare) return { dated: false, minutes: Number(bare[1]) * 60 + Number(bare[2]) };
+  if (bare) {
+    const ofDay = Number(bare[1]) * 60 + Number(bare[2]);
+    return { dated: false, minutes: ofDay, ofDay };
+  }
   return null;
 }
 
+// The two ends of a Time spent line, "From A to B", or "A to B", "A until B" or "A-B" where A ends in a clock time,
+// perhaps with its zone.
+const JOINED = new RegExp('^(.*?\\d{1,2}:\\d{2}(?::\\d{2})?(?:\\s*(?:Z|[A-Z]{2,5}|[+-]\\d{2}:?\\d{2}))?)'
+  + '\\s*(?:\\bto\\b|\\buntil\\b|-|\\u2013|\\u2014)\\s*(.*\\d{1,2}:\\d{2}.*)$', 'i');
+function ends(timeSpent) {
+  return [/\bfrom\s+(.+?)\s+to\s+(.+)$/i.exec(timeSpent), JOINED.exec(timeSpent)]
+    .filter(Boolean)
+    .map((m) => [m[1], m[2]]);
+}
+
+// The minutes between the first pair of ends that both hold a clock time, or null.
 function minutes(timeSpent) {
-  const m = /\bfrom\s+(.+?)\s+to\s+(.+)$/i.exec(timeSpent);
-  if (!m) return null;
-  const a = clock(m[1]);
-  const b = clock(m[2]);
-  if (!a || !b || a.dated !== b.dated) return null;
-  let d = b.minutes - a.minutes;
-  if (!a.dated && d < 0) d += 24 * 60;
-  return d < 0 ? null : Math.round(d);
+  for (const [start, end] of ends(timeSpent)) {
+    const a = clock(start);
+    const b = clock(end);
+    if (!a || !b) continue;
+    let d;
+    if (a.dated && b.dated) d = b.minutes - a.minutes;
+    else if (a.dated === b.dated || a.dated) {
+      // two bare times, or a bare end after a dated start, which is that day's time. Past midnight wraps once
+      d = b.ofDay - a.ofDay;
+      if (d < 0) d += 24 * 60;
+    } else continue;
+    return d < 0 ? null : Math.round(d);
+  }
+  return null;
 }
 
 // A duration the report states in digits, "0.6 hours" or "45 minutes", for reports written before the template asked
@@ -233,6 +274,33 @@ function tokens(usage, word) {
   return after ? number(after[1]) : null;
 }
 
+// Claude Code's own count of a run the launcher started, <report stem>.usage.json beside the report, or null when there
+// is none or it cannot be read. Tokens in are every input token the model read, fresh, from the cache and written to
+// it, since a long review reads most of its input from the cache.
+function launcherCount(file) {
+  let u;
+  try {
+    u = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (err) {
+    return null;
+  }
+  if (!u || typeof u !== 'object' || !u.tokens || typeof u.tokens !== 'object') return null;
+  const n = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const t = u.tokens;
+  const parts = [n(t.input), n(t.cache_read), n(t.cache_creation)];
+  let mins = n(u.duration_ms) === null ? null : Math.round(u.duration_ms / 60000);
+  if (mins === null && u.started_at && u.ended_at) {
+    const d = (Date.parse(u.ended_at) - Date.parse(u.started_at)) / 60000;
+    if (Number.isFinite(d) && d >= 0) mins = Math.round(d);
+  }
+  return {
+    models: Array.isArray(u.models) ? u.models.filter((m) => typeof m === 'string') : [],
+    minutes: mins,
+    tokensIn: parts.every((p) => p === null) ? null : parts.reduce((s, p) => s + (p || 0), 0),
+    tokensOut: n(t.output)
+  };
+}
+
 const steps = fs.readdirSync(folder)
   .filter((d) => /^step-/.test(d) && d !== 'step-4-sol' && fs.statSync(path.join(folder, d)).isDirectory())
   .sort(byName);
@@ -241,13 +309,28 @@ for (const step of steps) {
   for (const file of fs.readdirSync(path.join(folder, step)).filter((f) => /_REPORT\.md$/.test(f)).sort(byName)) {
     const text = read(path.join(folder, step, file));
     const usage = headerValue(text, 'Usage');
+    const reviewer = headerValue(text, 'Reviewer');
+    const counted = launcherCount(path.join(folder, step, file.replace(/\.md$/, '.usage.json')));
+    if (counted) {
+      reports.push({
+        step,
+        file,
+        reviewer: reviewer || (counted.models.length ? counted.models.join(', ') : 'unknown'),
+        minutes: format(counted.minutes),
+        tokensIn: counted.tokensIn,
+        tokensOut: counted.tokensOut,
+        by: 'launcher'
+      });
+      continue;
+    }
     reports.push({
       step,
       file,
-      reviewer: headerValue(text, 'Reviewer') || 'unknown',
+      reviewer: reviewer || 'unknown',
       minutes: minutesCell(headerValue(text, 'Time spent')),
       tokensIn: tokens(usage, 'in'),
-      tokensOut: tokens(usage, 'out')
+      tokensOut: tokens(usage, 'out'),
+      by: 'report'
     });
   }
 }
@@ -256,15 +339,17 @@ out.push('## Reports');
 out.push('');
 if (!reports.length) out.push('No report in a step folder.');
 else {
-  out.push('| Step | Report | Reviewer | Minutes | Tokens in | Tokens out |');
-  out.push('| --- | --- | --- | --- | --- | --- |');
+  out.push('| Step | Report | Reviewer | Minutes | Tokens in | Tokens out | Counted by |');
+  out.push('| --- | --- | --- | --- | --- | --- | --- |');
   for (const r of reports) {
     out.push('| ' + r.step + ' | `' + r.file + '` | ' + r.reviewer.replace(/\|/g, '\\|') + ' | ' + r.minutes
-      + ' | ' + format(r.tokensIn) + ' | ' + format(r.tokensOut) + ' |');
+      + ' | ' + format(r.tokensIn) + ' | ' + format(r.tokensOut) + ' | ' + r.by + ' |');
   }
   out.push('');
-  out.push('Minutes are clocked from the Time spent line\'s From and To. A number marked stated is the duration the '
-    + 'report wrote, an estimate and not a clock, and a duration written in words prints as unknown.');
+  out.push('Counted by the launcher is Claude Code\'s own count, the usage file the launcher wrote beside the report, '
+    + 'whose tokens in are every input token, fresh and cached. Counted by the report is what the report wrote, its '
+    + 'minutes clocked from the Time spent line\'s two clock times. A number marked stated is the duration the report '
+    + 'wrote, an estimate and not a clock, and a duration written in words prints as unknown.');
 }
 
 // ------------------------------------------------------------ the Sol rounds

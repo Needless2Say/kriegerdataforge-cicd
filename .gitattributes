@@ -3,3 +3,4 @@
 tools/claude-code/*.sh   text eol=lf
 tools/claude-code/*.js   text eol=lf
 tools/claude-code/*.json text eol=lf
+tools/codex-cloud/*.sh   text eol=lf
