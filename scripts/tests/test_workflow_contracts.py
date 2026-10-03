@@ -387,6 +387,71 @@ def test_the_python_mutation_lane_runs_the_vendored_engine_alone(tmp_path, engin
         assert "the scripts sync vendors" in run.stdout
 
 
+def _step_shell(tmp_path: Path, workflow: str, name: str) -> Path:
+    """
+    A step's `run: |` block alone, dedented, the comment lines of the step after it left out.
+    """
+    lines = []
+    for line in _step(_lane(workflow), name).split("run: |\n", 1)[1].split("\n"):
+        if line.strip() and not line.startswith(" " * 10):
+            break
+        lines.append(line[10:])
+    shell = tmp_path / "step.sh"
+    shell.write_text("\n".join(lines) + "\n", encoding = "utf-8", newline = "\n")
+    return shell
+
+
+@pytest.mark.parametrize("has_token, baseline, code", [
+    ("true",  "",                    0),
+    ("true",  "kdf-style-debt.json", 0),
+    ("false", "",                    1),  # a fork's or Dependabot's run, no secret reaches it
+    ("",      "",                    1),
+    ("true",  "../debt.json",        1),
+    ("true",  "--select=X",          1),
+], ids = ["token", "token-baseline", "no-token", "empty", "path", "option"])
+def test_the_public_style_lane_fails_closed_without_a_token(tmp_path, has_token, baseline, code):
+    """
+    D-044. A public repo's style check holds the token in its one job, so a run that has none fails by name before the
+    install and never passes, and the caller's baseline is a plain file name or nothing. The step's shell runs here.
+    """
+    bash = _bash()
+    if bash is None:
+        pytest.skip("no bash to run the step's shell")
+    shell = _step_shell(tmp_path, "ci-kdf-fmt-public.yml", "Require a token for the formatter")
+    env   = {**os.environ, "HAS_TOKEN": has_token, "BASELINE": baseline}
+    run   = subprocess.run([bash, "-e", shell.as_posix()], env = env, capture_output = True, text = True)
+    assert run.returncode == code, run.stdout + run.stderr
+    if has_token != "true":
+        assert "No token reaches the style check" in run.stdout
+
+
+@pytest.mark.parametrize("baseline, args", [
+    ("",                    ["-I", "-m", "kdf_fmt.cli", "check", "--no-cache"]),
+    ("kdf-style-debt.json", ["-I", "-m", "kdf_fmt.cli", "check", "--no-cache", "--baseline", "kdf-style-debt.json"]),
+], ids = ["no-baseline", "baseline"])
+def test_the_public_style_lane_runs_one_fixed_command(tmp_path, baseline, args):
+    bash = _bash()
+    if bash is None:
+        pytest.skip("no bash to run the step's shell")
+    shell   = _step_shell(tmp_path, "ci-kdf-fmt-public.yml", "kdf-fmt check")
+    fakebin = tmp_path / "bin"
+    fakebin.mkdir()
+    fake = fakebin / "python"
+    fake.write_text('#!/usr/bin/env bash\necho "$@" > "$FAKE_PYTHON_ARGS"\n', encoding = "utf-8", newline = "\n")
+    fake.chmod(0o755)
+    called = tmp_path / "called"
+    env    = {
+        **os.environ,
+        "PATH": os.pathsep.join([str(fakebin), os.environ.get("PATH", "")]),
+        "FAKE_PYTHON_ARGS": called.as_posix(),
+        "BASELINE": baseline,
+    }
+
+    run = subprocess.run([bash, "-e", shell.as_posix()], env = env, capture_output = True, text = True)
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert called.read_text().split() == args
+
+
 def test_the_nextjs_mutation_lane_leaves_no_credential_in_the_tree_it_mutates():
     text = _lane("ci-nextjs-mutation.yml")
     assert "          ref: ${{ inputs.ref }}\n" in text

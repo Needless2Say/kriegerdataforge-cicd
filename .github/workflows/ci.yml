@@ -59,14 +59,15 @@ jobs:
       - name: Run actionlint
         run: actionlint
 
-  # KDF house style over scripts/, baseline gated so only NEW violations fail. D-038, this public repo runs its own
-  # one job check, ci-kdf-fmt-self.yml, because the shared lane's fetch refuses a public caller's mirror of the private
-  # formatter. The shared lane's fetch job is the seven lanes' template, which the secretless proof below runs, and its
-  # check job is held to the template by test_secretless_lanes.py
+  # KDF house style over scripts/, baseline gated so only NEW violations fail. This repo is public, so it calls the one
+  # job lane for public repos (D-044, D-038 before it), because the shared lane's fetch refuses a public caller's mirror
+  # of the private formatter. The shared lane's fetch job is the seven lanes' template, which the secretless proof below
+  # runs, and its check job is held to the template by test_secretless_lanes.py
   style:
-    uses: ./.github/workflows/ci-kdf-fmt-self.yml
+    uses: ./.github/workflows/ci-kdf-fmt-public.yml
     with:
       kdf_fmt_ref: v1.3.0
+      baseline: kdf-style-debt.json
     secrets: inherit
 
   test:

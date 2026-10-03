@@ -1,0 +1,112 @@
+name: Python · Style (kdf-fmt), a public repo's
+
+# D-044. The style check for a PUBLIC calling repo, this one (ci.yml's style job) and the arthurs-portfolio and
+# kriegerdataforge-portfolio sites. The shared lane, ci-python-kdf-fmt.yml, fetches the formatter in a job of its own
+# and checks in a job that names no secret, but its fetch refuses a public caller's mirror of a private repo, because a
+# run artifact of a public repo is readable by anyone and would publish the formatter. So a public repo's check stays
+# one job that holds the token and leaves no artifact, the shape D-038 gave this repo first, in the ci-kdf-fmt-self.yml
+# this lane replaced. That rests on three things. A public
+# repo's pull requests come from the owner alone, and Dependabot's and a fork's runs get no secret, so they fail at the
+# first step and never pass. The token is minted for kriegerdataforge-fmt alone, read only. And Python runs in
+# isolated mode (-I), so the checkout is never on the import path and a pip.py or a kdf_fmt/ in a pull request cannot
+# stand in for pip or for the formatter, while the command is fixed here and is not an input. kdf-fmt parses the
+# caller's files and never runs them.
+#
+# Usage, the caller's job keeps the check name `style / Style (kdf-fmt)`
+#   style:
+#     uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ci-kdf-fmt-public.yml@main
+#     with:
+#       kdf_fmt_ref: v1.3.0
+#     secrets: inherit
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+    inputs:
+      kdf_fmt_ref:
+        description: Git ref of kriegerdataforge-fmt to install (pin a vX.Y.Z tag or a full commit id)
+        type: string
+        required: true
+      baseline:
+        description: The caller's style debt file passed to --baseline, a plain file name, empty for none
+        type: string
+        default: ""
+      python_version:
+        description: Python version to use
+        type: string
+        default: "3.14"
+
+jobs:
+  style:
+    name: Style (kdf-fmt)
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      # App token first (D-010), minted for the formatter's repo alone and read only, else the package token
+      - name: Mint GitHub App token for the formatter
+        id: pkg-token
+        if: ${{ vars.USE_GITHUB_APP == 'true' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.KDF_APP_ID }}
+          private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: kriegerdataforge-fmt
+          permission-contents: read
+
+      # A fork's or Dependabot's run gets no secret, and a caller that passed none has nothing to install with. The
+      #   check fails here, by name, rather than at a git prompt or, worse, after a skipped install. Only whether a
+      #   token exists reaches the shell, never the token
+      - name: Require a token for the formatter
+        env:
+          HAS_TOKEN: ${{ (steps.pkg-token.outputs.token || secrets.GH_PACKAGES_PAT) != '' }}
+          BASELINE: ${{ inputs.baseline }}
+        run: |
+          if [ "$HAS_TOKEN" != "true" ]; then
+            echo "::error::No token reaches the style check. A fork's or Dependabot's run gets no secret."
+            echo "::error::Otherwise set USE_GITHUB_APP with KDF_APP_ID and KDF_APP_PRIVATE_KEY, or GH_PACKAGES_PAT."
+            exit 1
+          fi
+          case "$BASELINE" in
+            -*|*/*|*..*)
+              echo "::error::baseline must be a plain file name in the repo's root, not '$BASELINE'"
+              exit 1
+              ;;
+          esac
+
+      # SECURITY: the token reaches git for this one step, through settings that live for the step's own processes and
+      #   are written nowhere, with no system or global config read. Isolated mode keeps the checkout off pip's import
+      #   path. The ref reaches the shell through the environment, never written into the script
+      - name: Install kdf-fmt (pinned, isolated mode)
+        env:
+          GIT_CONFIG_NOSYSTEM: "1"
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_TERMINAL_PROMPT: "0"
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: ${{ format('url.https://__token__:{0}@github.com/.insteadOf', steps.pkg-token.outputs.token || secrets.GH_PACKAGES_PAT) }}
+          GIT_CONFIG_VALUE_0: https://github.com/
+          KDF_FMT_REF: ${{ inputs.kdf_fmt_ref }}
+        run: python -I -m pip install --quiet "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@$KDF_FMT_REF"
+
+      # The command is fixed here and isolated so the checkout cannot stand in for kdf_fmt. A caller names only the
+      #   baseline file, which kdf-fmt reads as data
+      - name: kdf-fmt check
+        env:
+          BASELINE: ${{ inputs.baseline }}
+        run: |
+          if [ -n "$BASELINE" ]; then
+            python -I -m kdf_fmt.cli check --no-cache --baseline "$BASELINE"
+          else
+            python -I -m kdf_fmt.cli check --no-cache
+          fi
