@@ -15,8 +15,8 @@ name: Python · Style (kdf-fmt)
 # kriegerdataforge-fmt alone, and the check job names none. Isolated mode (-I) keeps the checkout off the import path
 # for the install and for the default command only, a caller's own command is its own text, and in a job with no secret
 # a shadowed kdf_fmt can only fake a style pass, which a pull request could do anyway by changing check_command. The
-# fetch refuses a public caller's mirror of a private repo, so a public repo runs its own style check, this repo's is
-# ci-kdf-fmt-self.yml and every other public repo's is ci-kdf-fmt-public.yml (D-044).
+# fetch refuses a public caller's mirror of a private repo, so a public repo, this one included, calls
+# ci-kdf-fmt-public.yml instead (D-044).
 permissions:
   contents: read
 

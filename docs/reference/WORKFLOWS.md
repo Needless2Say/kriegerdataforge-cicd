@@ -432,10 +432,10 @@ caller's own text. Its fetch job always runs, reads no requirement file, mirrors
 `kriegerdataforge-fmt` at `kdf_fmt_ref` and mints for that repo alone, and its check job keeps the
 name `Style (kdf-fmt)`, names no secret and installs in isolated mode (`python -I`). Isolated mode
 covers the install and the default command only, a caller's own command runs in a job with no
-secret to reach. A public caller cannot mirror the private formatter, so this repo runs its own one
-job check, `ci-kdf-fmt-self.yml`, minted for `kriegerdataforge-fmt` alone with its command fixed
-and isolated, and every other public repo calls `ci-kdf-fmt-public.yml`, the same one job shape
-with an optional `baseline` file name and a first step that fails when no token reaches it (D-044).
+secret to reach. A public caller cannot mirror the private formatter, so every public repo, this
+one included, calls `ci-kdf-fmt-public.yml`, one job minted for `kriegerdataforge-fmt` alone with
+its command fixed and isolated, an optional `baseline` file name, and a first step that fails when
+no token reaches it (D-044, which retired this repo's own `ci-kdf-fmt-self.yml` of D-038).
 Several lanes install `libpq-dev` so source built `psycopg2` compiles on the slim
 runner.
 

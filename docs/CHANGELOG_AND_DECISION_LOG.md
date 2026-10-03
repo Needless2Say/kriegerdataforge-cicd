@@ -2311,12 +2311,41 @@ pass, the registry entry naming it. An engine fix lands in cicd alone and reache
 
 ---
 
+## D-043. The canonical kdf-fmt pin is v1.3.0, and cicd formats with the version it hands out
+
+- **Date.** 2026-10-03
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Each repo's own pins move in a
+  pull request of its own, after this one.
+- **Tier / scope:** Quick · `scripts/scripts_registry.json` `requirements_patch` · this repo's `ci.yml` style job ·
+  `scripts/tests/test_distribute_scripts_requirements.py`
+
+**Context.** The owner's Distribute scripts run of 2026-10-03, scripts 1.5.0, opened seven pull requests and left ten
+repos NEEDS MANUAL ATTENTION. The registry's canonical kdf-fmt pin was v1.1.1, while kdf-fmt had moved to v1.2.0 and
+then v1.3.0 (kriegerdataforge-fmt D-008, the owner's approved item 7 of the SDK S1 retrospective, which names the line
+it refuses and skips a wrap that would change the program). The hub pinned v1.2.0, two repos pinned v1.1.0 in
+`requirements-dev.in`, and seven Next.js and portfolio repos called the style lane at v1.1.0. The distributor never
+moves a pin, since a kdf-fmt version change can move a style baseline, so each of the ten stopped. cicd's own style
+job ran v1.1.0, a version behind the pin it handed out, and nothing held the two together.
+
+**Decision.** The canonical pin is v1.3.0, in both `kdf_fmt_ref` and the kdf-fmt spec, and this repo's style job
+calls `ci-kdf-fmt-self.yml` at v1.3.0. The Makefile reads `KDF_FMT_VERSION` from `ci.yml`, so it moves with it. cicd's
+style check passes on v1.3.0 with its baseline unchanged, with no new finding. A test reads the live registry and holds
+the ref, the spec's ref and this repo's `ci.yml` to one version, and it fails on the old `ci.yml`.
+
+**Consequences.** Every repo moves its `requirements-dev.in` pin and its `ci.yml` `kdf_fmt_ref` to v1.3.0 in its own
+pull request, which runs its style check on v1.3.0 and fixes any new finding there. Distribute scripts is then run
+again, and the ten repos receive scripts 1.5.0. The seven sync pull requests already opened carry v1.1.1 in
+`requirements-dev.in`, and their repos' pin pull requests move it.
+
+---
+
 ## D-044. A public repo's style check is one job that leaves no artifact
 
 - **Date.** 2026-10-03
 - **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Completes D-038 for public
-  callers other than this repo.
-- **Tier / scope:** Standard · the new `ci-kdf-fmt-public.yml` · `ci-python-kdf-fmt.yml`'s header ·
+  callers, this repo among them, and retires its `ci-kdf-fmt-self.yml`.
+- **Tier / scope:** Standard · the new `ci-kdf-fmt-public.yml` · `ci-kdf-fmt-self.yml` removed · this repo's `ci.yml` ·
+  `ci-python-kdf-fmt.yml`'s header ·
   `docs/reference/WORKFLOWS.md` · `docs/security/CONTROL_PLANE_SECURITY.md` · the tests · the two public portfolios'
   `ci.yml`
 
@@ -2332,15 +2361,17 @@ made callable. One job named `Style (kdf-fmt)`, so a caller's check keeps the na
 is minted for `kriegerdataforge-fmt` alone and read only, App token first and `GH_PACKAGES_PAT` after. A first step
 fails by name when no token reaches the job, a fork's or Dependabot's run, so such a run never passes. The install and
 the check run in isolated mode, the check's command is fixed, and the caller names only an optional `baseline` file,
-a plain name in the repo's root. Nothing is uploaded. The mint and the install are held as one text with this repo's
-own check by a test, so the two cannot drift. This repo keeps calling `ci-kdf-fmt-self.yml` for now, because moving its
-`ci.yml` onto the new lane touches the lines cicd pull request 260 changes, a follow up once that one merges.
+a plain name in the repo's root. Nothing is uploaded. This repo's own `ci.yml` calls the new lane too, with its
+`kdf-style-debt.json` baseline, so its check keeps the name `style / Style (kdf-fmt)`, and `ci-kdf-fmt-self.yml` is
+retired, leaving one one job style check that cannot drift from a second.
 
-**Consequences.** The two portfolios' style check passes once this merges and each repo holds the token,
+**Consequences.** This repo's check runs on the new lane from this pull request on. The two portfolios' style check
+passes once this merges and each repo holds the token,
 `USE_GITHUB_APP` with `KDF_APP_ID` and `KDF_APP_PRIVATE_KEY` or `GH_PACKAGES_PAT`, which the owner sets. Without one it
 fails with the message that says so, as a fork's run does. Pinned by
 `test_a_public_caller_runs_the_style_check_in_one_job_that_leaves_no_artifact`,
-`test_the_public_lane_mints_and_installs_as_this_repos_own_check_does`,
+`test_the_public_lane_mints_for_the_formatter_alone_and_installs_isolated`,
+`test_this_public_repo_runs_its_own_style_check_in_isolated_mode`,
 `test_the_public_style_lane_fails_closed_without_a_token` (whose cases fail on a step that never checks) and
 `test_the_public_style_lane_runs_one_fixed_command`.
 

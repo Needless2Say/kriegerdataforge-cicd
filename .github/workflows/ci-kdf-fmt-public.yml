@@ -1,10 +1,11 @@
 name: Python · Style (kdf-fmt), a public repo's
 
-# D-044. The style check for a PUBLIC calling repo, the arthurs-portfolio and kriegerdataforge-portfolio sites. The
-# shared lane, ci-python-kdf-fmt.yml, fetches the formatter in a job of its own and checks in a job that names no
-# secret, but its fetch refuses a public caller's mirror of a private repo, because a run artifact of a public repo is
-# readable by anyone and would publish the formatter. So a public repo's check stays one job that holds the token and
-# leaves no artifact, the shape of this repo's own ci-kdf-fmt-self.yml (D-038). That rests on three things. A public
+# D-044. The style check for a PUBLIC calling repo, this one (ci.yml's style job) and the arthurs-portfolio and
+# kriegerdataforge-portfolio sites. The shared lane, ci-python-kdf-fmt.yml, fetches the formatter in a job of its own
+# and checks in a job that names no secret, but its fetch refuses a public caller's mirror of a private repo, because a
+# run artifact of a public repo is readable by anyone and would publish the formatter. So a public repo's check stays
+# one job that holds the token and leaves no artifact, the shape D-038 gave this repo first, in the ci-kdf-fmt-self.yml
+# this lane replaced. That rests on three things. A public
 # repo's pull requests come from the owner alone, and Dependabot's and a fork's runs get no secret, so they fail at the
 # first step and never pass. The token is minted for kriegerdataforge-fmt alone, read only. And Python runs in
 # isolated mode (-I), so the checkout is never on the import path and a pip.py or a kdf_fmt/ in a pull request cannot
