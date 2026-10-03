@@ -425,6 +425,10 @@ def _build_items(registry: dict, only: str | None, entry: dict) -> list[SyncItem
     """
     items: list[SyncItem] = []
     for file_entry in registry.get("files", []):
+        # a file only some repos run, the mutation engine (D-040), names them, and no other repo is handed it
+        scope = file_entry.get("repos")
+        if scope is not None and entry.get("repo") not in scope:
+            continue
         src, dest = file_entry["src"], file_entry["dest"]
         canonical = (REPO_ROOT / src).read_text(encoding = "utf-8")
         items.append(SyncItem(dest = dest, desired = lambda _remote, content = canonical: content))
