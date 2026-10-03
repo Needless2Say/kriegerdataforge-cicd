@@ -421,8 +421,9 @@ end). Otherwise it falls back to the long lived **`GH_PACKAGES_PAT`**. Secrets t
 opted in. The fetch mirrors only the allowlisted repos (the three packages, the three backends, and
 this repo as the proof's public stand in), and a **public** calling repo may mirror only a public
 one, its run artifacts being readable by anyone. The four inputs every split lane shares are
-`requirement_files` (default `requirements.txt requirements-dev.txt requirements-test.txt
-pyproject.toml`, a missing one skipped), `extra_repos` (`repo@ref` items, a branch allowed here alone
+`requirement_files` (default `requirements.txt requirements.in requirements-dev.txt requirements-dev.in
+requirements-test.txt requirements-test.in pyproject.toml`, a missing one skipped, the `.in` names since D-041),
+`extra_repos` (`repo@ref` items, a branch allowed here alone
 and resolved to its commit), `scan_files` (`repo:path` items read inside an extra repo's mirror) and
 `token_repositories` (the narrower fence per call, empty is every repo the fetch clones). The style
 lane splits the same way since D-038, because `python -m` put the checkout first on the import path,

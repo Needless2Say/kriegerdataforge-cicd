@@ -2184,4 +2184,34 @@ event and the result last.
 reports arrive with their counts, and S2's retrospective reads the trial and the escape rate against S1's 72 percent.
 The owner deletes the trial's token when the trial ends.
 
+---
+
+## D-041. A lane's default requirement files include the `.in` files a repo compiles from
+
+- **Date.** 2026-10-03
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Corrects D-035's default list.
+- **Tier / scope:** Quick · the `requirement_files` default of the seven split lanes and of
+  `fetch-private-packages.yml` · `scripts/fetch_private_job.template.yml` · `docs/reference/WORKFLOWS.md` · the tests
+
+**Context.** D-035's fetch job mirrors only the private repos pinned in the files `requirement_files` names, and its
+default named `requirements.txt requirements-dev.txt requirements-test.txt pyproject.toml`. A repo that locks with uv
+or pip-compile keeps its private pins in the `.in` files too, and the backends keep the kdf-fmt pin in
+`requirements-dev.in` alone. A lane that installs `requirements-dev.in` then found kriegerdataforge-fmt missing from
+the mirrors and failed at install. The shared mutation engine's builder (D-040) met it on the engine's pull requests,
+in tiffanys-space-backend's four CI lanes and the hub's integration lane, and those repos' pull requests now pass their
+files by name. Both backends' PROD Gate system and mutation lanes would have failed the same way at their next release,
+their last PROD Gate having run before D-035. reports-sdk and template-python-package keep a private pin in
+`requirements-dev.in` and pass no list, so each was one pull request from the same failure. Each lane declares its
+inputs by hand, outside the template's rendered sections, so no test held the eight defaults to the template's.
+
+**Decision.** The owner chose, 2026-10-03, to fix the default rather than each repo. The default is now
+`requirements.txt requirements.in requirements-dev.txt requirements-dev.in requirements-test.txt requirements-test.in
+pyproject.toml`, a missing file still skipped. A test holds each lane's default and the standalone's equal to the
+template's, a test plans a pin found only in each `.in` file on the default and fails on the old list, and a test plans
+a pin that sits in both a `.in` file and its lock once.
+
+**Consequences.** No new access. The fetch still mirrors only the allowlisted repos the files pin, and a caller that
+passes its own list keeps it, so the three engine pull requests' lists stay right and can be dropped later. A caller
+gets the fix when it next runs a lane at this commit or later.
+
 
