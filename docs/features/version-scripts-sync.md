@@ -65,8 +65,11 @@ Like all privileged ops, it is issue form driven and owner gated:
    Pick `check` or `distribute`, select `ALL` or a subset of repos, optionally filter to one file.
 2. Add the **`ops:distribute-scripts`** label. The workflow
    ([`.github/workflows/ops-distribute-scripts.yml`](../../.github/workflows/ops-distribute-scripts.yml))
-   authorizes via the reusable owner only gate, runs `distribute_scripts.py`, and comments the
-   result on the issue.
+   authorizes via the reusable owner only gate, runs `distribute_scripts.py`, comments the
+   result on the issue, and closes it, completed or not planned (ADR D-047).
+
+When the kit is due too, the **"Ops · Distribute Kit and Scripts Together"** form and the **`ops:distribute-all`**
+label run `distribute_all.py` instead, both in one sync pull request per repo on a `chore/ecosystem-sync-*` branch.
 
 CLI (same engine, e.g. from a local checkout):
 
@@ -83,7 +86,18 @@ changed files are ALL synced paths. The registry `dest` paths, plus `Makefile` *
 `chore/scripts-sync-*` head branches (an ordinary Makefile only PR still requires a bump). This
 mirrors the kit exemption (ADR D-001 option B) and is registry derived, so adding a file to the
 registry auto extends the exemption. Since 1.5.1 (ADR D-046) a `chore/kit-sync-*` head branch may also change
-`AGENTS.md`, since the kit sync inserts the ecosystem context line there.
+`AGENTS.md`, since the kit sync inserts the ecosystem context line there. Since 1.5.2 (ADR D-047) it may also change
+`.github/dependabot.yml`, and a `chore/ecosystem-sync-*` head branch, the combined sync, may carry what either sync
+may. Consumer CI runs cicd's own copy of the check, so this needs no scripts Distribute to take effect.
+
+## 3b. When a scripts sync skips CI (ADR D-047)
+
+A registry `files[]` entry with `"pretested": true` is a byte identical copy that cicd's own suite tests the way every
+repo uses it, the three version scripts. A sync pull request whose every change is such a copy carries `[skip ci]`
+in each commit and runs no CI. The flag is opt in, so a new entry never skips until someone sets it. The mutation
+engine stays off, cicd tests it but never against a repo's own tables. Every patch of a repo's own file (`Makefile`,
+`requirements-dev.in`, `kdf-fmt.toml`, `ruff.toml`, `pyproject.toml`) and every delete stays off too, so a first sync
+that patches still runs the repo's CI, and later syncs that only refresh the version scripts skip it.
 
 ## 4. Versioning
 

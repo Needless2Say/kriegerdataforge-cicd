@@ -2476,4 +2476,64 @@ runs into a heading, with no role pointer, with no heading, a quote that ends th
 distribute, a re-run over a branch that has the line, the version check on three branches, and a control whose insert
 returns the page unchanged, under which distribute writes nothing.
 
+---
+
+## D-047. A Distribute runs no CI where every change is already tested, and Dependabot raises alerts only
+
+- **Date.** 2026-10-04
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Takes effect for the next
+  Distribute run from cicd's `main`, no repo needs a Distribute first.
+- **Tier / scope:** Standard · `scripts/common/repo_sync.py` · `scripts/distribute_kit.py` ·
+  `scripts/distribute_scripts.py` and `scripts_registry.json` · the new `scripts/distribute_all.py` ·
+  `scripts/common/check_version.py` (SCRIPTS_VERSION 1.5.2) · the four `ops-distribute-*.yml` workflows and the new
+  `ops-distribute-all.yml` with its issue form · the docs · the tests
+
+**Context.** The owner is near the month's GitHub Actions limit. A kit Distribute opened a sync pull request in each
+of 17 private repos, and each ran the repo's whole CI, measured on the kit v1.14.0 sync at 10 to 24 billed minutes a
+repo (9 to 16 jobs, each billed at least a minute), about 250 to 300 minutes a Distribute, for files cicd had already
+tested. After the merge only light push workflows run. Measuring further found a larger drain. Dependabot's version
+update pull requests cannot install the private packages, fail, and run CI again on every rebase, an estimated 800
+billed minutes a week in auth-ui, the hub, the SDK and kdf-fmt alone. Each finished Distribute also left its issue
+open, 21 by 2026-10-04.
+
+**Decision.** The owner chose, 2026-10-04, to skip CI for a sync of tested copies, to carry the kit and the scripts in
+one pull request when both are due, to stop Dependabot's pull requests while keeping its alerts, and to have the
+issues close themselves. A docs only fast path in every repo's `ci.yml` was deferred to each repo's next real change.
+
+- **Skip CI, fail closed.** GitHub starts no push or pull_request workflow for a commit whose message holds
+  `[skip ci]`, and for a pull request it reads the HEAD commit. `skip_ci_eligible` in `repo_sync.py` says yes only
+  when something changed and every changed path is on an exact allowlist, never a directory. Every commit of an
+  eligible sync carries the marker, so whichever is HEAD does, and the pull request body says CI was skipped, or names
+  the files CI runs for.
+- **The allowlists.** The kit's registry files, the AGENTS.md context line (D-046) and `.github/dependabot.yml`, so
+  a kit sync always skips. For the scripts, a `files[]` entry opts in with `"pretested": true`, the three version
+  scripts. The mutation engine stays off, cicd tests it but never against a repo's own tables. Every patch of a repo's
+  own file (`Makefile`, `requirements-dev.in`, `kdf-fmt.toml`, `ruff.toml`, `pyproject.toml`) and every delete stays
+  off, so a sync that patches runs the repo's CI as before.
+- **One pull request for both.** `distribute_all.py`, the label `ops:distribute-all` and its issue form run the kit's
+  and the scripts' items into one `chore/ecosystem-sync-kit-<kit>-scripts-<scripts>` branch per repo through the same
+  owner-only gate. The skip rule judges the whole change set. The separate flows keep working.
+- **The version check.** A `chore/ecosystem-sync-*` branch may carry what either sync may, and a `chore/kit-sync-*`
+  branch may also carry `.github/dependabot.yml`. Consumer CI runs cicd's own copy, so the change is live on merge and
+  needs no scripts Distribute.
+- **Dependabot alerts only.** The kit sync sets `open-pull-requests-limit: 0` on every `updates:` entry of a repo's
+  `.github/dependabot.yml`, inserting it where missing and replacing another value, keeping comments, order and line
+  endings, and never creating the file. A limit of 0 stops version updates only. Security update pull requests are a
+  repo or account setting the owner turns off, and alerts stay on. No CI job of any repo reads the file, and pushing
+  it needs only `contents: write`, since it is not under `.github/workflows/`.
+- **Issues close themselves.** Each Distribute workflow, kit, scripts, the combined one and the App secrets one, ends
+  with a step that runs `always()` and closes the issue, completed when the job succeeded and not planned otherwise,
+  with the `issues: write` the job already holds.
+
+**Consequences.** A Distribute of the kit, or of version scripts alone, costs the cicd run that makes it, which runs
+in this public repo, and no CI minute in the repos. Sync pull requests show no checks, so the owner merges them with
+the bypass where a ruleset requires checks. A broken kit copy would surface at the repo's next ordinary pull request,
+an accepted risk since the copies are tested here. The owner creates the `ops:distribute-all` label once. Pinned in
+`test_distribute_skip_ci.py` (the allowlists, each eligible path, ten kinds of ineligible path, an empty change set,
+the marker on every commit and the HEAD, the body, the kit sync, the combined flow, the version check on seven
+branches, and controls under a rule that says yes to anything), `test_dependabot_limit.py` (present, absent, another
+limit, nested `groups:` and `ignore:`, CRLF, a second run, no `updates:` list, items at column zero, a quoted or
+empty limit, no final newline, never creating the file, and a control) and `test_ops_distribute_workflows.py` (the
+close step's place and shell in all four workflows, three outcomes, a control, and the combined workflow's gate).
+
 

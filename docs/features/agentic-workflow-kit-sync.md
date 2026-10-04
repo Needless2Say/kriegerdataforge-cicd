@@ -169,6 +169,26 @@ issue content is treated as untrusted, extracted with `awk` from an env var, pas
 an argv **array** (never inlined into a shell string), and `mode` is allow listed before use
 (`:64`–`:106`).
 
+After the result comment the issue closes itself, completed when the run succeeded and not planned when it failed, so
+finished runs stop piling up and a failed one can be reopened and labelled again (ADR D-047). The combined
+`ops-distribute-all.yml` (label `ops:distribute-all`, form `ops-distribute-all.yml`) runs `distribute_all.py`, the
+kit and the dev scripts in one sync pull request per repo, for the day both are due.
+
+### 4b2. No CI for a kit sync, and Dependabot alerts only (ADR D-047)
+
+Every file a kit sync changes is a kit copy cicd's contract tests already cover, the AGENTS.md context line, or the
+Dependabot limits, so each of its commits carries `[skip ci]` and the sync pull request starts no workflow. GitHub
+reads the marker from the pull request's HEAD commit, and every commit carries it, so whichever one is HEAD does. The
+pull request body says CI was skipped, merge it with the bypass where a ruleset requires checks. The rule is
+`skip_ci_eligible` in `common/repo_sync.py`, exact paths only, never a directory, and an empty change set never skips.
+
+The sync also sets `open-pull-requests-limit: 0` on every `updates:` entry of a repo's `.github/dependabot.yml`, when
+the repo has one, so Dependabot keeps raising alerts and opens no version update pull request. Those pull requests
+could not install the private packages and ran every repo's CI on each rebase, about 800 billed minutes a week in
+four repos. A limit of 0 stops version updates only. Security update pull requests are a repo setting the owner turns
+off, and alerts stay on. No CI job of any repo reads the file, and the push needs only `contents: write`, since
+`.github/dependabot.yml` is not under `.github/workflows/`.
+
 ### 4c. `_authorize-owner.yml`. The reusable gate (the real `workflow_call` contract)
 
 ```yaml

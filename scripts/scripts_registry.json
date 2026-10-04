@@ -1,21 +1,25 @@
 {
   "_comment": "Registry for the ecosystem dev-script sync (distribute_scripts.py, ADR D-013; vendored layout ADR D-014). The canonical sources are the 'src' paths under kriegerdataforge-cicd/scripts/common/; each is vendored byte-identical to every repo in 'repos' at its 'dest' path under scripts/kdf_scripts/ -- a vendor directory that every tenant's kdf-fmt.toml and ruff config EXCLUDES, so cicd alone governs the style of what it ships. 'deletes' are superseded paths removed by the same sync PR (the pre-1.1.0 flat scripts/ layout). 'makefile_patch' rewrites script paths + the canonical ci-version-check recipe; 'kdf_fmt_patch' appends the vendor-dir exclude to kdf-fmt.toml; a repo's optional 'ruff_config' names the file (ruff.toml or pyproject.toml) that gets the same exclude. check mode reports drift; distribute mode opens one PR per drifted repo (never auto-merges). See docs/features/version-scripts-sync.md.",
   "scripts_version_file": "scripts/SCRIPTS_VERSION",
+  "_pretested_comment": "A file entry with \"pretested\": true is a byte identical copy that cicd's own suite tests the way every repo uses it, so a sync PR whose changes are only such copies carries [skip ci] and runs no CI (ADR D-047). The flag is opt in, an entry without it never skips. Patches of a repo's own files and deletes never skip either.",
   "files": [
     {
       "src": "scripts/common/check_version.py",
-      "dest": "scripts/kdf_scripts/check_version.py"
+      "dest": "scripts/kdf_scripts/check_version.py",
+      "pretested": true
     },
     {
       "src": "scripts/common/bump_version.py",
-      "dest": "scripts/kdf_scripts/bump_version.py"
+      "dest": "scripts/kdf_scripts/bump_version.py",
+      "pretested": true
     },
     {
       "src": "scripts/common/version_targets.py",
-      "dest": "scripts/kdf_scripts/version_targets.py"
+      "dest": "scripts/kdf_scripts/version_targets.py",
+      "pretested": true
     },
     {
-      "_comment": "The shared mutation engine (ADR D-040). Only the repos that run hand written Python mutants carry it, so the entry names them in 'repos' and every other repo is left without it. Each repo keeps its tables in mutation_tests/ and its unit settings in mutation_tests/__init__.py.",
+      "_comment": "The shared mutation engine (ADR D-040). Only the repos that run hand written Python mutants carry it, so the entry names them in 'repos' and every other repo is left without it. Each repo keeps its tables in mutation_tests/ and its unit settings in mutation_tests/__init__.py. Not pretested (ADR D-047), cicd tests the engine but never against a repo's own tables, so a sync that changes it runs the repo's CI.",
       "src": "scripts/common/mutation_runner.py",
       "dest": "scripts/kdf_scripts/mutation_runner.py",
       "repos": [

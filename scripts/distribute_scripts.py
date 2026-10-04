@@ -28,7 +28,9 @@ Synced items (per repo, from the registry):
 Modes:
   check       Read-only drift report. Exits non-zero if any repo is out of sync. OPENS NOTHING.
   distribute  Opens one review-gated PR per drifted repo ("chore(scripts): sync ecosystem
-              dev scripts <SCRIPTS_VERSION>"). NEVER auto-merges.
+              dev scripts <SCRIPTS_VERSION>"). NEVER auto-merges. When every change in a repo is
+              a copy whose registry entry is "pretested": true, each commit carries [skip ci] and
+              the PR runs no CI. A patch, a delete or the mutation engine lets CI run (D-047).
 
 IMPORTANT — version-check: scripts-sync PRs do not bump VERSION. The central
 scripts/common/check_version.py exempts PRs touching only the registry dest+delete paths
@@ -471,6 +473,30 @@ def _build_items(registry: dict, only: str | None, entry: dict) -> list[SyncItem
             sys.exit(f"Error: --only '{only}' matched no synced items for this run.")
     return items
 
+
+def pretested_dests(registry: dict, entry: dict) -> set[str]:
+    """
+    The exact paths a scripts sync may change in this repo without running its CI (ADR D-047). Only whole file copies
+    whose registry entry opts in with "pretested": true and that this repo receives. Every patch of the repo's own files
+    (Makefile, requirements-dev.in, kdf-fmt.toml, ruff.toml, pyproject.toml) and every delete stays off, and so does the
+    mutation engine, which cicd tests but never against the repo's own tables.
+
+    Args:
+        registry: the parsed scripts registry
+        entry: the registry repo entry
+
+    Returns:
+        set[str]: the allowlist
+    """
+    dests: set[str] = set()
+    for file_entry in registry.get("files", []):
+        scope = file_entry.get("repos")
+        if scope is not None and entry.get("repo") not in scope:
+            continue
+        if file_entry.get("pretested") is True:
+            dests.add(file_entry["dest"])
+    return dests
+
 # ======================================================================================================================
 # CLI
 # ======================================================================================================================
@@ -556,6 +582,7 @@ def main() -> None:
                     if item.desired is None
                     else f"chore(scripts): sync {item.dest} to {version}"
                 ),
+                pretested = lambda entry: pretested_dests(registry, entry),
             )
         )
 

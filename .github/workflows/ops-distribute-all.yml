@@ -1,9 +1,10 @@
-name: Ops · Distribute scripts (issue-triggered)
+name: Ops · Distribute kit and scripts (issue-triggered)
 
-# Issue-form front-end for distribute_scripts.py (the script-sync sibling of
-# ops-distribute-kit.yml — ADR D-013). Triggered ONLY when the `ops:distribute-scripts`
-# label is added (a deliberate, owner-applied "go"). Authorization is enforced by the
-# reusable owner-only gate; this repo is public, so the gate — not obscurity — is the control.
+# Issue-form front-end for distribute_all.py (ADR D-047). It carries the agentic-workflow kit and the ecosystem dev
+# scripts in ONE sync pull request per repo, for the day both are due, so each repo runs at most one pull request's
+# CI instead of two. Triggered ONLY when the `ops:distribute-all` label is added (a deliberate, owner-applied "go").
+# Authorization is enforced by the reusable owner-only gate; this repo is public, so the gate, not obscurity, is the
+# control. The separate kit and scripts flows keep working.
 #
 # Issue content is untrusted: parsed values flow through env vars into an argv array, never
 # inlined into a shell string, and `mode` is allow-listed before use.
@@ -18,18 +19,18 @@ permissions:
 
 jobs:
   authorize:
-    if: github.event.action == 'labeled' && github.event.label.name == 'ops:distribute-scripts'
+    if: github.event.action == 'labeled' && github.event.label.name == 'ops:distribute-all'
     uses: ./.github/workflows/_authorize-owner.yml
 
   run:
-    name: Distribute scripts
+    name: Distribute kit and scripts
     needs: authorize
     # Belt-and-suspenders: needs-success (the gate exit 1s on a non-owner) AND the gate's explicit
     # authorized output AND the label/action pins. No status function here, so the implicit
     # needs:authorize success requirement is preserved (a denied gate skips this job).
     if: >-
       github.event.action == 'labeled' &&
-      github.event.label.name == 'ops:distribute-scripts' &&
+      github.event.label.name == 'ops:distribute-all' &&
       needs.authorize.outputs.authorized == 'true'
     runs-on: ubuntu-slim
     permissions:
@@ -47,10 +48,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r scripts/requirements.txt
 
-      # Short-lived GitHub App installation token (auto-revoked at job end; effective lifetime =
-      # job runtime, not the 1-hour nominal TTL). Downscoped to contents + pull-requests write —
-      # what distribute_scripts needs to push a sync branch and open a PR. Gated on USE_GITHUB_APP,
-      # falls back to CICD_PAT.
+      # Short-lived GitHub App installation token (auto-revoked at job end). Downscoped to contents + pull-requests
+      # write, what the sync needs to push a branch and open a PR. Gated on USE_GITHUB_APP, falls back to CICD_PAT.
       - name: Mint GitHub App token
         id: app-token
         if: vars.USE_GITHUB_APP == 'true'
@@ -65,13 +64,10 @@ jobs:
       - name: Extract and validate fields
         id: fields
         env:
-          # Untrusted issue-form body — only ever read as awk DATA (here-string), never inlined into
+          # Untrusted issue-form body, only ever read as awk DATA (here-string), never inlined into
           # a command, and every extracted value is allow-listed/normalized below.
           BODY: ${{ github.event.issue.body }}
         run: |
-          # Self-parse the issue-form body ("### <Label>\n\n<value>...") — no third-party action
-          # (so no Node-20 deprecation, no marker-config quirks). field() prints the non-empty lines
-          # under a "### <Label>" heading, up to the next heading.
           field() {
             awk -v lbl="### $1" '
               { sub(/\r$/, "") }
@@ -82,17 +78,12 @@ jobs:
           }
           MODE="$(field "Mode" | head -1)"
           REPOS="$(field "Target repos" | tr '\n' ',')"
-          ONLY="$(field "File filter" | head -1)"
 
-          # Allow-list the mode — never trust the parsed value.
+          # Allow-list the mode, never trust the parsed value.
           case "$MODE" in
             check|distribute) ;;
             *) echo "::error::invalid or missing mode: '${MODE}'"; exit 1 ;;
           esac
-
-          # Issue forms render an empty optional field as "_No response_".
-          if [ "$ONLY" = "_No response_" ]; then ONLY=""; fi
-          ONLY="$(printf '%s' "$ONLY" | tr -d '\r\n')"
 
           # repos arrives comma-joined; trim trailing comma + CR. ALL (an exact comma-token) means
           # "no repo filter" -> sync every registry repo.
@@ -103,24 +94,21 @@ jobs:
           {
             echo "mode=$MODE"
             echo "repos=$REPOS"
-            echo "only=$ONLY"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Run distribute_scripts
+      - name: Run distribute_all
         id: dist
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
           MODE: ${{ steps.fields.outputs.mode }}
           REPOS: ${{ steps.fields.outputs.repos }}
-          ONLY: ${{ steps.fields.outputs.only }}
         run: |
           ARGS=("$MODE")
           if [ -n "$REPOS" ]; then ARGS+=(--repos "$REPOS"); fi
-          if [ -n "$ONLY" ]; then ARGS+=(--only "$ONLY"); fi
-          echo "cmd=distribute_scripts.py ${ARGS[*]}" >> "$GITHUB_OUTPUT"
-          echo "Running: distribute_scripts.py ${ARGS[*]}"
+          echo "cmd=distribute_all.py ${ARGS[*]}" >> "$GITHUB_OUTPUT"
+          echo "Running: distribute_all.py ${ARGS[*]}"
           set +e
-          python scripts/distribute_scripts.py "${ARGS[@]}" > result.txt 2>&1
+          python scripts/distribute_all.py "${ARGS[@]}" > result.txt 2>&1
           echo "rc=$?" >> "$GITHUB_OUTPUT"
           set -e
           cat result.txt
@@ -134,9 +122,9 @@ jobs:
           CMD: ${{ steps.dist.outputs.cmd }}
         run: |
           {
-            echo "### Ops — scripts distribution result"
+            echo "### Ops — kit and scripts distribution result"
             echo
-            echo "Command: \`${CMD:-distribute_scripts.py (did not run)}\`"
+            echo "Command: \`${CMD:-distribute_all.py (did not run)}\`"
             echo
             echo '```'
             cat result.txt 2>/dev/null || echo "(no output captured — an earlier step failed)"
@@ -149,7 +137,7 @@ jobs:
         env:
           RC: ${{ steps.dist.outputs.rc }}
         run: |
-          echo "::error::distribute_scripts exited ${RC} — see the issue comment."
+          echo "::error::distribute_all exited ${RC} — see the issue comment."
           exit 1
 
       # The issue asked for one run and its result is posted, so it closes (D-047). Completed when the run succeeded,
