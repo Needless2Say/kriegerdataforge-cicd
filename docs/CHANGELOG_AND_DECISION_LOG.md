@@ -2406,4 +2406,74 @@ left a detached gc running at the moment tar started in five rounds of five, and
 it runs again at this commit or later. The mirror's own config is unchanged, so the install job's git reads it as
 before.
 
+---
+
+## D-046. A session commits STATUS.md straight to main of kriegerdataforge-context, and nothing else reaches main
+
+- **Date.** 2026-10-03
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Kit v1.14.0, reaching every
+  repo with the next Distribute. Narrows the owner rule that only the owner pushes to `main` by one named exception.
+- **Tier / scope:** Standard · `tools/claude-code/kdf-guard.js` and `guard-cases.json` · the new
+  `scripts/tests/test_guard_status_push.py` · kit `docs/agent/AGENT_ROLES.md` rule 4 and its ruleset paragraph,
+  `WORKFLOW.md`'s role summary and `CODE_REVIEW_PROCESS.md`'s role and guard tables · cicd's own copies, `AGENTS.md`
+  and `tools/claude-code/README.md`
+
+**Context.** The owner is building `kriegerdataforge-context`, a private repo beside the others that holds the
+ecosystem's context for every session, its vision, its map of the repos, its ways of working, and a `STATUS.md` of the
+live state of the work. The vision and the map change slowly and go through pull requests. The status changes every
+session, and the owner decided on 2026-10-03, "I prefer having sessions commit STATUS.md straight to the context
+repo's main because then where I go its up to date and I can read it from anywhere and its versioned with git". The
+guard refuses every push to `main`, so it needs one exception, as narrow as the decision.
+
+**Decision.** The guard lets a push to `main` through only when every one of these holds, and refuses it as before
+otherwise.
+
+- The call is a plain `git push origin main` and nothing else, one segment with no wrapper, assignment, redirect,
+  nested shell, `cd` or `find -exec` around it, and no option but `-C <dir>` before the subcommand.
+- The role is not reviewer. Reviewer git refuses every push before the exception is reached.
+- The repo's fetch URL and push URL both name `Needless2Say/kriegerdataforge-context`, on github.com by https or ssh,
+  or as a path on this machine, so a `pushurl` or an `insteadOf` that leads elsewhere refuses it. The URL may hold a
+  credential, so the guard reads it and never prints it.
+- No GIT_ variable that moves git, `GIT_DIR`, `GIT_WORK_TREE`, the object store or the configuration variables, is set.
+- `main` is checked out.
+- After a fetch of `main` into `origin/main`, every commit in `origin/main..main` changes `STATUS.md` alone. A merge
+  commit, an empty commit, a commit that adds and a later one that removes another file, and more than 50 commits
+  each refuse it.
+- Any git error refuses it. The guard's git calls take no shell, time out after 20 seconds, prompt for nothing and
+  print nothing.
+
+**Proof.** `test_guard_status_push.py` builds a real clone of a bare repo whose path ends in
+`Needless2Say/kriegerdataforge-context.git` for each case. The allowed push, the same from another folder with `-C`,
+and a push with nothing new go through. Twenty four other pushes are refused, another file in a commit, a file added
+then removed, another file alone, an empty commit, a merge, another repo, a lookalike owner, no remote, a push URL
+elsewhere, `HEAD` on another branch, a detached `HEAD`, force, force with lease, a `HEAD` refspec, an explicit
+refspec, another branch name, another remote name, a `cd` before it, a pipe after it, an `env` prefix, a git setting,
+a nested shell, `find -execdir` and a `GIT_DIR`. The control runs each of them against a copy of the guard whose
+exception lets every push through, and each is then allowed, so each refusal is the exception's doing. The guard's own
+`contextRemote` is run on eight forms of the right URL and nine lookalikes, and `guard-cases.json` gains seven cases.
+
+**Consequences.** A session updates `STATUS.md` with `git commit` on `main` and a plain `git push origin main` from the
+context repo, after a `git pull --rebase` when another session pushed first. Every other change to the context repo,
+the vision included, goes through a pull request. On GitHub, the context repo carries no ruleset that refuses a direct
+push to `main`, since the exception would be moot, so rule 4 and the guard are its fence. The owner runs
+`bash tools/claude-code/install.sh` from the cicd clone after the merge, since the installed guard is a copy.
+
+**And every repo's AGENTS.md names the context repo.** The owner decided on 2026-10-03 that each repo's `AGENTS.md`
+gains a line naming `kriegerdataforge-context/` as the ecosystem context, with the next kit release, which this one
+is. Codex and the other tools read `AGENTS.md`, not a `CLAUDE.md` above the repo. The kit sync never wrote a repo's own
+`AGENTS.md` before, so `distribute_kit.py` now inserts one paragraph, "**Ecosystem context.** Before anything else,
+read `../kriegerdataforge-context/AGENTS.md`...", into the sync pull request it opens anyway, after the role pointer
+blockquote at the top, or after the first heading where a page has none, or at the top of a page with no heading. It
+writes the line only when the page lacks the path, so a second run writes nothing, keeps the page's CRLF or LF line
+ends, and changes no other line. `check` reports a page without it as drift. The line names a path only, since this
+repo is public, so the context repo holds an `AGENTS.md` of its own. cicd's own `AGENTS.md` carries the line by hand,
+and a test holds it where the sync would put it. Those sync pull requests now change `AGENTS.md`, which the version
+check did not exempt, so `scripts/common/check_version.py` lets `AGENTS.md` through on a `chore/kit-sync-*` branch
+alone, and off that branch it still needs a bump. That changes a synced script, so `scripts/SCRIPTS_VERSION` is
+1.5.1. Consumers' pull request CI runs cicd's own `check_version.py` from `main`, so the exemption holds from the merge,
+before any scripts sync. `test_distribute_kit_agents.py` covers the line present, absent, after a pointer quote that
+runs into a heading, with no role pointer, with no heading, a quote that ends the file, CRLF, a second run, check,
+distribute, a re-run over a branch that has the line, the version check on three branches, and a control whose insert
+returns the page unchanged, under which distribute writes nothing.
+
 

@@ -9,8 +9,13 @@
 > **Know your role before you act, whatever model or tool you are.**
 > [`docs/agent/AGENT_ROLES.md`](docs/agent/AGENT_ROLES.md) says what each role may do. A review task makes you a
 > reviewer, read only, writing only your report under `docs/reviews/` and reviewing only what git tracks. In every
-> role, never merge, approve, tag, release, deploy, touch DEV or PROD, push to `main`, read a secret, or edit a
-> guardrail file, and never search, open or quote a path `.gitignore` covers except as that page's rule 6 allows.
+> role, never merge, approve, tag, release, deploy, touch DEV or PROD, push to `main` but a `STATUS.md` commit to
+> `kriegerdataforge-context` as that page's rule 4 says, read a secret, or edit a guardrail file, and never search,
+> open or quote a path `.gitignore` covers except as that page's rule 6 allows.
+
+**Ecosystem context.** Before anything else, read `../kriegerdataforge-context/AGENTS.md`. That private repo
+beside this one holds where KDF is headed, the map of its repos and how sessions work. When it is not checked out
+there, carry on with this page.
 
 ## Vision & purpose. What you're building toward
 

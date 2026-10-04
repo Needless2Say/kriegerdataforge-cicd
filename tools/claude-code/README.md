@@ -51,7 +51,11 @@ dispatches a workflow, re-runs, cancels or deletes a workflow run, publishes a p
 `destroy`, runs `vercel`, or pushes to `main`. The guard reads every spelling of those, including `git -C`, a nested
 `bash -c`, an `env` prefix quoted or not, a command after a shell keyword such as `do`, `then` or `!`, `cmd //c`,
 `env -S` and PowerShell. A push names its branch and goes to `origin`, and force, delete, tag, mirror and
-`--no-verify` pushes are refused, as are `git send-pack` and `git http-push`. Git settings that run commands or change
+`--no-verify` pushes are refused, as are `git send-pack` and `git http-push`. The one push to `main` it lets through
+is a plain `git push origin main`, the whole call, in `kriegerdataforge-context`, judged by its fetch and push URLs,
+with `main` checked out and every commit since `origin/main` changing `STATUS.md` alone, read after a fetch (D-046).
+Any doubt, a GIT_ variable that moves git, a merge, an empty commit or a git error, refuses it. Git settings that run
+commands or change
 where code goes, aliases, hooks paths, credential helpers, protocols and remote URLs, are refused whether they are
 written with `git config` or passed with `git -c`, and so are `gh gist`, deploy keys and account keys.
 

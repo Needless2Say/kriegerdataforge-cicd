@@ -82,7 +82,8 @@ A scripts sync PR does not bump VERSION. `scripts/common/check_version.py` exemp
 changed files are ALL synced paths. The registry `dest` paths, plus `Makefile` **only** on
 `chore/scripts-sync-*` head branches (an ordinary Makefile only PR still requires a bump). This
 mirrors the kit exemption (ADR D-001 option B) and is registry derived, so adding a file to the
-registry auto extends the exemption.
+registry auto extends the exemption. Since 1.5.1 (ADR D-046) a `chore/kit-sync-*` head branch may also change
+`AGENTS.md`, since the kit sync inserts the ecosystem context line there.
 
 ## 4. Versioning
 

@@ -8,7 +8,9 @@
  *   KDF_ROLE=reviewer node kdf-guard.js the same reviewer rules, chosen when the session is launched
  *
  * Owner rules, every session and every repo. Only the owner merges, approves, tags, releases, deploys or pushes
- * to main. A push names its branch and goes to origin, and force, delete, tag and mirror pushes are refused.
+ * to main. A push names its branch and goes to origin, and force, delete, tag and mirror pushes are refused. The one
+ * push to main a session makes is a plain git push origin main in kriegerdataforge-context whose every commit
+ * changes STATUS.md alone, the owner's live status (D-046).
  * Guardrails are the owner's to change, so a session cannot edit its own settings, hooks, MCP list or git hooks.
  * Git settings that run commands or change where code goes are refused. So is a make target that reaches DEV or
  * PROD or applies, deploys or publishes, one of cicd's ops scripts outside its read only mode, and re-running,
@@ -449,10 +451,11 @@ function base(t) {
 
 function check(cmd, depth) {
   if (depth > MAX_DEPTH) deny('Nested shells are too deep to check.', cmd);
-  for (const seg of segments(cmd)) analyze(seg, depth, cmd);
+  for (const seg of segments(cmd)) analyze(seg, depth, cmd, true);
 }
 
-function analyze(toks, depth, whole) {
+// own is true for a segment of the call itself, false for a command another one runs, such as find -exec's
+function analyze(toks, depth, whole, own) {
   const assigns = [];
   let i = 0;
   while (i < toks.length) {
@@ -493,13 +496,14 @@ function analyze(toks, depth, whole) {
 
   if (prog === 'find') {
     const k = toks.findIndex((x, idx) => idx > i && /^-(exec|execdir|ok|okdir)$/.test(x.t));
-    if (k >= 0 && k + 1 < toks.length) analyze(toks.slice(k + 1), depth, whole);
+    if (k >= 0 && k + 1 < toks.length) analyze(toks.slice(k + 1), depth, whole, false);
   }
   checkProtectedInShell(toks, prog, args, whole);
   checkSecretWords(toks, prog, args, whole);
   if (MODE === 'reviewer') checkRedirects(toks, whole);
   if (nestedShell(prog, args, depth)) return;
-  if (prog === 'git') checkGit(args, whole);
+  // a plain git command is the whole call, one segment, with no wrapper, keyword, assignment or shell around it
+  if (prog === 'git') checkGit(args, whole, own && depth === 0 && i === 0 && segments(whole).length === 1);
   else if (prog === 'gh') checkGh(args, whole);
   else checkOther(prog, args, assigns, whole);
   if (MODE === 'reviewer') checkReviewerProgram(prog, args, assigns, whole);
@@ -573,11 +577,11 @@ const DANGEROUS_GIT_KEY = new RegExp(
   'i'
 );
 
-function checkGit(args, whole) {
+function checkGit(args, whole, plain) {
   checkGitOptions(args, whole);
   const { sub, rest } = gitSplit(args);
   if (MODE === 'reviewer') reviewerGit(sub, rest, whole);
-  if (sub === 'push') checkPush(rest, whole);
+  if (sub === 'push') checkPush(rest, whole, plain ? plainGitDir(args) : '');
   else if (sub === 'tag') checkTag(rest, whole);
   else if (sub === 'config') checkConfig(rest, whole);
   else if (sub === 'remote') checkRemote(rest, whole);
@@ -605,7 +609,108 @@ function checkGitOptions(args, whole) {
   }
 }
 
-function checkPush(rest, whole) {
+// The directory a plain git command runs in, the shell's own moved by each -C. Any other option before the
+// subcommand, a -c setting, --git-dir or --work-tree, makes the command not plain, and the answer is ''.
+function plainGitDir(args) {
+  let dir = CWD;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '-C' && i + 1 < args.length) {
+      dir = path.resolve(dir, args[++i]);
+      continue;
+    }
+    return args[i].startsWith('-') ? '' : dir;
+  }
+  return '';
+}
+
+// The one push to main a session makes, cicd D-046. The owner keeps the live status of the work in STATUS.md of
+// kriegerdataforge-context and has sessions commit it straight to main, so it is current wherever the owner reads
+// it. The repo is judged by its remote, the push URL included, and every commit the push carries must change
+// STATUS.md alone. Anything git cannot answer refuses the push.
+const CONTEXT_ON_GITHUB = /^\/?needless2say\/kriegerdataforge-context(\.git)?\/?$/i;
+const CONTEXT_ON_DISK = /(^|[\\/])needless2say[\\/]kriegerdataforge-context(\.git)?[\\/]?$/i;
+const STATUS_FILE = 'STATUS.md';
+const STATUS_MAX_COMMITS = 50;
+const STATUS_PUSH_WHY = 'Only commits that change STATUS.md alone go straight to main of kriegerdataforge-context.';
+// Variables that point git at another repo, object store or configuration than the one the push is judged by.
+const GIT_REDIRECT_VAR = new RegExp(
+  '^GIT_(DIR|WORK_TREE|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|NAMESPACE|COMMON_DIR|CONFIG|'
+  + 'CONFIG_GLOBAL|CONFIG_SYSTEM|CONFIG_NOSYSTEM|CONFIG_PARAMETERS|CONFIG_COUNT|CONFIG_KEY_\\d+|CONFIG_VALUE_\\d+)$',
+  'i'
+);
+
+// A remote URL that names kriegerdataforge-context, on github.com by https or ssh, or a path on this machine, which
+// a push never leaves. The URL may hold a credential, so it is read here and never printed.
+function contextRemote(url) {
+  const u = String(url || '').trim();
+  const scheme = /^([a-z][a-z0-9+.-]*):\/\/(?:[^@/]*@)?([^/:]*)(?::\d+)?(\/.*)?$/i.exec(u);
+  if (scheme) {
+    const proto = scheme[1].toLowerCase();
+    const host = scheme[2].toLowerCase();
+    if (proto === 'file' && host === '') return CONTEXT_ON_DISK.test(scheme[3] || '');
+    return (proto === 'https' || proto === 'ssh') && host === 'github.com' && CONTEXT_ON_GITHUB.test(scheme[3] || '');
+  }
+  const scp = /^(?:[^@/\\]+@)?([^/\\:]+):(.*)$/.exec(u);
+  if (scp && !/^[a-z]$/i.test(scp[1])) return scp[1].toLowerCase() === 'github.com' && CONTEXT_ON_GITHUB.test(scp[2]);
+  return CONTEXT_ON_DISK.test(u);
+}
+
+function statusPush(dir) {
+  const git = (args) => execFileSync('git', ['-C', dir, ...args], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+    timeout: 20000,
+    windowsHide: true,
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }
+  }).trim();
+  let fetchUrl;
+  let pushUrl;
+  try {
+    fetchUrl = git(['remote', 'get-url', 'origin']);
+    pushUrl = git(['remote', 'get-url', '--push', 'origin']);
+  } catch (err) {
+    return { context: false };
+  }
+  if (!contextRemote(fetchUrl)) return { context: false };
+  if (!contextRemote(pushUrl)) return { context: true, why: 'Its push URL leads somewhere else.' };
+  if (Object.keys(process.env).some((k) => GIT_REDIRECT_VAR.test(k))) {
+    return { context: true, why: 'A GIT_ variable in the environment could point git at another repo or setting.' };
+  }
+  let head = '';
+  try {
+    head = git(['symbolic-ref', '-q', '--short', 'HEAD']);
+  } catch (err) {
+    head = '';
+  }
+  if (head !== 'main') return { context: true, why: 'Check out main first, the push is judged from main.' };
+  try {
+    git(['-c', 'gc.auto=0', '-c', 'maintenance.auto=false', 'fetch', '--quiet', '--no-tags', 'origin',
+      '+refs/heads/main:refs/remotes/origin/main']);
+    const range = 'refs/remotes/origin/main..refs/heads/main';
+    const commits = git(['rev-list', '--max-count=' + (STATUS_MAX_COMMITS + 1), range]).split('\n').filter(Boolean);
+    if (commits.length > STATUS_MAX_COMMITS) {
+      return { context: true, why: 'More than ' + STATUS_MAX_COMMITS + ' commits wait, open a pull request.' };
+    }
+    if (git(['rev-list', '--merges', range])) return { context: true, why: 'A merge commit is in the push.' };
+    for (const sha of commits) {
+      const names = git(['diff-tree', '--no-commit-id', '--name-only', '-r', '--no-renames', sha]).split('\n')
+        .filter(Boolean);
+      if (names.length !== 1 || names[0] !== STATUS_FILE) {
+        return { context: true, why: 'Commit ' + sha.slice(0, 7) + ' changes more than STATUS.md, or nothing.' };
+      }
+    }
+  } catch (err) {
+    return { context: true, why: 'git could not read the remote or the commits, so the push is refused.' };
+  }
+  return { allowed: true };
+}
+
+function checkPush(rest, whole, dir) {
+  if (MODE !== 'reviewer' && dir && rest.length === 2 && rest[0] === 'origin' && rest[1] === 'main') {
+    const verdict = statusPush(dir);
+    if (verdict.allowed) return;
+    if (verdict.context) deny(STATUS_PUSH_WHY + ' ' + verdict.why, whole);
+  }
   const opts = rest.filter((a) => a.startsWith('-'));
   const pos = rest.filter((a) => !a.startsWith('-'));
   const long = /^--(force|force-with-lease|force-if-includes|delete|tags|mirror|all|prune|follow-tags|no-verify)(=.*)?$/;
