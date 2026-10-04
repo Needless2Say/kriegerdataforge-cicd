@@ -47,6 +47,16 @@ def context_line_present():
 
 
 @pytest.fixture(autouse = True)
+def dependabot_settled():
+    """
+    Every repo's dependabot.yml already opens no version update pull request unless a test says so, and no test reaches
+    GitHub for it (D-047).
+    """
+    with patch.object(dk, "dependabot_due", return_value = False) as due:
+        yield due
+
+
+@pytest.fixture(autouse = True)
 def no_gaps():
     """
     Every repo's own files meet the standard unless a test says so, and no check test reaches GitHub for them.

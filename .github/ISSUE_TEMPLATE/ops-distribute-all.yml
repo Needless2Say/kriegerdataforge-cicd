@@ -1,0 +1,68 @@
+name: "Ops · Distribute Kit and Scripts Together"
+description: "Owner-only: sync the agentic-workflow kit and the dev scripts in one PR per repo (check or open PRs)."
+title: "[Ops] Distribute kit and scripts: "
+labels:
+  - ops
+assignees:
+  - Needless2Say
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Distribute the kit and the dev scripts in one pull request per repo
+        Use this when both are due, so each repo runs one pull request's CI instead of two (ADR D-047).
+        Fill in the fields, submit, then **add the `ops:distribute-all` label** to run.
+        Only the repository owner can actually run it (the workflow fails closed otherwise).
+
+        - **check** — read-only drift report across both; opens nothing.
+        - **distribute** — opens **one review-gated PR per drifted repo** (never auto-merges).
+
+        A PR whose every change is a copy cicd tested, or config no CI job reads, carries `[skip ci]` and
+        runs no CI, merge it with the bypass where a ruleset requires checks. The issue closes itself after
+        the result is posted.
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      description: "check = drift report only · distribute = open sync PRs"
+      options:
+        - check
+        - distribute
+    validations:
+      required: true
+
+  - type: dropdown
+    id: repos
+    attributes:
+      label: Target repos
+      description: "Multi-select. Pick ALL, or any subset. (If ALL is selected, the rest is ignored.)"
+      multiple: true
+      options:
+        - ALL
+        - kriegerdataforge
+        - kriegerdataforge-sdk
+        - kriegerdataforge-reports-sdk
+        - kriegerdataforge-report-form
+        - kriegerdataforge-fmt
+        - kriegerdataforge-terraform
+        - kriegerdataforge-auth-ui
+        - fitness-app-frontend
+        - fitness-app-backend
+        - tiffanys-space
+        - tiffanys-space-backend
+        - arthurs-portfolio
+        - kriegerdataforge-portfolio
+        - kriegerdataforge-template-nextjs
+        - kriegerdataforge-template-fastapi
+        - kriegerdataforge-template-npm-package
+        - kriegerdataforge-template-python-package
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        ▶ **To run:** add the **`ops:distribute-all`** label to this issue. Re-add it to re-run.

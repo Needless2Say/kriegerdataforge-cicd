@@ -22,15 +22,21 @@ the repo NEEDS MANUAL ATTENTION without aborting the fan-out.
 
 check mode reports drift and opens nothing; distribute mode opens one
 review-gated PR per drifted repo and NEVER auto-merges.
+
+A sync whose every changed file is on the caller's pretested allowlist, copies of what cicd's own suite tested or
+config no CI job reads, carries ``[skip ci]`` in every commit message, so GitHub starts no pull_request workflow for
+its PR (ADR D-047). Any other changed file, a patch of the repo's own Makefile for instance, leaves the marker off and
+the repo's CI runs as before.
 """
 
 from __future__ import annotations
 
 # standard imports
 import base64
+import os
 import sys
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Collection
 
 # third party imports
 from common.http import build_session
@@ -45,6 +51,11 @@ GITHUB_API = "https://api.github.com"
 # doesn't abort a repo mid-fan-out. Config + rationale live in common/http.py.
 # Retries idempotent methods (GET/PUT) only.
 _SESSION = build_session()
+
+# GitHub starts no push or pull_request workflow for a commit whose message holds this string, and for a pull request
+# it reads the HEAD commit's message (ADR D-047). Every commit of an eligible sync carries it, so whichever commit ends
+# up as the HEAD carries it too.
+SKIP_CI_MARKER = "[skip ci]"
 
 # ======================================================================================================================
 # Sync-item model
@@ -327,6 +338,58 @@ def _normalize(text: str) -> str:
     return text.replace("\r\n", "\n")
 
 
+def skip_ci_eligible(changed: Collection[str], pretested: Collection[str]) -> bool:
+    """
+    Whether a sync may skip the repo's CI, judged fail closed. Only when something changed and every changed path is
+    on the pretested allowlist, exact paths, never a directory (ADR D-047).
+
+    Args:
+        changed: the repo relative paths the sync changes, deletions included
+        pretested: the exact paths the caller vouches for, copies of what cicd tested or config no CI job reads
+
+    Returns:
+        bool: True when the sync's commits may carry the skip marker
+    """
+    return bool(changed) and all(path in pretested for path in changed)
+
+
+def with_skip_ci(message: str, skip: bool) -> str:
+    """
+    A commit message with the skip marker appended when the sync is eligible.
+
+    Args:
+        message: the commit message
+        skip: whether the sync skips CI
+
+    Returns:
+        str: the message, marked or as it was
+    """
+    return f"{message} {SKIP_CI_MARKER}" if skip else message
+
+
+def ci_note(skip: bool, changed: Collection[str], pretested: Collection[str]) -> str:
+    """
+    The line a sync PR's body carries about CI, so the owner knows why checks are absent or why they run.
+
+    Args:
+        skip: whether the sync skips CI
+        changed: the repo relative paths the sync changes
+        pretested: the caller's pretested allowlist
+
+    Returns:
+        str: one Markdown paragraph
+    """
+    if skip:
+        source = os.environ.get("GITHUB_SHA", "")[:12] or "the checked out commit"
+        return (
+            f"**CI skipped** (`{SKIP_CI_MARKER}`, cicd D-047). Every changed file is a copy of "
+            f"kriegerdataforge-cicd@{source}, tested there, or config no CI job reads. Merge with the bypass where a "
+            "ruleset requires checks."
+        )
+    untested = sorted(path for path in changed if path not in pretested)
+    return f"**CI runs** (cicd D-047), because cicd never tested these changes here: {', '.join(untested)}."
+
+
 def _select_repos(registry: dict, repos_arg: str | None) -> list[dict]:
     """
     Filter the registry's repos to those named in --repos.
@@ -471,6 +534,7 @@ def run_distribute(
     pr_title: str,
     pr_body_fn: Callable[[list[SyncItem]], str],
     commit_msg_fn: Callable[[SyncItem], str],
+    pretested: Collection[str] | Callable[[dict], Collection[str]] | None = None,
 ) -> int:
     """
     Open one sync PR per drifted repo. NEVER auto-merges.
@@ -478,6 +542,9 @@ def run_distribute(
     For each drifted item the desired content is recomputed against the SYNC
     BRANCH copy, so re-running against a half-updated ``sync_branch`` stays
     idempotent (and a patch item patches what is actually on that branch).
+
+    When ``pretested`` is given and every drifted path is on it, each commit carries the skip marker and the PR body
+    says CI was skipped. Otherwise the body names the files CI runs for (ADR D-047).
 
     Args:
         token: GitHub token (contents + pull-requests write)
@@ -487,6 +554,7 @@ def run_distribute(
         pr_title: title for every opened PR
         pr_body_fn: builds the PR body from the repo's drifted items
         commit_msg_fn: builds the commit message for one item
+        pretested: the exact paths that may skip CI, static or built per repo entry, None to never skip
 
     Returns:
         int: 0 when every repo synced or was already in sync; 1 when any repo failed or needs manual attention
@@ -501,24 +569,31 @@ def run_distribute(
             if not drift:
                 print(f"  {repo}: in sync — no PR")
                 continue
+            changed  = [item.dest for item in drift]
+            allow    = pretested(entry) if callable(pretested) else pretested
+            skip     = allow is not None and skip_ci_eligible(changed, allow)
             base_sha = _get_branch_sha(token, repo, branch)
             _create_branch(token, repo, sync_branch, base_sha)
             for item in drift:
+                message = with_skip_ci(commit_msg_fn(item), skip)
                 remote, blob_sha = _get_remote_file(token, repo, sync_branch, item.dest)
                 if item.desired is None:  # delete item
                     if remote is not None and blob_sha is not None:
-                        _delete_file(token, repo, sync_branch, item.dest, blob_sha, commit_msg_fn(item))
+                        _delete_file(token, repo, sync_branch, item.dest, blob_sha, message)
                     continue  # already gone on the sync branch (re-run)
                 desired = item.desired(remote)
                 if remote is not None and _normalize(remote) == _normalize(desired):
                     continue  # sync branch already carries this item (re-run)
-                _put_file(token, repo, sync_branch, item.dest, desired, blob_sha, commit_msg_fn(item))
+                _put_file(token, repo, sync_branch, item.dest, desired, blob_sha, message)
             existing = _open_pr_url(token, repo, sync_branch, branch)
             if existing:
                 print(f"  {repo}: PR already open — {existing}")
                 already.append(existing)
                 continue
-            url = _create_pr(token, repo, sync_branch, branch, pr_title, pr_body_fn(drift))
+            body = pr_body_fn(drift)
+            if allow is not None:
+                body = f"{body}\n\n{ci_note(skip, changed, allow)}"
+            url = _create_pr(token, repo, sync_branch, branch, pr_title, body)
             print(f"  {repo}: PR opened — {url}")
             opened.append(url)
         except PatchError as exc:

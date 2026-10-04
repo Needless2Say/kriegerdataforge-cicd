@@ -16,7 +16,11 @@ Modes:
   distribute  For each repo that has drifted, create a branch, commit the updated kit files, and
               OPEN a pull request titled "chore(kit): sync agentic-workflow kit <KIT_VERSION>".
               The same pull request inserts the ecosystem context line into the repo's own AGENTS.md
-              when it is absent, and changes nothing else in that page.
+              when it is absent, and changes nothing else in that page. It also sets
+              open-pull-requests-limit 0 on every updates entry of the repo's .github/dependabot.yml,
+              when the repo has one, so Dependabot raises alerts and opens no version update PR (D-047).
+              Every file it changes is a kit copy or config no CI job reads, so each commit carries
+              [skip ci] and the PR starts no workflow (D-047).
               It NEVER auto-merges — the owner reviews and merges. Requires a write-scoped token.
 
 IMPORTANT — version-check: kit-sync PRs are docs-only. Each consumer's version-check workflow must
@@ -46,6 +50,7 @@ import argparse
 import fnmatch
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -65,6 +70,9 @@ from common.repo_sync import (  # noqa: F401  (re-exported for tests/callers)
     _open_pr_url,
     _put_file,
     _select_repos,
+    ci_note,
+    skip_ci_eligible,
+    with_skip_ci,
 )
 
 # ======================================================================================================================
@@ -89,6 +97,21 @@ ECOSYSTEM_LINES = (
     "there, carry on with this page.",
 )
 ECOSYSTEM_LABEL = "AGENTS.md (the ecosystem context line)"
+
+# Dependabot raises alerts and opens no version update pull request (D-047). Its pull requests cannot install the
+# private packages and ran every repo's CI on each rebase, about 800 billed minutes a week in four repos. A limit of 0
+# stops version updates only. Security updates are a repo setting the owner switches, and alerts stay on. No CI job of
+# any repo reads this file, so the sync may change it without running CI.
+DEPENDABOT_FILE  = ".github/dependabot.yml"
+DEPENDABOT_KEY   = "open-pull-requests-limit"
+DEPENDABOT_LABEL = ".github/dependabot.yml (open-pull-requests-limit 0)"
+_UPDATES_RE      = re.compile(r"^updates:\s*(#.*)?$")
+_LIMIT_RE        = re.compile(rf"^(\s*(?:-\s+)?{DEPENDABOT_KEY}:\s*)([^#\s][^#]*?)?(\s*(?:#.*)?)$")
+DEPENDABOT_NOTE  = (
+    "**Dependabot.** Every `updates:` entry of `.github/dependabot.yml` gets `open-pull-requests-limit: 0`, so "
+    "Dependabot keeps raising alerts and opens no version update pull request (cicd D-047). Security update pull "
+    "requests are a repo setting the owner turns off, and alerts stay on either way."
+)
 
 # ======================================================================================================================
 # Helpers
@@ -192,6 +215,122 @@ def insert_ecosystem_line(text: str) -> str:
     return "".join(lines[:insert_at] + block + lines[insert_at:])
 
 
+def _updates_entries(bare: list[str]) -> list[tuple[int, int, int]]:
+    """
+    The entries of a dependabot.yml's `updates:` list, read line by line so comments and order survive.
+
+    Args:
+        bare: the page's lines without their line endings
+
+    Returns:
+        One (first line, end line exclusive, key indent) per entry, empty when the page has no block list there
+    """
+    start = next((i for i, line in enumerate(bare) if _UPDATES_RE.match(line)), None)
+    if start is None:
+        return []
+    item_indent: int | None = None
+    firsts:      list[int] = []
+    end = len(bare)
+    for i in range(start + 1, len(bare)):
+        stripped = bare[i].strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent  = len(bare[i]) - len(bare[i].lstrip(" "))
+        is_item = stripped == "-" or stripped.startswith("- ")
+        if item_indent is None:
+            if not is_item:
+                return []
+            item_indent = indent
+        if indent < item_indent or (indent == item_indent and not is_item):
+            end = i
+            break
+        if indent == item_indent:
+            firsts.append(i)
+    entries: list[tuple[int, int, int]] = []
+    for n, first in enumerate(firsts):
+        last       = firsts[n + 1] if n + 1 < len(firsts) else end
+        after      = bare[first][(item_indent or 0) + 1:]
+        key_indent = (item_indent or 0) + 1 + len(after) - len(after.lstrip(" "))
+        if not after.strip():  # a bare `-`, the keys start on the next content line
+            nxt        = next((j for j in range(first + 1, last) if bare[j].strip()), None)
+            key_indent = len(bare[nxt]) - len(bare[nxt].lstrip(" ")) if nxt is not None else key_indent + 1
+        entries.append((first, last, key_indent))
+    return entries
+
+
+def limit_dependabot_prs(text: str) -> str:
+    """
+    Return a repo's dependabot.yml with `open-pull-requests-limit: 0` on every entry of its `updates:` list (D-047). A
+    different limit is replaced, a missing one is added after the entry's last line, and comments, order and line
+    endings are kept. A page already at 0 everywhere, or one without an `updates:` block list, comes back unchanged.
+
+    Args:
+        text: The repo's .github/dependabot.yml
+
+    Returns:
+        The page with every entry's limit at 0
+    """
+    newline = "\r\n" if "\r\n" in text else "\n"
+    lines   = text.splitlines(keepends = True)
+    bare    = [line.rstrip("\r\n") for line in lines]
+    inserts: list[tuple[int, str]] = []
+    for first, last, key_indent in _updates_entries(bare):
+        found = False
+        for j in range(first, last):
+            indent = len(bare[j]) - len(bare[j].lstrip(" "))
+            on_key = (j == first and bare[j].lstrip(" -").startswith(f"{DEPENDABOT_KEY}:")) or (
+                j > first and indent == key_indent and bare[j].strip().startswith(f"{DEPENDABOT_KEY}:")
+            )
+            if not on_key:
+                continue
+            found = True
+            match = _LIMIT_RE.match(bare[j])
+            if match and match.group(2) != "0":
+                ending = lines[j][len(bare[j]):]
+                prefix = match.group(1) if match.group(1).endswith((" ", "\t")) else f"{match.group(1)} "
+                lines[j] = f"{prefix}0{match.group(3)}{ending}"
+        if not found:
+            content = [j for j in range(first, last) if bare[j].strip() and not bare[j].strip().startswith("#")]
+            inserts.append((content[-1] + 1, f"{' ' * key_indent}{DEPENDABOT_KEY}: 0{newline}"))
+    for position, line in reversed(inserts):
+        if position > 0 and not lines[position - 1].endswith("\n"):
+            lines[position - 1] += newline
+        lines.insert(position, line)
+    return "".join(lines)
+
+
+def dependabot_due(token: str, owner_repo: str, branch: str) -> bool:
+    """
+    Whether a repo's dependabot.yml still lets Dependabot open version update pull requests. A repo without the file
+    gets none written.
+
+    Args:
+        token: A GitHub token that reads the repo
+        owner_repo: The repo, as owner/name
+        branch: The branch to read
+
+    Returns:
+        True when the sync should write the limits
+    """
+    page, _sha = _get_remote_file(token, owner_repo, branch, DEPENDABOT_FILE)
+    return page is not None and limit_dependabot_prs(page) != page
+
+
+def pretested_paths(files: list[str]) -> set[str]:
+    """
+    The exact paths a kit sync may change without running the repo's CI (D-047). The kit's own copies, tested by cicd's
+    contract tests, plus the two lines the sync writes into config no CI job reads, the AGENTS.md pointer and the
+    Dependabot limits.
+
+    Args:
+        files: the kit files of this run
+
+    Returns:
+        The allowlist
+    """
+    return {*files, AGENTS_FILE, DEPENDABOT_FILE}
+
+
 def agents_line_missing(token: str, owner_repo: str, branch: str) -> bool:
     """
     Whether a repo's AGENTS.md lacks the ecosystem context line. A repo with no AGENTS.md gets none written, the role
@@ -285,6 +424,8 @@ def cmd_check(registry: dict, token: str, only: str | None, repos_arg: str | Non
             drift = compute_drift(token, repo, branch, files)
             if agents_line_missing(token, repo, branch):
                 drift.append(ECOSYSTEM_LABEL)
+            if dependabot_due(token, repo, branch):
+                drift.append(DEPENDABOT_LABEL)
             gaps = compute_gaps(token, repo, branch)
         except Exception as exc:  # noqa: BLE001
             print(f"  {repo}: ERROR — {exc}")
@@ -330,11 +471,15 @@ def cmd_distribute(registry: dict, token: str, only: str | None, repos_arg: str 
     for entry in repos:
         repo, branch = entry["repo"], entry.get("branch", "main")
         try:
-            drift   = compute_drift(token, repo, branch, files)
-            context = agents_line_missing(token, repo, branch)
-            if not drift and not context:
+            drift      = compute_drift(token, repo, branch, files)
+            context    = agents_line_missing(token, repo, branch)
+            dependabot = dependabot_due(token, repo, branch)
+            if not drift and not context and not dependabot:
                 print(f"  {repo}: in sync — no PR")
                 continue
+            changed  = [*drift, *([AGENTS_FILE] if context else []), *([DEPENDABOT_FILE] if dependabot else [])]
+            allow    = pretested_paths(files)
+            skip     = skip_ci_eligible(changed, allow)
             base_sha = _get_branch_sha(token, repo, branch)
             _create_branch(token, repo, sync_branch, base_sha)
             for rel in drift:
@@ -349,7 +494,7 @@ def cmd_distribute(registry: dict, token: str, only: str | None, repos_arg: str 
                     rel,
                     content,
                     blob_sha,
-                    f"chore(kit): sync {rel} to {version}",
+                    with_skip_ci(f"chore(kit): sync {rel} to {version}", skip),
                 )
             if context:
                 # the repo's own page, read from the sync branch so a re-run that already wrote the line writes nothing
@@ -362,9 +507,23 @@ def cmd_distribute(registry: dict, token: str, only: str | None, repos_arg: str 
                         AGENTS_FILE,
                         insert_ecosystem_line(agents),
                         blob_sha,
-                        f"chore(kit): name the ecosystem context in AGENTS.md ({version})",
+                        with_skip_ci(f"chore(kit): name the ecosystem context in AGENTS.md ({version})", skip),
                     )
                 drift = [*drift, ECOSYSTEM_LABEL]
+            if dependabot:
+                # read from the sync branch too, so a re-run that already set the limits writes nothing
+                page, blob_sha = _get_remote_file(token, repo, sync_branch, DEPENDABOT_FILE)
+                if page is not None and limit_dependabot_prs(page) != page:
+                    _put_file(
+                        token,
+                        repo,
+                        sync_branch,
+                        DEPENDABOT_FILE,
+                        limit_dependabot_prs(page),
+                        blob_sha,
+                        with_skip_ci(f"chore(kit): Dependabot raises alerts and opens no PR ({version})", skip),
+                    )
+                drift = [*drift, DEPENDABOT_LABEL]
             existing = _open_pr_url(token, repo, sync_branch, branch)
             if existing:
                 print(f"  {repo}: PR already open — {existing}")
@@ -374,9 +533,12 @@ def cmd_distribute(registry: dict, token: str, only: str | None, repos_arg: str 
                 f"Automated sync of the agentic-workflow kit to **{version}** from "
                 f"`kriegerdataforge-cicd/kit/common/`.\n\n"
                 f"Files updated: {', '.join(drift)}\n\n"
-                f"Docs-only. See ADR D-001 / the kit-distribution epic. Please review and merge."
+                f"Docs-only. See ADR D-001 / the kit-distribution epic. Please review and merge.\n\n"
+                f"{ci_note(skip, changed, allow)}"
             )
-            url  = _create_pr(token, repo, sync_branch, branch, title, body)
+            if dependabot:
+                body += f"\n\n{DEPENDABOT_NOTE}"
+            url = _create_pr(token, repo, sync_branch, branch, title, body)
             print(f"  {repo}: PR opened — {url}")
             opened.append(url)
         except Exception as exc:  # noqa: BLE001
