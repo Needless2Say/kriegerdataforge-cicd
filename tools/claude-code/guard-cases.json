@@ -437,6 +437,13 @@
   "command": "git push -u origin main",
   "expect": "block"
  },
+ { "role": "owner", "tool": "Bash", "command": "git -C ../kriegerdataforge-context push origin main", "expect": "block" },
+ { "role": "owner", "tool": "Bash", "command": "cd ../kriegerdataforge-context && git push origin main", "expect": "block" },
+ { "role": "owner", "tool": "Bash", "command": "git push origin main 2>&1 | tail -1", "expect": "block" },
+ { "role": "owner", "tool": "Bash", "command": "GIT_DIR=../kriegerdataforge-context/.git git push origin main", "expect": "block" },
+ { "role": "owner", "tool": "Bash", "command": "find . -maxdepth 0 -execdir git push origin main \\;", "expect": "block" },
+ { "role": "owner", "tool": "PowerShell", "command": "git push origin main", "expect": "block" },
+ { "role": "reviewer", "tool": "Bash", "command": "git push origin main", "expect": "block" },
  {
   "role": "owner",
   "tool": "Bash",

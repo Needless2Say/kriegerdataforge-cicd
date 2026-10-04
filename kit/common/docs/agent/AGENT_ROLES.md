@@ -44,7 +44,9 @@ When your role is unclear, take the narrower one and ask the owner.
    scripts run only in their read only modes. Local work, Docker and the local databases are free to use, and a
    reviewer only reads the running stack, section 5.
 4. **Never push to `main`, force push, delete a remote branch, push a tag, or push anywhere but `origin`.** Push your
-   own branch by name, `git push -u origin <branch>`, and open a pull request.
+   own branch by name, `git push -u origin <branch>`, and open a pull request. The one exception is the owner's
+   private `kriegerdataforge-context`, where a session commits `STATUS.md` straight to `main` with a plain
+   `git push origin main`, and only while every commit it pushes changes `STATUS.md` alone.
 5. **Never touch a secret file, and never read, print or copy a secret value.** A secret file is closed to every
    session and every model. Nothing reads, writes, copies, sources or passes one to a command, and checking that one
    exists is the only thing allowed. A stack or a test that needs one starts through the repo's make target, which
@@ -159,5 +161,7 @@ text, rule 9.
 | Chat readers | They have no access to the repo |
 
 The rulesets are the last fence for every tool. A direct push to `main` is refused by GitHub, since the owner's
-bypass is set to pull requests only, and every pull request needs the owner to merge it. The guard's rules and this
+bypass is set to pull requests only, and every pull request needs the owner to merge it. `kriegerdataforge-context`
+is the one repo whose `main` takes a direct push, a session's `STATUS.md` commit, so rule 4 and the guard are its
+fence. The guard's rules and this
 page are kept in step, a change to one is a change to the other, in the same pull request.
