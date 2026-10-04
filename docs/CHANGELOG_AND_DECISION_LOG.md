@@ -2536,4 +2536,73 @@ limit, nested `groups:` and `ignore:`, CRLF, a second run, no `updates:` list, i
 empty limit, no final newline, never creating the file, and a control) and `test_ops_distribute_workflows.py` (the
 close step's place and shell in all four workflows, three outcomes, a control, and the combined workflow's gate).
 
+---
 
+## D-048. Codex in the cloud on Codex's rebuilt cloud, with no token and no pull request
+
+- **Date.** 2026-10-04
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Kit v1.15.0, reaching every
+  repo with the next Distribute. The kdf-sdk's S2 runs its Codex turns this way from the start.
+- **Tier / scope:** Standard · `kit/common/docs/agent/CODE_REVIEW_PROCESS.md` sections 4, 10 and 11 · the cloud's
+  git exception in `AGENT_ROLES.md` and `templates/review-brief.template.md` · `tools/codex-cloud/` ·
+  `tools/claude-code/kdf-review.sh`'s collect messages · the docs · the tests
+
+**Context.** D-039 put Codex in the cloud on trial for the kdf-sdk's S2, with a token of its own handed to a setup
+script, and a report returned through a pull request the owner closed unmerged. On 2026-09-29 OpenAI rebuilt Codex's
+cloud. The environment D-039 was written for is now "Codex Cloud (Legacy)", kept for Code Review and the GitHub and
+Linear integrations and due to retire. A new environment is published from an Install script and a Start skill that
+Codex drafts with the owner. Its secrets are network secrets, the process sees a placeholder and a proxy puts the real
+value into an HTTPS request to a listed domain, so a token git sends inside Basic authentication is most likely never
+put in. A task starts in `/workspace` from the published copy of `main`, on a branch named `work`, with no branch to
+choose and no Create PR button. Setting up the kdf-sdk's environment on 2026-10-04 found more. Codex's own drafts
+asked for the owner's package token, named a failing test as a known defect in the Start skill every task reads, and
+kept their notes in `/workspace/.cloud-onboarding`. With the agent's internet off, git in a task cannot reach GitHub,
+`CONNECT tunnel failed, response 403`. The Codex CLI's `codex cloud` commands, 0.160.0, list none of the new tasks.
+
+**Decision.** The owner chose, 2026-10-04, an environment with no token, an agent that reaches `github.com` alone, and
+a report pushed on a branch of Codex's own with no pull request.
+
+- **No token.** `tools/codex-cloud/kdf-codex-install.sh` replaces `kdf-codex-setup.sh`. It installs the runtime
+  lockfile, the development pins without any line from the owner's private repos, then the repo without its
+  dependencies, and ends with `pip check`. kdf-fmt, the kdf-sdk's only private package, runs only the style lane,
+  which a review read does not need. A repo whose runtime lockfile names a private package stops with exit 1, since
+  its install would need a token. Python is the image's 3.14, or uv's under the workspace, which the published
+  environment keeps, and a venv whose interpreter is gone is made again.
+- **A neutral Start skill.** `kdf-codex-start-skill.md` says how to enter the venv and what the environment leaves out
+  on purpose, and names no finding, so a reviewer meets what the onboarding saw on its own. Codex's drafts are
+  replaced and its onboarding notes deleted before the environment is published.
+- **`github.com` alone.** The agent's internet is on for custom domains, `github.com` and nothing else. Git then
+  fetches and pushes through Codex's GitHub connection, which reaches the reviewed repo alone, while PyPI and every
+  other site stay closed, and `main`'s ruleset refuses a direct push.
+- **No pull request.** The one line tells Codex to fetch `review/<pfx>-<slice>`, make `review/<pfx>-<slice>-codex` at
+  the pin, read and run the review, commit its report alone and push that branch. `--collect-branch` checks it exactly
+  as before. The reviewer rules and the brief name that git as the cloud's only exception, and the launcher no longer
+  tells anyone to close a pull request. The owner deletes both review branches when the review closes.
+
+**Alternatives considered.**
+
+- *D-039's token as a network secret.* Rejected. Git carries a token inside Basic authentication, where a placeholder
+  is most likely never replaced, and holding no token is the more secure option.
+- *Internet off, a git bundle the owner attaches and a report the owner pastes back.* Rejected by the owner, every
+  Codex turn would need the owner at the machine.
+- *A Legacy environment with Create PR.* Rejected. It is due to retire, and a pull request runs the repo's Merge Gate,
+  about 10 to 20 billed minutes a Codex turn.
+- *The orchestrator starting tasks with `codex cloud exec` and reading them with `codex cloud diff`.* Parked until the
+  CLI lists the new cloud's tasks.
+
+**Proof, 2026-10-04.** The install ran on the kdf-sdk at `d9a4602` in `python:3.14.7-slim`, 1938 tests passed and the
+5 that failed needed only the image's missing git and make, and in a uv image without Python, from a fresh folder, a
+broken venv and a second run. The owner's `kdf-sdk-review` environment was published and its smoke test ran the suite
+as the draft had. A task with `github.com` allowed listed and fetched the kdf-sdk's branches, could not reach PyPI, and
+pushed `codex-probe/push-test` at `b255faf`. No workflow ran for it. `--collect-branch` brought its file in from a fresh
+clone and refused it with exit 3 against an older pin.
+
+**Consequences.** Kit v1.15.0 carries the process, the reviewer rules and the brief template to every repo with the
+next Distribute, which runs no CI there (D-047). Codex's commits carry the owner's name, so GitHub cannot tell them
+from the owner's, and the collect check stays the fence. A Codex review in the cloud runs the tests but not the style
+lane, `pip-audit` or the consumer check, which the orchestrator runs. A backend's review in the cloud needs a design
+for its private runtime package first. Pinned in `test_codex_cloud_install.py` (a clean install without the private
+line, uv when the image has no Python, a venv kept and one made again, a private runtime package, a missing
+requirements file, each failing pip call, no secret in the script, a neutral Start skill) and
+`test_claude_code_tools.py` (the process, the reviewer rules and the brief template, and a collect that names no pull
+request). VERSION 0.2.129.

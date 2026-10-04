@@ -514,7 +514,7 @@ def test_the_first_retrospective_s_changes_are_in_the_kit() -> None:
     standing questions, the readers named for both stacks, and its scope table marks a tool that destroys. A final
     brief reads the last Sol round's Blocks fixes first, in place of a narrow read. A report clocks its time and probes
     with the consumer's own parser. The launcher counts a run and stops one past four hours. Codex in the cloud is on
-    trial for one slice with a token of its own.
+    trial for one slice, since D-048 with no token, test_codex_in_the_rebuilt_cloud_needs_no_token_and_no_pull_request.
     """
     process   = " ".join((KIT / "docs" / "agent" / "CODE_REVIEW_PROCESS.md").read_text(encoding = "utf-8").split())
     templates = KIT / "docs" / "agent" / "templates"
@@ -550,9 +550,40 @@ def test_the_first_retrospective_s_changes_are_in_the_kit() -> None:
     assert "`--output-format stream-json --verbose`, so the run's log holds each event as it happens" in process
     assert "from the stream's last result event" in process
     assert "**Codex in the cloud is on trial, for the kdf-sdk's S2 alone.**" in process
-    assert "never `GH_PACKAGES_PAT` and never a token used anywhere else" in process
-    assert "an expiry of 30 days" in process
     assert "**The first retrospective**, the kdf-sdk's S1" in process
+
+
+def test_codex_in_the_rebuilt_cloud_needs_no_token_and_no_pull_request() -> None:
+    """
+    Codex's cloud was rebuilt on 2026-09-29 (D-048). The environment holds no token, its agent reaches github.com alone,
+    a task fetches the review branch, makes its own branch at the pin and pushes its report there with no pull request,
+    and the reviewer rules name exactly that git as the cloud's exception. Nothing in the kit still asks for the trial's
+    old token or a pull request of Codex's.
+    """
+    agent     = KIT / "docs" / "agent"
+    process   = " ".join((agent / "CODE_REVIEW_PROCESS.md").read_text(encoding = "utf-8").split())
+    roles     = " ".join((agent / "AGENT_ROLES.md").read_text(encoding = "utf-8").split())
+    brief     = " ".join((agent / "templates" / "review-brief.template.md").read_text(encoding = "utf-8").split())
+    exception = (
+        "one fetch of the review branch, one new branch at the pin, one commit of your report alone and one push of "
+        "that branch, is the only"
+    )
+    assert "since v1.15.0 that trial on Codex's > rebuilt cloud, with no token and no pull request" in process
+    assert "In /workspace/<repo>, run git fetch origin review/<pfx>-<slice>, then git switch -c" in process
+    assert "review/<pfx>-<slice>-codex <pin>." in process
+    assert "Then commit that report alone and run git push origin review/<pfx>-<slice>-codex." in process
+    assert "--pin <pin> --collect-branch review/<pfx>-<slice>-codex" in process
+    assert "`kriegerdataforge-cicd/tools/codex-cloud/kdf-codex-install.sh`" in process
+    assert "Its environment holds no token." in process
+    assert "custom domains, `github.com` alone" in process
+    assert "No pull request is opened" in process
+    assert exception in roles
+    assert exception in brief
+    for text in (process, roles, brief):
+        assert "KDF_CODEX_PACKAGES_TOKEN" not in text
+        assert "kdf-codex-setup.sh" not in text
+        assert "Create PR. The orchestrator" not in text
+        assert "for its pull request" not in text
 
 
 @dataclass
@@ -1461,14 +1492,20 @@ def _collect_branch(rig: Rig, branch: str) -> subprocess.CompletedProcess[str]:
 
 def test_a_cloud_report_comes_in_from_its_branch(rig: Rig) -> None:
     """
-    Codex in the cloud read the pushed pin and committed its report on a branch. Collect writes only the report in.
+    Codex in the cloud read the pushed pin and pushed its report on a branch of its own, with no pull request (D-048).
+    Collect writes only the report in, and asks nobody to close a pull request.
     """
-    _cloud_branch(rig, "codex/report", {"docs/reviews/CODEX.md": "# codex report\n", "docs/reviews/notes.md": "n\n"})
-    done = _collect_branch(rig, "codex/report")
+    _cloud_branch(
+        rig,
+        "review/t-s1-codex",
+        {"docs/reviews/CODEX.md": "# codex report\n", "docs/reviews/notes.md": "n\n"},
+    )
+    done = _collect_branch(rig, "review/t-s1-codex")
     assert done.returncode == 0, done.stdout + done.stderr
     assert (rig.repo / "docs" / "reviews" / "CODEX.md").read_text(encoding = "utf-8") == "# codex report\n"
     assert not (rig.repo / "docs" / "reviews" / "notes.md").exists()
-    assert "Close its pull request unmerged" in done.stdout
+    assert "kdf-review: clean. Report docs/reviews/CODEX.md" in done.stdout
+    assert "pull request" not in done.stdout + done.stderr
 
 
 @pytest.mark.parametrize(
