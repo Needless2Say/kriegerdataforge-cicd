@@ -39,12 +39,13 @@ import os
 import re
 import subprocess
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlparse
 
 # ======================================================================================================================
 # Configuration
@@ -95,6 +96,9 @@ SEMVER    = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
 FULL_SHA  = re.compile(r"^[0-9a-f]{40}$")
 NPM_RANGE = re.compile(r"^(?P<operator>\^|~|=)?v?(?P<version>\d+\.\d+\.\d+)$")
 
+# the next page of a list GitHub pages by cursor, as its `Link` header names it
+NEXT_LINK = re.compile(r"""<(?P<url>[^>]*)>\s*;\s*rel="next\"""")
+
 # the words of a notice that announces a change, as GitHub words its runner, action and Node.js retirements
 DEPRECATION_WORDS = (
     "deprecat",
@@ -111,18 +115,16 @@ DEPRECATION_WORDS = (
 )
 DEPRECATION       = re.compile("|".join(re.escape(word) for word in DEPRECATION_WORDS), re.IGNORECASE)
 
-SEVERITIES     = ("critical", "high", "medium", "low")
-PAGE           = 100
-TAG_PAGES      = 10     # tags read at most, 1000 a repo
-WORKFLOWS_READ = 10     # the latest run of at most this many workflows per repo
-ANNOTATED_READ = 10     # the annotations of at most this many check runs per run
-ALERTS_SHOWN   = 15     # alerts listed per repo in the issue, the counts are always whole
-NOTICES_SHOWN  = 20
-NEWS_SHOWN     = 100    # findings listed in one news comment
-BODY_LIMIT     = 60000  # an issue body over 65536 characters is refused
-KEYS_MARKER    = "kdf-watch-keys:"
-KEY_HEX        = 10     # each finding is remembered as the first 10 hex of its key's sha1
-KEYS_LIMIT     = 3000   # findings remembered at most, 30000 characters of the body
+SEVERITIES    = ("critical", "high", "medium", "low")
+PAGE          = 100
+PAGES         = 10     # pages read at most of any one list, 1000 items, a longer list is a blind spot
+ALERTS_SHOWN  = 15     # alerts listed per repo in the issue, the counts are always whole
+NOTICES_SHOWN = 20
+NEWS_SHOWN    = 100    # findings listed in one news comment
+BODY_LIMIT    = 60000  # an issue body over 65536 characters is refused
+KEYS_MARKER   = "kdf-watch-keys:"
+KEY_HEX       = 10     # each finding is remembered as the first 10 hex of its key's sha1
+KEYS_LIMIT    = 3000   # findings remembered at most, 30000 characters of the body
 
 # ======================================================================================================================
 # Transports
@@ -154,10 +156,10 @@ class Response:
         GitHub's own message for a failed call, or the status alone.
 
         Returns:
-            str: `HTTP <status>`, with GitHub's message when the body carried one
+            str: `HTTP <status>`, or `no answer` when none came, with GitHub's message when the body carried one
         """
         message = self.data.get("message") if isinstance(self.data, dict) else None
-        return f"HTTP {self.status}" + (f", {message}" if message else "")
+        return (f"HTTP {self.status}" if self.status else "no answer") + (f", {message}" if message else "")
 
 
 class Transport(Protocol):
@@ -204,14 +206,22 @@ class HttpTransport:
             raw: ask for a file's raw content
 
         Returns:
-            Response: the answer, a raw file's body kept as text
+            Response: the answer, a raw file's body kept as text, status 0 and the exception's type alone when the
+            session's retries ended without one
         """
+        # third party imports
+        from requests import RequestException
+
         headers = {
             "Authorization": f"Bearer {self._token}",
             "Accept": "application/vnd.github.raw+json" if raw else "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
-        resp    = self._session.get(f"{GITHUB_API}{path}", headers = headers, params = params, timeout = 30)
+        try:
+            resp = self._session.get(f"{GITHUB_API}{path}", headers = headers, params = params, timeout = 30)
+        except RequestException as exc:
+            # a dead connection or a timeout is a blind spot of this one call, never the end of the run
+            return Response(0, {"message": type(exc).__name__})
         if raw and resp.ok:
             return Response(resp.status_code, resp.text, dict(resp.headers))
         try:
@@ -277,6 +287,55 @@ def parse_included(text: str, raw: bool = False) -> Response:
     except ValueError:
         data = body
     return Response(status, data, headers)
+
+
+def next_params(headers: dict[str, str]) -> dict[str, str] | None:
+    """
+    The query of the next page an answer's `Link` header names, how GitHub pages a list by cursor.
+
+    Args:
+        headers: the answer's headers, their names in any case
+
+    Returns:
+        dict[str, str] | None: the next page's query parameters, None on the last page
+    """
+    link  = next((value for name, value in headers.items() if name.lower() == "link"), "")
+    match = NEXT_LINK.search(link)
+    return dict(parse_qsl(urlparse(match.group("url")).query)) if match else None
+
+
+def read_pages(
+    transport: Transport,
+    path: str,
+    params: dict[str, Any] | None = None,
+    key: str | None = None,
+) -> tuple[list[Any], str | None]:
+    """
+    Every item of a list GitHub pages by number, at most PAGES pages of it.
+
+    Args:
+        transport: how GitHub is reached
+        path: the API path
+        params: the query parameters besides the page's own
+        key: the field of the answer that holds the list, None when the answer is the list
+
+    Returns:
+        tuple[list[Any], str | None]: the items read, and why the rest could not be, None when every page was read
+    """
+    items: list[Any] = []
+    for page in range(1, PAGES + 1):
+        resp = transport.get(path, {**(params or {}), "per_page": PAGE, "page": page})
+        data = resp.data
+        if key:
+            data = resp.data.get(key) if isinstance(resp.data, dict) else None
+        if not resp.ok:
+            return items, resp.reason()
+        if not isinstance(data, list):
+            return items, "an answer of an unexpected shape"
+        items.extend(data)
+        if len(data) < PAGE:
+            return items, None
+    return items, f"more than {PAGES * PAGE}, the rest were not read"
 
 # ======================================================================================================================
 # Versions
@@ -349,14 +408,9 @@ def latest_release(transport: Transport, repo: str) -> Release:
     Returns:
         Release: the tag and its commit, every plain tag by commit, or why the tags could not be read
     """
-    items: list[dict] = []
-    for page in range(1, TAG_PAGES + 1):
-        resp = transport.get(f"/repos/{OWNER}/{repo}/tags", {"per_page": PAGE, "page": page})
-        if not resp.ok or not isinstance(resp.data, list):
-            return Release(None, None, {}, resp.reason())
-        items.extend(resp.data)
-        if len(resp.data) < PAGE:
-            break
+    items, error = read_pages(transport, f"/repos/{OWNER}/{repo}/tags")
+    if error:
+        return Release(None, None, {}, error)
     tagged = [(semver(item["name"]), item["name"], item["commit"]["sha"]) for item in items]
     by_sha = {sha: name for version, name, sha in tagged if version}
     best   = max((item for item in tagged if item[0]), default = None, key = lambda item: item[0])
@@ -372,11 +426,13 @@ def judge(ref: str, release: Release) -> dict[str, Any]:
         release: the source repo's latest release
 
     Returns:
-        dict[str, Any]: the pinned ref, the latest tag, whether it is behind, and a note when the verdict needs one
+        dict[str, Any]: the pinned ref, the latest tag, whether it is behind, whether it could be judged at all, and a
+        note when the verdict needs one
     """
-    out: dict[str, Any] = {"pinned": ref, "latest": release.tag, "behind": False, "note": None}
+    out: dict[str, Any] = {"pinned": ref, "latest": release.tag, "behind": False, "judged": True, "note": None}
     if release.error or not release.tag:
         out["note"] = f"latest release unknown ({release.error or 'no vX.Y.Z tag'})"
+        out["judged"] = False
         return out
     latest = semver(release.tag)
     if FULL_SHA.match(ref):
@@ -393,9 +449,44 @@ def judge(ref: str, release: Release) -> dict[str, Any]:
     pinned = semver(ref)
     if pinned is None:
         out["note"] = "not a version tag"
+        out["judged"] = False
         return out
     out["behind"] = pinned < latest
     return out
+
+
+class Releases:
+    """
+    The latest release of each source repo, read once by whichever worker asks first while the others wait, so every
+    pin of a source is judged against one answer, a failed read included.
+    """
+    def __init__(self, transport: Transport) -> None:
+        """
+        Args:
+            transport: how GitHub is reached
+        """
+        self._transport = transport
+        self._lock      = threading.Lock()
+        self.known: dict[str, Release] = {}
+
+
+    def get(self, repo: str) -> Release:
+        """
+        A source repo's latest release, read on its first sight.
+
+        Args:
+            repo: the repo's name, without the owner
+
+        Returns:
+            Release: the release, or why it could not be read, an answer of a shape the watch does not know included
+        """
+        with self._lock:
+            if repo not in self.known:
+                try:
+                    self.known[repo] = latest_release(self._transport, repo)
+                except Exception as exc:  # noqa: BLE001, a blind spot named by its type, never the run's end
+                    self.known[repo] = Release(None, None, {}, f"the read failed, {type(exc).__name__}")
+            return self.known[repo]
 
 # ======================================================================================================================
 # Collection
@@ -423,40 +514,61 @@ def read_registries() -> tuple[list[str], set[str], dict[str, list[dict]], str, 
     return repos, kit_set, scripts, kit_ver, fmt_pin
 
 
+def _alert(alert: dict[str, Any]) -> dict[str, Any]:
+    """
+    The fields of one Dependabot alert the watch keeps.
+
+    Args:
+        alert: the alert as GitHub gives it
+
+    Returns:
+        dict[str, Any]: its number, severity, package, manifest, versions, advisory and link
+    """
+    advisory = alert.get("security_advisory") or {}
+    vuln     = alert.get("security_vulnerability") or {}
+    package  = (alert.get("dependency") or {}).get("package") or {}
+    patched  = vuln.get("first_patched_version") or {}
+    return {
+        "number": alert.get("number"),
+        "severity": (vuln.get("severity") or advisory.get("severity") or "unknown").lower(),
+        "ecosystem": package.get("ecosystem"),
+        "package": package.get("name"),
+        "manifest": (alert.get("dependency") or {}).get("manifest_path"),
+        "vulnerable": vuln.get("vulnerable_version_range"),
+        "patched": patched.get("identifier"),
+        "advisory": advisory.get("ghsa_id"),
+        "cve": advisory.get("cve_id"),
+        "summary": advisory.get("summary"),
+        "url": alert.get("html_url"),
+    }
+
+
 def collect_alerts(transport: Transport, repo: str) -> dict[str, Any]:
     """
-    A repo's open Dependabot alerts.
+    A repo's open Dependabot alerts, every page of them, by the cursor GitHub's `Link` header gives, since a critical
+    alert can sit on any page.
 
     Args:
         transport: how GitHub is reached
         repo: `owner/name`
 
     Returns:
-        dict[str, Any]: `ok` and the alerts, or `unavailable` and why, and whether the first page was full
+        dict[str, Any]: `ok` and the alerts, or `unavailable`, why, and the alerts read before a page failed or the
+        PAGES limit was reached
     """
-    resp = transport.get(f"/repos/{repo}/dependabot/alerts", {"state": "open", "per_page": PAGE})
-    if not resp.ok or not isinstance(resp.data, list):
-        return {"status": "unavailable", "reason": resp.reason(), "open": []}
-    alerts = []
-    for alert in resp.data:
-        advisory = alert.get("security_advisory") or {}
-        vuln     = alert.get("security_vulnerability") or {}
-        package  = (alert.get("dependency") or {}).get("package") or {}
-        patched  = vuln.get("first_patched_version") or {}
-        alerts.append({
-            "number": alert.get("number"),
-            "severity": (vuln.get("severity") or advisory.get("severity") or "unknown").lower(),
-            "ecosystem": package.get("ecosystem"),
-            "package": package.get("name"),
-            "manifest": (alert.get("dependency") or {}).get("manifest_path"),
-            "vulnerable": vuln.get("vulnerable_version_range"),
-            "patched": patched.get("identifier"),
-            "advisory": advisory.get("ghsa_id"),
-            "cve": advisory.get("cve_id"),
-            "summary": advisory.get("summary"),
-            "url": alert.get("html_url"),
-        })
-    return {"status": "ok", "reason": None, "open": alerts, "truncated": len(resp.data) >= PAGE}
+    alerts: list[dict[str, Any]] = []
+    params: dict[str, Any]       = {"state": "open", "per_page": PAGE}
+    for _page in range(PAGES):
+        resp = transport.get(f"/repos/{repo}/dependabot/alerts", params)
+        if not resp.ok or not isinstance(resp.data, list):
+            return {"status": "unavailable", "reason": resp.reason(), "open": alerts}
+        alerts.extend(_alert(alert) for alert in resp.data)
+        following = next_params(resp.headers)
+        if following is None:
+            return {"status": "ok", "reason": None, "open": alerts}
+        params = {**following, "state": "open", "per_page": PAGE}
+    reason = f"more than {PAGES * PAGE} open alerts, the rest were not read"
+    return {"status": "unavailable", "reason": reason, "open": alerts}
 
 
 def find_pins(path: str, text: str) -> list[dict[str, str]]:
@@ -577,9 +689,51 @@ def collect_drift(
     return drift, errors
 
 
+def run_notices(transport: Transport, repo: str, run: dict[str, Any]) -> tuple[list[dict[str, str]], list[str]]:
+    """
+    The deprecation notices on one run, from every job that carries an annotation.
+
+    Args:
+        transport: how GitHub is reached
+        repo: `owner/name`
+        run: the run, as GitHub lists it
+
+    Returns:
+        tuple[list[dict[str, str]], list[str]]: each notice's message, level, workflow and job, and what could not be
+        read
+    """
+    checks, error = read_pages(
+        transport,
+        f"/repos/{repo}/check-suites/{run['check_suite_id']}/check-runs",
+        key = "check_runs",
+    )
+    errors = [f"check runs of {run.get('name')}: {error}"] if error else []
+    notices: list[dict[str, str]] = []
+    for check in checks:
+        if not (check.get("output") or {}).get("annotations_count"):
+            continue
+        notes, failed = read_pages(transport, f"/repos/{repo}/check-runs/{check.get('id')}/annotations")
+        if failed:
+            errors.append(f"annotations of {check.get('name')}: {failed}")
+        for note in notes:
+            message = " ".join(str(note.get("message") or "").split())
+            # the runner's own notices carry the path .github, a linter's warning the file it flagged
+            runner = str(note.get("path") or "").startswith(".github")
+            if runner and note.get("annotation_level") in ("notice", "warning") and DEPRECATION.search(message):
+                notices.append({
+                    "message": message,
+                    "level": note.get("annotation_level"),
+                    "workflow": str(run.get("name")),
+                    "job": str(check.get("name")),
+                })
+    return notices, errors
+
+
 def collect_notices(transport: Transport, repo: str) -> tuple[list[dict[str, str]], list[str]]:
     """
-    The deprecation notices on the latest completed run of each of a repo's workflows, Dependabot's own runs left out.
+    The deprecation notices on the latest completed run of each of a repo's active workflows, each asked of its own
+    workflow, so a busy one never hides another's. GitHub's own dynamic workflows (Dependabot's, CodeQL's default
+    setup) are left out.
 
     Args:
         transport: how GitHub is reached
@@ -589,45 +743,24 @@ def collect_notices(transport: Transport, repo: str) -> tuple[list[dict[str, str
         tuple[list[dict[str, str]], list[str]]: each notice's message, level, workflow and job, and what could not be
         read
     """
-    resp = transport.get(f"/repos/{repo}/actions/runs", {"status": "completed", "per_page": 50})
-    if not resp.ok or not isinstance(resp.data, dict):
-        return [], [f"workflow runs: {resp.reason()}"]
-    latest: dict[str, dict] = {}
-    for run in resp.data.get("workflow_runs", []):
-        if run.get("event") == "dynamic":
-            continue
-        key = str(run.get("workflow_id"))
-        if key not in latest or run.get("created_at", "") > latest[key].get("created_at", ""):
-            latest[key] = run
+    flows, error = read_pages(transport, f"/repos/{repo}/actions/workflows", key = "workflows")
+    errors = [f"workflows: {error}"] if error else []
     notices: list[dict[str, str]] = []
-    errors:  list[str]             = []
-    newest = sorted(latest.values(), key = lambda run: run.get("created_at", ""), reverse = True)[:WORKFLOWS_READ]
-    for run in newest:
-        if not run.get("check_suite_id"):
+    for flow in flows:
+        if flow.get("state") != "active" or str(flow.get("path") or "").startswith("dynamic/"):
             continue
-        runs = transport.get(f"/repos/{repo}/check-suites/{run['check_suite_id']}/check-runs", {"per_page": PAGE})
-        if not runs.ok or not isinstance(runs.data, dict):
-            errors.append(f"check runs of {run.get('name')}: {runs.reason()}")
+        resp = transport.get(
+            f"/repos/{repo}/actions/workflows/{flow.get('id')}/runs",
+            {"status": "completed", "per_page": 1},
+        )
+        runs = resp.data.get("workflow_runs") if resp.ok and isinstance(resp.data, dict) else None
+        if not isinstance(runs, list):
+            errors.append(f"runs of {flow.get('name')}: {resp.reason()}")
             continue
-        annotated = [
-            check for check in runs.data.get("check_runs", []) if (check.get("output") or {}).get("annotations_count")
-        ]
-        for check in annotated[:ANNOTATED_READ]:
-            notes = transport.get(f"/repos/{repo}/check-runs/{check.get('id')}/annotations", {"per_page": PAGE})
-            if not notes.ok or not isinstance(notes.data, list):
-                errors.append(f"annotations of {check.get('name')}: {notes.reason()}")
-                continue
-            for note in notes.data:
-                message = " ".join(str(note.get("message") or "").split())
-                # the runner's own notices carry the path .github, a linter's warning the file it flagged
-                runner = str(note.get("path") or "").startswith(".github")
-                if runner and note.get("annotation_level") in ("notice", "warning") and DEPRECATION.search(message):
-                    notices.append({
-                        "message": message,
-                        "level": note.get("annotation_level"),
-                        "workflow": str(run.get("name")),
-                        "job": str(check.get("name")),
-                    })
+        if runs and runs[0].get("check_suite_id"):
+            found, failed = run_notices(transport, repo, runs[0])
+            notices      += found
+            errors       += failed
     return notices, errors
 
 
@@ -650,8 +783,14 @@ def judge_pin(pin: dict[str, str], release: Release) -> dict[str, Any]:
         elif allowed is False:
             note = "range does not admit the latest"
         else:
-            note = "range not judged"
-        verdict = {"pinned": pin["ref"], "latest": release.tag, "behind": allowed is False, "note": note}
+            note = "range not judged" + (f", latest release unknown ({release.error})" if release.error else "")
+        verdict = {
+            "pinned": pin["ref"],
+            "latest": release.tag,
+            "behind": allowed is False,
+            "judged": allowed is not None,
+            "note": note,
+        }
     else:
         verdict = judge(pin["ref"], release)
     return {"file": pin["file"], "package": pin["package"], "source": pin["repo"], **verdict}
@@ -660,19 +799,20 @@ def judge_pin(pin: dict[str, str], release: Release) -> dict[str, Any]:
 def collect_repo(
     transport: Transport,
     repo: str,
-    releases: dict[str, Release],
+    releases: Releases,
     kit_set: set[str],
     scripts: dict[str, list[dict]],
     kit_version: str,
     canonical: dict[str, str | None],
 ) -> dict[str, Any]:
     """
-    Everything the watch reads for one repo.
+    Everything the watch reads for one repo, an answer of a shape it does not know made this repo's blind spot rather
+    than the end of the run.
 
     Args:
         transport: how GitHub is reached
         repo: `owner/name`
-        releases: the release of each source repo read so far, a new source repo is read and added
+        releases: each source repo's release, a new source repo read on its first sight
         kit_set: the kit's targets
         scripts: each scripts target's vendored files
         kit_version: cicd's kit version
@@ -681,15 +821,17 @@ def collect_repo(
     Returns:
         dict[str, Any]: the repo's alerts, judged pins, drift, notices and what could not be read
     """
-    alerts = collect_alerts(transport, repo)
-    pins, pin_errors = collect_pins(transport, repo)
-    drift, drift_errors = collect_drift(transport, repo, kit_set, scripts, kit_version, canonical)
-    notices, run_errors = collect_notices(transport, repo)
-    judged = []
-    for pin in pins:
-        if pin["repo"] not in releases:
-            releases[pin["repo"]] = latest_release(transport, pin["repo"])
-        judged.append(judge_pin(pin, releases[pin["repo"]]))
+    try:
+        alerts = collect_alerts(transport, repo)
+        pins, pin_errors = collect_pins(transport, repo)
+        drift, drift_errors = collect_drift(transport, repo, kit_set, scripts, kit_version, canonical)
+        notices, run_errors = collect_notices(transport, repo)
+        judged = [judge_pin(pin, releases.get(pin["repo"])) for pin in pins]
+    except Exception as exc:  # noqa: BLE001, a blind spot named by its type, never the run's end
+        detail = f"the read failed, {type(exc).__name__}"
+        empty  = {"status": "unavailable", "reason": detail, "open": []}
+        failed = [{"section": "repo", "detail": detail}]
+        return {"repo": repo, "alerts": empty, "pins": [], "drift": [], "notices": [], "errors": failed}
     errors = [{"section": "pins", "detail": detail} for detail in pin_errors]
     errors += [{"section": "drift", "detail": detail} for detail in drift_errors]
     errors += [{"section": "notices", "detail": detail} for detail in run_errors]
@@ -730,7 +872,9 @@ def collect(transport: Transport, workers: int = 8, now: datetime | None = None)
         dict[str, Any]: the snapshot, schema kdf-ecosystem-watch/1
     """
     repos, kit_set, scripts, kit_version, fmt_pin = read_registries()
-    releases  = {source: latest_release(transport, source) for source in RELEASE_REPOS}
+    releases = Releases(transport)
+    for source in RELEASE_REPOS:
+        releases.get(source)
     canonical = canonical_scripts(transport, scripts)
     with ThreadPoolExecutor(max_workers = workers) as pool:
         results = list(pool.map(
@@ -741,22 +885,23 @@ def collect(transport: Transport, workers: int = 8, now: datetime | None = None)
         "file": "scripts/scripts_registry.json",
         "package": "kdf-fmt (canonical pin)",
         "source": "kriegerdataforge-fmt",
-        **judge(fmt_pin, releases["kriegerdataforge-fmt"]),
+        **judge(fmt_pin, releases.get("kriegerdataforge-fmt")),
     }
     for result in results:
         if result["repo"] == CICD_REPO:
             result["pins"].append(canonical_pin)
     missing = sorted(src for src, sha in canonical.items() if sha is None)
     stamp   = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    known   = sorted(releases.known.items())
     summary = summarize(results)
     # an unreadable tag list or script source is a blind spot, counted with the repos' own
-    summary["errors"] += sum(1 for release in releases.values() if release.error) + len(missing)
+    summary["errors"] += sum(1 for source, release in known if release.error) + len(missing)
     return {
         "schema": SCHEMA,
         "generated_at": stamp,
         "owner": OWNER,
         "kit_version": kit_version,
-        "releases": {name: {"tag": release.tag, "error": release.error} for name, release in sorted(releases.items())},
+        "releases": {name: {"tag": release.tag, "error": release.error} for name, release in known},
         "canonical_scripts_unreadable": missing,
         "repos": results,
         "summary": summary,
@@ -771,7 +916,8 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
         results: every repo's result
 
     Returns:
-        dict[str, Any]: alerts by severity and in all, pins behind, drift, distinct notices and errors
+        dict[str, Any]: alerts by severity and in all, pins behind and pins not judged, drift, distinct notices and
+        errors
     """
     severity = {name: 0 for name in (*SEVERITIES, "unknown")}
     for result in results:
@@ -782,6 +928,7 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
         "alerts": severity,
         "alerts_total": sum(severity.values()),
         "pins_behind": sum(1 for result in results for pin in result["pins"] if pin["behind"]),
+        "pins_unjudged": sum(1 for result in results for pin in result["pins"] if not pin["judged"]),
         "drift": sum(len(result["drift"]) for result in results),
         "notices": len(notices),
         "errors": sum(len(result["errors"]) for result in results),
@@ -929,8 +1076,7 @@ def _alerts_section(repos: list[dict[str, Any]], findings: dict[str, str]) -> li
                 str(alert["package"]),
             ),
         )
-        full   = " (100 or more open, the first page is shown)" if result["alerts"].get("truncated") else ""
-        lines += ["", f"**{name}**{full}"]
+        lines += ["", f"**{name}**"]
         for alert in ranked[:ALERTS_SHOWN]:
             fixed    = f", fixed in {alert['patched']}" if alert["patched"] else ", no fixed version yet"
             advisory = alert["advisory"] or alert["cve"] or "no advisory id"
@@ -948,7 +1094,8 @@ def _alerts_section(repos: list[dict[str, Any]], findings: dict[str, str]) -> li
 
 def _pins_section(repos: list[dict[str, Any]], findings: dict[str, str]) -> list[str]:
     """
-    The pins behind their latest release, and the pins the watch could not judge.
+    The pins behind their latest release, and the pins the watch could not judge, each a finding, since a pin of an
+    unknown release may be behind it.
 
     Args:
         repos: every repo's result
@@ -957,8 +1104,9 @@ def _pins_section(repos: list[dict[str, Any]], findings: dict[str, str]) -> list
     Returns:
         list[str]: the section's lines
     """
-    lines  = ["", "### Pins behind their latest release", ""]
-    behind = [(_name(result["repo"]), pin) for result in repos for pin in result["pins"] if pin["behind"]]
+    lines    = ["", "### Pins behind their latest release", ""]
+    behind   = [(_name(result["repo"]), pin) for result in repos for pin in result["pins"] if pin["behind"]]
+    unjudged = [(_name(result["repo"]), pin) for result in repos for pin in result["pins"] if not pin["judged"]]
     if behind:
         lines += ["| Repo | File | Package | Pinned | Latest | Note |", "| --- | --- | --- | --- | --- | --- |"]
         for name, pin in behind:
@@ -968,14 +1116,15 @@ def _pins_section(repos: list[dict[str, Any]], findings: dict[str, str]) -> list
             findings[f"pin:{name}:{pin['file']}:{pin['package']}:{pin['pinned']}"] = (
                 f"{name}, `{pin['package']}` in `{pin['file']}` pinned at `{pinned}`, latest {pin['latest']}"
             )
+    elif unjudged:
+        lines.append("No pin that could be judged is behind.")
     else:
         lines.append("Every pin is at its latest release.")
-    for result in repos:
-        for pin in result["pins"]:
-            note = pin["note"] or ""
-            if not pin["behind"] and ("unknown" in note or "not judged" in note or "not a version" in note):
-                lines.append(f"- not judged, {_name(result['repo'])} `{pin['file']}` `{pin['package']}` "
-                             f"`{pin['pinned']}`, {note}")
+    for name, pin in unjudged:
+        lines.append(f"- not judged, {name} `{pin['file']}` `{pin['package']}` `{pin['pinned']}`, {pin['note']}")
+        findings[f"unjudged:{name}:{pin['file']}:{pin['package']}:{pin['pinned']}"] = (
+            f"{name}, `{pin['package']}` in `{pin['file']}` could not be judged, {pin['note']}"
+        )
     return lines
 
 
@@ -1087,6 +1236,7 @@ def render(snapshot: dict[str, Any], previous_body: str = "", run_url: str = "")
     headline  = ", ".join([
         f"**{summary['alerts_total']} open Dependabot alerts** ({breakdown})",
         f"**{summary['pins_behind']} pins behind**",
+        f"**{summary['pins_unjudged']} pins not judged**",
         f"**{summary['drift']} kit or script drifts**",
         f"**{summary['notices']} deprecation notices**",
         f"**{summary['errors']} could not be read**",
@@ -1162,8 +1312,8 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.out).write_text(json.dumps(snapshot, indent = 2) + "\n", encoding = "utf-8")
         summary = snapshot["summary"]
         print(f"ecosystem-watch: {len(snapshot['repos'])} repos, {summary['alerts_total']} open alerts, "
-              f"{summary['pins_behind']} pins behind, {summary['drift']} drifts, {summary['notices']} notices, "
-              f"{summary['errors']} could not be read")
+              f"{summary['pins_behind']} pins behind, {summary['pins_unjudged']} not judged, {summary['drift']} "
+              f"drifts, {summary['notices']} notices, {summary['errors']} could not be read")
         return 0
 
     snapshot = json.loads(Path(args.snapshot).read_text(encoding = "utf-8"))

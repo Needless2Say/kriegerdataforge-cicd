@@ -10,6 +10,9 @@ from __future__ import annotations
 
 # standard imports
 import json
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -32,24 +35,37 @@ ENGINE_DEST = "scripts/kdf_scripts/mutation_runner.py"
 # the runner's own notice of 2026-10-04, as GitHub words it
 UBUNTU = "The ubuntu-latest label will migrate to Ubuntu 26."
 
+# a pin of an owned repo outside RELEASE_REPOS, and a cursor as GitHub's `Link` header carries one
+EXTRA_PIN = "extra @ git+https://github.com/Needless2Say/kriegerdataforge-extra.git@v2.0.0\n"
+CURSOR    = "Y3Vyc29yOnYyOpK0"
+
 
 class FakeTransport:
     """
-    GitHub from a table, keyed by path, a missing path answering 404, and a log of every call.
+    GitHub from a table, keyed by path, a later page by `#page=N` and a cursor's by `#after=X`, a missing path answering
+    404, an exception in the table raised as a dead connection's would be, and a log of every call and its parameters.
     """
-    def __init__(self, table: dict[str, ew.Response]) -> None:
+    def __init__(self, table: dict[str, ew.Response | Exception]) -> None:
         self.table = table
         self.calls: list[str] = []
+        self.asked: list[tuple[str, dict[str, Any]]] = []
 
 
     def get(self, path: str, params: dict[str, Any] | None = None, raw: bool = False) -> ew.Response:
         self.calls.append(path)
-        page = (params or {}).get("page")
-        if page and f"{path}#page={page}" in self.table:
-            return self.table[f"{path}#page={page}"]
-        if page and page > 1:
-            return ok([])
-        return self.table.get(path, ew.Response(404, {"message": "Not Found"}))
+        self.asked.append((path, dict(params or {})))
+        page   = (params or {}).get("page")
+        after  = (params or {}).get("after")
+        answer = self.table.get(path, ew.Response(404, {"message": "Not Found"}))
+        if after:
+            answer = self.table.get(f"{path}#after={after}", ew.Response(404, {"message": "Not Found"}))
+        elif page and f"{path}#page={page}" in self.table:
+            answer = self.table[f"{path}#page={page}"]
+        elif page and page > 1:
+            answer = ok([])
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
 
 
 def ok(data: Any) -> ew.Response:
@@ -111,7 +127,7 @@ def base_table() -> dict[str, ew.Response]:
     }
     for repo in (ew.CICD_REPO, A, B):
         table[f"/repos/{repo}/dependabot/alerts"] = ok([])
-        table[f"/repos/{repo}/actions/runs"] = ok({"workflow_runs": []})
+        table[f"/repos/{repo}/actions/workflows"] = ok({"workflows": []})
     for repo in (A, B):
         table[f"/repos/{repo}/contents/docs/agent/KIT_VERSION"] = ok("v9.0.0\n")
         table[f"/repos/{repo}/contents/scripts/kdf_scripts/check_version.py"] = ok({"sha": SHA_CHECK})
@@ -180,8 +196,10 @@ def test_judge_reads_a_tag_or_a_full_commit(ref: str, behind: bool, note: str | 
 
 def test_judge_never_calls_a_pin_behind_an_unknown_release() -> None:
     verdict = ew.judge("v0.1.0", ew.Release(None, None, {}, "HTTP 403"))
-    assert verdict["behind"] is False
+    assert (verdict["behind"], verdict["judged"]) == (False, False)
     assert "latest release unknown" in verdict["note"]
+    assert ew.judge("main", ew.Release("v1.3.0", SHA_LATEST, {}))["judged"] is False
+    assert ew.judge("v1.2.0", ew.Release("v1.3.0", SHA_LATEST, {}))["judged"] is True
 
 
 def test_find_pins_reads_every_shape_and_skips_comments_and_other_owners() -> None:
@@ -236,6 +254,7 @@ def test_a_clean_ecosystem_has_nothing_to_report(registries: None) -> None:
         "alerts": {"critical": 0, "high": 0, "medium": 0, "low": 0, "unknown": 0},
         "alerts_total": 0,
         "pins_behind": 0,
+        "pins_unjudged": 0,
         "drift": 0,
         "notices": 0,
         "errors": 0,
@@ -329,19 +348,18 @@ def test_a_pin_of_another_owned_repo_reads_that_repos_tags_once(registries: None
 
 def notice_table(table: dict[str, ew.Response]) -> dict[str, ew.Response]:
     """
-    Repo A with three workflows. CI's older and newer runs, a Dependabot run, and a run with no check suite. The newer
-    CI run carries the runner's deprecation notice and warning, a plain warning, a failure, and a linter's warning about
-    a deprecated call in the code, which is no notice of the platform.
+    Repo A with four workflows. CI, Dependabot's dynamic one, Release, whose latest run has no check suite, and one
+    disabled by hand. CI's latest run carries the runner's deprecation notice and warning, a plain warning, a failure,
+    and a linter's warning about a deprecated call in the code, which is no notice of the platform.
     """
-    table[f"/repos/{A}/actions/runs"] = ok({"workflow_runs": [
-        {"workflow_id": 1, "name": "CI", "event": "push", "created_at": "2026-10-01T00:00:00Z", "check_suite_id": 10},
-        {"workflow_id": 1, "name": "CI", "event": "pull_request", "created_at": "2026-10-03T00:00:00Z",
-         "check_suite_id": 11},
-        {"workflow_id": 2, "name": "pip in /", "event": "dynamic", "created_at": "2026-10-04T00:00:00Z",
-         "check_suite_id": 12},
-        {"workflow_id": 3, "name": "Release", "event": "push", "created_at": "2026-10-02T00:00:00Z",
-         "check_suite_id": None},
+    table[f"/repos/{A}/actions/workflows"] = ok({"workflows": [
+        {"id": 1, "name": "CI", "path": ".github/workflows/ci.yml", "state": "active"},
+        {"id": 2, "name": "Dependabot Updates", "path": "dynamic/dependabot/dependabot-updates", "state": "active"},
+        {"id": 3, "name": "Release", "path": ".github/workflows/release.yml", "state": "active"},
+        {"id": 4, "name": "Old", "path": ".github/workflows/old.yml", "state": "disabled_manually"},
     ]})
+    table[f"/repos/{A}/actions/workflows/1/runs"] = ok({"workflow_runs": [{"name": "CI", "check_suite_id": 11}]})
+    table[f"/repos/{A}/actions/workflows/3/runs"] = ok({"workflow_runs": [{"name": "Release", "check_suite_id": None}]})
     table[f"/repos/{A}/check-suites/11/check-runs"] = ok({"check_runs": [
         {"id": 100, "name": "lint", "output": {"annotations_count": 5}},
         {"id": 101, "name": "test", "output": {"annotations_count": 0}},
@@ -364,19 +382,20 @@ def test_notices_read_the_latest_run_of_each_workflow_and_keep_deprecations_alon
         ("The ubuntu-latest label will migrate to Ubuntu 26.", "notice", "CI", "lint"),
         ("Node.js 20 actions are deprecated.", "warning", "CI", "lint"),
     ]
-    assert f"/repos/{A}/check-suites/10/check-runs" not in transport.calls
-    assert f"/repos/{A}/check-suites/12/check-runs" not in transport.calls
+    assert (f"/repos/{A}/actions/workflows/1/runs", {"status": "completed", "per_page": 1}) in transport.asked
+    assert f"/repos/{A}/actions/workflows/2/runs" not in transport.calls
+    assert f"/repos/{A}/actions/workflows/4/runs" not in transport.calls
     assert f"/repos/{A}/check-suites/None/check-runs" not in transport.calls
     assert f"/repos/{A}/check-runs/101/annotations" not in transport.calls
     assert snapshot["summary"]["notices"] == 2
 
 
-def test_an_unreadable_run_list_is_an_error(registries: None) -> None:
+def test_an_unreadable_workflow_list_is_an_error(registries: None) -> None:
     table = base_table()
-    table[f"/repos/{B}/actions/runs"] = ew.Response(403, {"message": "Forbidden"})
+    table[f"/repos/{B}/actions/workflows"] = ew.Response(403, {"message": "Forbidden"})
     snapshot = ew.collect(FakeTransport(table), workers = 1)
     repo_b   = next(r for r in snapshot["repos"] if r["repo"] == B)
-    assert repo_b["errors"] == [{"section": "notices", "detail": "workflow runs: HTTP 403, Forbidden"}]
+    assert repo_b["errors"] == [{"section": "notices", "detail": "workflows: HTTP 403, Forbidden"}]
 
 # ======================================================================================================================
 # Rendering
@@ -574,3 +593,236 @@ def test_a_link_that_does_not_point_at_github_is_dropped(registries: None) -> No
     body, _, _ = ew.render(ew.collect(FakeTransport(table), workers = 1))
     assert "elsewhere.example" not in body
     assert "GHSA-1, alert 1" in body
+
+# ======================================================================================================================
+# The second review's findings, Codex, 2026-10-04
+# ======================================================================================================================
+
+def next_link(cursor: str) -> str:
+    url = f"https://api.github.com/repositories/1/dependabot/alerts?state=open&per_page=100&after={cursor}"
+    return f'<{url}>; rel="next"'
+
+
+def test_next_params_reads_the_next_link_alone() -> None:
+    before = '<https://api.github.com/x?before=AAA>; rel="prev"'
+    after  = '<https://api.github.com/x?per_page=100&after=B%3D>; rel="next"'
+    assert ew.next_params({"link": f"{before}, {after}"}) == {"per_page": "100", "after": "B="}
+    assert ew.next_params({"Link": '<https://api.github.com/x?before=AAA>; rel="prev"'}) is None
+    assert ew.next_params({}) is None
+
+
+@pytest.mark.parametrize("header", ["Link", "link"])
+def test_an_alert_on_a_later_page_is_read(registries: None, header: str) -> None:
+    """
+    The review's probe, a hundred low alerts and a critical one on the second page, which the first version never
+    read. requests keeps GitHub's `Link`, gh's output gives it in lower case.
+    """
+    path  = f"/repos/{A}/dependabot/alerts"
+    table = base_table()
+    table[path] = ew.Response(
+        200,
+        [alert(number, "low", f"pkg{number}") for number in range(1, 101)],
+        {header: next_link(CURSOR)},
+    )
+    table[f"{path}#after={CURSOR}"] = ok([alert(101, "critical", "jinja2")])
+    transport = FakeTransport(table)
+    snapshot  = ew.collect(transport, workers = 1)
+    assert snapshot["summary"]["alerts"]["critical"] == 1
+    assert snapshot["summary"]["alerts_total"] == 101
+    assert (path, {"after": CURSOR, "state": "open", "per_page": 100}) in transport.asked
+    body, _, _ = ew.render(snapshot)
+    assert ew.remembered(f"alert:{A}:101") in ew.previous_keys(body)
+
+
+def test_an_alert_page_that_fails_or_one_past_the_limit_is_a_blind_spot(
+    registries: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path  = f"/repos/{A}/dependabot/alerts"
+    table = base_table()
+    table[path] = ew.Response(200, [alert(1, "high")], {"Link": next_link(CURSOR)})
+    table[f"{path}#after={CURSOR}"] = ew.Response(502, {"message": "Bad Gateway"})
+    snapshot = ew.collect(FakeTransport(table), workers = 1)
+    repo_a   = next(r for r in snapshot["repos"] if r["repo"] == A)
+    assert [a["number"] for a in repo_a["alerts"]["open"]] == [1]
+    assert repo_a["errors"] == [{"section": "alerts", "detail": "HTTP 502, Bad Gateway"}]
+    assert ew.render(snapshot)[2] == "open"
+    monkeypatch.setattr(ew, "PAGES", 2)
+    table[f"{path}#after={CURSOR}"] = ew.Response(200, [alert(2, "high")], {"Link": next_link("again")})
+    snapshot = ew.collect(FakeTransport(table), workers = 1)
+    repo_a   = next(r for r in snapshot["repos"] if r["repo"] == A)
+    assert repo_a["errors"] == [{"section": "alerts", "detail": "more than 200 open alerts, the rest were not read"}]
+
+
+def test_a_busy_workflow_never_hides_another_workflows_notice(registries: None) -> None:
+    """
+    The review's probe, fifty newer CI runs pushed Release's latest run off the one list of runs the first version
+    read, so its notice went unseen. Each workflow's latest run is now asked of that workflow.
+    """
+    table = base_table()
+    table[f"/repos/{A}/actions/workflows"] = ok({"workflows": [
+        {"id": 1, "name": "CI", "path": ".github/workflows/ci.yml", "state": "active"},
+        {"id": 3, "name": "Release", "path": ".github/workflows/release.yml", "state": "active"},
+    ]})
+    table[f"/repos/{A}/actions/workflows/1/runs"] = ok({"workflow_runs": [{"name": "CI", "check_suite_id": 11}]})
+    table[f"/repos/{A}/actions/workflows/3/runs"] = ok({"workflow_runs": [{"name": "Release", "check_suite_id": 13}]})
+    table[f"/repos/{A}/check-suites/11/check-runs"] = ok({"check_runs": [
+        {"id": 110, "name": "test", "output": {"annotations_count": 0}},
+    ]})
+    table[f"/repos/{A}/check-suites/13/check-runs"] = ok({"check_runs": [
+        {"id": 130, "name": "publish", "output": {"annotations_count": 1}},
+    ]})
+    table[f"/repos/{A}/check-runs/130/annotations"] = ok([
+        {"path": ".github", "annotation_level": "warning", "message": "Node.js 20 actions are deprecated."},
+    ])
+    snapshot = ew.collect(FakeTransport(table), workers = 1)
+    repo_a   = next(r for r in snapshot["repos"] if r["repo"] == A)
+    assert [(n["message"], n["workflow"], n["job"]) for n in repo_a["notices"]] == [
+        ("Node.js 20 actions are deprecated.", "Release", "publish"),
+    ]
+
+
+def test_every_annotated_job_and_every_page_of_its_annotations_is_read(registries: None) -> None:
+    """
+    The first version read ten annotated jobs of a run and one page of each, so a notice on the fifteenth job, or after
+    a linter's hundred warnings, went unseen.
+    """
+    table = base_table()
+    table[f"/repos/{A}/actions/workflows"] = ok({"workflows": [
+        {"id": 1, "name": "CI", "path": ".github/workflows/ci.yml", "state": "active"},
+    ]})
+    table[f"/repos/{A}/actions/workflows/1/runs"] = ok({"workflow_runs": [{"name": "CI", "check_suite_id": 11}]})
+    table[f"/repos/{A}/check-suites/11/check-runs"] = ok({"check_runs": [
+        {"id": 200 + number, "name": f"job{number}", "output": {"annotations_count": 1}} for number in range(15)
+    ]})
+    lint = {"path": "src/app.py", "annotation_level": "warning", "message": "line too long"}
+    for number in range(14):
+        table[f"/repos/{A}/check-runs/{200 + number}/annotations"] = ok([lint])
+    table[f"/repos/{A}/check-runs/214/annotations"] = ok([lint] * 100)
+    table[f"/repos/{A}/check-runs/214/annotations#page=2"] = ok([
+        {"path": ".github", "annotation_level": "notice", "message": UBUNTU},
+    ])
+    snapshot = ew.collect(FakeTransport(table), workers = 1)
+    repo_a   = next(r for r in snapshot["repos"] if r["repo"] == A)
+    assert [(n["message"], n["job"]) for n in repo_a["notices"]] == [(UBUNTU, "job14")]
+
+
+class FlakyTags(FakeTransport):
+    """
+    A source repo whose tags take a moment, the first read failing and any later one succeeding, and a count of reads.
+    """
+    def __init__(self, table: dict[str, ew.Response | Exception]) -> None:
+        super().__init__(table)
+        self.reads  = 0
+        self._count = threading.Lock()
+
+
+    def get(self, path: str, params: dict[str, Any] | None = None, raw: bool = False) -> ew.Response:
+        if path != f"/repos/{OWNER}/kriegerdataforge-extra/tags":
+            return super().get(path, params, raw)
+        with self._count:
+            self.reads += 1
+            first = self.reads == 1
+        time.sleep(0.05)
+        return ew.Response(503, {"message": "Unavailable"}) if first else tags(("v2.1.0", "4" * 40))
+
+
+def test_every_worker_gets_the_one_answer_of_a_source_repo() -> None:
+    """
+    The review's probe, two workers that met a new source repo at once both read its tags, one failed and one did
+    not, and the snapshot kept the success while a pin stayed unjudged with no error to show for it.
+    """
+    transport = FlakyTags({})
+    releases  = ew.Releases(transport)
+    start     = threading.Barrier(8)
+
+
+    def ask(index: int) -> ew.Release:
+        start.wait()
+        return releases.get("kriegerdataforge-extra")
+
+
+    with ThreadPoolExecutor(max_workers = 8) as pool:
+        answers = list(pool.map(ask, range(8)))
+    assert transport.reads == 1
+    assert {answer.error for answer in answers} == {"HTTP 503, Unavailable"}
+
+
+def test_a_failed_read_of_a_new_source_keeps_every_pin_of_it_open(registries: None) -> None:
+    table = base_table()
+    for repo in (A, B):
+        table[f"/repos/{repo}/contents/requirements.in"] = ok(EXTRA_PIN)
+    transport = FlakyTags(table)
+    snapshot  = ew.collect(transport, workers = 8)
+    assert transport.reads == 1
+    assert snapshot["releases"]["kriegerdataforge-extra"]["error"] == "HTTP 503, Unavailable"
+    assert snapshot["summary"]["pins_unjudged"] == 2
+    body, _, state = ew.render(snapshot)
+    assert state == "open"
+    assert "the release tags of kriegerdataforge-extra could not be read, HTTP 503, Unavailable" in body
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [ok([]), tags(("v3.0.0-rc1", "5" * 40), ("nightly", "6" * 40))],
+    ids = ["no tags", "pre-releases alone"],
+)
+def test_a_source_with_no_plain_release_keeps_its_pins_open(registries: None, answer: ew.Response) -> None:
+    """
+    The review's probe, a source repo that answers with no `vX.Y.Z` tag leaves its pins unjudged, and the first
+    version still closed the issue as clear.
+    """
+    table = base_table()
+    table[f"/repos/{A}/contents/requirements.in"] = ok(EXTRA_PIN)
+    table[f"/repos/{OWNER}/kriegerdataforge-extra/tags"] = answer
+    snapshot = ew.collect(FakeTransport(table), workers = 1)
+    assert snapshot["summary"]["pins_unjudged"] == 1
+    body, _, state = ew.render(snapshot)
+    assert state == "open"
+    assert "**1 pins not judged**" in body
+    assert "- not judged, repo-a `requirements.in` `extra` `v2.0.0`, latest release unknown (no vX.Y.Z tag)" in body
+    _, news, _ = ew.render(snapshot, "an earlier body with no marker")
+    assert "repo-a, `extra` in `requirements.in` could not be judged" in news
+
+
+def test_an_npm_range_the_watch_cannot_read_is_a_finding(registries: None) -> None:
+    table = base_table()
+    table[f"/repos/{A}/contents/package.json"] = ok(json.dumps({"dependencies": {"@needless2say/report-form": "*"}}))
+    snapshot = ew.collect(FakeTransport(table), workers = 1)
+    assert snapshot["summary"]["pins_unjudged"] == 1
+    assert ew.render(snapshot)[2] == "open"
+
+
+def test_a_dead_connection_is_a_blind_spot_of_one_call() -> None:
+    """
+    The review's probe, the session's retries spent on a dead connection raised through the worker pool and ended
+    the run with no snapshot and no issue.
+    """
+    requests  = pytest.importorskip("requests")
+    transport = ew.HttpTransport("t")
+
+
+    class Dead:
+        """
+        A session whose retries are spent, every call raising as requests does then.
+        """
+        def get(self, *args: Any, **kwargs: Any) -> None:
+            raise requests.ConnectionError("no route to api.github.com")
+
+
+    transport._session = Dead()
+    resp               = transport.get("/repos/x/y/dependabot/alerts")
+    assert (resp.status, resp.reason()) == (0, "no answer, ConnectionError")
+
+
+def test_one_repo_or_source_that_cannot_be_read_never_ends_the_run(registries: None) -> None:
+    table = base_table()
+    table[f"/repos/{A}/dependabot/alerts"] = ok([alert(1, "high")])
+    table[f"/repos/{B}/dependabot/alerts"] = ConnectionError("gone")
+    table[f"/repos/{OWNER}/kriegerdataforge-sdk/tags"] = ok([{"name": "v0.12.2"}])  # no commit, a shape not known
+    snapshot = ew.collect(FakeTransport(table), workers = 2)
+    repo_b   = next(r for r in snapshot["repos"] if r["repo"] == B)
+    assert repo_b["errors"] == [{"section": "repo", "detail": "the read failed, ConnectionError"}]
+    assert snapshot["releases"]["kriegerdataforge-sdk"]["error"] == "the read failed, KeyError"
+    assert snapshot["summary"]["alerts_total"] == 1
+    assert ew.render(snapshot)[2] == "open"

@@ -145,6 +145,8 @@ jobs:
           state="$(cat "$RUNNER_TEMP/state.txt")"
           if [ "$state" = clear ]; then
             if [ -n "$existing" ]; then
+              # the clear body remembers nothing, so whatever reopens the issue later is news against it
+              gh issue edit "$existing" --repo "$REPO" --body-file "$RUNNER_TEMP/body.md" >/dev/null
               gh issue comment "$existing" --repo "$REPO" --body "All clear, so this closes. $RUN_URL" >/dev/null
               gh issue close "$existing" --repo "$REPO" >/dev/null
               echo "ecosystem-watch: all clear, closed issue #$existing"
@@ -153,20 +155,21 @@ jobs:
             fi
             exit 0
           fi
-          if [ -n "$existing" ]; then
-            gh issue edit "$existing" --repo "$REPO" --body-file "$RUNNER_TEMP/body.md" >/dev/null
+          # the news is posted before the body that remembers it, so a comment that fails is posted by the next run,
+          # never lost, and the worst a failed edit does is post the same news twice
+          news() {
             if [ -s "$RUNNER_TEMP/news.md" ]; then
-              gh issue comment "$existing" --repo "$REPO" --body-file "$RUNNER_TEMP/news.md" >/dev/null
-              echo "ecosystem-watch: updated issue #$existing, with news"
-            else
-              echo "ecosystem-watch: updated issue #$existing, nothing new"
+              gh issue comment "$1" --repo "$REPO" --body-file "$RUNNER_TEMP/news.md" >/dev/null
             fi
+          }
+          if [ -n "$existing" ]; then
+            news "$existing"
+            gh issue edit "$existing" --repo "$REPO" --body-file "$RUNNER_TEMP/body.md" >/dev/null
+            echo "ecosystem-watch: updated issue #$existing"
           elif [ -n "$closed" ]; then
             gh issue reopen "$closed" --repo "$REPO" >/dev/null
+            news "$closed"
             gh issue edit "$closed" --repo "$REPO" --body-file "$RUNNER_TEMP/body.md" >/dev/null
-            if [ -s "$RUNNER_TEMP/news.md" ]; then
-              gh issue comment "$closed" --repo "$REPO" --body-file "$RUNNER_TEMP/news.md" >/dev/null
-            fi
             echo "ecosystem-watch: reopened issue #$closed"
           else
             gh issue create --repo "$REPO" --title "Ecosystem watch" --label "$LABEL" \

@@ -570,12 +570,14 @@ would publish them. It mints a read only token of the KDF GitHub App (contents, 
 actions, all read), runs `scripts/ecosystem_watch.py collect` from cicd's `main`, keeps the JSON snapshot
 (`kdf-ecosystem-watch/1`) as a 30 day artifact for a later admin dashboard, and keeps one rolling issue labelled
 `ops:ecosystem-watch` in the caller, written with the caller's own token. The body is rewritten every run, a comment
-is added only when something is new, and the issue closes itself when everything is clear and reopens on the next
-finding. The log carries counts. Its first step refuses a caller the API does not report private.
+is added only when something is new, posted before the body that remembers it so a failed comment is posted by the
+next run, and the issue closes itself when everything is clear and reopens on the next finding. The log carries
+counts. Its first step refuses a caller the API does not report private.
 
-- **Reads.** Open Dependabot alerts, each pin of a package built from one of the owner's repos against that repo's
-  latest `vX.Y.Z` tag (a commit pin is matched to its tag), each repo's kit version and vendored scripts against
-  cicd's, by blob sha, and the deprecation notices on the latest completed run of each workflow.
+- **Reads.** Open Dependabot alerts, every page, each pin of a package built from one of the owner's repos against
+  that repo's latest `vX.Y.Z` tag (a commit pin is matched to its tag), each repo's kit version and vendored scripts
+  against cicd's, by blob sha, and the deprecation notices on the latest completed run of each active workflow. What
+  it cannot read, and a pin it cannot judge, keeps the issue open.
 - **Secrets.** `app_id` and `app_private_key`, passed by name, never `inherit`.
 - **Permissions.** `contents: read`, `issues: write`. The App needs Dependabot alerts, Checks, Actions and Contents,
   read only, approved on its installation.
