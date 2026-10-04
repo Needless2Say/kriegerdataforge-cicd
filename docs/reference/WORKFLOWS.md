@@ -560,6 +560,45 @@ jobs:
     uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/secret-scan.yml@main
 ```
 
+### Ecosystem watch, for a private caller alone
+
+#### `ecosystem-watch.yml`
+
+The weekly ecosystem watch (D-049). A private repo's scheduled workflow calls it, `kriegerdataforge-context` today,
+and nothing in this public repo starts it, since it reads the open Dependabot alerts of private repos and a run here
+would publish them. It mints a read only token of the KDF GitHub App (contents, vulnerability alerts, checks and
+actions, all read), runs `scripts/ecosystem_watch.py collect` from cicd's `main`, keeps the JSON snapshot
+(`kdf-ecosystem-watch/1`) as a 30 day artifact for a later admin dashboard, and keeps one rolling issue labelled
+`ops:ecosystem-watch` in the caller, written with the caller's own token. The body is rewritten every run, a comment
+is added only when something is new, and the issue closes itself when everything is clear and reopens on the next
+finding. The log carries counts. Its first step refuses a caller the API does not report private.
+
+- **Reads.** Open Dependabot alerts, each pin of a package built from one of the owner's repos against that repo's
+  latest `vX.Y.Z` tag (a commit pin is matched to its tag), each repo's kit version and vendored scripts against
+  cicd's, by blob sha, and the deprecation notices on the latest completed run of each workflow.
+- **Secrets.** `app_id` and `app_private_key`, passed by name, never `inherit`.
+- **Permissions.** `contents: read`, `issues: write`. The App needs Dependabot alerts, Checks, Actions and Contents,
+  read only, approved on its installation.
+
+```yaml
+# a private repo's .github/workflows/ecosystem-watch.yml
+on:
+  schedule:
+    - cron: "0 10 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+jobs:
+  watch:
+    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ecosystem-watch.yml@main
+    secrets:
+      app_id: ${{ secrets.KDF_APP_ID }}
+      app_private_key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
+```
+
+---
+
 ### Internal owner gate (not for tenant `uses:`)
 
 #### `_authorize-owner.yml`
@@ -700,7 +739,7 @@ owner gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for 
 | `distribute-kit.yml` | `workflow_dispatch` (`mode` check/distribute, `only`, `repos`) + weekly `schedule` (drift alarm) | runs `distribute_kit.py`. Opens one sync PR per drifted repo. `check` also fails on a gap in a repo's own files (the `AGENTS.md` role pointer, `.env.kdf.example`, `.env.kdf` ignored), which that repo fixes itself | `_authorize-owner` (dispatch only) |
 | `distribute-gh-pat.yml` | `workflow_dispatch` | distributes a staged `GH_PACKAGES_PAT_NEW` via `rotate_secret.py --mode paste` | `_authorize-owner` |
 | `rotate-vercel-tokens.yml` | monthly `schedule` + `workflow_dispatch` | re-mints the shared `VERCEL_DEPLOYMENT_TOKEN` (`--mode generate`, 45-day life) and opens a PR stamping the new expiry | `_authorize-owner` (dispatch only) |
-| `check-secret-expiry.yml` | weekly `schedule` (Mon 09:00 UTC) + `workflow_dispatch` | `rotate_secret.py --mode check --secrets all` (registry metadata only). Keeps one dedup tracking issue (`ops:secret-expiry`) open/closed | n/a (`issues:write`) |
+| `check-secret-expiry.yml` | weekly `schedule` (Mon 09:00 UTC) + `workflow_dispatch` | `rotate_secret.py --mode check --secrets all --live`. Each `check.live` token goes to its own provider alone for its real expiry (GitHub's `github-authentication-token-expiration` header, Vercel's token metadata), the date alone printed, and a registry date that disagrees is drift (D-049). Keeps one dedup tracking issue (`ops:secret-expiry`) open/closed | n/a (`issues:write`, `CICD_PAT`, `GH_PACKAGES_PAT` and `VERCEL_MASTER_TOKEN` to the check step alone) |
 | `check-oidc-rp-drift.yml` | weekly `schedule` (Mon 12:30 UTC) + `workflow_dispatch` | PL-084 interim guard. `check_oidc_drift.py` compares the copy pasted OIDC RP core (`oidc.ts` + callback/initiate/logout routes, `scripts/oidc_drift_manifest.json`) across the two tenant frontends. Keeps one dedup tracking issue (`ops:oidc-rp-drift`) open while any pair differs. Paths + changed line counts only, never file contents | n/a (App token/`CICD_PAT` for cross repo reads, `issues:write`) |
 | `trigger-reports-triage.yml` | weekly `schedule` (Mon 09:23 UTC) + `workflow_dispatch` (`apps`, `environment`, `dry_run`) | `trigger_triage.py`: POSTs each selected app's `X-Cron-Secret`-gated `/reports/triage/cron` (`reports_registry.json`). **Disarmed at birth**: the schedule job requires `vars.RUN_REPORTS_TRIAGE == 'true'` AND per app registry `enabled: true`. Scheduled runs = enabled apps against prod. POSTs never status retried, output metadata only | n/a (dispatch is maintainer only by repo perms, schedule gated by `RUN_REPORTS_TRIAGE`) |
 | `hub-prune-tokens.yml` | daily `schedule` (04:17 UTC) + `workflow_dispatch` (`environment`) | POSTs the auth hub's `CRON_SECRET` gated `/internal/cron/prune-tokens` once per environment, which deletes expired denylist rows, spent verification tokens, audit rows past retention, abandoned registrations and expired OIDC rows in the hub (hub DEFERRED row 21). **Disarmed at birth**, the schedule job requires `vars.RUN_HUB_PRUNE == 'true'`, arm it with the hub release whose route answers POST. Per environment secrets `KDF_HUB_URL_{DEV,PROD}` and `KDF_HUB_CRON_SECRET_{DEV,PROD}`, an environment missing either is skipped with a notice. Prints the per table counts only | n/a (dispatch is maintainer only by repo perms, schedule gated by `RUN_HUB_PRUNE`) |

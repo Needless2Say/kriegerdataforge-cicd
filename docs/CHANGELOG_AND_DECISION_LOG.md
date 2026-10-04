@@ -2606,3 +2606,85 @@ line, uv when the image has no Python, a venv kept and one made again, a private
 requirements file, each failing pip call, no secret in the script, a neutral Start skill) and
 `test_claude_code_tools.py` (the process, the reviewer rules and the brief template, and a collect that names no pull
 request). VERSION 0.2.129.
+
+---
+
+## D-049. The weekly ecosystem watch, and token expiry read from each provider
+
+- **Date.** 2026-10-04
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. The watch starts when
+  kriegerdataforge-context's caller is merged and the KDF GitHub App has its new read permissions, and the live
+  expiry with the next Monday run of `check-secret-expiry.yml`.
+- **Tier / scope:** Standard · the new `scripts/ecosystem_watch.py` and `.github/workflows/ecosystem-watch.yml` ·
+  `scripts/rotate_secret.py` (`--live`) and `.github/workflows/check-secret-expiry.yml` · `scripts/secret_registry.json`
+  (`check.live` on four tokens, kriegerdataforge-context added to the App secrets' targets) · the docs · the tests
+
+**Context.** Since D-047, Dependabot raises alerts and opens no pull request, so nothing gathers the alerts of 18
+repos in one place. The kdf-fmt pin that broke a Distribute on 2026-10-03 lagged its release with nothing to say so,
+and the ubuntu-latest notice reached the owner only by a session reading a run's log. The expiry monitor of
+`check-secret-expiry.yml` read hand typed dates from the registry, which went stale. Its issue of 2026-09-29 listed
+four tokens as expired as long ago as 2026-07-30 while CI kept working on them, and it was closed, which is how a real
+expiry would have passed unseen. The owner picked the watch from the backlog on 2026-10-04 and chose its four
+checks, the KDF GitHub App as its reader, one rolling issue, and a private repo for its run, since a list of a private
+repo's open vulnerabilities must never reach a public repo's issues or logs. The owner also plans an admin dashboard
+over every repo, recorded in the context repo's backlog.
+
+**Decision.**
+
+- **The collector, in cicd.** `scripts/ecosystem_watch.py collect` reads, for cicd and every kit target, the open
+  Dependabot alerts, each pin of a package built from one of the owner's repos (requirements files, `pyproject.toml`,
+  `package.json`, the `kdf_fmt_ref` of `ci.yml`, and cicd's canonical kdf-fmt pin) against that repo's highest
+  `vX.Y.Z` tag, a full commit pin matched to its tag, each kit target's `KIT_VERSION` and each vendored script's blob
+  sha against cicd's (the mutation engine only where its entry vendors it, D-040), and the deprecation notices on the
+  latest completed run of each workflow, Dependabot's own runs left out. A repo it cannot read is an error in the
+  snapshot, never a crash.
+- **A snapshot first.** It writes JSON, schema `kdf-ecosystem-watch/1`, which `render` turns into an issue body, the
+  news since the previous body and a state, open or clear. Each finding is remembered in the body as 10 hex of its
+  key's sha1, at most 3000, so a body stays under GitHub's limit and news is what the last body did not carry. The
+  same snapshot can feed the admin dashboard later.
+- **Run from a private repo.** `.github/workflows/ecosystem-watch.yml` is reusable only, no event of this public repo
+  starts it. It checks out cicd's `main` scripts, mints a read only App token (contents, vulnerability alerts, checks,
+  actions), keeps the snapshot as a 30 day artifact, and keeps one issue labelled `ops:ecosystem-watch` in the caller
+  with the caller's own token, a comment only for news, closed when clear. The log carries counts alone.
+  kriegerdataforge-context holds the caller and joins the App secrets' targets.
+- **Live expiry.** `rotate_secret.py --mode check --live` reads each registry secret whose `check.live` says how,
+  `github` from the `github-authentication-token-expiration` header of `GET /rate_limit`, `vercel-current` from
+  `/v5/user/tokens/current`, and `vercel-named` from the master token's list of tokens by name. The secret goes to
+  its own provider alone and only the date is printed. A rejected token needs rotation, a registry date that
+  disagrees is drift that opens the issue (`REGISTRY_DRIFT:`), and a check that cannot answer falls back to the
+  registry. The Monday workflow hands `CICD_PAT`, `GH_PACKAGES_PAT` and `VERCEL_MASTER_TOKEN` to that one step.
+
+**Alternatives considered.**
+
+- *Run the watch in cicd, which holds the repo list.* Rejected, cicd is public, so its issues and logs are, and
+  alerts on private repos are a map of known weaknesses. Its code and tests live here, its run does not.
+- *A fine grained PAT as the reader.* Rejected by the owner for the App, whose tokens last an hour and never expire.
+- *A new issue every week.* Rejected by the owner for one rolling issue that emails only news.
+- *Keep the hand typed dates and remind the owner to update them.* Rejected, they went stale twice.
+
+**Review, 2026-10-04.** An independent review found no high defect and four medium ones, all fixed, each pinned by a
+test that fails when the fix is undone. A source repo whose tags cannot be read now keeps the issue open as a blind
+spot, where it had closed it as clear with every pin of it unjudged. Text from a run's annotation, a workflow's name
+or an error is made inert, and only the marker that closes the body counts, so a run cannot hide the body, silence an
+alert's news or mention a person. The reusable workflow's first step refuses a caller the API does not report
+private. The expiry monitor fails closed when its check prints no verdict, and the live check reports any exception by
+its type alone. Besides, tags are read past their first page, two Vercel tokens of one name give the earliest expiry,
+a notice counts only from the runner's own annotations (path `.github`, measured on real runs, a linter's warning
+carries its file's path), and a finding reopens the last closed issue rather than opening another. A separate GitHub
+App with read permissions alone, whose key would then be the only one in the context repo, is left to the owner.
+
+**Proof.** A live read only run of the collector through the gh login on 2026-10-04 read 18 repos in 30 seconds with
+nothing unreadable, every release tag, 32 kdf-fmt pins with one behind (template-python-package's compiled
+`requirements.txt` at v1.1.0), 15 commit pins matched to v0.12.2 and v0.2.11, 35 open alerts in six repos, and two
+notices, the ubuntu-latest move and the deprecated `app-id` input of `create-github-app-token` in cicd's own
+workflows. That run's first version reported 13 false drifts for the mutation engine, which the per file `repos` of
+the scripts registry now prevents and a test pins.
+
+**Consequences.** The owner gives the KDF GitHub App read access to Dependabot alerts, Checks and Actions (Contents
+it has), approves it on the installation, runs `ops:distribute-app-secrets` for the context repo, and merges the
+context repo's caller, about a billed minute a week there. Switching cicd's workflows from `app-id` to `client-id`
+is left for its own change. Pinned in `test_ecosystem_watch.py` (versions, pins, the collector on a fake GitHub, the
+mutation engine's scope, notices, rendering, news, the size limits, the log), `test_ecosystem_watch_workflows.py`
+(the triggers, the secrets, the token's scope and holder, the issue's token, the pins, the expiry monitor), the live
+expiry tests in `test_rotate_secret.py`, and the App secrets' targets in `test_distribute_app_secrets.py`. VERSION
+0.2.130.

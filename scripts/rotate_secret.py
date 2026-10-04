@@ -30,6 +30,7 @@ Environment variables
 
 Usage
   python rotate_secret.py --mode check    --secrets all
+  python rotate_secret.py --mode check    --secrets all --live   # each check.live token's real expiry (D-049)
   python rotate_secret.py --mode generate --secrets VERCEL_DEPLOYMENT_TOKEN
   python rotate_secret.py --mode paste    --secrets GH_PACKAGES_PAT          # value from STAGED_SECRET_VALUE
   python rotate_secret.py --mode record-expiry --secrets VERCEL_DEPLOYMENT_TOKEN  # stamp today+45d into the registry
@@ -64,6 +65,9 @@ GITHUB_API    = "https://api.github.com"
 # New Vercel tokens expire after 45 days. The monthly cron rotates ~every 30 (worst-case 31-day gap),
 # leaving ~2 weeks of slack so a single missed run never expires the one shared deploy token.
 TOKEN_EXPIRY_DAYS = 45
+
+# a registry entry's `check.live` names where its real expiry is read, with the secret itself (D-049)
+LIVE_SOURCES = {"github": "GitHub", "vercel-current": "Vercel", "vercel-named": "Vercel"}
 
 # Shared HTTP session with retry/backoff so a transient GitHub/Vercel 5xx / 429 / DNS blip doesn't
 # strand a secret half-written across the fan-out. Config + rationale live in common/http.py (the
@@ -413,49 +417,199 @@ def _vercel_targets(entry: dict, envs: frozenset[str]) -> list[dict]:
     return out
 
 # ======================================================================================================================
+# Live expiry (ADR D-049)
+# ======================================================================================================================
+
+def parse_github_expiry(raw: str) -> str | None:
+    """
+    The UTC date of GitHub's `github-authentication-token-expiration` header.
+
+    Args:
+        raw: the header's value, `2026-11-02 12:00:00 UTC` or `2026-11-02 12:00:00 -0500`
+
+    Returns:
+        str | None: the date as YYYY-MM-DD in UTC, or None when the value reads neither way
+    """
+    text = raw.strip()
+    if text.endswith(" UTC"):
+        text = text[: -len(" UTC")] + " +0000"
+    try:
+        when = datetime.strptime(text, "%Y-%m-%d %H:%M:%S %z")
+    except ValueError:
+        return None
+    return when.astimezone(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _ms_date(millis: object) -> str | None:
+    """
+    The UTC date of a millisecond timestamp, as Vercel reports a token's `expiresAt`.
+
+    Args:
+        millis: milliseconds since the epoch
+
+    Returns:
+        str | None: the date as YYYY-MM-DD in UTC, or None when it is not a timestamp
+    """
+    try:
+        return datetime.fromtimestamp(int(millis) / 1000, tz = timezone.utc).strftime("%Y-%m-%d")
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
+def live_expiry(entry: dict, environ: dict[str, str] | None = None) -> tuple[str | None, str]:
+    """
+    The expiry its provider reports for a secret whose `check.live` names one, read with the secret from this run's
+    environment, whose value is never printed.
+
+    Args:
+        entry: the secret's registry entry
+        environ: where the secret's value is read, this process's environment when None
+
+    Returns:
+        tuple[str | None, str]: the date and a status, `ok`, `no expiry`, `rejected`, `not checked live`, `no token
+        in this run`, or `error, <what>`
+    """
+    env    = os.environ if environ is None else environ
+    source = (entry.get("check") or {}).get("live")
+    if not source:
+        return None, "not checked live"
+    if source not in LIVE_SOURCES:
+        return None, f"error, unknown live source {source}"
+    token = env.get("VERCEL_MASTER_TOKEN" if source == "vercel-named" else entry["name"], "").strip()
+    if not token:
+        return None, "no token in this run"
+    try:
+        if source == "github":
+            resp = _SESSION.get(
+                f"{GITHUB_API}/rate_limit",
+                headers = {
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                timeout = 30,
+            )
+            if resp.status_code == 401:
+                return None, "rejected"
+            if not resp.ok:
+                return None, f"error, HTTP {resp.status_code}"
+            raw = resp.headers.get("github-authentication-token-expiration", "")
+            if not raw:
+                return None, "no expiry"
+            date = parse_github_expiry(raw)
+            return (date, "ok") if date else (None, "error, an expiry header it cannot read")
+        if source == "vercel-current":
+            resp = _SESSION.get(f"{VERCEL_API}/v5/user/tokens/current", headers = _vercel_headers(token), timeout = 30)
+            if resp.status_code in (401, 403):
+                return None, "rejected"
+            if not resp.ok:
+                return None, f"error, HTTP {resp.status_code}"
+            expires = (resp.json().get("token") or {}).get("expiresAt")
+            if expires is None:
+                return None, "no expiry"
+            date = _ms_date(expires)
+            return (date, "ok") if date else (None, "error, an expiresAt it cannot read")
+        # vercel-named, the named token's expiry from the master token's list of tokens
+        name = entry.get("vercel_token_name") or entry["name"]
+        resp = _SESSION.get(f"{VERCEL_API}/v3/user/tokens", headers = _vercel_headers(token), timeout = 30)
+        if resp.status_code in (401, 403):
+            return None, "error, Vercel refused VERCEL_MASTER_TOKEN, so the named token was not read"
+        if not resp.ok:
+            return None, f"error, HTTP {resp.status_code}"
+        named = [meta for meta in resp.json().get("tokens", []) if meta.get("name") == name]
+        if not named:
+            return None, f"error, no Vercel token named {name}"
+        dates = [
+            day for day in (_ms_date(meta.get("expiresAt")) for meta in named if meta.get("expiresAt") is not None)
+            if day
+        ]
+        if not dates:
+            return None, "no expiry"
+        # after a rotation that kept the old token, a repo may still hold the one that expires first
+        if len(named) > 1:
+            return min(dates), f"ok, {len(named)} Vercel tokens are named {name}, the earliest expiry is used"
+        return dates[0], "ok"
+    except Exception as exc:  # noqa: BLE001, any failure is reported, never raised, and never with its text
+        # the type alone, an exception's text could carry a request's details
+        return None, f"error, {type(exc).__name__}"
+
+# ======================================================================================================================
 # Mode: check
 # ======================================================================================================================
 
-def _check_one(entry: dict) -> int:
+def _check_one(entry: dict, live: bool = False) -> tuple[int, str | None]:
     """
-    Advisory expiry check for one secret. 0 = ok, 1 = warn/expired/misconfigured/no-check.
+    Advisory expiry check for one secret.
+
+    Args:
+        entry: the secret's registry entry
+        live: read the expiry from its provider where `check.live` says how
+
+    Returns:
+        tuple[int, str | None]: 0 = ok, 1 = warn/expired/rejected/misconfigured/no-check, and with `live` the date its
+        provider reports when the registry's differs
     """
     name = entry["name"]
     chk  = entry.get("check")
     if not chk:
         print(f"  {name}: no expiry tracked (nothing to check).")
-        return 0
+        return 0, None
     expiry_raw = chk.get("expiry", "")
     warn_days  = chk.get("warn_days_before_expiry", 14)
+    drift      = None
+    if live and chk.get("live"):
+        provider = LIVE_SOURCES.get(chk["live"], str(chk["live"]))
+        date, status = live_expiry(entry)
+        if status == "rejected":
+            print(f"  {name}: REJECTED by {provider}, it is expired or revoked. Rotate now.")
+            return 1, None
+        if date:
+            if status.startswith("ok, "):
+                print(f"  {name}: NOTE — {status[len('ok, '):]}.")
+            if date != expiry_raw:
+                print(f"  {name}: DRIFT — the registry says {expiry_raw or 'nothing'}, {provider} says {date}. "
+                      "Update check.expiry.")
+                drift = date
+            expiry_raw = date
+        elif status == "no expiry":
+            print(f"  {name}: OK — {provider} reports no expiry on it.")
+            return 0, None
+        else:
+            print(f"  {name}: live check {status}, so the registry's date is used.")
     if not expiry_raw or str(expiry_raw).startswith("TODO"):
         print(f"  {name}: WARNING — expiry not set in the registry.")
-        return 1
+        return 1, drift
     try:
         expiry = datetime.strptime(expiry_raw, "%Y-%m-%d").replace(tzinfo = timezone.utc)
     except ValueError:
         print(f"  {name}: ERROR — expiry '{expiry_raw}' is not YYYY-MM-DD.")
-        return 1
+        return 1, drift
     days = (expiry - datetime.now(timezone.utc)).days
     if days < 0:
         print(f"  {name}: EXPIRED {(-days)} day(s) ago ({expiry_raw}). Rotate now.")
-        return 1
+        return 1, drift
     if days <= warn_days:
         print(f"  {name}: WARNING — expires in {days} day(s) ({expiry_raw}, threshold {warn_days}).")
-        return 1
+        return 1, drift
     print(f"  {name}: OK — valid for {days} more day(s) (expires {expiry_raw}).")
-    return 0
+    return 0, drift
 
 
-def cmd_check(entries: list[dict]) -> int:
-    print(f"Checking expiry for {len(entries)} secret(s):")
+def cmd_check(entries: list[dict], live: bool = False) -> int:
+    print(f"Checking expiry for {len(entries)} secret(s)" + (", live where the registry says how:" if live else ":"))
     needs: list[str] = []
+    drift: list[str] = []
     for entry in entries:
-        if _check_one(entry) != 0:
+        outcome, live_date = _check_one(entry, live)
+        if outcome != 0:
             needs.append(entry["name"])
+        if live_date:
+            drift.append(f"{entry['name']}={live_date}")
     print()
-    # Machine-readable line the scheduled monitor greps to build/close the rotation issue.
+    # Machine-readable lines the scheduled monitor greps to build/close its issue.
     print("NEEDS_ROTATION: " + ",".join(needs))
-    return 1 if needs else 0
+    print("REGISTRY_DRIFT: " + ",".join(drift))
+    return 1 if needs or drift else 0
 
 # ======================================================================================================================
 # Mode: record-expiry
@@ -864,6 +1018,11 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--apps", default = "all", help = 'Vercel app filter for generate, or "all".')
     parser.add_argument("--envs", default = "all", help = 'Environment filter (prod,dev,infra), or "all".')
+    parser.add_argument(
+        "--live",
+        action = "store_true",
+        help = "check mode, read each secret's real expiry from its provider where check.live says how (D-049).",
+    )
     return parser.parse_args(argv)
 
 
@@ -882,7 +1041,7 @@ def main(argv: list[str] | None = None) -> None:
     entries = _select_secrets(registry, names)
 
     if args.mode == "check":
-        sys.exit(cmd_check(entries))
+        sys.exit(cmd_check(entries, live = args.live))
 
     if args.mode == "record-expiry":
         # Stamp the registry with the just-minted Vercel token's expiry (today + 45d). No live

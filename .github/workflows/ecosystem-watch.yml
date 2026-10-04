@@ -1,0 +1,175 @@
+name: Ecosystem watch (reusable)
+
+# The weekly ecosystem watch (ADR D-049). Called by a PRIVATE repo's scheduled workflow, kriegerdataforge-context
+# today, and never run in cicd, since cicd is public, so its runs, logs and issues are public too, while the watch
+# reads the open Dependabot alerts of private repos. Everything below runs in the caller, its log, its secrets and
+# its issue.
+#
+# It mints a read only token of the KDF GitHub App over the owner's repos, runs scripts/ecosystem_watch.py from
+# cicd's main, keeps the JSON snapshot as an artifact for a later admin dashboard, and keeps ONE rolling issue
+# labelled ops:ecosystem-watch in the caller, its body rewritten each run, a comment only when something is new, and
+# closed when everything is clear. The log carries counts alone.
+#
+# The App needs these repository permissions, read only and approved on its installation. Dependabot alerts, Checks,
+# Actions and Contents. A permission it lacks fails the token step, which names it.
+#
+# Caller, a private repo:
+#   on:
+#     schedule:
+#       - cron: "0 10 * * 1"
+#     workflow_dispatch:
+#   permissions:
+#     contents: read
+#     issues: write
+#   jobs:
+#     watch:
+#       uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ecosystem-watch.yml@main
+#       secrets:
+#         app_id: ${{ secrets.KDF_APP_ID }}
+#         app_private_key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
+
+on:
+  workflow_call:
+    secrets:
+      app_id:
+        description: The KDF GitHub App's id, the caller's KDF_APP_ID
+        required: true
+      app_private_key:
+        description: The KDF GitHub App's private key, the caller's KDF_APP_PRIVATE_KEY
+        required: true
+
+permissions:
+  contents: read
+  issues: write
+
+# one watch at a time in a repo, so two runs never race on the issue
+concurrency:
+  group: ecosystem-watch-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: Ecosystem watch
+    runs-on: ubuntu-slim
+    timeout-minutes: 15
+    env:
+      LABEL: "ops:ecosystem-watch"
+    steps:
+      # before anything is read, the caller must be private, or its issue, artifact and log would publish private
+      # repos' alerts. Asked of the API, since a scheduled run's event may not carry the repository
+      - name: Refuse a public caller
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          private="$(gh api "repos/$REPO" --jq .private)"
+          if [ "$private" != "true" ]; then
+            echo "::error::only a private repo may call the ecosystem watch, and $REPO is not private"
+            exit 1
+          fi
+
+      - name: Check out cicd's scripts
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Needless2Say/kriegerdataforge-cicd
+          ref: main
+          sparse-checkout: |
+            /scripts/
+            /kit/KIT_VERSION
+          sparse-checkout-cone-mode: false
+          path: _kdf_cicd
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: pip install -r _kdf_cicd/scripts/requirements.txt
+
+      # read only, over every repo the App's installation covers, an hour at most and revoked when the job ends
+      - name: Mint a read only App token
+        id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.app_id }}
+          private-key: ${{ secrets.app_private_key }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: read
+          permission-vulnerability-alerts: read
+          permission-checks: read
+          permission-actions: read
+
+      - name: Collect the snapshot
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: python _kdf_cicd/scripts/ecosystem_watch.py collect --out "$RUNNER_TEMP/snapshot.json"
+
+      - name: Keep the snapshot
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ecosystem-watch-snapshot
+          path: ${{ runner.temp }}/snapshot.json
+          retention-days: 30
+
+      # the caller's own token, which may write issues in the caller alone
+      - name: Open, update or close the rolling issue
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh label create "$LABEL" --repo "$REPO" --color 0E8A16 --force \
+            --description "The weekly ecosystem watch (cicd D-049)" >/dev/null
+          newest() {
+            gh issue list --repo "$REPO" --label "$LABEL" --state "$1" --json number --jq '.[0].number // empty'
+          }
+          existing="$(newest open)"
+          # the last closed issue, which a finding reopens rather than opening another, so news stays against it
+          closed="$(newest closed)"
+          previous="$RUNNER_TEMP/previous.md"
+          : > "$previous"
+          if [ -n "$existing" ]; then
+            gh issue view "$existing" --repo "$REPO" --json body --jq .body > "$previous"
+          elif [ -n "$closed" ]; then
+            gh issue view "$closed" --repo "$REPO" --json body --jq .body > "$previous"
+          fi
+          python _kdf_cicd/scripts/ecosystem_watch.py render --snapshot "$RUNNER_TEMP/snapshot.json" \
+            --previous "$previous" --body "$RUNNER_TEMP/body.md" --news "$RUNNER_TEMP/news.md" \
+            --state "$RUNNER_TEMP/state.txt" --run-url "$RUN_URL"
+          state="$(cat "$RUNNER_TEMP/state.txt")"
+          if [ "$state" = clear ]; then
+            if [ -n "$existing" ]; then
+              gh issue comment "$existing" --repo "$REPO" --body "All clear, so this closes. $RUN_URL" >/dev/null
+              gh issue close "$existing" --repo "$REPO" >/dev/null
+              echo "ecosystem-watch: all clear, closed issue #$existing"
+            else
+              echo "ecosystem-watch: all clear"
+            fi
+            exit 0
+          fi
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --repo "$REPO" --body-file "$RUNNER_TEMP/body.md" >/dev/null
+            if [ -s "$RUNNER_TEMP/news.md" ]; then
+              gh issue comment "$existing" --repo "$REPO" --body-file "$RUNNER_TEMP/news.md" >/dev/null
+              echo "ecosystem-watch: updated issue #$existing, with news"
+            else
+              echo "ecosystem-watch: updated issue #$existing, nothing new"
+            fi
+          elif [ -n "$closed" ]; then
+            gh issue reopen "$closed" --repo "$REPO" >/dev/null
+            gh issue edit "$closed" --repo "$REPO" --body-file "$RUNNER_TEMP/body.md" >/dev/null
+            if [ -s "$RUNNER_TEMP/news.md" ]; then
+              gh issue comment "$closed" --repo "$REPO" --body-file "$RUNNER_TEMP/news.md" >/dev/null
+            fi
+            echo "ecosystem-watch: reopened issue #$closed"
+          else
+            gh issue create --repo "$REPO" --title "Ecosystem watch" --label "$LABEL" \
+              --body-file "$RUNNER_TEMP/body.md" >/dev/null
+            echo "ecosystem-watch: opened the issue"
+          fi
