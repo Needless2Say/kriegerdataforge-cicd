@@ -38,6 +38,15 @@ def no_open_pr():
 
 
 @pytest.fixture(autouse = True)
+def context_line_present():
+    """
+    Every repo's AGENTS.md already names the ecosystem context unless a test says so, and no test reaches GitHub for it.
+    """
+    with patch.object(dk, "agents_line_missing", return_value = False) as missing:
+        yield missing
+
+
+@pytest.fixture(autouse = True)
 def no_gaps():
     """
     Every repo's own files meet the standard unless a test says so, and no check test reaches GitHub for them.

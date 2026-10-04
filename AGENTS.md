@@ -13,6 +13,10 @@
 > `kriegerdataforge-context` as that page's rule 4 says, read a secret, or edit a guardrail file, and never search,
 > open or quote a path `.gitignore` covers except as that page's rule 6 allows.
 
+**Ecosystem context.** Before anything else, read `../kriegerdataforge-context/AGENTS.md`. That private repo
+beside this one holds where KDF is headed, the map of its repos and how sessions work. When it is not checked out
+there, carry on with this page.
+
 ## Vision & purpose. What you're building toward
 
 `kriegerdataforge-cicd` is the **centralized CI/CD platform library** for the KriegerDataForge (KDF)

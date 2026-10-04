@@ -12,8 +12,11 @@ Modes:
               API and compare it to kit/common/. Also reports gaps in the repo's own files, the role
               pointer in AGENTS.md and the env standard (ADR D-030). Prints a drift report and exits
               non-zero if any repo is out of sync. Used by the scheduled drift-alarm workflow; it OPENS NOTHING.
+              A repo's AGENTS.md without the ecosystem context line (ADR D-046) counts as drift.
   distribute  For each repo that has drifted, create a branch, commit the updated kit files, and
               OPEN a pull request titled "chore(kit): sync agentic-workflow kit <KIT_VERSION>".
+              The same pull request inserts the ecosystem context line into the repo's own AGENTS.md
+              when it is absent, and changes nothing else in that page.
               It NEVER auto-merges — the owner reviews and merges. Requires a write-scoped token.
 
 IMPORTANT — version-check: kit-sync PRs are docs-only. Each consumer's version-check workflow must
@@ -75,6 +78,18 @@ KIT_DIR               = REPO_ROOT / "kit" / "common"
 KIT_VERSION_FILE      = REPO_ROOT / "kit" / "KIT_VERSION"
 VENDORED_VERSION_FILE = KIT_DIR / "docs" / "agent" / "KIT_VERSION"
 
+# The one line the sync writes into a repo's own AGENTS.md, a pointer to the owner's private context repo beside it
+# (cicd D-046). It names a path only, since this repo is public. Its presence is judged by the path.
+AGENTS_FILE     = "AGENTS.md"
+ROLE_POINTER    = "docs/agent/AGENT_ROLES.md"
+ECOSYSTEM_PATH  = "../kriegerdataforge-context/AGENTS.md"
+ECOSYSTEM_LINES = (
+    "**Ecosystem context.** Before anything else, read `../kriegerdataforge-context/AGENTS.md`. That private repo",
+    "beside this one holds where KDF is headed, the map of its repos and how sessions work. When it is not checked out",
+    "there, carry on with this page.",
+)
+ECOSYSTEM_LABEL = "AGENTS.md (the ecosystem context line)"
+
 # ======================================================================================================================
 # Helpers
 # ======================================================================================================================
@@ -131,6 +146,67 @@ def compute_drift(token: str, owner_repo: str, branch: str, files: list[str]) ->
         if remote is None or _normalize(remote) != local:
             drifted.append(rel)
     return drifted
+
+
+def insert_ecosystem_line(text: str) -> str:
+    """
+    Return a repo's AGENTS.md with the ecosystem context line, placed after the role pointer blockquote at the top, or
+    after the first heading when the page has no such blockquote, or at the top when it has neither. A page that already
+    names the context repo comes back unchanged, so a second run writes nothing. No other line is touched, and the
+    inserted lines end the way the page's lines do.
+
+    Args:
+        text: The repo's AGENTS.md
+
+    Returns:
+        The page with the line, or the page itself when it already has it
+    """
+    if ECOSYSTEM_PATH in text:
+        return text
+    newline       = "\r\n" if "\r\n" in text else "\n"
+    lines         = text.splitlines(keepends = True)
+    bare          = [line.rstrip("\r\n") for line in lines]
+    first_section = next((i for i, line in enumerate(bare) if line.startswith("## ")), len(lines))
+    insert_at: int | None = None
+    i = 0
+    while i < first_section:
+        if not bare[i].startswith(">"):
+            i += 1
+            continue
+        end = i
+        while end < len(lines) and bare[end].startswith(">"):
+            end += 1
+        if any(ROLE_POINTER in line for line in bare[i:end]):
+            insert_at = end
+            break
+        i = end
+    if insert_at is None:
+        insert_at = next((i + 1 for i, line in enumerate(bare) if line.startswith("# ")), 0)
+    if insert_at > 0 and not lines[insert_at - 1].endswith("\n"):
+        lines[insert_at - 1] += newline
+    block = [line + newline for line in ECOSYSTEM_LINES]
+    if insert_at > 0:
+        block.insert(0, newline)
+    if insert_at < len(lines) and bare[insert_at].strip():
+        block.append(newline)
+    return "".join(lines[:insert_at] + block + lines[insert_at:])
+
+
+def agents_line_missing(token: str, owner_repo: str, branch: str) -> bool:
+    """
+    Whether a repo's AGENTS.md lacks the ecosystem context line. A repo with no AGENTS.md gets none written, the role
+    pointer gap reports it.
+
+    Args:
+        token: A GitHub token that reads the repo
+        owner_repo: The repo, as owner/name
+        branch: The branch to read
+
+    Returns:
+        True when the sync should write the line
+    """
+    agents, _sha = _get_remote_file(token, owner_repo, branch, AGENTS_FILE)
+    return agents is not None and ECOSYSTEM_PATH not in agents
 
 
 def _ignores(gitignore: str, name: str) -> bool:
@@ -207,7 +283,9 @@ def cmd_check(registry: dict, token: str, only: str | None, repos_arg: str | Non
         repo, branch = entry["repo"], entry.get("branch", "main")
         try:
             drift = compute_drift(token, repo, branch, files)
-            gaps  = compute_gaps(token, repo, branch)
+            if agents_line_missing(token, repo, branch):
+                drift.append(ECOSYSTEM_LABEL)
+            gaps = compute_gaps(token, repo, branch)
         except Exception as exc:  # noqa: BLE001
             print(f"  {repo}: ERROR — {exc}")
             errors.append(f"{repo}: {exc}")
@@ -252,8 +330,9 @@ def cmd_distribute(registry: dict, token: str, only: str | None, repos_arg: str 
     for entry in repos:
         repo, branch = entry["repo"], entry.get("branch", "main")
         try:
-            drift = compute_drift(token, repo, branch, files)
-            if not drift:
+            drift   = compute_drift(token, repo, branch, files)
+            context = agents_line_missing(token, repo, branch)
+            if not drift and not context:
                 print(f"  {repo}: in sync — no PR")
                 continue
             base_sha = _get_branch_sha(token, repo, branch)
@@ -272,6 +351,20 @@ def cmd_distribute(registry: dict, token: str, only: str | None, repos_arg: str 
                     blob_sha,
                     f"chore(kit): sync {rel} to {version}",
                 )
+            if context:
+                # the repo's own page, read from the sync branch so a re-run that already wrote the line writes nothing
+                agents, blob_sha = _get_remote_file(token, repo, sync_branch, AGENTS_FILE)
+                if agents is not None and insert_ecosystem_line(agents) != agents:
+                    _put_file(
+                        token,
+                        repo,
+                        sync_branch,
+                        AGENTS_FILE,
+                        insert_ecosystem_line(agents),
+                        blob_sha,
+                        f"chore(kit): name the ecosystem context in AGENTS.md ({version})",
+                    )
+                drift = [*drift, ECOSYSTEM_LABEL]
             existing = _open_pr_url(token, repo, sync_branch, branch)
             if existing:
                 print(f"  {repo}: PR already open — {existing}")

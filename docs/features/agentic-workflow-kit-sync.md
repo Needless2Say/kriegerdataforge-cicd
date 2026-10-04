@@ -136,7 +136,13 @@ The scheduled run is a **read only drift alarm**. `mode` defaults to `check` via
 `${{ github.event.inputs.mode || 'check' }}` (`:91`), so a failing weekly run means some repo has
 drifted, or its own files lack part of the ecosystem standard, the `AGENTS.md` role pointer, a tracked
 `.env.kdf.example` or a `.gitignore` that keeps `.env.kdf` out (ADR D-030). `check` lists those under
-`GAPS`, and each repo fixes its own in its own pull request, `distribute` opens none for them.
+`GAPS`, and each repo fixes its own in its own pull request, `distribute` opens none for them. One part of a
+repo's own `AGENTS.md` is the sync's since D-046, the ecosystem context line naming
+`../kriegerdataforge-context/AGENTS.md`. `check` lists a page without it under `DRIFT` as
+`AGENTS.md (the ecosystem context line)`, and `distribute` inserts it in the same sync pull request, after the role
+pointer blockquote or else after the first heading, keeping the page's line ends and changing nothing else. A page
+that has the line is left alone, so a second run writes nothing. The version check lets `AGENTS.md` through on a
+`chore/kit-sync-*` branch alone.
 
 Permissions (`:35`). Top level `contents: read`. The write capability comes from a separately minted
 token, not `GITHUB_TOKEN`.
@@ -244,7 +250,7 @@ GH_TOKEN=… python scripts/distribute_kit.py distribute --repos kriegerdataforg
 - **No secrets in scope of the data.** The registry and kit files carry no secrets. The token is never
   echoed. `_excluded_notes` in the registry documents why cicd is not a self target (no self PRs) and
   why per repo pointer files (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`) are **never** synced
-  (`kit_registry.json:31`).
+  (`kit_registry.json:31`), but for the one ecosystem context line D-046 inserts into `AGENTS.md`.
 
 ## 7. Configuration & environment
 

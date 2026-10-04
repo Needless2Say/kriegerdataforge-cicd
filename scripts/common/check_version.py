@@ -92,6 +92,10 @@ SCRIPTS_SYNC_PATCHED_CONFIGS = {
     "pyproject.toml",
     "requirements-dev.in",
 }
+# The kit sync writes one line into a repo's own AGENTS.md, the ecosystem context pointer (cicd D-046), so a
+# `chore/kit-sync-*` PR may carry AGENTS.md too. Off that branch an AGENTS.md change still needs a version bump.
+KIT_SYNC_BRANCH_PREFIX = "chore/kit-sync-"
+KIT_SYNC_PATCHED_FILES = {"AGENTS.md"}
 
 # local imports — same-directory vendored layout fails over to the canonical package
 # layout (scripts/common/ under the cicd checkout / test runs). Sits below the constants
@@ -320,13 +324,17 @@ def _is_exempt_sync_pr(cwd: Path) -> bool:
         return False
     kit_exempt     = _kit_exempt_files()
     scripts_exempt = _scripts_exempt_files()
-    on_sync_branch = os.environ.get("GITHUB_HEAD_REF", "").startswith(SCRIPTS_SYNC_BRANCH_PREFIX)
+    head_ref       = os.environ.get("GITHUB_HEAD_REF", "")
+    on_sync_branch = head_ref.startswith(SCRIPTS_SYNC_BRANCH_PREFIX)
+    on_kit_branch  = head_ref.startswith(KIT_SYNC_BRANCH_PREFIX)
     for changed in files:
         if changed in kit_exempt or changed in scripts_exempt:
             continue
         if any(changed.startswith(prefix) for prefix in KIT_EXEMPT_PREFIXES):
             continue
         if changed in SCRIPTS_SYNC_PATCHED_CONFIGS and on_sync_branch:
+            continue
+        if changed in KIT_SYNC_PATCHED_FILES and on_kit_branch:
             continue
         return False
     return True

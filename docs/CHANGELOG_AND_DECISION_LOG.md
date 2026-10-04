@@ -2458,4 +2458,22 @@ the vision included, goes through a pull request. On GitHub, the context repo ca
 push to `main`, since the exception would be moot, so rule 4 and the guard are its fence. The owner runs
 `bash tools/claude-code/install.sh` from the cicd clone after the merge, since the installed guard is a copy.
 
+**And every repo's AGENTS.md names the context repo.** The owner decided on 2026-10-03 that each repo's `AGENTS.md`
+gains a line naming `kriegerdataforge-context/` as the ecosystem context, with the next kit release, which this one
+is. Codex and the other tools read `AGENTS.md`, not a `CLAUDE.md` above the repo. The kit sync never wrote a repo's own
+`AGENTS.md` before, so `distribute_kit.py` now inserts one paragraph, "**Ecosystem context.** Before anything else,
+read `../kriegerdataforge-context/AGENTS.md`...", into the sync pull request it opens anyway, after the role pointer
+blockquote at the top, or after the first heading where a page has none, or at the top of a page with no heading. It
+writes the line only when the page lacks the path, so a second run writes nothing, keeps the page's CRLF or LF line
+ends, and changes no other line. `check` reports a page without it as drift. The line names a path only, since this
+repo is public, so the context repo holds an `AGENTS.md` of its own. cicd's own `AGENTS.md` carries the line by hand,
+and a test holds it where the sync would put it. Those sync pull requests now change `AGENTS.md`, which the version
+check did not exempt, so `scripts/common/check_version.py` lets `AGENTS.md` through on a `chore/kit-sync-*` branch
+alone, and off that branch it still needs a bump. That changes a synced script, so `scripts/SCRIPTS_VERSION` is
+1.5.1. Consumers' pull request CI runs cicd's own `check_version.py` from `main`, so the exemption holds from the merge,
+before any scripts sync. `test_distribute_kit_agents.py` covers the line present, absent, after a pointer quote that
+runs into a heading, with no role pointer, with no heading, a quote that ends the file, CRLF, a second run, check,
+distribute, a re-run over a branch that has the line, the version check on three branches, and a control whose insert
+returns the page unchanged, under which distribute writes nothing.
+
 
