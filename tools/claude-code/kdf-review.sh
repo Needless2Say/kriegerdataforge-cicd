@@ -32,11 +32,11 @@
 # open the other report, and every other untracked file in the brief's folder, waits in the repo's .git/kdf-review
 # folder, out of the working tree, and closing the review puts each back.
 #
-# Codex in the cloud. --collect-branch fetches the branch Codex's pull request came from, checks that it is built on
-# the pin and adds nothing but new files under docs/reviews, and writes the report into the folder. The owner closes
-# that pull request unmerged. Every collect warns when a report's header does not name the pin or what it read first,
-# and when it lacks the Time spent line with the clock's start and end, or the Usage line, that a retrospective reads
-# for a reviewer the launcher did not start.
+# Codex in the cloud. --collect-branch fetches the branch Codex pushed its report to, review/<pfx>-<slice>-codex, checks
+# that it is built on the pin and adds nothing but new files under docs/reviews, and writes the report into the folder.
+# Codex opens no pull request (cicd ADR D-048). Every collect warns when a report's header does not name the pin or
+# what it read first, and when it lacks the Time spent line with the clock's start and end, or the Usage line, that a
+# retrospective reads for a reviewer the launcher did not start.
 #
 # Exit codes. 0 clean. 2 bad arguments, the folder is not at the pin, or another review of it is open. 3 the reviewer
 # changed something it must not, nothing is reverted. 4 no report was written. 5 the guard is not installed or wired.
@@ -375,7 +375,7 @@ if [ "$collect" -eq 1 ]; then
 	exit 0
 fi
 
-# ---- 3b. collect a report Codex in the cloud wrote, from the branch its pull request came from
+# ---- 3b. collect a report Codex in the cloud wrote, from the branch it pushed
 if [ -n "$collect_branch" ]; then
 	[ ! -d "$open" ] || die 2 "a review of $repo is open. Close it with --collect before a cloud report comes in"
 	codex_rel="$(relative_inside "$codex_report")" || die 2 "the Codex report must be a path inside the repo"
@@ -395,12 +395,12 @@ if [ -n "$collect_branch" ]; then
 	if [ "${#violations[@]}" -gt 0 ]; then
 		printf 'kdf-review: CONTAMINATION. %s changes more than new files under docs/reviews.\n' "$collect_branch" >&2
 		printf '  %s\n' "${violations[@]}" >&2
-		die 3 "nothing was brought in. Close that pull request unmerged and look at what the reviewer changed"
+		die 3 "nothing was brought in. Look at what the reviewer changed, the branch stays for the owner"
 	fi
 	git -C "$repo" cat-file -e "$tip:$codex_rel" 2>/dev/null || die 4 "$collect_branch holds no report at $codex_rel"
 	mkdir -p "$(dirname "$repo/$codex_rel")" && git -C "$repo" show "$tip:$codex_rel" >"$repo/$codex_rel" \
 		|| die 2 "could not write $codex_rel"
-	printf 'kdf-review: clean. Report %s, %s lines, from %s at %s. Close its pull request unmerged.\n' \
+	printf 'kdf-review: clean. Report %s, %s lines, from %s at %s.\n' \
 		"$codex_rel" "$(wc -l <"$repo/$codex_rel" | tr -d ' ')" "$collect_branch" "${tip:0:10}"
 	check_header "$repo/$codex_rel" "$sha"
 	check_time_lines "$repo/$codex_rel"

@@ -13,8 +13,9 @@ machine installs them from a clone of this repo.
 | `kdf-brief.js` | Read only. The facts a brief states, measured at the pin, the commit line and the scope table's line counts, and a check of a written brief's table |
 | `kdf-retro.js` | Read only. The numbers a slice's retrospective starts from, counted from its answer key, the launcher's counts beside its reports or else their headers, and its Sol rounds, the escapes first |
 
-`../codex-cloud/kdf-codex-setup.sh` is not run here. The owner pastes it into a repo's Codex cloud environment as its
-setup script, on trial for the kdf-sdk's S2 (ADR D-039), and the process's section 11 says how.
+`../codex-cloud/kdf-codex-install.sh` and `../codex-cloud/kdf-codex-start-skill.md` are not run here. The owner pastes
+them into a repo's Codex cloud environment as its Install script and Start skill, on trial for the kdf-sdk's S2 (ADRs
+D-039 and D-048), and the process's section 11 says how.
 | `check-wiring.js` | Read only. Says whether this machine's settings wire the guard as the process needs, and prints the block to add when they do not |
 | `install.sh` | Copies the guard to `~/.claude/hooks/`, smoke tests it, and prints the settings block. It edits no settings and refuses to run inside a Claude Code session |
 
@@ -151,8 +152,9 @@ bash kdf-review.sh --repo <repo> --brief <step>/<brief> --report <step>/<report>
 bash kdf-review.sh --repo <repo> --brief <step>/<brief> --report <step>/<report> \
      --codex-report <step>/<codex report> --pin <pin> --prepare
 bash kdf-review.sh --repo <repo> --collect
-# Codex in the cloud, which read the review branch on GitHub and handed its report back on a pull request's branch
-bash kdf-review.sh --repo <repo> --codex-report <step>/<codex report> --pin <pin> --collect-branch <branch>
+# Codex in the cloud, which fetched the review branch and pushed its report on a branch of its own
+bash kdf-review.sh --repo <repo> --codex-report <step>/<codex report> --pin <pin> \
+     --collect-branch review/<pfx>-<slice>-codex
 ```
 
 `--pin` checks that a branch of `origin` holds the pin, that the folder is at it with no tracked file changed, that the
@@ -170,9 +172,9 @@ root only the files that sit in that folder, the folders below it are other revi
 report or notes and Claude never sees Codex's, whichever goes first. A Claude run cut off before it closed its review leaves it open, and
 `--collect` closes it with exit 6 and puts the held report back.
 
-`--collect-branch` fetches the branch of the pull request Codex in the cloud opened, checks that it is built on the pin
-and adds nothing but new files under `docs/reviews`, and writes the report into the folder, never over one. It needs
-no review open, since the cloud read GitHub and not the folder. The owner closes that pull request unmerged. Every
+`--collect-branch` fetches the branch Codex in the cloud pushed its report to, checks that it is built on the pin and
+adds nothing but new files under `docs/reviews`, and writes the report into the folder, never over one. It needs no
+review open, since the cloud read GitHub and not the folder. Codex opens no pull request, ADR D-048. Every
 collect, and every Claude run, warns when a report's header does not name the pin or list what the reviewer read
 first.
 

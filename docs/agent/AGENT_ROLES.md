@@ -135,8 +135,9 @@ in, the review archive, in the folder its brief names. Never a tracked file ther
 report, and never anything under `docs/security/`, which holds the repo's security posture.
 
 **Never.** Edit any other file. Run a git command that writes, `add`, `commit`, `checkout`, `switch`, `reset`,
-`restore`, `stash`, `clean`, making or deleting a branch, `fetch`, `pull`, `push`. In the cloud, the one commit your
-task makes of your report, for its pull request, is the only git write allowed. Use the GitHub CLI or API. Install or
+`restore`, `stash`, `clean`, making or deleting a branch, `fetch`, `pull`, `push`. In the cloud, the git your one line
+names, one fetch of the review branch, one new branch at the pin, one commit of your report alone and one push of that
+branch, is the only git write allowed. Use the GitHub CLI or API. Install or
 download anything, a web fetch or search included. Redirect output into a file outside `docs/reviews/`. Use
 connectors, artifacts, messages, schedules or notifications. Run a recursive `grep`, `rg -u` or `--no-ignore`,
 `git grep --no-index` or `git diff --no-index`, which read what `.gitignore` excludes. Open another reviewer's report of the same scope, the adjudication rows about it, or

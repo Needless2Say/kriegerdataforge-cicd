@@ -6,9 +6,10 @@
 > builds what a review finds outside the reviewed repo since v1.10.0, Sol bundles in the workspace's temp folder
 > since v1.11.0, a retrospective at every slice's close since v1.12.0, and since v1.13.0 the first retrospective's
 > changes, three standing look for questions, the last Sol round's Blocks fixes read by the final reviews, a run's
-> time and tokens counted by the launcher, and Codex in the cloud on trial. Kept byte identical across every KDF repo by
-> the kit sync engine, canonical source `kriegerdataforge-cicd/kit/common/docs/agent/CODE_REVIEW_PROCESS.md`. Never
-> edit a synced copy, change the canonical one. The tooling that keeps the process safe, the guard, the reviewer
+> time and tokens counted by the launcher, and Codex in the cloud on trial, and since v1.15.0 that trial on Codex's
+> rebuilt cloud, with no token and no pull request. Kept byte identical across every KDF repo by the kit sync engine,
+> canonical source `kriegerdataforge-cicd/kit/common/docs/agent/CODE_REVIEW_PROCESS.md`. Never edit a synced copy,
+> change the canonical one. The tooling that keeps the process safe, the guard, the reviewer
 > launcher and the installer, is not synced. It lives in `kriegerdataforge-cicd/tools/claude-code/` and is installed on
 > the owner's machine, section 11 says how.
 
@@ -375,7 +376,8 @@ One brief serves both reviewers. Its shape, in this order, is the template's.
    review and do not fix.
 3. **The commit.** The state commit, which the brief can name, the pin, the commit that adds the brief on top of it,
    which the brief describes since no commit holds its own hash, the slice's branch that holds them, the tip they sit
-   on, and for Codex in the cloud a separate review branch, `review/<pfx>-<slice>`, that never moves off the pin.
+   on, and for Codex in the cloud a separate review branch, `review/<pfx>-<slice>`, that never moves off the pin, and
+   the branch Codex makes from the pin for its report, `review/<pfx>-<slice>-codex`, section 11.
    `kdf-brief.js facts`, run on the state before the brief's own commit, prints them. The reviewer confirms that
    `git rev-parse HEAD` is the pin and
    `git rev-parse HEAD~1` the state commit before anything else, and sizes the slice's delta with
@@ -487,7 +489,7 @@ So the rules of section 5 are enforced by machinery and not left to instruction.
 | A session leaks or changes a secret | The env standard keeps every credential in `.env.kdf`, which is closed, and only local values in `.env.local`, which is open. No session reads, writes, copies, sources or passes a secret file, every `.env` file except the examples and an adopted repo's `.env.local`, which is closed only while it holds a credential, an untracked `.tfvars`, `.pem` and `keys/`, in the shell or to Read, Grep, Edit and Write. Only a check that one exists is allowed, and the owner's `.env.dev` and `.env.prod` are never touched. Every model is told the same, `AGENT_ROLES.md` rules 5 and 6. Codex on the owner's machine keeps that by instruction alone, since its sandbox limits writes, not reads. Codex in the cloud reads GitHub, where no ignored file exists |
 | A reviewer reads what `.gitignore` excludes | The guard refuses a Claude reviewer's Read, Grep, Glob and shell reads of a path git ignores, a recursive `grep`, `rg -u` and `git grep --no-index`. Glob still lists ignored names, which hold no value. Codex keeps rule 6 by instruction |
 | A brief states stale line counts, or a pin nobody else can read | `--pin` refuses a pin no branch of origin holds, and `kdf-brief.js check` refuses a scope table whose counts differ from the pin |
-| A cloud reviewer's branch carries more than its report | `--collect-branch` brings nothing in unless the branch is built on the pin and adds only new files under `docs/reviews`, and the owner closes its pull request unmerged |
+| A cloud reviewer's branch carries more than its report | `--collect-branch` brings nothing in unless the branch is built on the pin and adds only new files under `docs/reviews`. No pull request is opened, and `main`'s ruleset refuses a direct push. Its environment holds no token, and its agent reaches `github.com` alone |
 | A reviewer changes something and hides it | The launcher snapshots git when a review opens and when it closes, and fails the review when anything but a new file under `docs/reviews` moved. Remote tracking refs are left out, an editor's background fetch moves them |
 | A reviewer outside Claude Code, Codex, has no guard | `--prepare` opens its turn in the folder at the pin and `--collect` closes it with the same check. Any change but its report is exit 3, and the review stays open until the orchestrator puts the folder right |
 | Another model does not know the rules Claude's guard enforces | `AGENT_ROLES.md` states them for every model and tool, reached through `AGENTS.md`, `WORKFLOW.md` and every brief's own text. What text cannot stop, the tool's own sandbox, collect and GitHub's rulesets hold |
@@ -569,35 +571,52 @@ with the one line. The owner opens the repo folder in VS Code as usual and gives
 its report, the orchestrator runs `--collect`, which checks the folder the same way and closes the review. Codex has no
 guard, so collect is its fence.
 
-**Codex in the cloud** reads the pushed pin on GitHub, so no file `.gitignore` covers is ever in front of it, and the
-owner starts it from a phone. Once per repo, the owner connects Codex to GitHub with access to the repo, and gives the
-repo a Codex environment whose setup script installs what the tests need. A private package needs a token, which the
-environment holds as a secret for its setup script, never in the repo. Per review, the orchestrator pushes a review
-branch that stays at the pin, `review/<pfx>-<slice>`, and sends the owner the one line. The owner starts a Codex task
-on that repo and branch and pastes the line, and when Codex has finished, taps Create PR. The orchestrator runs
+**Codex in the cloud** reads the pushed pin from GitHub, so no file `.gitignore` covers is ever in front of it, and the
+owner starts it from the Codex app, at the machine or on a phone. Codex's cloud was rebuilt on 2026-09-29. A task
+starts in `/workspace` from the published environment's copy of `main`, on a branch named `work`, with no branch to
+choose and no Create PR button, so the task does its own git. Per review, the orchestrator pushes a review branch that
+stays at the pin, `review/<pfx>-<slice>`, and sends the owner this one line with its paths filled in.
+
+```text
+In /workspace/<repo>, run git fetch origin review/<pfx>-<slice>, then git switch -c review/<pfx>-<slice>-codex <pin>.
+Read <step>/<brief> and run the review, write your report to <step>/<codex report>, edit nothing else. Then commit
+that report alone and run git push origin review/<pfx>-<slice>-codex.
+```
+
+The owner starts a task in the repo's Codex environment, pastes the line, and tells the orchestrator when Codex has
+finished. No pull request is opened, so the repo's pull request checks never run for a report. The orchestrator runs
 
 ```text
 bash <cicd>/tools/claude-code/kdf-review.sh --repo <repo root> --codex-report <step>/<codex report> \
-     --pin <pin> --collect-branch <the branch of Codex's pull request>
+     --pin <pin> --collect-branch review/<pfx>-<slice>-codex
 ```
 
 which checks that the branch is built on the pin and adds nothing but new files under `docs/reviews`, then writes the
-report into the folder. The owner closes that pull request unmerged. Codex loads `AGENTS.md` by itself, and everything
-after it follows the text, `AGENTS.md` to `WORKFLOW.md` to `AGENT_ROLES.md`, and the one line to the brief and its
-reading order, which is why the report's header lists what it read first.
+report into the folder. Both review branches stay until the review closes, and the owner deletes them then, since the
+guard keeps a session from deleting a branch. Codex's commits carry the owner's name, as a session's do, which is why
+the collect check is the fence. Codex loads `AGENTS.md` by itself, and everything after it follows the text,
+`AGENTS.md` to `WORKFLOW.md` to `AGENT_ROLES.md`, and the one line to the brief and its reading order, which is why
+the report's header lists what it read first.
 
 **Codex in the cloud is on trial, for the kdf-sdk's S2 alone.** Six Codex turns of the kdf-sdk's first slice waited
 for the owner at the machine, hours to a day each, so the owner approved one slice in the cloud, measured at S2's
-retrospective, before it becomes the default road. The owner's steps, once. Make a fine grained token for this
-environment alone, never `GH_PACKAGES_PAT` and never a token used anywhere else, with Contents read only on only the
-private repos the reviewed repo installs, `kriegerdataforge-fmt` for the kdf-sdk, and an expiry of 30 days. Give the
-repo's Codex environment that token as the secret `KDF_CODEX_PACKAGES_TOKEN`, leave the agent's internet off, and
-paste `kriegerdataforge-cicd/tools/codex-cloud/kdf-codex-setup.sh` whole as its setup script. Codex hands a secret to
-the setup script alone and removes it before the agent starts. The script installs with the repo's own `make setup`,
-the token in the environment of that one command, and ends by searching every place the install wrote, the home
-folder, the repo, its environment and the temp folder, for the token's value, failing the setup and naming only the
-paths when it finds it. A Codex review in the cloud then runs the repo's tests but not the consumer check, which needs
-the token after setup. The owner deletes the token when the trial ends.
+retrospective, before it becomes the default road. Its environment holds no token. The owner's steps, once per repo,
+in the Codex app.
+
+1. Connect Codex to GitHub with access to only the reviewed repo.
+2. Create a cloud environment of that repo. Replace the Install script Codex drafts with
+   `kriegerdataforge-cicd/tools/codex-cloud/kdf-codex-install.sh`, its `repo` set to the repo's folder, and the Start
+   skill with `kdf-codex-start-skill.md` beside it, `<repo>` filled in. Codex's own drafts for the kdf-sdk asked for a
+   token, named a failing test as a known defect and kept their notes in `/workspace/.cloud-onboarding`, all of which
+   every task would read, so they are replaced and that folder is deleted before the environment is published.
+3. Add no secret and no environment variable. Turn the agent's internet on for custom domains, `github.com` alone, so
+   a task can fetch the review branch and push its report while PyPI and every other site stay closed.
+4. Publish, then run the repo's tests in a new task, which proves the published environment and not the draft.
+
+The install leaves out every development package from the owner's private repos, kdf-fmt for the kdf-sdk, since only
+the style lane uses one, and it refuses a repo whose runtime lockfile names one, a backend that installs kdf-sdk,
+since that install would need a token. A Codex review in the cloud therefore runs the repo's tests but not the style
+lane, `pip-audit` or the consumer check.
 
 **When one model family cannot run.** The other goes ahead and is adjudicated and fixed, and the missing review reads a
 later pin when it can run, rule 15. A step that needs the owner's machine or account, Codex, a required
