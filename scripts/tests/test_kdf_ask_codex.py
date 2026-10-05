@@ -3,9 +3,10 @@ Tests for kdf-ask-codex.sh (D-052), the one way a session asks Codex for a read 
 
 The tool runs as it ships, against a throwaway repo and a stand in for codex that records how it was started, the
 frame it read on stdin and the folder it ran in, and plays a clean answer, a tool outside the shell, a folder it
-changed, a commit, a broken or locked worktree, no answer or a failure. The tests need bash, node and git. GitHub's
-runners have all three, and a machine without them skips the module. The stand in logs its folder with `pwd -W` where
-Git Bash has it, so a Windows path is checked on Windows and not a `/c/...` path Python cannot find.
+changed, a commit, a broken or locked worktree, events that vouch for nothing, no answer or a failure. Stand ins for
+cp, date and node, put first on PATH, play a race, one second and a broken reader. The tests need bash, node and git.
+GitHub's runners have all three, and a machine without them skips the module. The stand in logs its folder with
+`pwd -W` where Git Bash has it, so a Windows path is checked on Windows and not a `/c/...` path Python cannot find.
 """
 
 from __future__ import annotations
@@ -55,20 +56,23 @@ while [ $# -gt 0 ]; do
     if [ "$1" = "-o" ]; then answer="$2"; shift 2; continue; fi
     shift
 done
+if [ "${STUB_MODE:-clean}" = noevents ]; then printf 'No real problems.\\n' > "$answer"; exit 0; fi
 printf '{"type":"thread.started","thread_id":"t"}\\n'
 printf '{"type":"item.completed","item":{"id":"1","type":"command_execution","command":"git log"}}\\n'
 case "${STUB_MODE:-clean}" in
     strange) printf '{"type":"item.completed","item":{"id":"2","type":"mcp_tool_call","server":"s","tool":"t"}}\\n' ;;
+    garbled) printf 'not an event\\n' ;;
     dirty) printf 'x\\n' > written.txt ;;
     commit) git -c user.name=s -c user.email=s@example.com commit -q --allow-empty -m moved ;;
     nogit) rm -f .git ;;
     lock) git worktree lock --reason stand-in . ;;
-    silent) exit 0 ;;
+    lockbroken) git worktree lock --reason stand-in . && rm -f .git ;;
+    silent) answer="" ;;
     fail) echo "boom" >&2; exit 3 ;;
 esac
 printf '{"type":"item.completed","item":{"id":"3","type":"agent_message","text":"No real problems."}}\\n'
 printf '{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":0,"output_tokens":20}}\\n'
-printf 'No real problems.\\n' > "$answer"
+[ -z "$answer" ] || printf 'No real problems.\\n' > "$answer"
 """
 
 pytestmark = pytest.mark.skipif(
@@ -266,6 +270,17 @@ def test_a_base_is_read_from_its_merge_base_as_three_dots_would(rig: Rig) -> Non
     assert len(_worktrees(rig)) == 1, "the refusal leaves no worktree"
 
 
+def test_a_git_variable_cannot_point_the_tool_at_another_repo(rig: Rig) -> None:
+    other = rig.tmp / "other"
+    other.mkdir()
+    _git(other, "init", "-q", "-b", "main")
+    _git(other, "-c", "user.name=o", "-c", "user.email=o@example.com", "commit", "-q", "--allow-empty", "-m", "other")
+    done = _ask(rig, env = {"GIT_DIR": (other / ".git").as_posix()})
+    assert done.returncode == 0, done.stderr
+    assert _logged(rig, "head=") == _git(rig.repo, "rev-parse", "HEAD"), "Codex read the repo it was given"
+    assert not _left(rig)
+
+
 def test_a_dry_run_prints_the_frame_and_starts_nothing(rig: Rig) -> None:
     done = _ask(rig, "--dry-run")
     assert done.returncode == 0, done.stderr
@@ -317,6 +332,18 @@ def test_a_brief_that_could_hold_a_secret_is_refused_dry_run_too(rig: Rig, name:
     done = _run(rig, "--repo", rig.repo.as_posix(), "--brief", brief.as_posix(), "--dry-run")
     assert done.returncode == 2 and says in done.stderr, done.stderr
     assert "real" not in done.stdout and not rig.log.exists()
+
+
+def test_the_frame_reads_the_brief_it_checked_never_the_file_again(rig: Rig) -> None:
+    token = "gh" + "p_" + "B" * 36
+    # a cp that, once the brief is copied, writes a token into the file the session named
+    racing = _stand_ins(
+        rig,
+        cp = f'cp "$@" || exit\ncase "${{@: -1}}" in */brief.md) printf "{token}\\n" >> "${{@: -2:1}}" ;; esac\n',
+    )
+    done   = _ask(rig, env = racing)
+    assert done.returncode == 0, done.stderr
+    assert token in rig.brief.read_text(encoding = "utf-8") and token not in rig.frame.read_text(encoding = "utf-8")
 
 
 def test_a_brief_that_is_a_symbolic_link_is_refused(rig: Rig) -> None:
@@ -374,6 +401,21 @@ def test_a_locked_worktree_is_still_removed(rig: Rig) -> None:
     assert not _left(rig)
 
 
+def test_a_locked_and_broken_worktree_is_still_unregistered(rig: Rig) -> None:
+    done = _ask(rig, mode = "lockbroken")
+    assert done.returncode == 1 and "git could not read the folder" in done.stderr, done.stderr
+    assert not _left(rig), "git would not remove it and prune would skip its lock, so its registration went by hand"
+
+
+def test_cleanup_unregisters_its_own_worktree_and_no_other(rig: Rig) -> None:
+    other = rig.tmp / "other"
+    _git(rig.repo, "worktree", "add", "-q", "--detach", other.as_posix(), "HEAD")
+    shutil.rmtree(other)
+    assert _ask(rig, mode = "nogit").returncode == 1
+    registered = [Path(line.split(" ", 1)[1]).name for line in _worktrees(rig)[1:]]
+    assert registered == ["other"], "another session's moved worktree keeps its registration"
+
+
 def test_codex_failing_fails_the_run_and_keeps_what_it_was_told(rig: Rig) -> None:
     done = _ask(rig, mode = "fail")
     assert done.returncode == 1 and "codex exited 3" in done.stderr and "boom" in done.stderr
@@ -390,6 +432,13 @@ def test_events_that_cannot_be_read_fail_the_run(rig: Rig) -> None:
     done = _ask(rig, env = _stand_ins(rig, node = "exit 1\n"))
     assert done.returncode == 1 and "with 1 errors" in done.stderr, done.stderr
     assert "WARNING" in done.stdout and "unread" in done.stdout
+
+
+@pytest.mark.parametrize("mode, warns", [("noevents", ""), ("garbled", "unreadable")])
+def test_events_that_vouch_for_nothing_fail_the_run(rig: Rig, mode: str, warns: str) -> None:
+    done = _ask(rig, mode = mode)
+    assert done.returncode == 1 and "with 1 errors" in done.stderr, done.stderr
+    assert warns in done.stdout
 
 
 def test_an_archive_that_cannot_be_written_fails_the_run_and_prints_the_answer(rig: Rig) -> None:

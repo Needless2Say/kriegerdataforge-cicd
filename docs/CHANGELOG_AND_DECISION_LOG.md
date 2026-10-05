@@ -2836,16 +2836,18 @@ rest of what it read.
   conventions, the owner's settled decisions from the context repo's `context/SETTLED.md` when that clone sits beside
   this one, and real problems only.
 - **Codex's folder holds tracked files alone.** Repo mode makes a detached worktree of the commit, removed when the
-  run ends, locked or not, and refuses a commit that tracks a symbolic link. It measures a change from its merge base
-  with `--base`, as `git diff <base>...HEAD` does. Files mode copies a folder into a throwaway repo and checks the
-  copy, refusing a repo inside it, a symbolic link, a file named like a secret file in any case and a file holding a
-  token's shape. The brief is held to the same checks. Either way the folder must hold nothing git ignores or does
-  not track before Codex starts.
+  run ends, locked or not, and when git will not remove a worktree it cannot read, that worktree's registration goes
+  by hand, never another's. It refuses a commit that tracks a symbolic link, and measures a change from its merge
+  base with `--base`, as `git diff <base>...HEAD` does. Files mode copies a folder into a throwaway repo and checks
+  the copy, refusing a repo inside it, a symbolic link, a file named like a secret file in any case and a file
+  holding a token's shape. The brief is read once, into a copy held to the same checks, and the frame is built from
+  it. Either way the folder must hold nothing git ignores or does not track before Codex starts, and git's location
+  variables, `GIT_DIR` among them, are unset, so none points the tool or Codex at another repo.
 - **The flags are the ones verified on 2026-10-05.** The user's config, MCP servers, plugins, apps, web search,
   memories and other agents off, a read only sandbox, nothing kept after the run, and the frame on stdin.
 - **The tool checks Codex afterward.** It fails when `git status` shows a change, when the folder's HEAD moved, when
-  git cannot read the folder, when Codex failed and when it wrote no answer. It warns when Codex's JSON events show
-  anything but commands, reasoning, a plan and answers.
+  git cannot read the folder, when Codex failed or wrote no answer, and when its JSON events hold no completed turn
+  or a line that is no event. It warns when the events show anything but commands, reasoning, a plan and answers.
 - **The answer is archived outside every repo**, in the workspace's `temp/codex`, under a name no other run has,
   beside the frame and the events, under a header with what was read, the model, the effort, the time and the tokens.
   When the archive cannot be written the answer is printed before the run fails.
@@ -2872,6 +2874,9 @@ leaves them out.
 
 **Consequences.** The tool's first run reviewed its own change and found ten problems, a symbolic link and the brief
 getting past the secret checks, a commit leaving `git status` clean, a locked worktree left behind and two runs in
-one second sharing an answer among them. All ten were fixed before the pull request opened, each with a test that
-fails when its fix is taken out. The context repo's ways of working name the tool in place of the invocation. A
-machine has the tool once its clone of this repo is pulled, with nothing to install. VERSION 0.2.134.
+one second sharing an answer among them. Its second run, on those fixes, found four more, the brief read again after
+its check, a fallback `git worktree prune` that could drop another session's worktree, a worktree both locked and
+broken left registered, and events that showed nothing still passing. All fourteen were fixed before the pull request
+opened, each with a test that fails when its fix is taken out. The context repo's ways of working name the tool in
+place of the invocation. A machine has the tool once its clone of this repo is pulled, with nothing to install.
+VERSION 0.2.134.

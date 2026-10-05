@@ -239,23 +239,29 @@ one. `--no-settled` leaves the settled decisions out, and `--dry-run` prints the
 
 In repo mode Codex reads a detached worktree of the commit, `HEAD` when `--at` is not given. A worktree holds tracked
 files alone, so a secret file git ignores is never in its folder, and the worktree is removed when the run ends,
-failed or not, locked or not. A commit that tracks a symbolic link is refused, since a link can lead out of the
-folder, and none of the ecosystem's repos tracked one on 2026-10-05. `--base` names the branch or commit a change is
-measured from, and the frame names the change from their merge base, what `git diff <base>...HEAD` shows, so a
-`main` that moved on is not read as part of it.
+failed or not, locked or not. When git refuses to remove one it can no longer read, the tool removes that worktree's
+registration by hand, and never runs `git worktree prune`, which would also drop another session's worktree that was
+moved or sits on a drive that is not there. A commit that tracks a symbolic link is refused, since a link can lead
+out of the folder, and none of the ecosystem's repos tracked one on 2026-10-05. `--base` names the branch or commit a
+change is measured from, and the frame names the change from their merge base, what `git diff <base>...HEAD` shows,
+so a `main` that moved on is not read as part of it.
 
 Files mode copies a folder into a throwaway repo and checks the copy, so nothing that lands in the source after the
 checks reaches Codex. It refuses a folder that is a repo or holds one, a symbolic link, a file named like a secret
 file in any case (`.env*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.tfvars`, `*.tfstate*`, an ssh key,
-`.git-credentials`, `.netrc` and anything under `keys/`) and a file holding a token's shape. The brief is held to the
-same checks, and to no link. Either way the folder must hold nothing git ignores or does not track before Codex
-starts. Codex runs with the flags verified on 2026-10-05, its user config, MCP servers, plugins, apps, web search,
-memories and other agents off, a read only sandbox, and nothing kept after the run. On Windows that sandbox stops
-writes and the network, not reads, so the frame's rule is what keeps Codex inside its folder.
+`.git-credentials`, `.netrc` and anything under `keys/`) and a file holding a token's shape. The brief is read once,
+into a copy that is held to the same checks and to no link, and the frame is built from that copy, so a brief changed
+after its check never reaches Codex. Either way the folder must hold nothing git ignores or does not track before
+Codex starts, and git's location variables, `GIT_DIR` among them, are unset first, so none points the tool, its
+cleanup or Codex at another repo. Codex runs with the flags verified on 2026-10-05, its user config, MCP servers,
+plugins, apps, web search, memories and other agents off, a read only sandbox, and nothing kept after the run. On
+Windows that sandbox stops writes and the network, not reads, so the frame's rule is what keeps Codex inside its
+folder.
 
 After the run the tool fails when `git status` shows a change, when the folder's HEAD moved, which a commit does with
-a clean status, or when git cannot read the folder at all. It fails too when Codex failed or wrote no answer, and it
-warns when the events show Codex doing anything but running commands, reasoning, keeping a plan and answering. Each
+a clean status, or when git cannot read the folder at all. It fails too when Codex failed or wrote no answer, and when
+its events hold no completed turn or a line that is no event, since then nothing shows what Codex did. It warns when
+the events show Codex doing anything but running commands, reasoning, keeping a plan and answering. Each
 run's answer lands in the workspace's `temp/codex`, the owner's scratch, under a name no other run has, beside the
 frame it read and its JSON events, the answer under a header with what Codex read, the model, the effort, the time and
 the tokens. When the archive cannot be written the tool prints the answer before it fails. The answer is advice for
@@ -265,7 +271,7 @@ Codex reads go through `kdf-review.sh`.
 | Exit | Meaning |
 | --- | --- |
 | 0 | Codex answered and its folder is unchanged |
-| 1 | Codex failed, wrote no answer or changed its folder, or the archive could not be written. A run that reached the archive keeps its frame and events there |
+| 1 | Codex failed, wrote no answer, left events that show nothing or changed its folder, or the archive could not be written. A run that reached the archive keeps its frame and events there |
 | 2 | A refusal before Codex started. Bad arguments, the reviewer role, a missing, empty or linked brief, a commit the repo lacks or one tracking a link, a repo, a link, a file named like a secret file or one holding a token's shape, or a folder holding a file git ignores or does not track |
 
 `KDF_CODEX_BIN`, `KDF_SETTLED` and `KDF_CODEX_ARCHIVE` override the codex program, the settled decisions file and the

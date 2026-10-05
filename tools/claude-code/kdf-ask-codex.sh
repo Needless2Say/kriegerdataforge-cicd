@@ -7,13 +7,14 @@
 #
 # Repo mode reads <commit> of <root>, HEAD when --at is not given, in a detached worktree of its own. A worktree holds
 # tracked files alone, so a secret file that git ignores is never in Codex's folder, and the worktree is removed when
-# the run ends, failed or not. A commit that tracks a symbolic link is refused, a link can lead out of the folder.
+# the run ends, failed, locked or broken, and with it this worktree's registration alone, never another's. A commit
+# that tracks a symbolic link is refused, since a link can lead out of the folder.
 # --base names the branch or commit a change is measured from, and the frame then names the change as a git diff from
 # their merge base, what git diff <base>...HEAD shows, so a main that moved on is not read as part of it. Files mode
 # copies a folder of files, patches from several repos for one, into a throwaway repo, and checks the copy. It refuses
 # a folder that is a repo or holds one, a symbolic link, a file named like a secret file in any case (.env*, *.pem,
 # *.key, *.p12, *.pfx, *.tfvars, *.tfstate*, an ssh key, .git-credentials, .netrc, anything under keys/) and a file
-# that holds a token's shape. The brief is held to the same checks.
+# that holds a token's shape. The brief is read once, into a copy, which is held to the same checks and framed.
 #
 # The brief holds the session's question alone, and the tool sets it in the standard frame. Read only, files in this
 # folder alone, PowerShell for commands since Git Bash cannot start in Codex's sandbox, the ecosystem's writing
@@ -24,17 +25,21 @@
 #
 # Before it runs it refuses a session in the reviewer role (KDF_ROLE=reviewer), a missing or empty brief, a commit the
 # repo does not have, and a folder that holds anything git ignores or does not track. After it runs it fails when the
-# folder changed, its HEAD moved or git could not read it, when Codex failed, and when Codex wrote no answer. It warns
-# when Codex did anything but run commands, reason, keep a plan and answer, read from its JSON events. The answer, the
-# frame and the events go to the archive, $KDF_CODEX_ARCHIVE or temp/codex in the workspace, the owner's local scratch
-# and never a repo, each run under a name of its own, and the answer under a header with what was read, the model, the
-# time and the tokens. --dry-run prints the frame and runs nothing.
+# folder changed, its HEAD moved or git could not read it, when Codex failed or wrote no answer, and when its JSON
+# events hold no completed turn or a line that is no event. It warns when the events show Codex doing anything but
+# running commands, reasoning, keeping a plan and answering. The answer, the frame and the events go to the archive,
+# $KDF_CODEX_ARCHIVE or temp/codex in the workspace, the owner's local scratch and never a repo, each run under a name
+# of its own, and the answer under a header with what was read, the model, the time and the tokens. --dry-run prints
+# the frame and runs nothing.
 #
 # Exit 0 when Codex answered and changed nothing, 1 when it failed, changed its folder or wrote no answer, or the
 # archive could not be written, 2 on a refusal before it ran. KDF_CODEX_BIN names the codex binary and KDF_SETTLED the
 # settled decisions file, for a test.
 set -uo pipefail
 export LC_ALL=C
+# git finds its repo through these first, so none may point the tool, its cleanup or Codex at another repo
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
+	GIT_NAMESPACE GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 workspace="$(cd "$here/../../.." && pwd)"
@@ -79,26 +84,30 @@ if [ -n "$repo" ] && [ -n "$files" ] || [ -z "$repo$files" ]; then
 fi
 [ -z "$files" ] || [ -z "$at$base" ] || die 2 "--at and --base go with --repo"
 [ -n "$brief" ] || die 2 "--brief is required. See --help."
-[ ! -L "$brief" ] || die 2 "the brief $brief is a symbolic link, give the file itself"
-[ -s "$brief" ] || die 2 "the brief $brief is missing or empty"
-[ -z "$(secret_named "$brief")" ] || die 2 "the brief $brief is named like a secret file, Codex never reads one"
-! grep -q -E "$token_shapes" "$brief" || die 2 "the brief $brief holds a token's shape, nothing is sent"
 case "$effort" in high|xhigh) ;; *) die 2 "--effort is high or xhigh" ;; esac
 command -v node >/dev/null 2>&1 || die 2 "node is not on PATH, it reads Codex's events"
 [ "$dry" -eq 1 ] || command -v "$codex_bin" >/dev/null 2>&1 || die 2 "$codex_bin is not on PATH"
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/kdf-ask-codex.XXXXXX")" || die 2 "no scratch folder"
 folder="$work/folder"
-made=0
+admin=""
 cleanup() {
 	# the worktree is this run's alone, so a forced removal, locked or not, takes nothing of anyone else's
 	local removed=1
-	if [ "$made" -eq 1 ]; then git -C "$repo" worktree remove --force --force "$folder" >/dev/null 2>&1 || removed=0; fi
+	if [ -n "$admin" ]; then git -C "$repo" worktree remove --force --force "$folder" >/dev/null 2>&1 || removed=0; fi
 	rm -rf "$work"
-	# a worktree git would not remove keeps its registration until its folder is gone, and prune then drops it
-	if [ "$removed" -eq 0 ]; then git -C "$repo" worktree prune >/dev/null 2>&1; fi
+	# git refuses a worktree it cannot validate, so its registration goes by hand, this one alone, where prune
+	# would take every registration whose folder is missing, another session's moved worktree among them
+	if [ "$removed" -eq 0 ]; then case "$admin" in */worktrees/?*) rm -rf "$admin" ;; esac; fi
 }
 trap cleanup EXIT
+
+# the brief is read once, into a copy, and the checks and the frame read that copy, never the file again
+if ! cp -P "$brief" "$work/brief.md" 2>/dev/null; then die 2 "the brief $brief is missing or cannot be read"; fi
+[ ! -L "$work/brief.md" ] || die 2 "the brief $brief is a symbolic link, give the file itself"
+[ -s "$work/brief.md" ] || die 2 "the brief $brief is missing or empty"
+[ -z "$(secret_named "$brief")" ] || die 2 "the brief $brief is named like a secret file, Codex never reads one"
+! grep -q -E "$token_shapes" "$work/brief.md" || die 2 "the brief $brief holds a token's shape, nothing is sent"
 
 # ---- 2. the folder Codex reads, holding tracked files alone
 base_commit=""
@@ -117,7 +126,8 @@ if [ -n "$repo" ]; then
 		| awk -F '\t' 'index($1, "120000 ") == 1 && !found { print $2; found = 1 }')"
 	[ -z "$link" ] || die 2 "${at:-HEAD} tracks $link, a symbolic link, which can lead Codex out of its folder"
 	git -C "$repo" worktree add -q --detach "$folder" "$commit" >/dev/null 2>&1 || die 2 "the worktree could not be made"
-	made=1
+	# where git registered this worktree, read now while its link is whole, so cleanup removes this one alone
+	admin="$(git -C "$folder" rev-parse --absolute-git-dir)" || die 2 "the worktree could not be read"
 	subject="$(git -C "$repo" log -1 --format=%s "$commit" | cut -c1-90)"
 	what="$(basename "$top") at commit $commit, \"$subject\""
 	label="$(basename "$top")-${commit:0:7}"
@@ -157,13 +167,14 @@ EOF
 	printf 'What you read. %s.' "$what"
 	[ -z "$base_commit" ] || printf ' The change is %s.' "git diff $base_commit..HEAD"
 	printf '\n\nThe question.\n\n'
-	cat "$brief"
+	cat "$work/brief.md"
 	cat <<'EOF'
 
 
 The ecosystem's conventions. Prose uses commas and periods, never dashes, colons or semicolons in sentences, and no
-hyphen joining ordinary words. Lines stay within 120 characters, table rows excepted. An append only log keeps its
-old entries as they were written. Do not report style beyond these.
+hyphen joining ordinary words. Lines stay within 120 characters, table rows excepted. An append only log keeps the
+entries already merged as they were written, and an entry new in the change may still be edited. Do not report style
+beyond these.
 EOF
 	if [ "$settled" -eq 1 ] && [ -n "$settled_file" ] && [ -s "$settled_file" ]; then
 		printf '\nThe owner'"'"'s settled decisions. Do not propose one again, report only code that contradicts one.\n\n'
@@ -207,18 +218,27 @@ read -r commands tokens strange errors < <(node -e '
 	const fs = require("fs");
 	const allowed = new Set(["command_execution", "agent_message", "reasoning", "todo_list"]);
 	const types = {};
-	let tokens = 0, errors = 0;
+	let tokens = 0, errors = 0, turns = 0, unreadable = 0;
 	for (const line of fs.readFileSync(process.argv[1], "utf8").split("\n")) {
+		if (!line.trim()) continue;
 		let event;
-		try { event = JSON.parse(line); } catch (err) { continue; }
-		if (event.type === "item.completed" && event.item) types[event.item.type] = (types[event.item.type] || 0) + 1;
-		if (event.type === "turn.completed" && event.usage) {
-			tokens += (event.usage.input_tokens || 0) + (event.usage.output_tokens || 0);
+		try { event = JSON.parse(line); } catch (err) { event = null; }
+		if (!event || typeof event !== "object") { unreadable += 1; continue; }
+		if (event.type === "item.completed" && event.item) {
+			const type = String(event.item.type).replace(/[^\w.-]/g, "_");
+			types[type] = (types[type] || 0) + 1;
+		}
+		if (event.type === "turn.completed") {
+			turns += 1;
+			if (event.usage) tokens += (event.usage.input_tokens || 0) + (event.usage.output_tokens || 0);
 		}
 		if (event.type === "error" || event.type === "turn.failed") errors += 1;
 	}
-	const strange = Object.keys(types).filter((type) => !allowed.has(type)).join(",") || "none";
-	console.log([types.command_execution || 0, tokens, strange, errors].join(" "));
+	const strange = Object.keys(types).filter((type) => !allowed.has(type));
+	if (unreadable) strange.push("unreadable");
+	// with no completed turn, or a line that is no event, nothing vouches for what Codex did
+	if (!turns || unreadable) errors += 1;
+	console.log([types.command_execution || 0, tokens, strange.join(",") || "none", errors].join(" "));
 ' "$work/events.jsonl" 2>/dev/null || echo "0 0 unread 1")
 
 # ---- 6. the archive, each run under a name of its own, then the verdict
@@ -251,7 +271,8 @@ if [ -n "$changed" ]; then
 	die 1 "Codex changed its folder, which a read only run never does. $(printf '%s' "$changed" | head -3 | tr '\n' ' ')"
 fi
 if [ "$status" -ne 0 ] || [ "$errors" != 0 ]; then
-	die 1 "codex exited $status with $errors errors, $(tail -3 "$work/stderr.txt" | tr '\n' ' ')"
+	die 1 "codex exited $status with $errors errors in its events, ${answer%.md}.events.jsonl." \
+		"$(tail -3 "$work/stderr.txt" | tr '\n' ' ')"
 fi
 [ -s "$work/answer.md" ] || die 1 "Codex exited cleanly and wrote no answer, its events are ${answer%.md}.events.jsonl"
 say "answered in $seconds seconds, $tokens tokens, $commands commands, its folder unchanged"
