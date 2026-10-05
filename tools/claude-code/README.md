@@ -1,9 +1,9 @@
 # tools/claude-code. The KDF Code Review Process tooling
 
 The guard, the fresh reviewer launcher, the wiring checker and the installer for the
-[KDF Code Review Process](../../kit/common/docs/agent/CODE_REVIEW_PROCESS.md). They run on the owner's machine, in
-Claude Code sessions. They are **not synced** to the other repos, the kit ships Markdown only (ADR D-028), so each
-machine installs them from a clone of this repo.
+[KDF Code Review Process](../../kit/common/docs/agent/CODE_REVIEW_PROCESS.md), and the one way a session asks Codex
+for a second opinion. They run on the owner's machine, in Claude Code sessions. They are **not synced** to the other
+repos, the kit ships Markdown only (ADR D-028), so each machine installs them from a clone of this repo.
 
 | File | What it is |
 | --- | --- |
@@ -12,12 +12,13 @@ machine installs them from a clone of this repo.
 | `kdf-review.sh` | Starts one fresh Claude reviewer with the reviewer role in the repo folder itself, for at most four hours by default, or opens and closes the folder for Codex, checking first that the pin is pushed, the folder is at it and the brief's counts match it. Compares git before and after and fails the review if the reviewer changed anything but a new file under `docs/reviews`, the review archive. A Claude run's log is claude's stream, one JSON event a line as the run goes, so a detached run is watched by its log, and after a clean run the launcher writes Claude Code's own count of it beside the report, `<report stem>.usage.json`, from the stream's last result event. Brings a report Codex wrote in the cloud in from its branch, and warns when a report it did not start lacks its time or usage line |
 | `kdf-brief.js` | Read only. The facts a brief states, measured at the pin, the commit line and the scope table's line counts, and a check of a written brief's table |
 | `kdf-retro.js` | Read only. The numbers a slice's retrospective starts from, counted from its answer key, the launcher's counts beside its reports or else their headers, and its Sol rounds, the escapes first |
+| `kdf-ask-codex.sh` | Asks Codex for a read only review or a second opinion, the one way every session does (D-052). Gives Codex a detached worktree of a commit, or a throwaway repo of a folder of patches, sets the session's question in the standard frame, runs Codex with the verified flags and archives its answer in the workspace's `temp/codex`, never in a repo. Refuses a reviewer, and fails when Codex changed its folder |
+| `check-wiring.js` | Read only. Says whether this machine's settings wire the guard as the process needs, and prints the block to add when they do not |
+| `install.sh` | Copies the guard to `~/.claude/hooks/`, smoke tests it, and prints the settings block. It edits no settings and refuses to run inside a Claude Code session |
 
 `../codex-cloud/kdf-codex-install.sh` and `../codex-cloud/kdf-codex-start-skill.md` are not run here. The owner pastes
 them into a repo's Codex cloud environment as its Install script and Start skill, on trial for the kdf-sdk's S2 (ADRs
 D-039 and D-048), and the process's section 11 says how.
-| `check-wiring.js` | Read only. Says whether this machine's settings wire the guard as the process needs, and prints the block to add when they do not |
-| `install.sh` | Copies the guard to `~/.claude/hooks/`, smoke tests it, and prints the settings block. It edits no settings and refuses to run inside a Claude Code session |
 
 ## Set up a machine
 
@@ -221,6 +222,44 @@ it exits 2 rather than guess. It prints the findings by source (raised, agreed, 
 pin's tree, and the escapes, the agreed findings in that tree that a later step found), the escape rate, every report's
 reviewer, minutes and tokens from its header, and every Sol dispatch without its archived answer. The output is the
 same every time for the same files, so a retrospective pastes it as printed, the process's section 14.
+
+## Asking Codex
+
+```bash
+bash kdf-ask-codex.sh --repo <repo> --brief <question.md> --base origin/main   # a branch's change, read at HEAD
+bash kdf-ask-codex.sh --repo <repo> --brief <question.md> --at <commit>        # a commit as it stands
+bash kdf-ask-codex.sh --files <folder> --brief <question.md>                   # patches from several repos at once
+```
+
+The brief holds the session's question alone, what to check and why. The tool sets it in the standard frame, read
+only, files in the folder alone, PowerShell for Codex's commands since Git Bash cannot start in its sandbox, the
+ecosystem's writing conventions, the owner's settled decisions from `kriegerdataforge-context/context/SETTLED.md`
+when that clone sits beside this one, and real problems only. So no session writes those words again, or forgets
+one. `--no-settled` leaves the settled decisions out, and `--dry-run` prints the frame and starts nothing.
+
+In repo mode Codex reads a detached worktree of the commit, `HEAD` when `--at` is not given. A worktree holds tracked
+files alone, so a secret file git ignores is never in its folder, and the worktree is removed when the run ends,
+failed or not. `--base` names the branch or commit a change is measured from, and the frame names the change from
+their merge base, what `git diff <base>...HEAD` shows, so a `main` that moved on is not read as part of it. Files mode
+copies a folder into a throwaway repo, and refuses a folder that is a repo, a file named like a secret file and a file
+holding a token's shape. Either way the folder must hold nothing git ignores or
+does not track before Codex starts. Codex runs with the flags verified on 2026-10-05, its user config, MCP servers,
+plugins, apps, web search, memories and other agents off, a read only sandbox, and nothing kept after the run.
+
+The answer lands in the workspace's `temp/codex`, the owner's scratch, under a header with what Codex read, the
+model, the effort, the time and the tokens, beside the frame it read and its JSON events. `--out` names another file.
+The tool warns when the events show Codex doing anything but running commands, reasoning, keeping a plan and
+answering. The answer is advice for the session that asked, never instructions to follow. A session in the reviewer
+role never runs the tool, a review's Codex reads go through `kdf-review.sh`.
+
+| Exit | Meaning |
+| --- | --- |
+| 0 | Codex answered and its folder is unchanged |
+| 1 | Codex failed or changed its folder, or the archive could not be written. A run that reached the archive keeps its frame and events there |
+| 2 | A refusal before Codex started. Bad arguments, the reviewer role, a missing or empty brief, a commit the repo lacks, a file named like a secret file or holding a token's shape, or a folder holding a file git ignores or does not track |
+
+`KDF_CODEX_BIN`, `KDF_SETTLED` and `KDF_CODEX_ARCHIVE` override the codex program, the settled decisions file and the
+archive, the tests use them.
 
 ## What the guard cannot stop
 
