@@ -3,15 +3,17 @@
 #
 #   bash kdf-ask-codex.sh --repo <root> --brief <file> [--at <commit>] [--base <commit>]
 #   bash kdf-ask-codex.sh --files <folder> --brief <file>
-#   either takes [--effort high|xhigh] [--model <model>] [--out <answer.md>] [--no-settled] [--dry-run]
+#   either takes [--effort high|xhigh] [--model <model>] [--no-settled] [--dry-run]
 #
 # Repo mode reads <commit> of <root>, HEAD when --at is not given, in a detached worktree of its own. A worktree holds
 # tracked files alone, so a secret file that git ignores is never in Codex's folder, and the worktree is removed when
-# the run ends, failed or not. --base names the branch or commit a change is measured from, and the frame then names
-# the change as a git diff from their merge base, what git diff <base>...HEAD shows, so a main that moved on is not
-# read as part of it. Files mode reads a folder of files, patches from several repos for one, copied into a throwaway
-# repo. It refuses a folder that is a repo, a file named like a secret file (.env*, *.pem, *.key, *.tfvars) and a file
-# that holds a token's shape.
+# the run ends, failed or not. A commit that tracks a symbolic link is refused, a link can lead out of the folder.
+# --base names the branch or commit a change is measured from, and the frame then names the change as a git diff from
+# their merge base, what git diff <base>...HEAD shows, so a main that moved on is not read as part of it. Files mode
+# copies a folder of files, patches from several repos for one, into a throwaway repo, and checks the copy. It refuses
+# a folder that is a repo or holds one, a symbolic link, a file named like a secret file in any case (.env*, *.pem,
+# *.key, *.p12, *.pfx, *.tfvars, *.tfstate*, an ssh key, .git-credentials, .netrc, anything under keys/) and a file
+# that holds a token's shape. The brief is held to the same checks.
 #
 # The brief holds the session's question alone, and the tool sets it in the standard frame. Read only, files in this
 # folder alone, PowerShell for commands since Git Bash cannot start in Codex's sandbox, the ecosystem's writing
@@ -22,13 +24,15 @@
 #
 # Before it runs it refuses a session in the reviewer role (KDF_ROLE=reviewer), a missing or empty brief, a commit the
 # repo does not have, and a folder that holds anything git ignores or does not track. After it runs it fails when the
-# folder changed, and warns when Codex did anything but run commands, reason and answer, read from its JSON events.
-# The answer, the frame and the events go to the archive, $KDF_CODEX_ARCHIVE or temp/codex in the workspace, the
-# owner's local scratch and never a repo, the answer under a header with what was read, the model, the time and the
-# tokens. --dry-run prints the frame and runs nothing.
+# folder changed, its HEAD moved or git could not read it, when Codex failed, and when Codex wrote no answer. It warns
+# when Codex did anything but run commands, reason, keep a plan and answer, read from its JSON events. The answer, the
+# frame and the events go to the archive, $KDF_CODEX_ARCHIVE or temp/codex in the workspace, the owner's local scratch
+# and never a repo, each run under a name of its own, and the answer under a header with what was read, the model, the
+# time and the tokens. --dry-run prints the frame and runs nothing.
 #
-# Exit 0 when Codex answered and changed nothing, 1 when it failed or changed its folder, 2 on a refusal before it ran.
-# KDF_CODEX_BIN names the codex binary and KDF_SETTLED the settled decisions file, for a test.
+# Exit 0 when Codex answered and changed nothing, 1 when it failed, changed its folder or wrote no answer, or the
+# archive could not be written, 2 on a refusal before it ran. KDF_CODEX_BIN names the codex binary and KDF_SETTLED the
+# settled decisions file, for a test.
 set -uo pipefail
 export LC_ALL=C
 
@@ -37,15 +41,21 @@ workspace="$(cd "$here/../../.." && pwd)"
 codex_bin="${KDF_CODEX_BIN:-codex}"
 settled_file="${KDF_SETTLED-$workspace/kriegerdataforge-context/context/SETTLED.md}"
 archive="${KDF_CODEX_ARCHIVE:-$workspace/temp/codex}"
-# a token's shape, GitHub's, a private key's, AWS's and OpenAI's, so files mode never sends one
+# a token's shape, GitHub's, a private key's, AWS's and OpenAI's, so nothing sent holds one
 token_shapes='gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,}|-----BEGIN [A-Z ]*PRIVATE KEY'
 token_shapes="$token_shapes|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}"
 
 die() { local code=$1; shift; printf 'kdf-ask-codex: %s\n' "$*" >&2; exit "$code"; }
 say() { printf 'kdf-ask-codex: %s\n' "$*"; }
 usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"; }
+# the first file under the paths named like a secret file, in any case, the guard's names and the usual key files
+secret_named() {
+	find "$@" -type f \( -iname '.env*' -o -iname '*.pem' -o -iname '*.key' -o -iname '*.p12' -o -iname '*.pfx' \
+		-o -iname '*.tfvars' -o -iname '*.tfstate*' -o -iname 'id_rsa*' -o -iname 'id_dsa*' -o -iname 'id_ecdsa*' \
+		-o -iname 'id_ed25519*' -o -iname '.git-credentials' -o -iname '.netrc' -o -ipath '*/keys/*' \) -print -quit
+}
 
-repo="" files="" brief="" at="" base="" effort="high" model="gpt-6.1-sol" out="" settled=1 dry=0
+repo="" files="" brief="" at="" base="" effort="high" model="gpt-6.1-sol" settled=1 dry=0
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--repo) repo="${2:-}"; shift 2 || die 2 "--repo needs a value" ;;
@@ -55,7 +65,6 @@ while [ $# -gt 0 ]; do
 		--base) base="${2:-}"; shift 2 || die 2 "--base needs a value" ;;
 		--effort) effort="${2:-}"; shift 2 || die 2 "--effort needs a value" ;;
 		--model) model="${2:-}"; shift 2 || die 2 "--model needs a value" ;;
-		--out) out="${2:-}"; shift 2 || die 2 "--out needs a value" ;;
 		--no-settled) settled=0; shift ;;
 		--dry-run) dry=1; shift ;;
 		-h|--help) usage; exit 0 ;;
@@ -63,27 +72,31 @@ while [ $# -gt 0 ]; do
 	esac
 done
 
-# ---- 1. what may run at all
+# ---- 1. what may run at all, and a brief that holds nothing secret
 [ "${KDF_ROLE:-}" != reviewer ] || die 2 "a session in the reviewer role never asks Codex, its review is its own"
 if [ -n "$repo" ] && [ -n "$files" ] || [ -z "$repo$files" ]; then
 	die 2 "give --repo or --files, one of them. See --help."
 fi
 [ -z "$files" ] || [ -z "$at$base" ] || die 2 "--at and --base go with --repo"
 [ -n "$brief" ] || die 2 "--brief is required. See --help."
+[ ! -L "$brief" ] || die 2 "the brief $brief is a symbolic link, give the file itself"
 [ -s "$brief" ] || die 2 "the brief $brief is missing or empty"
+[ -z "$(secret_named "$brief")" ] || die 2 "the brief $brief is named like a secret file, Codex never reads one"
+! grep -q -E "$token_shapes" "$brief" || die 2 "the brief $brief holds a token's shape, nothing is sent"
 case "$effort" in high|xhigh) ;; *) die 2 "--effort is high or xhigh" ;; esac
 command -v node >/dev/null 2>&1 || die 2 "node is not on PATH, it reads Codex's events"
 [ "$dry" -eq 1 ] || command -v "$codex_bin" >/dev/null 2>&1 || die 2 "$codex_bin is not on PATH"
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/kdf-ask-codex.XXXXXX")" || die 2 "no scratch folder"
 folder="$work/folder"
+made=0
 cleanup() {
-	# the worktree is this run's alone, so a forced removal takes nothing of anyone else's
-	if [ -n "$repo" ] && [ -d "$folder" ]; then
-		git -C "$repo" worktree remove "$folder" >/dev/null 2>&1 \
-			|| git -C "$repo" worktree remove --force "$folder" >/dev/null 2>&1
-	fi
+	# the worktree is this run's alone, so a forced removal, locked or not, takes nothing of anyone else's
+	local removed=1
+	if [ "$made" -eq 1 ]; then git -C "$repo" worktree remove --force --force "$folder" >/dev/null 2>&1 || removed=0; fi
 	rm -rf "$work"
+	# a worktree git would not remove keeps its registration until its folder is gone, and prune then drops it
+	if [ "$removed" -eq 0 ]; then git -C "$repo" worktree prune >/dev/null 2>&1; fi
 }
 trap cleanup EXIT
 
@@ -99,20 +112,29 @@ if [ -n "$repo" ]; then
 		base_commit="$(git -C "$repo" merge-base "$base_commit" "$commit")" \
 			|| die 2 "$base and ${at:-HEAD} share no history"
 	fi
+	# read whole, so no early exit upstream turns a pipeline's status into a pass
+	link="$(git -C "$repo" ls-tree -r "$commit" \
+		| awk -F '\t' 'index($1, "120000 ") == 1 && !found { print $2; found = 1 }')"
+	[ -z "$link" ] || die 2 "${at:-HEAD} tracks $link, a symbolic link, which can lead Codex out of its folder"
 	git -C "$repo" worktree add -q --detach "$folder" "$commit" >/dev/null 2>&1 || die 2 "the worktree could not be made"
+	made=1
 	subject="$(git -C "$repo" log -1 --format=%s "$commit" | cut -c1-90)"
 	what="$(basename "$top") at commit $commit, \"$subject\""
 	label="$(basename "$top")-${commit:0:7}"
 else
 	files="$(cd "$files" 2>/dev/null && pwd)" || die 2 "--files is not a directory"
 	[ ! -e "$files/.git" ] || die 2 "$files is a repo, read it with --repo"
-	secret="$(find "$files" -type f \( -name '.env*' -o -name '*.pem' -o -name '*.key' -o -name '*.tfvars' \) \
-		-print -quit)"
-	[ -z "$secret" ] || die 2 "$secret is named like a secret file, Codex never reads one"
-	! grep -r -q -E "$token_shapes" "$files" || die 2 "a file in $files holds a token's shape, nothing is sent"
+	# every check reads the copy, so nothing that lands in the source after them reaches Codex
+	if ! { mkdir -p "$folder" && cp -R "$files/." "$folder/"; }; then die 2 "the files could not be copied"; fi
+	found="$(find "$folder" -name .git -print -quit)"
+	[ -z "$found" ] || die 2 "${found#"$folder"/} in $files is a repo inside it, nothing is sent"
+	found="$(find "$folder" -type l -print -quit)"
+	[ -z "$found" ] || die 2 "${found#"$folder"/} in $files is a symbolic link, which can lead Codex out of its folder"
+	found="$(secret_named "$folder")"
+	[ -z "$found" ] || die 2 "${found#"$folder"/} in $files is named like a secret file, Codex never reads one"
+	! grep -r -q -E "$token_shapes" "$folder" || die 2 "a file in $files holds a token's shape, nothing is sent"
 	if ! {
-		mkdir -p "$folder" && cp -R "$files/." "$folder/" \
-			&& git -C "$folder" init -q -b main \
+		git -C "$folder" init -q -b main \
 			&& git -C "$folder" add -A \
 			&& git -C "$folder" -c user.name=kdf-ask-codex -c user.email=kdf-ask-codex@localhost commit -q -m read
 	}; then
@@ -163,6 +185,7 @@ if [ "$dry" -eq 1 ]; then
 fi
 
 # ---- 4. Codex, with the flags verified on 2026-10-05 and its events as JSON
+held="$(git -C "$folder" rev-parse HEAD)"
 began="$(date '+%Y-%m-%d %H:%M')"
 start=$(date +%s)
 (
@@ -174,7 +197,10 @@ start=$(date +%s)
 )
 status=$?
 seconds=$(( $(date +%s) - start ))
-changed="$(git -C "$folder" status --ignored --short)"
+# a folder git cannot read, or a HEAD that moved, counts as changed, status alone sees neither
+changed="$(git -C "$folder" status --ignored --short 2>&1)" || changed="git could not read the folder, $changed"
+now="$(git -C "$folder" rev-parse -q --verify HEAD 2>/dev/null)"
+[ "$now" = "$held" ] || changed="its HEAD moved to ${now:-nothing}. $changed"
 
 # ---- 5. what Codex did, from its events, anything but commands, reasoning, a plan and answers called strange
 read -r commands tokens strange errors < <(node -e '
@@ -193,11 +219,19 @@ read -r commands tokens strange errors < <(node -e '
 	}
 	const strange = Object.keys(types).filter((type) => !allowed.has(type)).join(",") || "none";
 	console.log([types.command_execution || 0, tokens, strange, errors].join(" "));
-' "$work/events.jsonl" 2>/dev/null || echo "0 0 unread 0")
+' "$work/events.jsonl" 2>/dev/null || echo "0 0 unread 1")
 
-# ---- 6. the archive, then the verdict
-mkdir -p "$archive" || die 1 "the archive $archive could not be made"
-answer="${out:-$archive/$(date '+%Y-%m-%d-%H%M%S')-$label.md}"
+# ---- 6. the archive, each run under a name of its own, then the verdict
+unarchived() {
+	if [ -s "$work/answer.md" ]; then
+		printf 'Codex answered, and the answer could not be archived. It follows.\n\n'
+		cat "$work/answer.md"
+	fi
+	die 1 "$*"
+}
+mkdir -p "$archive" || unarchived "the archive $archive could not be made"
+answer="$(mktemp --suffix=.md "$archive/$(date '+%Y-%m-%d-%H%M%S')-$label-XXXXXX")" \
+	|| unarchived "no answer file could be made in $archive"
 {
 	printf '# Codex on %s\n\n' "$what"
 	printf -- '- **Asked.** %s, %s seconds, %s tokens, %s commands, %s at %s effort.\n' \
@@ -205,9 +239,10 @@ answer="${out:-$archive/$(date '+%Y-%m-%d-%H%M%S')-$label.md}"
 	printf -- '- **Settled decisions in the frame.** %s.\n' "$with_settled"
 	printf -- '- **Outside the shell.** %s.\n\n' "$strange"
 	if [ -s "$work/answer.md" ]; then cat "$work/answer.md"; else printf '(no answer was written)\n'; fi
-} > "$answer" || die 1 "the answer could not be written to $answer"
-cp "$frame" "${answer%.md}.frame.md"
-cp "$work/events.jsonl" "${answer%.md}.events.jsonl"
+} > "$answer" || unarchived "the answer could not be written to $answer"
+if ! { cp "$frame" "${answer%.md}.frame.md" && cp "$work/events.jsonl" "${answer%.md}.events.jsonl"; }; then
+	unarchived "the frame and the events could not be written beside $answer"
+fi
 
 if [ "$strange" != none ]; then
 	say "WARNING Codex did more than run commands and answer, $strange, read ${answer%.md}.events.jsonl"
@@ -218,5 +253,6 @@ fi
 if [ "$status" -ne 0 ] || [ "$errors" != 0 ]; then
 	die 1 "codex exited $status with $errors errors, $(tail -3 "$work/stderr.txt" | tr '\n' ' ')"
 fi
+[ -s "$work/answer.md" ] || die 1 "Codex exited cleanly and wrote no answer, its events are ${answer%.md}.events.jsonl"
 say "answered in $seconds seconds, $tokens tokens, $commands commands, its folder unchanged"
 say "the answer is $answer"

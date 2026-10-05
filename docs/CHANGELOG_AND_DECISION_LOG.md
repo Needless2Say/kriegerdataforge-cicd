@@ -2835,16 +2835,20 @@ rest of what it read.
   sets it in the standard frame, read only, files in the folder alone, PowerShell for commands, the writing
   conventions, the owner's settled decisions from the context repo's `context/SETTLED.md` when that clone sits beside
   this one, and real problems only.
-- **Codex reads tracked files alone.** Repo mode makes a detached worktree of the commit, removed when the run ends,
-  and measures a change from its merge base with `--base`, as `git diff <base>...HEAD` does. Files mode copies a
-  folder into a throwaway repo after refusing a file named like a secret file and a file holding a token's shape.
-  Either way the folder must hold nothing git ignores or does not track before Codex starts.
+- **Codex's folder holds tracked files alone.** Repo mode makes a detached worktree of the commit, removed when the
+  run ends, locked or not, and refuses a commit that tracks a symbolic link. It measures a change from its merge base
+  with `--base`, as `git diff <base>...HEAD` does. Files mode copies a folder into a throwaway repo and checks the
+  copy, refusing a repo inside it, a symbolic link, a file named like a secret file in any case and a file holding a
+  token's shape. The brief is held to the same checks. Either way the folder must hold nothing git ignores or does
+  not track before Codex starts.
 - **The flags are the ones verified on 2026-10-05.** The user's config, MCP servers, plugins, apps, web search,
   memories and other agents off, a read only sandbox, nothing kept after the run, and the frame on stdin.
-- **The tool checks Codex afterward.** It fails when the folder changed, and warns when Codex's JSON events show
+- **The tool checks Codex afterward.** It fails when `git status` shows a change, when the folder's HEAD moved, when
+  git cannot read the folder, when Codex failed and when it wrote no answer. It warns when Codex's JSON events show
   anything but commands, reasoning, a plan and answers.
-- **The answer is archived outside every repo**, in the workspace's `temp/codex`, beside the frame and the events,
-  under a header with what was read, the model, the effort, the time and the tokens.
+- **The answer is archived outside every repo**, in the workspace's `temp/codex`, under a name no other run has,
+  beside the frame and the events, under a header with what was read, the model, the effort, the time and the tokens.
+  When the archive cannot be written the answer is printed before the run fails.
 - **A session in the reviewer role never runs it.** A review campaign's Codex reads stay with `kdf-review.sh`.
 
 **Alternatives considered.**
@@ -2857,12 +2861,17 @@ rest of what it read.
   key's or a token's shape on purpose, test fixtures, examples, docs and a secret scan's own config (counted on
   2026-10-05), so the scan would refuse those repos whole.
 
-**Trade-offs.** Repo mode sends what the commit tracks, so a secret committed by mistake reaches Codex before the
-secret scan in CI finds it. The guard keeps a session from reading a secret file, the usual way such a mistake
-starts. A worktree holds committed work only, so a session commits before it asks. The token scan of files mode knows
-the common shapes, not every one, so the folder holds the session's own patches and nothing copied from a secret
-store. The settled decisions add about two thousand tokens to every run as they stand, and `--no-settled` leaves them
-out.
+**Trade-offs.** Codex's sandbox on Windows stops writes and the network, not reads, so the frame's rule to read only
+inside the folder is what keeps Codex from a file outside it. Codex in a container with the folder alone mounted
+would close that, and is not built. Repo mode sends what the commit tracks, so a secret committed by mistake reaches
+Codex before the secret scan in CI finds it. The guard keeps a session from reading a secret file, the usual way such
+a mistake starts. A worktree holds committed work only, so a session commits before it asks. The token scan knows
+the common shapes, not every one, so a files mode folder holds the session's own patches and nothing copied from a
+secret store. The settled decisions add about two thousand tokens to every run as they stand, and `--no-settled`
+leaves them out.
 
-**Consequences.** The context repo's ways of working name the tool in place of the invocation. A machine has the
-tool once its clone of this repo is pulled, with nothing to install. VERSION 0.2.134.
+**Consequences.** The tool's first run reviewed its own change and found ten problems, a symbolic link and the brief
+getting past the secret checks, a commit leaving `git status` clean, a locked worktree left behind and two runs in
+one second sharing an answer among them. All ten were fixed before the pull request opened, each with a test that
+fails when its fix is taken out. The context repo's ways of working name the tool in place of the invocation. A
+machine has the tool once its clone of this repo is pulled, with nothing to install. VERSION 0.2.134.
