@@ -66,7 +66,7 @@ Promote it to an ecosystem standard in 7 waves (see the hub tracker for the full
   **views** are not reliably API manageable, both modes diff Status against the registry's
   `status_options` and print exactly what to add. Option edits on existing custom fields are also
   manual (editing options via the API risks detaching items' selected values). One time UI
-  recipes live in `docs/guides/PROJECTS_BOARDS.md`.
+  recipes live in the owner's `PROJECTS_BOARDS.md` (private, `kriegerdataforge-context/ops/`).
 - **Collaborator invites are best effort** (`updateProjectV2Collaborators` support for user owned
   projects varies), failures are warnings with a manual invite pointer, never run failures.
 - **Field schema** (identical on all 6 boards). Status (built in, target options Inbox / Triage /
@@ -140,9 +140,9 @@ The scheduled doorbell for decision 3, deliberately thin, the app owns everythin
 `agents/README.md` brainstormed an **issue triage agent** (GitHub issue event driven, direct
 Anthropic API via `ANTHROPIC_API_KEY`). This epic supersedes that concept for the bug report
 domain. Triage runs **in process in each app** (GitHub Models via the app's own credentials, PII
-redaction before egress) and cicd only schedules it. The `agents/` skeleton remains for the other
-agent concepts (PR review, docs, changelog). Its issue triage row should be considered closed by
-D-010.
+redaction before egress) and cicd only schedules it. The `agents/` skeleton kept the other agent
+concepts (PR review, docs, changelog) until it moved to the private context repo as an idea on
+2026-10-05 (D-050). Its issue triage row should be considered closed by D-010.
 
 ## Secrets / config surface (cicd side)
 

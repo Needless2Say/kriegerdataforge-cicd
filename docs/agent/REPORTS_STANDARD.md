@@ -13,7 +13,7 @@ the app's cron endpoint → the app runs an **in process AI triage batch** (GitH
 clusters reports → high confidence clusters become **GitHub issues** on the app's Projects v2
 board, landing **pre-sorted** (Status = `Inbox`, Severity, Type. Priority is always a human
 call). Every ecosystem repo's work is tracked on one of the **six standard boards** (catalog:
-cicd `docs/guides/PROJECTS_BOARDS.md`).
+the owner's `PROJECTS_BOARDS.md` in the private `kriegerdataforge-context/ops/`).
 
 ## The two certified packages *(app repos)*
 
@@ -40,8 +40,8 @@ Never vendor/copy the module source into an app. That is exactly what this stand
    creates labels** (PL-117).
 5. Enroll in the scheduled trigger. An entry in cicd `scripts/reports_registry.json` + the
    `REPORTS_CRON_SECRET_<APP>` cicd side copy (dual store, Terraform value is authoritative).
-   Runbook. Cicd `docs/guides/REPORTS_TRIAGE_OPS.md`. The weekly workflow ships **disarmed**
-   (`RUN_REPORTS_TRIAGE` variable + per entry `enabled:false`).
+   Runbook. The owner's `REPORTS_TRIAGE_OPS.md` (`kriegerdataforge-context/ops/`). The weekly workflow
+   ships **disarmed** (`RUN_REPORTS_TRIAGE` variable + per entry `enabled:false`).
 
 Consumer reference. Reports-sdk `docs/guides/CONSUMER_SETUP.md`. Worked examples =
 fitness-app-backend, tiffanys-space-backend, template-fastapi (`docs/guides/REPORTS_SETUP.md`).

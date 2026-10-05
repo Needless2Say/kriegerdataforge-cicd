@@ -26,7 +26,7 @@ body:
 
         > **Result comments are metadata-only** (batch counters + status interpretations);
         > report content and secret values never appear. A quiet app is a green result
-        > (`total_reports=0`). Ops guide: `docs/guides/REPORTS_TRIAGE_OPS.md`.
+        > (`total_reports=0`). Ops guide: the owner's `REPORTS_TRIAGE_OPS.md` (kriegerdataforge-context/ops/).
 
   - type: input
     id: apps

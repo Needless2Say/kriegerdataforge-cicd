@@ -31,7 +31,7 @@ body:
 
         > **What stays manual (one-time, per board):** reshaping the built-in **Status** field's
         > options and creating **views** — the API doesn't cover them. `check` prints exactly
-        > what to add; recipes live in `docs/guides/PROJECTS_BOARDS.md`.
+        > what to add; recipes live in the owner's `PROJECTS_BOARDS.md` (kriegerdataforge-context/ops/).
 
   - type: dropdown
     id: boards
@@ -78,4 +78,4 @@ body:
         ---
         ▶ **To run:** add the **`ops:provision-projects`** label to this issue. Re-add it to re-run.
         After **execute**: harvest the node ids from the issue comment, then do the one-time manual
-        steps it lists (Status options + views) per `docs/guides/PROJECTS_BOARDS.md`.
+        steps it lists (Status options + views) per the owner's `PROJECTS_BOARDS.md` (kriegerdataforge-context/ops/).

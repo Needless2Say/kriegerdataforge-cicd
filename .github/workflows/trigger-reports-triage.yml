@@ -19,7 +19,7 @@ name: Trigger Reports Triage
 # ops:triage-reports issue form (ops-triage-reports.yml). Manual dispatch does NOT require
 # RUN_REPORTS_TRIAGE — verification must be possible before the schedule is armed.
 #
-# FAILURE SEMANTICS (docs/guides/REPORTS_TRIAGE_OPS.md): POSTs are never status-retried (the
+# FAILURE SEMANTICS (the owner's REPORTS_TRIAGE_OPS.md, kriegerdataforge-context/ops/): POSTs are never status-retried (the
 # engine's session retries statuses only for GET/PUT/HEAD), so a 502-that-actually-triaged
 # cannot double-fire; the app's PL-134 concurrency guard makes even a true double-fire safe.
 # A red run means "look", not "retry loop". A quiet week is green (202, total_reports=0).

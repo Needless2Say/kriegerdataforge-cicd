@@ -19,7 +19,7 @@ Selection
   --dry-run            Validate selection + secret PRESENCE and print the firing plan
                        (app, environment, URL, secret NAME) without POSTing anything.
 
-Failure semantics (deliberate — see docs/guides/REPORTS_TRIAGE_OPS.md)
+Failure semantics (deliberate — see the owner's REPORTS_TRIAGE_OPS.md, kriegerdataforge-context/ops/)
   * POSTs are NEVER status-retried: ``common.http.build_session`` retries only
     GET/PUT/HEAD statuses, so a 502-that-actually-triaged cannot double-fire a batch.
     (The app's PL-134 concurrency guard makes even a true double-fire safe; re-runs are

@@ -6,7 +6,8 @@ how the deploy reads it, and what to do when it is red (D-027).
 
 > **Related.** [`E2E_TESTING.md`](E2E_TESTING.md), the journey, one lane of the gate.
 > [`WORKFLOWS.md`](../reference/WORKFLOWS.md#prod-gate), how the deploy reads the gate.
-> [`SECRET_ROTATION.md`](SECRET_ROTATION.md), the package token the installs fall back to.
+> `SECRET_ROTATION.md` in the owner's private `kriegerdataforge-context/ops/`, the package token the installs fall
+> back to.
 
 ## Releasing, in order
 
@@ -71,7 +72,7 @@ Open the run. The `PROD Gate v<version>` job's summary names the lanes that did 
 
 | What the log says | Cause | What to do |
 |---|---|---|
-| `Invalid username or token` in an **Install** step | The package token `GH_PACKAGES_PAT` expired or was revoked. It is a person's token with an end date | Rotate it, [`SECRET_ROTATION.md`](SECRET_ROTATION.md). Set the repo's `USE_GITHUB_APP` variable to `true` and the lanes mint a token per job from the KDF App, and fall back to the package token only when the App is not set up |
+| `Invalid username or token` in an **Install** step | The package token `GH_PACKAGES_PAT` expired or was revoked. It is a person's token with an end date | Rotate it, the owner's `SECRET_ROTATION.md` (`kriegerdataforge-context/ops/`). Set the repo's `USE_GITHUB_APP` variable to `true` and the lanes mint a token per job from the KDF App, and fall back to the package token only when the App is not set up |
 | `No rule to make target` | The tag is older than the target the lane runs | The workflow is the default branch's and the tree is the tag's. Cut a release that holds the target and run the gate for that version |
 | A mutant `survived` | A rule no test pins any more | Write the test that kills the mutant, or remove the mutant with the rule |
 | A mutant `error, anchor stale` | The guarded line was rewritten and the mutant's anchor no longer matches | Update the anchor in the mutant's table |

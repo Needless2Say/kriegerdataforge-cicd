@@ -21,5 +21,5 @@ claims in the real implementing file (`file:line`) and states the fail mode.
 
 - [`../reference/WORKFLOWS.md`](../reference/WORKFLOWS.md). Per workflow inputs/secrets/outputs and
   the deployment/Environment-gate model.
-- [`../guides/SECRET_ROTATION.md`](../guides/SECRET_ROTATION.md). The secret rotation runbook.
+- The secret rotation runbook, the owner's `SECRET_ROTATION.md` in the private `kriegerdataforge-context/ops/`.
 - [`../../SECURITY.md`](../../SECURITY.md). Vulnerability disclosure process and in scope surface.

@@ -50,7 +50,7 @@ is a thin caller. All deploy logic lives in this repo.
 | App source code | — | `api/`, `src/`, etc. |
 | App specific Docker / Makefile | — | `Dockerfile`, `Makefile` |
 | Issue templates for repo provisioning | `.github/ISSUE_TEMPLATE/` | — |
-| Onboarding and setup docs | `docs/guides/MANUAL_SETUP.md` | — |
+| Onboarding and setup docs | `docs/guides/CONTRIBUTOR_ONBOARDING.md`, and the owner's runbooks in `kriegerdataforge-context/ops/` | — |
 | **Reusable E2E engine** (driver `ci_stack.py`, `docker-compose.shared.yml`, the `run-e2e` composite action, Playwright harness) | `e2e/` + `.github/actions/run-e2e/` | — |
 | **A tenant's E2E journey** (its Playwright spec, its compose service fragment, its seed data, its `e2e/manifest.json`) | — | `e2e/` in that tenant repo |
 | **E2E gate job** (a thin CI job that `uses:` the `run-e2e` action, gated by `RUN_E2E_GATE`) | — | `.github/workflows/e2e.yml` |

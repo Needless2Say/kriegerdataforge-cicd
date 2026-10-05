@@ -70,7 +70,7 @@ The model below is the intended one. The reviewers it names are not configured a
 (measured 2026-09-17), which is why the deployer authorization gate exists. The GitHub
 Environments and their intended required reviewers are provisioned by
 [`issue-create-repo.yml:168-223`](../../.github/workflows/issue-create-repo.yml) and documented in
-[`MANUAL_SETUP.md` Phase 4](../guides/MANUAL_SETUP.md). The **only** environment names in use, and the
+`MANUAL_SETUP.md` Phase 4 (the owner's, in `kriegerdataforge-context/ops/`). The **only** environment names in use, and the
 keys the deployer registry is keyed on, are:
 
 | GitHub Environment | Required reviewer(s) | Deployment branch policy |
@@ -738,7 +738,7 @@ owner gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for 
 | `ops-setup-e2e.yml` | `issues: labeled` (`ops:setup-e2e`) | arms an E2E-journey repo. Writes `RUN_E2E_GATE=false`, `USE_GITHUB_APP=true`, copies `KDF_APP_ID`/`KDF_APP_PRIVATE_KEY`. Validates target against the fixed 6-repo allow list | `_authorize-owner` |
 | `ops-provision-projects.yml` | `issues: labeled` (`ops:provision-projects`) | issue form front end for `provision_projects.py` (`check`/`execute`). Adopts/creates the 6 Projects v2 boards from `projects_registry.json`. Runs on an owner staged **classic** PAT in `SECRET_VALUE_NEW`. Neither an App token nor a fine grained PAT can manage user owned ProjectsV2 (ADR D-010 W1 finding) | `_authorize-owner` |
 | `ops-distribute-app-secrets.yml` | `issues: labeled` (`ops:distribute-app-secrets`) | issue form front end for `distribute_app_secrets.py` (`check`/`execute`). Copies this repo's `KDF_APP_ID`/`KDF_APP_PRIVATE_KEY` to every consumer repo in `secret_registry.json` (`distribute_source_env` entries, the 12-repo registry list generalizes `ops-setup-e2e`'s fixed copy step). App token scoped `secrets:write` to exactly those repos. Run after an App key rotation (§8.3a) or when onboarding a consumer | `_authorize-owner` |
-| `ops-triage-reports.yml` | `issues: labeled` (`ops:triage-reports`) | issue form front end for `trigger_triage.py` (`dry-run`/`execute`, dev/prod). The owner's "run triage now" button. Fires the selected apps' `/reports/triage/cron` endpoints from `reports_registry.json` and comments the metadata only result (executing against prod requires the Confirm dropdown). Ops guide, `docs/guides/REPORTS_TRIAGE_OPS.md` | `_authorize-owner` |
+| `ops-triage-reports.yml` | `issues: labeled` (`ops:triage-reports`) | issue form front end for `trigger_triage.py` (`dry-run`/`execute`, dev/prod). The owner's "run triage now" button. Fires the selected apps' `/reports/triage/cron` endpoints from `reports_registry.json` and comments the metadata only result (executing against prod requires the Confirm dropdown). Ops guide, the owner's `REPORTS_TRIAGE_OPS.md` (`kriegerdataforge-context/ops/`) | `_authorize-owner` |
 | `distribute-kit.yml` | `workflow_dispatch` (`mode` check/distribute, `only`, `repos`) + weekly `schedule` (drift alarm) | runs `distribute_kit.py`. Opens one sync PR per drifted repo. `check` also fails on a gap in a repo's own files (the `AGENTS.md` role pointer, `.env.kdf.example`, `.env.kdf` ignored), which that repo fixes itself | `_authorize-owner` (dispatch only) |
 | `distribute-gh-pat.yml` | `workflow_dispatch` | distributes a staged `GH_PACKAGES_PAT_NEW` via `rotate_secret.py --mode paste` | `_authorize-owner` |
 | `rotate-vercel-tokens.yml` | monthly `schedule` + `workflow_dispatch` | re-mints the shared `VERCEL_DEPLOYMENT_TOKEN` (`--mode generate`, 45-day life) and opens a PR stamping the new expiry | `_authorize-owner` (dispatch only) |
@@ -781,8 +781,7 @@ The authoritative allow list is [`scripts/deployer_registry.json`](../../scripts
 
 ## Related
 
-- [`docs/guides/MANUAL_SETUP.md`](../guides/MANUAL_SETUP.md). GitHub Environments, environment secrets, PAT/token creation, tenant onboarding.
-- [`docs/guides/SECRET_ROTATION.md`](../guides/SECRET_ROTATION.md). Rotate a repo/environment secret via `rotate_secret.py` + `secret_registry.json`.
+- The owner's runbooks in the private `kriegerdataforge-context/ops/`. `MANUAL_SETUP.md` (GitHub Environments, environment secrets, PAT/token creation, tenant onboarding) and `SECRET_ROTATION.md` (rotate a repo/environment secret via `rotate_secret.py` + `secret_registry.json`).
 - [`docs/guides/E2E_TESTING.md`](../guides/E2E_TESTING.md) + [`e2e/README.md`](../../e2e/README.md). The E2E engine model and local run.
 - [`CONTRIBUTING.md`](../../CONTRIBUTING.md). Two tier model + breaking change governance for reusable workflow interfaces.
 - [`scripts/deployer_registry.json`](../../scripts/deployer_registry.json) · [`scripts/check_deployer.py`](../../scripts/check_deployer.py). The deployer gate data + logic.

@@ -17,7 +17,7 @@ Modes:
             Existing boards are ADOPTED and reconciled, never re-created. Prints the
             title -> node_id map to wire into each app's GH_REPORTS_*PROJECT_ID env.
 
-Deliberate limits (documented in docs/guides/PROJECTS_BOARDS.md):
+Deliberate limits (documented in the owner's PROJECTS_BOARDS.md, kriegerdataforge-context/ops/):
   * The BUILT-IN Status field's options cannot be reliably reshaped via the API — both modes DIFF
     them against the registry's status_options and report; reconciling is a one-time manual UI step.
   * Option drift on an EXISTING custom field is reported, not auto-fixed (option edits via the API

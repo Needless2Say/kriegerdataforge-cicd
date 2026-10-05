@@ -155,7 +155,7 @@ jobs:
               echo '```'
             fi
             echo
-            echo "_See the [Actions run](${RUN_URL}) for details. Triage results land as GitHub issues on the app's board; ops guide: \`docs/guides/REPORTS_TRIAGE_OPS.md\`._"
+            echo "_See the [Actions run](${RUN_URL}) for details. Triage results land as GitHub issues on the app's board; ops guide: the owner's \`REPORTS_TRIAGE_OPS.md\` in kriegerdataforge-context._"
           } > comment.md
           gh issue comment "$ISSUE" --repo "$REPO" --body-file comment.md
 
