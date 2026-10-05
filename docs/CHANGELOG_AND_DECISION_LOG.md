@@ -2884,3 +2884,41 @@ hook able to hide where git registered the worktree. All eighteen were fixed bef
 with a test that fails when its fix is taken out, and one finding was declined, an edit of D-052 itself read as a
 rewrite of an old entry. The context repo's ways of working name the tool in place of the invocation. A machine has
 the tool once its clone of this repo is pulled, with nothing to install. VERSION 0.2.134.
+
+## D-053. Codex judges plans and decisions too, and its answer says whether the run passed
+
+- **Date.** 2026-10-05
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Standard · `tools/claude-code/kdf-ask-codex.sh`, its README section and
+  `scripts/tests/test_kdf_ask_codex.py` · not synced
+
+**Context.** D-052 made one tool the way a session asks Codex, and its frame closed every question as a code review.
+On 2026-10-05 the owner chose that a Standard or Epic plan, and a technical decision put to the owner, go to Codex
+before they reach the owner, with both views shown, a rule the context repo keeps. A review's closing fits a plan only
+in part and works against a decision, where the owner wants a pick and the case against it. Codex's review of that
+plan found that the tool wrote the archive before its verdict, so the answer of a run that failed could pass for a
+review. And the header's token count added the cached input Codex reads again after every command, about 85 percent
+of the input of every run that day.
+
+**Decision.**
+
+- **`--kind review|plan|decision`**, review by default, so every call made before is unchanged. Only the frame's
+  closing instruction changes with the kind. `plan` tells Codex the question holds a plan, not code, to judge it
+  against what it reads, and to report what is wrong, missing or riskier than it says, each tied to a file and line,
+  with what it would do instead. `decision` tells Codex to choose among the options as if the choice were its own,
+  its pick first, then why, then the strongest case against its pick. Each says plainly when nothing is wrong.
+- **The verdict is settled before the archive is written**, and the answer's header leads with it, `passed` or why
+  the run failed, then the kind. Only a run that passed counts as Codex's view.
+- **The header splits the tokens**, the new input, the cached input read again and the output.
+
+**Alternatives considered.**
+
+- *Leave the closing to each brief.* Rejected, the frame exists so no session writes the standard words again, and a
+  brief that asks for a pick would still end in a request for problems.
+- *A tool of its own for plans and decisions.* Not taken, everything but one paragraph of the frame is the same.
+
+**Trade-offs.** A plan review adds three to five minutes before the owner sees the plan, a wait the owner chose. A
+decision's pick is Codex's advice. The session still recommends its own, and the owner decides.
+
+**Consequences.** The context repo's rule and its ways of working say when each kind runs and how both views reach the
+owner. VERSION 0.2.135.

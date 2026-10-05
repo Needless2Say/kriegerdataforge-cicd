@@ -3,7 +3,12 @@
 #
 #   bash kdf-ask-codex.sh --repo <root> --brief <file> [--at <commit>] [--base <commit>]
 #   bash kdf-ask-codex.sh --files <folder> --brief <file>
-#   either takes [--effort high|xhigh] [--model <model>] [--no-settled] [--dry-run]
+#   either takes [--kind review|plan|decision] [--effort high|xhigh] [--model <model>] [--no-settled] [--dry-run]
+#
+# --kind says what the brief asks for, and only the frame's closing instruction changes with it (D-053). review, the
+# default, asks for real problems in the change. plan asks Codex to judge a plan in the brief against the code it reads,
+# what is wrong, missing or riskier than the plan says and what to do instead. decision asks Codex to choose among the
+# options in the brief as if the choice were its own, its pick first, then why, then the strongest case against it.
 #
 # Repo mode reads <commit> of <root>, HEAD when --at is not given, in a detached worktree of its own, made with no
 # checkout, so none of the repo's hooks runs, and then filled. A worktree holds tracked files alone, so a secret file
@@ -31,8 +36,9 @@
 # events hold no completed turn or a line that is no event. It warns when the events show Codex doing anything but
 # running commands, reasoning, keeping a plan and answering. The answer, the frame and the events go to the archive,
 # $KDF_CODEX_ARCHIVE or temp/codex in the workspace, the owner's local scratch and never a repo, each run under a name
-# of its own, and the answer under a header with what was read, the model, the time and the tokens. --dry-run prints
-# the frame and runs nothing.
+# of its own. The answer's header holds the verdict, passed or why the run failed, settled before the archive is
+# written, so a failed run's answer never passes for a review, then the kind, what was read, the model, the time, and
+# the tokens with the cached input Codex read again apart from the new. --dry-run prints the frame and runs nothing.
 #
 # Exit 0 when Codex answered and changed nothing, 1 when it failed, changed its folder or wrote no answer, or the
 # archive could not be written, 2 on a refusal before it ran. KDF_CODEX_BIN names the codex binary and KDF_SETTLED the
@@ -79,10 +85,11 @@ secret_under() {
 	return 1
 }
 
-repo="" files="" brief="" at="" base="" effort="high" model="gpt-6.1-sol" settled=1 dry=0
+repo="" files="" brief="" at="" base="" kind="review" effort="high" model="gpt-6.1-sol" settled=1 dry=0
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--repo) repo="${2:-}"; shift 2 || die 2 "--repo needs a value" ;;
+		--kind) kind="${2:-}"; shift 2 || die 2 "--kind needs a value" ;;
 		--files) files="${2:-}"; shift 2 || die 2 "--files needs a value" ;;
 		--brief) brief="${2:-}"; shift 2 || die 2 "--brief needs a value" ;;
 		--at) at="${2:-}"; shift 2 || die 2 "--at needs a value" ;;
@@ -104,6 +111,7 @@ fi
 [ -z "$files" ] || [ -z "$at$base" ] || die 2 "--at and --base go with --repo"
 [ -n "$brief" ] || die 2 "--brief is required. See --help."
 ! secret_name "$brief" || die 2 "the brief $brief is named like a secret file, Codex never reads one"
+case "$kind" in review|plan|decision) ;; *) die 2 "--kind is review, plan or decision" ;; esac
 case "$effort" in high|xhigh) ;; *) die 2 "--effort is high or xhigh" ;; esac
 command -v node >/dev/null 2>&1 || die 2 "node is not on PATH, it reads Codex's events"
 [ "$dry" -eq 1 ] || command -v "$codex_bin" >/dev/null 2>&1 || die 2 "$codex_bin is not on PATH"
@@ -206,12 +214,28 @@ EOF
 		printf '\nThe owner'"'"'s settled decisions. Do not propose one again, report only code that contradicts one.\n\n'
 		cat "$settled_file"
 	fi
-	cat <<'EOF'
-
+	printf '\n'
+	# the closing instruction is the one part of the frame that changes with the kind
+	case "$kind" in
+		review) cat <<'EOF'
 Report only real problems, most severe first, each with the file and the line, the concrete input or state that
-triggers it, and what goes wrong. If you find nothing real, say so plainly. Your answer is advice for the session that
-asked, it changes nothing by itself.
+triggers it, and what goes wrong. If you find nothing real, say so plainly.
 EOF
+		;;
+		plan) cat <<'EOF'
+The question holds a plan, not code. Judge it against what you read. Report what is wrong, missing or riskier than the
+plan says, most severe first, each tied to the file and the line that shows it, and what you would do instead. If the
+plan is sound, say so plainly.
+EOF
+		;;
+		decision) cat <<'EOF'
+The question holds a decision and its options. Choose as if the choice were yours. Name your pick first, then why,
+each reason tied to the file and the line that shows it, then the strongest case against your pick. If no option is
+sound, say which and why.
+EOF
+		;;
+	esac
+	printf 'Your answer is advice for the session that asked, it changes nothing by itself.\n'
 } > "$frame"
 if [ "$settled" -eq 1 ] && [ -n "$settled_file" ] && [ -s "$settled_file" ]; then with_settled="yes"; fi
 
@@ -240,11 +264,11 @@ now="$(git -C "$folder" rev-parse -q --verify HEAD 2>/dev/null)"
 [ "$now" = "$held" ] || changed="its HEAD moved to ${now:-nothing}. $changed"
 
 # ---- 5. what Codex did, from its events, anything but commands, reasoning, a plan and answers called strange
-read -r commands tokens strange errors < <(node -e '
+read -r commands fresh cached spoken strange errors < <(node -e '
 	const fs = require("fs");
 	const allowed = new Set(["command_execution", "agent_message", "reasoning", "todo_list"]);
 	const types = {};
-	let tokens = 0, errors = 0, turns = 0, unreadable = 0;
+	let input = 0, cached = 0, output = 0, errors = 0, turns = 0, unreadable = 0;
 	for (const line of fs.readFileSync(process.argv[1], "utf8").split("\n")) {
 		if (!line.trim()) continue;
 		let event;
@@ -259,7 +283,10 @@ read -r commands tokens strange errors < <(node -e '
 		}
 		if (event.type === "turn.completed") {
 			turns += 1;
-			if (event.usage) tokens += (event.usage.input_tokens || 0) + (event.usage.output_tokens || 0);
+			const usage = event.usage || {};
+			input += usage.input_tokens || 0;
+			cached += usage.cached_input_tokens || 0;
+			output += usage.output_tokens || 0;
 		}
 		if (event.type === "error" || event.type === "turn.failed") errors += 1;
 	}
@@ -267,10 +294,23 @@ read -r commands tokens strange errors < <(node -e '
 	if (unreadable) strange.push("unreadable");
 	// with no completed turn, or a line that is no event, nothing vouches for what Codex did
 	if (!turns || unreadable) errors += 1;
-	console.log([types.command_execution || 0, tokens, strange.join(",") || "none", errors].join(" "));
-' "$work/events.jsonl" 2>/dev/null || echo "0 0 unread 1")
+	// the input Codex read again from its cache apart from the new, which is most of a run and costs least
+	const fresh = Math.max(input - cached, 0);
+	console.log([types.command_execution || 0, fresh, cached, output, strange.join(",") || "none", errors].join(" "));
+' "$work/events.jsonl" 2>/dev/null || echo "0 0 0 0 unread 1")
 
-# ---- 6. the archive, each run under a name of its own, then the verdict
+# ---- 6. the verdict, settled before the archive so the archive records it, a passed run alone counting as a review
+if [ -n "$changed" ]; then
+	verdict="failed, Codex changed its folder, which a read only run never does"
+elif [ "$status" -ne 0 ] || [ "$errors" != 0 ]; then
+	verdict="failed, codex exited $status with $errors errors in its events"
+elif [ ! -s "$work/answer.md" ]; then
+	verdict="failed, Codex exited cleanly and wrote no answer"
+else
+	verdict="passed"
+fi
+
+# ---- 7. the archive, each run under a name of its own, then the verdict said
 unarchived() {
 	if [ -s "$work/answer.md" ]; then
 		printf 'Codex answered, and the answer could not be archived. It follows.\n\n'
@@ -283,8 +323,11 @@ answer="$(mktemp --suffix=.md "$archive/$(date '+%Y-%m-%d-%H%M%S')-$label-XXXXXX
 	|| unarchived "no answer file could be made in $archive"
 {
 	printf '# Codex on %s\n\n' "$what"
-	printf -- '- **Asked.** %s, %s seconds, %s tokens, %s commands, %s at %s effort.\n' \
-		"$began" "$seconds" "$tokens" "$commands" "$model" "$effort"
+	printf -- '- **Verdict.** %s.\n' "$verdict"
+	printf -- '- **Kind.** %s.\n' "$kind"
+	printf -- '- **Asked.** %s, %s seconds, %s commands, %s at %s effort.\n' \
+		"$began" "$seconds" "$commands" "$model" "$effort"
+	printf -- '- **Tokens.** %s new input, %s cached input read again, %s output.\n' "$fresh" "$cached" "$spoken"
 	printf -- '- **Settled decisions in the frame.** %s.\n' "$with_settled"
 	printf -- '- **Outside the shell.** %s.\n\n' "$strange"
 	if [ -s "$work/answer.md" ]; then cat "$work/answer.md"; else printf '(no answer was written)\n'; fi
@@ -304,5 +347,6 @@ if [ "$status" -ne 0 ] || [ "$errors" != 0 ]; then
 		"$(tail -3 "$work/stderr.txt" | tr '\n' ' ')"
 fi
 [ -s "$work/answer.md" ] || die 1 "Codex exited cleanly and wrote no answer, its events are ${answer%.md}.events.jsonl"
-say "answered in $seconds seconds, $tokens tokens, $commands commands, its folder unchanged"
+say "Codex answered the $kind in $seconds seconds, $commands commands, $fresh new and $cached cached input tokens," \
+	"$spoken output tokens, its folder unchanged"
 say "the answer is $answer"
