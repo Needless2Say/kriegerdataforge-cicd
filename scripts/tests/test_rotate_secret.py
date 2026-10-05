@@ -42,6 +42,9 @@ from rotate_secret import (
 
 ALL = frozenset()
 
+# a fake token the live expiry tests hand around, which no output may ever carry (D-049)
+TOKEN = "github_pat_FAKE_LIVE_TOKEN_VALUE_0123456789"
+
 
 # ── fixtures ────────────────────────────────────────────────────────────────────
 @pytest.fixture
@@ -1052,3 +1055,242 @@ class TestMain:
         with patch.object(rs, "REGISTRY_FILE", mp):
             with pytest.raises(SystemExit):
                 rs.main()
+
+
+# ── live expiry (D-049) ─────────────────────────────────────────────────────────
+def _resp(status: int = 200, headers: dict | None = None, body: dict | None = None) -> MagicMock:
+    resp                   = MagicMock()
+    resp.status_code       = status
+    resp.ok                = 200 <= status < 300
+    resp.headers           = headers or {}
+    resp.json.return_value = body or {}
+    return resp
+
+
+def _ms(day: str) -> int:
+    return int(datetime.strptime(day, "%Y-%m-%d").replace(hour = 12, tzinfo = timezone.utc).timestamp() * 1000)
+
+
+class TestLiveExpiry:
+    """
+    Each check.live token's real expiry, read from GitHub or Vercel with the token itself, drift against the registry,
+    and no value ever printed (D-049).
+    """
+    @pytest.mark.parametrize(
+        ("raw", "want"),
+        [
+            ("2026-11-02 12:00:00 UTC", "2026-11-02"),
+            ("2026-11-02 23:30:00 -0500", "2026-11-03"),
+            ("2026-11-02 01:00:00 +0200", "2026-11-01"),
+            ("next tuesday", None),
+            ("", None),
+        ],
+    )
+    def test_parse_github_expiry_reads_both_shapes_in_utc(self, raw, want):
+        assert rs.parse_github_expiry(raw) == want
+
+
+    def test_github_reads_the_expiry_header_with_the_token_itself(self):
+        with patch.object(
+            rs._SESSION,
+            "get",
+            return_value = _resp( headers = {"github-authentication-token-expiration": "2026-11-02 12:00:00 UTC"}),
+        ) as get:
+            got = rs.live_expiry({"name": "CICD_PAT", "check": {"live": "github"}}, {"CICD_PAT": TOKEN})
+        assert got == ("2026-11-02", "ok")
+        assert get.call_args.args[0] == f"{rs.GITHUB_API}/rate_limit"
+        assert get.call_args.kwargs["headers"]["Authorization"] == f"Bearer {TOKEN}"
+
+
+    @pytest.mark.parametrize(
+        ("resp", "want"),
+        [
+            (_resp(401), (None, "rejected")),
+            (_resp(200), (None, "no expiry")),
+            (_resp(500), (None, "error, HTTP 500")),
+            (_resp(200, {"github-authentication-token-expiration": "soon"}),
+             (None, "error, an expiry header it cannot read")),
+        ],
+    )
+    def test_github_answers_that_carry_no_date(self, resp, want):
+        with patch.object(rs._SESSION, "get", return_value = resp):
+            assert rs.live_expiry({"name": "CICD_PAT", "check": {"live": "github"}}, {"CICD_PAT": TOKEN}) == want
+
+
+    def test_vercel_current_reads_the_tokens_own_metadata(self):
+        body = {"token": {"id": "t1", "name": "master", "expiresAt": _ms("2026-12-01")}}
+        with patch.object(rs._SESSION, "get", return_value = _resp(body = body)) as get:
+            got = rs.live_expiry(
+                {"name": "VERCEL_MASTER_TOKEN", "check": {"live": "vercel-current"}},
+                {"VERCEL_MASTER_TOKEN": TOKEN},
+            )
+        assert got == ("2026-12-01", "ok")
+        assert get.call_args.args[0] == f"{rs.VERCEL_API}/v5/user/tokens/current"
+        with patch.object(rs._SESSION, "get", return_value = _resp(403)):
+            assert rs.live_expiry(
+                {"name": "VERCEL_MASTER_TOKEN", "check": {"live": "vercel-current"}},
+                {"VERCEL_MASTER_TOKEN": TOKEN},
+            ) == (None, "rejected")
+        with patch.object(rs._SESSION, "get", return_value = _resp(body = {"token": {"id": "t1"}})):
+            assert rs.live_expiry(
+                {"name": "VERCEL_MASTER_TOKEN", "check": {"live": "vercel-current"}},
+                {"VERCEL_MASTER_TOKEN": TOKEN},
+            ) == (None, "no expiry")
+
+
+    def test_vercel_named_takes_the_earliest_of_its_name_through_the_master_token(self):
+        """
+        After a rotation that kept the old token, a repo may still hold the one that expires first.
+        """
+        entry = {
+            "name": "VERCEL_DEPLOYMENT_TOKEN",
+            "vercel_token_name": "VERCEL_DEPLOYMENT_TOKEN",
+            "check": {"live": "vercel-named"},
+        }
+        body  = {"tokens": [
+            {"name": "VERCEL_DEPLOYMENT_TOKEN", "expiresAt": _ms("2026-10-20")},
+            {"name": "VERCEL_DEPLOYMENT_TOKEN", "expiresAt": _ms("2026-11-18")},
+            {"name": "something else", "expiresAt": _ms("2027-01-01")},
+        ]}
+        with patch.object(rs._SESSION, "get", return_value = _resp(body = body)) as get:
+            got = rs.live_expiry(entry, {"VERCEL_MASTER_TOKEN": TOKEN, "VERCEL_DEPLOYMENT_TOKEN": "unused"})
+        assert got == (
+            "2026-10-20",
+            "ok, 2 Vercel tokens are named VERCEL_DEPLOYMENT_TOKEN, the earliest expiry is used",
+        )
+        assert get.call_args.kwargs["headers"]["Authorization"] == f"Bearer {TOKEN}"
+        single = {"tokens": [{"name": "VERCEL_DEPLOYMENT_TOKEN", "expiresAt": _ms("2026-11-18")}]}
+        with patch.object(rs._SESSION, "get", return_value = _resp(body = single)):
+            assert rs.live_expiry(entry, {"VERCEL_MASTER_TOKEN": TOKEN}) == ("2026-11-18", "ok")
+        with patch.object(rs._SESSION, "get", return_value = _resp(body = {"tokens": []})):
+            assert rs.live_expiry(entry, {"VERCEL_MASTER_TOKEN": TOKEN}) == (
+                None,
+                "error, no Vercel token named VERCEL_DEPLOYMENT_TOKEN",
+            )
+        with patch.object(rs._SESSION, "get", return_value = _resp(401)):
+            assert "refused VERCEL_MASTER_TOKEN" in rs.live_expiry(entry, {"VERCEL_MASTER_TOKEN": TOKEN})[1]
+
+
+    def test_nothing_is_called_without_a_live_source_or_a_token(self):
+        with patch.object(rs._SESSION, "get") as get:
+            assert rs.live_expiry({"name": "X", "check": {"expiry": "2030-01-01"}}, {}) == (None, "not checked live")
+            assert rs.live_expiry({"name": "X", "check": {"live": "github"}}, {}) == (None, "no token in this run")
+            assert rs.live_expiry({"name": "X", "check": {"live": "gitlab"}}, {"X": TOKEN}) == (
+                None,
+                "error, unknown live source gitlab",
+            )
+        assert not get.called
+
+
+    def test_an_answer_of_an_unexpected_shape_is_reported_never_raised(self):
+        """
+        A body that is a list, not an object, raised AttributeError past the check before the review of D-049.
+        """
+        resp                   = _resp()
+        resp.json.return_value = ["not", "an", "object"]
+        with patch.object(rs._SESSION, "get", return_value = resp):
+            got = rs.live_expiry(
+                {"name": "VERCEL_MASTER_TOKEN", "check": {"live": "vercel-current"}},
+                {"VERCEL_MASTER_TOKEN": TOKEN},
+            )
+        assert got == (None, "error, AttributeError")
+
+
+    def test_two_tokens_of_one_name_are_noted_in_the_check(self, monkeypatch, capsys):
+        note = "ok, 2 Vercel tokens are named VERCEL_DEPLOYMENT_TOKEN, the earliest expiry is used"
+        monkeypatch.setattr(rs, "live_expiry", lambda entry, environ = None: (_future(90), note))
+        day = _future(90)
+        assert cmd_check(
+            [{"name": "VERCEL_DEPLOYMENT_TOKEN", "check": {"expiry": day, "live": "vercel-named"}}],
+            live = True,
+        ) == 0
+        assert "NOTE — 2 Vercel tokens are named VERCEL_DEPLOYMENT_TOKEN" in capsys.readouterr().out
+
+
+    def test_a_failed_call_names_its_type_alone(self):
+        with patch.object(rs._SESSION, "get", side_effect = rs.requests.ConnectionError(f"boom {TOKEN}")):
+            got = rs.live_expiry({"name": "CICD_PAT", "check": {"live": "github"}}, {"CICD_PAT": TOKEN})
+        assert got == (None, "error, ConnectionError")
+
+
+    def _live(self, monkeypatch, expiry: str, live_answer: tuple[str | None, str]) -> list[dict]:
+        monkeypatch.setattr(rs, "live_expiry", lambda entry, environ = None: live_answer)
+        return [{"name": "CICD_PAT", "check": {"expiry": expiry, "warn_days_before_expiry": 14, "live": "github"}}]
+
+
+    def test_a_registry_date_that_disagrees_is_drift_and_the_live_date_rules(self, monkeypatch, capsys):
+        entries = self._live(monkeypatch, _past(60), (_future(90), "ok"))
+        assert cmd_check(entries, live = True) == 1
+        out = capsys.readouterr().out
+        assert f"DRIFT — the registry says {_past(60)}, GitHub says {_future(90)}" in out
+        assert f"REGISTRY_DRIFT: CICD_PAT={_future(90)}" in out
+        assert "NEEDS_ROTATION: \n" in out
+
+
+    def test_a_live_date_past_its_warning_needs_rotation(self, monkeypatch, capsys):
+        entries = self._live(monkeypatch, _future(300), (_future(3), "ok"))
+        assert cmd_check(entries, live = True) == 1
+        out = capsys.readouterr().out
+        assert "WARNING — expires in" in out
+        assert "NEEDS_ROTATION: CICD_PAT" in out
+
+
+    def test_a_rejected_token_needs_rotation_whatever_the_registry_says(self, monkeypatch, capsys):
+        entries = self._live(monkeypatch, _future(300), (None, "rejected"))
+        assert cmd_check(entries, live = True) == 1
+        out = capsys.readouterr().out
+        assert "CICD_PAT: REJECTED by GitHub, it is expired or revoked. Rotate now." in out
+        assert "NEEDS_ROTATION: CICD_PAT" in out
+
+
+    def test_a_live_check_that_cannot_answer_falls_back_to_the_registry(self, monkeypatch, capsys):
+        entries = self._live(monkeypatch, _future(90), (None, "no token in this run"))
+        assert cmd_check(entries, live = True) == 0
+        out = capsys.readouterr().out
+        assert "live check no token in this run, so the registry's date is used." in out
+        assert "REGISTRY_DRIFT: \n" in out
+
+
+    def test_a_matching_date_and_no_expiry_are_healthy(self, monkeypatch, capsys):
+        day     = _future(90)
+        entries = self._live(monkeypatch, day, (day, "ok"))
+        assert cmd_check(entries, live = True) == 0
+        entries = self._live(monkeypatch, _past(5), (None, "no expiry"))
+        assert cmd_check(entries, live = True) == 0
+        assert "GitHub reports no expiry on it" in capsys.readouterr().out
+
+
+    def test_without_live_the_registry_alone_is_read(self, monkeypatch, capsys):
+        monkeypatch.setattr(rs, "live_expiry", lambda *a, **k: pytest.fail("live read without --live"))
+        entries = [{"name": "CICD_PAT", "check": {"expiry": _future(90), "live": "github"}}]
+        assert cmd_check(entries) == 0
+
+
+    def test_no_token_value_is_ever_printed(self, capsys):
+        answers = [
+            _resp(headers = {"github-authentication-token-expiration": "2020-01-01 00:00:00 UTC"}),
+            _resp(401),
+            _resp(500, body = {"message": TOKEN}),
+        ]
+        for resp in answers:
+            with patch.object(rs._SESSION, "get", return_value = resp):
+                cmd_check([{"name": "CICD_PAT", "check": {"expiry": "2030-01-01", "live": "github"}}], live = True)
+        printed = capsys.readouterr()
+        assert TOKEN not in printed.out + printed.err
+
+
+    def test_the_real_registry_reads_four_tokens_live(self):
+        registry = json.loads(rs.REGISTRY_FILE.read_text(encoding = "utf-8"))
+        live     = {e["name"]: e["check"]["live"] for e in registry["secrets"] if (e.get("check") or {}).get("live")}
+        assert live == {
+            "GH_PACKAGES_PAT": "github",
+            "VERCEL_DEPLOYMENT_TOKEN": "vercel-named",
+            "CICD_PAT": "github",
+            "VERCEL_MASTER_TOKEN": "vercel-current",
+        }
+        assert set(live.values()) <= set(rs.LIVE_SOURCES)
+
+
+    def test_parse_cli_takes_live(self):
+        assert rs.parse_cli_args(["--mode", "check", "--live"]).live is True
+        assert rs.parse_cli_args(["--mode", "check"]).live is False

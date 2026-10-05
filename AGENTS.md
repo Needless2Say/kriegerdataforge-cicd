@@ -58,7 +58,8 @@ agent workflows (`agents/`, skeleton only) so automation scales with the platfor
 | `.github/workflows/create-github-release.yml` | Create GitHub Release + git tag from `VERSION` |
 | `.github/workflows/ci-*.yml` | Reusable per stack CI (python lint/typecheck/tests/security/integration, nextjs build/lint/tests, codeql, npm audit, vercel compactor) |
 | `.github/workflows/issue-create-repo.yml` | Auto provision new repos from the `new-repo` issue template |
-| `.github/workflows/rotate-vercel-tokens.yml`, `distribute-gh-pat.yml`, `check-secret-expiry.yml` | Scheduled secret rotation/distribution + weekly expiry monitor |
+| `.github/workflows/rotate-vercel-tokens.yml`, `distribute-gh-pat.yml`, `check-secret-expiry.yml` | Scheduled secret rotation/distribution + weekly expiry monitor, which reads each `check.live` token's real expiry from GitHub or Vercel (D-049) |
+| `.github/workflows/ecosystem-watch.yml` + `scripts/ecosystem_watch.py` | The weekly ecosystem watch (D-049), Dependabot alerts, pins behind their latest release, kit and script drift and deprecation notices across every repo, as a JSON snapshot and one rolling issue. Reusable only, a PRIVATE repo calls it (kriegerdataforge-context), never an event of this public repo |
 | `.github/actions/run-e2e/`, `e2e/`, `.github/workflows/ops-setup-e2e.yml` | Reusable E2E engine (composite action + data driven `ci_stack.py` driver + secret distribution workflow) |
 | `scripts/check_deployer.py` + `deployer_registry.json` | Per-repo/per-env deployer authorization gate (fail closed) |
 | `scripts/rotate_secret.py` + `secret_registry.json` | Unified CI plane secret rotation engine (modes: generate / paste / check, env aware) |
