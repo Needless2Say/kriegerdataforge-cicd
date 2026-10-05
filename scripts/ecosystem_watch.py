@@ -474,15 +474,17 @@ def judge(ref: str, release: Release, holds_latest: Callable[[str], bool | None]
 class Releases:
     """
     The latest release of each source repo, read once by whichever worker asks first while the others wait, so every
-    pin of a source is judged against one answer, a failed read included.
+    pin of a source is judged against one answer, a failed read included. A commit's compare with it is asked once
+    too, under a lock of its own, so a slow compare never holds up a release lookup.
     """
     def __init__(self, transport: Transport) -> None:
         """
         Args:
             transport: how GitHub is reached
         """
-        self._transport = transport
-        self._lock      = threading.Lock()
+        self._transport    = transport
+        self._lock         = threading.Lock()
+        self._compare_lock = threading.Lock()
         self.known:    dict[str, Release] = {}
         self.compared: dict[tuple[str, str], bool | None] = {}
 
@@ -521,7 +523,7 @@ class Releases:
         release = self.get(repo)
         if not release.tag:
             return None
-        with self._lock:
+        with self._compare_lock:
             if (repo, sha) not in self.compared:
                 answer: bool | None = None
                 try:

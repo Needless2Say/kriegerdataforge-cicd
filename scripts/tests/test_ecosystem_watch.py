@@ -390,6 +390,38 @@ def test_pins_are_judged_against_each_source_repos_latest_release(registries: No
     assert repo_b["errors"] == [{"section": "pins", "detail": "pyproject.toml: HTTP 500, Server Error"}]
 
 
+def test_a_slow_compare_never_holds_up_a_release_lookup() -> None:
+    started  = threading.Event()
+    finished = threading.Event()
+
+
+    class SlowCompare(FakeTransport):
+        """
+        A compare that waits until the test lets it finish, standing in for a slow GitHub answer.
+        """
+        def get(self, path: str, params: dict[str, Any] | None = None, raw: bool = False) -> ew.Response:
+            if "/compare/" in path:
+                started.set()
+                finished.wait(5)
+            return super().get(path, params, raw)
+
+
+    transport = SlowCompare({
+        f"/repos/{OWNER}/x/tags": tags(("v1.3.0", SHA_LATEST)),
+        f"/repos/{OWNER}/x/compare/v1.3.0...{'7' * 40}": ok({"status": "ahead"}),
+    })
+    releases  = ew.Releases(transport)
+    releases.get("x")
+    with ThreadPoolExecutor(max_workers = 1) as pool:
+        pending = pool.submit(releases.holds_latest, "x", "7" * 40)
+        assert started.wait(5)
+        began = time.monotonic()
+        assert releases.get("x").tag == "v1.3.0"
+        assert time.monotonic() - began < 1
+        finished.set()
+        assert pending.result(5) is True
+
+
 def test_a_pin_of_main_and_its_lock_after_the_latest_tag_are_current(registries: None) -> None:
     sdk   = "kriegerdataforge-sdk[fastapi] @ git+https://github.com/Needless2Say/kriegerdataforge-sdk.git"
     table = base_table()
