@@ -2704,3 +2704,17 @@ mutation engine's scope, notices, rendering, news, the size limits, the log), `t
 issue step's own shell run after run against a fake `gh`), the live
 expiry tests in `test_rotate_secret.py`, and the App secrets' targets in `test_distribute_app_secrets.py`. VERSION
 0.2.130.
+
+**First run, 2026-10-05.** The first run by hand from the context repo passed every step, read all 18 repos with
+nothing unreadable, and opened its issue with 41 findings, 35 alerts, one pin and five notices. Reading each
+workflow's own latest run found three notices the dry run had missed, and all three came from runs four months old
+whose code had since moved on (Terraform's CD of 2026-05-30, `distribute-gh-pat.yml` of 2026-06-29, and a hub
+workflow that now lives on a feature branch alone). Only a new run clears such a notice, and for a deploy that is no
+reason to run one, so a notice seen only on runs older than `NOTICE_DAYS` (60) is now listed with its run's date and
+counts as no finding, while one a recent run carries still counts. The findings it raised are fixed here, every
+`create-github-app-token` step passes `client-id`, which the action reads as the App's id or its client id alike
+(`main.js`, `client-id || app-id`), so `KDF_APP_ID` stays and no secret changes, and `run-e2e/action.yml`, the last
+v2.2.2 pin on Node.js 20, moves to v3.2.0. Its own `app-id` input keeps its name, so the six repos whose PROD Gate
+calls it change nothing. The hub mints its own tokens and changes in its own pull request, and the npm alerts are
+cleared in each repo's lockfile, all but `braces` (GHSA-vfj7-8cjw-p6xm), whose advisory has no fixed release. Pinned
+by `test_every_app_token_step_is_on_one_pin_and_passes_a_client_id` and the old notice tests. VERSION 0.2.131.

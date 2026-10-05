@@ -577,7 +577,8 @@ counts. Its first step refuses a caller the API does not report private.
 - **Reads.** Open Dependabot alerts, every page, each pin of a package built from one of the owner's repos against
   that repo's latest `vX.Y.Z` tag (a commit pin is matched to its tag), each repo's kit version and vendored scripts
   against cicd's, by blob sha, and the deprecation notices on the latest completed run of each active workflow. What
-  it cannot read, and a pin it cannot judge, keeps the issue open.
+  it cannot read, and a pin it cannot judge, keeps the issue open. A notice seen only on runs older than 60 days is
+  listed with its run's date and keeps nothing open, since only a new run of that workflow can clear it.
 - **Secrets.** `app_id` and `app_private_key`, passed by name, never `inherit`.
 - **Permissions.** `contents: read`, `issues: write`. The App needs Dependabot alerts, Checks, Actions and Contents,
   read only, approved on its installation.

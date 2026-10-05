@@ -120,6 +120,8 @@ PAGE          = 100
 PAGES         = 10     # pages read at most of any one list, 1000 items, a longer list is a blind spot
 ALERTS_SHOWN  = 15     # alerts listed per repo in the issue, the counts are always whole
 NOTICES_SHOWN = 20
+NOTICE_DAYS   = 60     # a notice from an older run is listed, not counted, only a new run of its workflow clears it
+STAMP         = "%Y-%m-%dT%H:%M:%SZ"
 NEWS_SHOWN    = 100    # findings listed in one news comment
 BODY_LIMIT    = 60000  # an issue body over 65536 characters is refused
 KEYS_MARKER   = "kdf-watch-keys:"
@@ -699,8 +701,8 @@ def run_notices(transport: Transport, repo: str, run: dict[str, Any]) -> tuple[l
         run: the run, as GitHub lists it
 
     Returns:
-        tuple[list[dict[str, str]], list[str]]: each notice's message, level, workflow and job, and what could not be
-        read
+        tuple[list[dict[str, str]], list[str]]: each notice's message, level, workflow, job and the run's start, and
+        what could not be read
     """
     checks, error = read_pages(
         transport,
@@ -725,8 +727,29 @@ def run_notices(transport: Transport, repo: str, run: dict[str, Any]) -> tuple[l
                     "level": note.get("annotation_level"),
                     "workflow": str(run.get("name")),
                     "job": str(check.get("name")),
+                    "run_at": str(run.get("created_at") or ""),
                 })
     return notices, errors
+
+
+def is_old(notice: dict[str, Any], as_of: str) -> bool:
+    """
+    Whether a notice comes from a run older than NOTICE_DAYS, which a workflow that rarely runs, a deploy or a token
+    rotation, keeps showing long after its code changed.
+
+    Args:
+        notice: the notice, its `run_at` the run's start as GitHub gives it
+        as_of: the time it is measured from, the snapshot's own
+
+    Returns:
+        bool: True for a run older than NOTICE_DAYS, False when either time is missing, so an undated notice counts
+    """
+    try:
+        ran  = datetime.strptime(str(notice.get("run_at") or ""), STAMP)
+        when = datetime.strptime(as_of, STAMP)
+    except ValueError:
+        return False
+    return (when - ran).days > NOTICE_DAYS
 
 
 def collect_notices(transport: Transport, repo: str) -> tuple[list[dict[str, str]], list[str]]:
@@ -891,9 +914,9 @@ def collect(transport: Transport, workers: int = 8, now: datetime | None = None)
         if result["repo"] == CICD_REPO:
             result["pins"].append(canonical_pin)
     missing = sorted(src for src, sha in canonical.items() if sha is None)
-    stamp   = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stamp   = (now or datetime.now(timezone.utc)).strftime(STAMP)
     known   = sorted(releases.known.items())
-    summary = summarize(results)
+    summary = summarize(results, stamp)
     # an unreadable tag list or script source is a blind spot, counted with the repos' own
     summary["errors"] += sum(1 for source, release in known if release.error) + len(missing)
     return {
@@ -908,29 +931,34 @@ def collect(transport: Transport, workers: int = 8, now: datetime | None = None)
     }
 
 
-def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
+def summarize(results: list[dict[str, Any]], as_of: str = "") -> dict[str, Any]:
     """
     The counts the log and the issue's first line carry.
 
     Args:
         results: every repo's result
+        as_of: the snapshot's time, which tells a notice of a recent run from an old one, every notice recent without
+            it
 
     Returns:
-        dict[str, Any]: alerts by severity and in all, pins behind and pins not judged, drift, distinct notices and
-        errors
+        dict[str, Any]: alerts by severity and in all, pins behind and pins not judged, drift, distinct notices of
+        recent runs and of old ones, and errors
     """
     severity = {name: 0 for name in (*SEVERITIES, "unknown")}
     for result in results:
         for alert in result["alerts"]["open"]:
             severity[alert["severity"] if alert["severity"] in severity else "unknown"] += 1
-    notices = {notice["message"] for result in results for notice in result["notices"]}
+    every  = [notice for result in results for notice in result["notices"]]
+    recent = {notice["message"] for notice in every if not is_old(notice, as_of)}
+    old    = {notice["message"] for notice in every if is_old(notice, as_of)} - recent
     return {
         "alerts": severity,
         "alerts_total": sum(severity.values()),
         "pins_behind": sum(1 for result in results for pin in result["pins"] if pin["behind"]),
         "pins_unjudged": sum(1 for result in results for pin in result["pins"] if not pin["judged"]),
         "drift": sum(len(result["drift"]) for result in results),
-        "notices": len(notices),
+        "notices": len(recent),
+        "notices_old": len(old),
         "errors": sum(len(result["errors"]) for result in results),
     }
 
@@ -1150,31 +1178,58 @@ def _drift_section(snapshot: dict[str, Any], findings: dict[str, str]) -> list[s
     return lines + ["", "A Distribute of the kit or the scripts brings them back."]
 
 
-def _notices_section(repos: list[dict[str, Any]], findings: dict[str, str]) -> list[str]:
+def _notice_lines(seen: dict[str, list[str]]) -> list[str]:
     """
-    Each distinct deprecation notice once, with every repo and workflow it was seen in.
+    Each notice once, with where it was seen, at most NOTICES_SHOWN of them.
+
+    Args:
+        seen: each notice's message and the places it was seen in
+
+    Returns:
+        list[str]: the lines
+    """
+    lines = []
+    for message, where in list(seen.items())[:NOTICES_SHOWN]:
+        lines += [f"- {message}", f"  Seen in {', '.join(where)}."]
+    if len(seen) > NOTICES_SHOWN:
+        lines.append(f"- and {len(seen) - NOTICES_SHOWN} more")
+    return lines
+
+
+def _notices_section(repos: list[dict[str, Any]], findings: dict[str, str], as_of: str) -> list[str]:
+    """
+    Each distinct deprecation notice once, with every repo and workflow it was seen in. A notice seen only on runs
+    older than NOTICE_DAYS is listed apart with its run's date and is no finding, since only a new run of that
+    workflow can clear it, and for a deploy that is no reason to run one.
 
     Args:
         repos: every repo's result
         findings: each finding's key and its news line, added to
+        as_of: the snapshot's time
 
     Returns:
         list[str]: the section's lines
     """
     lines = ["", "### Deprecation notices", ""]
-    seen: dict[str, list[str]] = {}
+    recent: dict[str, list[str]] = {}
+    old:    dict[str, list[str]] = {}
     for result in repos:
         for notice in result["notices"]:
-            where = f"{_name(result['repo'])} ({notice['workflow']})"
-            if where not in seen.setdefault(notice["message"], []):
-                seen[notice["message"]].append(where)
-    if not seen:
-        return lines + ["None on the latest runs."]
-    for message, where in list(seen.items())[:NOTICES_SHOWN]:
-        lines += [f"- {message}", f"  Seen in {', '.join(where)}."]
+            stale = is_old(notice, as_of)
+            ran   = f", last ran {notice['run_at'][:10]}" if stale else ""
+            where = f"{_name(result['repo'])} ({notice['workflow']}{ran})"
+            group = old if stale else recent
+            if where not in group.setdefault(notice["message"], []):
+                group[notice["message"]].append(where)
+    # a notice that a recent run carries too is a finding, its old sightings listed with the recent ones
+    for message in [message for message in old if message in recent]:
+        recent[message] += old.pop(message)
+    lines += _notice_lines(recent) if recent else ["None on the latest runs."]
+    for message in list(recent)[:NOTICES_SHOWN]:
         findings[f"notice:{_short(message)}"] = f"a deprecation notice, {message[:160]}"
-    if len(seen) > NOTICES_SHOWN:
-        lines.append(f"- and {len(seen) - NOTICES_SHOWN} more")
+    if old:
+        note = f"Only on runs older than {NOTICE_DAYS} days, so not counted. A new run of the workflow clears them."
+        lines += ["", note, ""] + _notice_lines(old)
     return lines
 
 
@@ -1245,7 +1300,7 @@ def render(snapshot: dict[str, Any], previous_body: str = "", run_url: str = "")
     lines += _alerts_section(snapshot["repos"], findings)
     lines += _pins_section(snapshot["repos"], findings)
     lines += _drift_section(snapshot, findings)
-    lines += _notices_section(snapshot["repos"], findings)
+    lines += _notices_section(snapshot["repos"], findings, snapshot["generated_at"])
     lines += _errors_section(snapshot, findings)
     run   = f", [run]({run_url})" if run_url else ""
     stamp = f"Snapshot `{snapshot['schema']}` of {snapshot['generated_at']}{run}."
