@@ -2813,3 +2813,74 @@ pinned commit past the latest tag. D-035's rule gains one exception, bounded by 
 **Consequences.** Kit v1.17.0 waits for the owner's next Distribute. The five consumers change their
 `requirements.in` in pull requests of their own, and each compiles its lock when the owner chooses. Their CI passes
 once this merges and each runs again, since a run reuses the cicd commit it first resolved. VERSION 0.2.133.
+
+## D-052. One tool asks Codex, read only, in a folder of tracked files
+
+- **Date.** 2026-10-05
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Standard · `tools/claude-code/kdf-ask-codex.sh`, its README section and
+  `scripts/tests/test_kdf_ask_codex.py` · not synced, it runs from each machine's clone of this repo
+
+**Context.** Since 2026-10-05 a session may ask Codex to review its change before the one push, or for a second
+opinion, and every change of that day that went to Codex came back with real findings, the watch's compare and the
+fetch fix of D-051 among them. Each session typed the verified invocation by hand from the context repo's ways of
+working, a long command of flags, a fresh worktree checked first with `git status --ignored --short`, and a brief
+that wrote the read only rules, the writing conventions and the repo's settled decisions again. A flag left out, or
+a folder holding a file git ignores, is a mistake no one sees, and a secret file Codex reads goes to OpenAI with the
+rest of what it read.
+
+**Decision.**
+
+- **`kdf-ask-codex.sh` is the one way a session asks Codex.** The session's brief holds its question alone. The tool
+  sets it in the standard frame, read only, files in the folder alone, PowerShell for commands, the writing
+  conventions, the owner's settled decisions from the context repo's `context/SETTLED.md` when that clone sits beside
+  this one, and real problems only.
+- **Codex's folder holds tracked files alone.** Repo mode makes a detached worktree of the commit with no checkout,
+  so none of the repo's hooks runs, and fills it with `git reset --hard`. The worktree is removed when the run ends,
+  locked or not, and when git will not remove one it cannot read, that worktree's registration goes by hand, never
+  another's. It refuses a commit that tracks a symbolic link, and measures a change from its merge base with
+  `--base`, as `git diff <base>...HEAD` does. Files mode copies a folder into a throwaway repo and checks the copy,
+  refusing a repo inside it, a symbolic link, a file named like a secret file in any case, a name refused before
+  anything is copied, and a file holding a token's shape. The brief's name is judged before it is read, then it is
+  read once, into a copy held to the same checks, and the frame is built from it. Either way the folder must hold
+  nothing git ignores or does not track before Codex starts, and every `GIT_` variable is dropped, so none points the
+  tool or Codex elsewhere.
+- **The flags are the ones verified on 2026-10-05.** The user's config, MCP servers, plugins, apps, web search,
+  memories and other agents off, a read only sandbox, nothing kept after the run, and the frame on stdin.
+- **The tool checks Codex afterward.** It fails when `git status` shows a change, when the folder's HEAD moved, when
+  git cannot read the folder, when Codex failed or wrote no answer, and when its JSON events hold no completed turn
+  or a line that is no event. It warns when the events show anything but commands, reasoning, a plan and answers.
+- **The answer is archived outside every repo**, in the workspace's `temp/codex`, under a name no other run has,
+  beside the frame and the events, under a header with what was read, the model, the effort, the time and the tokens.
+  When the archive cannot be written the answer is printed before the run fails.
+- **A session in the reviewer role never runs it.** A review campaign's Codex reads stay with `kdf-review.sh`.
+
+**Alternatives considered.**
+
+- *Keep the invocation in the ways of working.* Rejected, every session retyped it, and the checks around it were
+  each session's to remember.
+- *Let Codex read the session's own clone.* Rejected, a clone holds every file git ignores, `.env.local` and build
+  output among them, and the session's uncommitted work moves while Codex reads.
+- *Scan a repo's tracked files for a token's shape too.* Not taken, sixteen tracked files across four repos hold a
+  key's or a token's shape on purpose, test fixtures, examples, docs and a secret scan's own config (counted on
+  2026-10-05), so the scan would refuse those repos whole.
+
+**Trade-offs.** Codex's sandbox on Windows stops writes and the network, not reads, so the frame's rule to read only
+inside the folder is what keeps Codex from a file outside it. Codex in a container with the folder alone mounted
+would close that, and is not built. Repo mode sends what the commit tracks, so a secret committed by mistake reaches
+Codex before the secret scan in CI finds it. The guard keeps a session from reading a secret file, the usual way such
+a mistake starts. A worktree holds committed work only, so a session commits before it asks. The token scan knows
+the common shapes, not every one, so a files mode folder holds the session's own patches and nothing copied from a
+secret store. The settled decisions add about two thousand tokens to every run as they stand, and `--no-settled`
+leaves them out.
+
+**Consequences.** The tool's first run reviewed its own change and found ten problems, a symbolic link and the brief
+getting past the secret checks, a commit leaving `git status` clean, a locked worktree left behind and two runs in
+one second sharing an answer among them. Its second run, on those fixes, found four more, the brief read again after
+its check, a fallback `git worktree prune` that could drop another session's worktree, a worktree both locked and
+broken left registered, and events that showed nothing still passing. Its third run found four more, the brief's
+name judged by reading the file, `GIT_CONFIG` still inherited, events of no shape passing, and a repo's post-checkout
+hook able to hide where git registered the worktree. All eighteen were fixed before the pull request opened, each
+with a test that fails when its fix is taken out, and one finding was declined, an edit of D-052 itself read as a
+rewrite of an old entry. The context repo's ways of working name the tool in place of the invocation. A machine has
+the tool once its clone of this repo is pulled, with nothing to install. VERSION 0.2.134.
