@@ -2790,9 +2790,12 @@ commit past the tag, which it called behind every week.
 - **D-035's fetch leaves a `.in` branch to its lock** (the owner's choice, 2026-10-05). A ref read out of a
   requirement file stays a tag or a full commit id, with one exception. A branch written only in `.in` files is let
   through when the lock compiled from each, the `.txt` file of the same name beside it, pins the same repo by a
-  full commit id. The fetch takes that commit and never the branch. Every lane installs the lock, pip-audit included,
-  so CI still fetches only commits that cannot move, and a branch with no such lock pin is refused as before. The
-  five consumers' first runs found the gap, the fetch refused `@main` in a job no local run exercises.
+  full commit id. The fetch takes that commit and never the branch, so CI still fetches only commits that cannot
+  move, and a branch with no such lock pin is refused as before. Every lane installs the lock, pip-audit included. A
+  lane that installed a `.in` file, directly or through an include of a file it installs, would ask the mirror for a
+  branch it does not hold and fail closed in its install job. A requirement file's name holds no colon, so no
+  caller's file passes for a mirror's `repo:path`. The five consumers' first runs found the gap, the fetch refused
+  `@main` in a job no local run exercises.
 
 **Alternatives considered.**
 

@@ -30,7 +30,7 @@ name as an extra repo, and is resolved to the commit it points at, which the man
 through without being fetched. A branch written only in `.in` files, where the owner names a private package at
 `main` (D-051), is left to the lock compiled from each, the `.txt` file of the same name beside it, when that lock
 pins the same repo by a full commit id. The fetch takes the lock's commit, which every lane installs, and never the
-branch.
+branch. A requirement file's name holds no colon, since a mirror's files are named `repo:path`.
 
 The workflows run this file's own text, written into the fetch job by `render_fetch_job.py` (a test holds every copy
 to this file), with the runner's `/usr/bin/python3` in isolated mode. Standard library only, Python 3.12 or later.
@@ -256,7 +256,10 @@ def scan_tree(read: Reader, files: list[str], label: str, required: bool) -> lis
             continue
         seen.add(name)
         source = f"{label}{name}"
-        text   = read(name)
+        if ":" in name:
+            # a mirror's files are named repo:path, so a caller's file with a colon could pass for one (D-051)
+            raise FetchError(f"{source}: a requirement file's name holds no colon, which marks a mirror's files")
+        text = read(name)
         if text is None:
             if must_exist:
                 raise FetchError(f"{source}: no such file")

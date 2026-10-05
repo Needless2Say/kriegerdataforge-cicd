@@ -374,6 +374,16 @@ def test_a_lock_covers_a_ref_only_beside_every_in_file_that_names_it(pins, cover
     assert fpp.lock_covers("sdk", "main", pins[("sdk", "main")], pins) is covered
 
 
+@pytest.mark.parametrize("files, named", [
+    ({"requirements.txt": "-r fitness-app-backend:requirements.txt\n", "fitness-app-backend:requirements.txt": ""},
+     ["requirements.txt"]),
+    ({"x:requirements.txt": ""}, ["x:requirements.txt"]),
+])
+def test_a_file_name_with_a_colon_is_refused_so_none_passes_for_a_mirrors(files, named):
+    with pytest.raises(fpp.FetchError, match = "holds no colon"):
+        fpp.scan_tree(_reader(files), named, "", required = False)
+
+
 def test_a_full_commit_is_never_left_to_a_lock():
     pins = {("sdk", SDK_SHA): ["requirements.in"], ("sdk", "2" * 40): ["requirements.txt"]}
     assert fpp.lock_covers("sdk", SDK_SHA, ["requirements.in"], pins) is False
