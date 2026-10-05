@@ -2835,14 +2835,16 @@ rest of what it read.
   sets it in the standard frame, read only, files in the folder alone, PowerShell for commands, the writing
   conventions, the owner's settled decisions from the context repo's `context/SETTLED.md` when that clone sits beside
   this one, and real problems only.
-- **Codex's folder holds tracked files alone.** Repo mode makes a detached worktree of the commit, removed when the
-  run ends, locked or not, and when git will not remove a worktree it cannot read, that worktree's registration goes
-  by hand, never another's. It refuses a commit that tracks a symbolic link, and measures a change from its merge
-  base with `--base`, as `git diff <base>...HEAD` does. Files mode copies a folder into a throwaway repo and checks
-  the copy, refusing a repo inside it, a symbolic link, a file named like a secret file in any case and a file
-  holding a token's shape. The brief is read once, into a copy held to the same checks, and the frame is built from
-  it. Either way the folder must hold nothing git ignores or does not track before Codex starts, and git's location
-  variables, `GIT_DIR` among them, are unset, so none points the tool or Codex at another repo.
+- **Codex's folder holds tracked files alone.** Repo mode makes a detached worktree of the commit with no checkout,
+  so none of the repo's hooks runs, and fills it with `git reset --hard`. The worktree is removed when the run ends,
+  locked or not, and when git will not remove one it cannot read, that worktree's registration goes by hand, never
+  another's. It refuses a commit that tracks a symbolic link, and measures a change from its merge base with
+  `--base`, as `git diff <base>...HEAD` does. Files mode copies a folder into a throwaway repo and checks the copy,
+  refusing a repo inside it, a symbolic link, a file named like a secret file in any case, a name refused before
+  anything is copied, and a file holding a token's shape. The brief's name is judged before it is read, then it is
+  read once, into a copy held to the same checks, and the frame is built from it. Either way the folder must hold
+  nothing git ignores or does not track before Codex starts, and every `GIT_` variable is dropped, so none points the
+  tool or Codex elsewhere.
 - **The flags are the ones verified on 2026-10-05.** The user's config, MCP servers, plugins, apps, web search,
   memories and other agents off, a read only sandbox, nothing kept after the run, and the frame on stdin.
 - **The tool checks Codex afterward.** It fails when `git status` shows a change, when the folder's HEAD moved, when
@@ -2876,7 +2878,9 @@ leaves them out.
 getting past the secret checks, a commit leaving `git status` clean, a locked worktree left behind and two runs in
 one second sharing an answer among them. Its second run, on those fixes, found four more, the brief read again after
 its check, a fallback `git worktree prune` that could drop another session's worktree, a worktree both locked and
-broken left registered, and events that showed nothing still passing. All fourteen were fixed before the pull request
-opened, each with a test that fails when its fix is taken out. The context repo's ways of working name the tool in
-place of the invocation. A machine has the tool once its clone of this repo is pulled, with nothing to install.
-VERSION 0.2.134.
+broken left registered, and events that showed nothing still passing. Its third run found four more, the brief's
+name judged by reading the file, `GIT_CONFIG` still inherited, events of no shape passing, and a repo's post-checkout
+hook able to hide where git registered the worktree. All eighteen were fixed before the pull request opened, each
+with a test that fails when its fix is taken out, and one finding was declined, an edit of D-052 itself read as a
+rewrite of an old entry. The context repo's ways of working name the tool in place of the invocation. A machine has
+the tool once its clone of this repo is pulled, with nothing to install. VERSION 0.2.134.

@@ -237,9 +237,11 @@ ecosystem's writing conventions, the owner's settled decisions from `kriegerdata
 when that clone sits beside this one, and real problems only. So no session writes those words again, or forgets
 one. `--no-settled` leaves the settled decisions out, and `--dry-run` prints the frame and starts nothing.
 
-In repo mode Codex reads a detached worktree of the commit, `HEAD` when `--at` is not given. A worktree holds tracked
-files alone, so a secret file git ignores is never in its folder, and the worktree is removed when the run ends,
-failed or not, locked or not. When git refuses to remove one it can no longer read, the tool removes that worktree's
+In repo mode Codex reads a detached worktree of the commit, `HEAD` when `--at` is not given. The worktree is made with
+`--no-checkout`, since git runs the repo's post-checkout hook after any other worktree add, and is then filled with
+`git reset --hard`, which runs no hook. A worktree holds tracked files alone, so a secret file git ignores is never in
+its folder, and the worktree is removed when the run ends, failed or not, locked or not, even when the tool could not
+read where git registered it. When git refuses to remove one it can no longer read, the tool removes that worktree's
 registration by hand, and never runs `git worktree prune`, which would also drop another session's worktree that was
 moved or sits on a drive that is not there. A commit that tracks a symbolic link is refused, since a link can lead
 out of the folder, and none of the ecosystem's repos tracked one on 2026-10-05. `--base` names the branch or commit a
@@ -249,14 +251,15 @@ so a `main` that moved on is not read as part of it.
 Files mode copies a folder into a throwaway repo and checks the copy, so nothing that lands in the source after the
 checks reaches Codex. It refuses a folder that is a repo or holds one, a symbolic link, a file named like a secret
 file in any case (`.env*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.tfvars`, `*.tfstate*`, an ssh key,
-`.git-credentials`, `.netrc` and anything under `keys/`) and a file holding a token's shape. The brief is read once,
-into a copy that is held to the same checks and to no link, and the frame is built from that copy, so a brief changed
-after its check never reaches Codex. Either way the folder must hold nothing git ignores or does not track before
-Codex starts, and git's location variables, `GIT_DIR` among them, are unset first, so none points the tool, its
-cleanup or Codex at another repo. Codex runs with the flags verified on 2026-10-05, its user config, MCP servers,
-plugins, apps, web search, memories and other agents off, a read only sandbox, and nothing kept after the run. On
-Windows that sandbox stops writes and the network, not reads, so the frame's rule is what keeps Codex inside its
-folder.
+`.git-credentials`, `.netrc` and anything under `keys/`) and a file holding a token's shape. A secret's name refuses
+the folder before anything is copied, so a secret file already there is never copied. The brief's name is judged
+from the path given, before the file is read, and then the brief is read once, into a copy that is held to the same
+checks and to no link, and the frame is built from that copy, so a brief changed after its check never reaches
+Codex. Either way the folder must hold nothing git ignores or does not track before Codex starts, and every `GIT_`
+variable is dropped first, `GIT_DIR` and `GIT_CONFIG` among them, so none points the tool, its cleanup or Codex
+anywhere else. Codex runs with the flags verified on 2026-10-05, its user config, MCP servers, plugins, apps, web
+search, memories and other agents off, a read only sandbox, and nothing kept after the run. On Windows that sandbox
+stops writes and the network, not reads, so the frame's rule is what keeps Codex inside its folder.
 
 After the run the tool fails when `git status` shows a change, when the folder's HEAD moved, which a commit does with
 a clean status, or when git cannot read the folder at all. It fails too when Codex failed or wrote no answer, and when

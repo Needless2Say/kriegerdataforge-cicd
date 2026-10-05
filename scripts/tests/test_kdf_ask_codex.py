@@ -50,6 +50,7 @@ STUB = """#!/usr/bin/env bash
 printf 'args=%s\\n' "$*" >> "$STUB_LOG"
 printf 'pwd=%s\\n' "$(pwd -W 2>/dev/null || pwd)" >> "$STUB_LOG"
 printf 'head=%s\\n' "$(git rev-parse HEAD 2>/dev/null)" >> "$STUB_LOG"
+printf 'gitenv=%s\\n' "$(env | grep -c '^GIT_')" >> "$STUB_LOG"
 cat > "$STUB_FRAME"
 answer=""
 while [ $# -gt 0 ]; do
@@ -62,6 +63,7 @@ printf '{"type":"item.completed","item":{"id":"1","type":"command_execution","co
 case "${STUB_MODE:-clean}" in
     strange) printf '{"type":"item.completed","item":{"id":"2","type":"mcp_tool_call","server":"s","tool":"t"}}\\n' ;;
     garbled) printf 'not an event\\n' ;;
+    shapeless) printf '{}\\n[]\\n' ;;
     dirty) printf 'x\\n' > written.txt ;;
     commit) git -c user.name=s -c user.email=s@example.com commit -q --allow-empty -m moved ;;
     nogit) rm -f .git ;;
@@ -270,15 +272,32 @@ def test_a_base_is_read_from_its_merge_base_as_three_dots_would(rig: Rig) -> Non
     assert len(_worktrees(rig)) == 1, "the refusal leaves no worktree"
 
 
-def test_a_git_variable_cannot_point_the_tool_at_another_repo(rig: Rig) -> None:
+def test_a_git_variable_cannot_point_the_tool_or_codex_anywhere_else(rig: Rig) -> None:
     other = rig.tmp / "other"
     other.mkdir()
     _git(other, "init", "-q", "-b", "main")
     _git(other, "-c", "user.name=o", "-c", "user.email=o@example.com", "commit", "-q", "--allow-empty", "-m", "other")
-    done = _ask(rig, env = {"GIT_DIR": (other / ".git").as_posix()})
+    moved = {"GIT_DIR": (other / ".git").as_posix(), "GIT_CONFIG": (other / ".git" / "config").as_posix()}
+    done  = _ask(rig, env = moved)
     assert done.returncode == 0, done.stderr
     assert _logged(rig, "head=") == _git(rig.repo, "rev-parse", "HEAD"), "Codex read the repo it was given"
+    assert _logged(rig, "gitenv=") == "0", "no GIT_ variable reached Codex"
     assert not _left(rig)
+
+
+def test_the_worktree_is_made_with_no_checkout_so_no_hook_of_the_repo_runs(rig: Rig) -> None:
+    log  = rig.tmp / "git.log"
+    body = f'case " $* " in *" worktree add "*) printf "%s\\n" "$*" >> "{log.as_posix()}" ;; esac\nexec git "$@"\n'
+    assert _ask(rig, env = _stand_ins(rig, git = body)).returncode == 0
+    assert "--no-checkout" in log.read_text(encoding = "utf-8").split()
+    assert _logged(rig, "head=") == _git(rig.repo, "rev-parse", "HEAD") and not _left(rig)
+
+
+def test_a_worktree_whose_registration_cannot_be_read_is_still_removed(rig: Rig) -> None:
+    blind = _stand_ins(rig, git = 'case " $* " in *" --absolute-git-dir "*) exit 1 ;; esac\nexec git "$@"\n')
+    done  = _ask(rig, env = blind)
+    assert done.returncode == 2 and "could not be read" in done.stderr, done.stderr
+    assert not rig.log.exists() and not _left(rig)
 
 
 def test_a_dry_run_prints_the_frame_and_starts_nothing(rig: Rig) -> None:
@@ -332,6 +351,12 @@ def test_a_brief_that_could_hold_a_secret_is_refused_dry_run_too(rig: Rig, name:
     done = _run(rig, "--repo", rig.repo.as_posix(), "--brief", brief.as_posix(), "--dry-run")
     assert done.returncode == 2 and says in done.stderr, done.stderr
     assert "real" not in done.stdout and not rig.log.exists()
+
+
+@pytest.mark.parametrize("brief", ["missing/.env.prod", "C:\\work\\keys\\notes.md", "C:\\work\\.ENV.KDF"])
+def test_a_briefs_secret_name_is_judged_before_any_file_is_read(rig: Rig, brief: str) -> None:
+    done = _run(rig, "--repo", rig.repo.as_posix(), "--brief", brief, "--dry-run")
+    assert done.returncode == 2 and "named like a secret file" in done.stderr, done.stderr
 
 
 def test_the_frame_reads_the_brief_it_checked_never_the_file_again(rig: Rig) -> None:
@@ -434,7 +459,7 @@ def test_events_that_cannot_be_read_fail_the_run(rig: Rig) -> None:
     assert "WARNING" in done.stdout and "unread" in done.stdout
 
 
-@pytest.mark.parametrize("mode, warns", [("noevents", ""), ("garbled", "unreadable")])
+@pytest.mark.parametrize("mode, warns", [("noevents", ""), ("garbled", "unreadable"), ("shapeless", "unreadable")])
 def test_events_that_vouch_for_nothing_fail_the_run(rig: Rig, mode: str, warns: str) -> None:
     done = _ask(rig, mode = mode)
     assert done.returncode == 1 and "with 1 errors" in done.stderr, done.stderr
@@ -489,6 +514,17 @@ def test_files_mode_refuses_a_secret_a_token_or_a_repo(rig: Rig, name: str, text
     done = _run(rig, "--files", bundle.as_posix(), "--brief", rig.brief.as_posix())
     assert done.returncode == 2 and says in done.stderr, done.stderr
     assert not rig.log.exists() and not _left(rig)
+
+
+def test_files_mode_refuses_a_secret_name_before_it_copies_anything(rig: Rig) -> None:
+    bundle = rig.tmp / "bundle"
+    (bundle / "keys").mkdir(parents = True)
+    (bundle / "keys" / "deploy.txt").write_text("x\n", encoding = "utf-8")
+    log     = rig.tmp / "cp.log"
+    watched = _stand_ins(rig, cp = f'printf "%s\\n" "$*" >> "{log.as_posix()}"\nexec cp "$@"\n')
+    done    = _run(rig, "--files", bundle.as_posix(), "--brief", rig.brief.as_posix(), env = watched)
+    assert done.returncode == 2 and "keys/deploy.txt in" in done.stderr, done.stderr
+    assert "-R" not in log.read_text(encoding = "utf-8").split(), "the brief was copied, the folder never was"
 
 
 def test_files_mode_checks_the_copy_so_a_file_that_lands_during_it_is_caught(rig: Rig) -> None:

@@ -5,16 +5,18 @@
 #   bash kdf-ask-codex.sh --files <folder> --brief <file>
 #   either takes [--effort high|xhigh] [--model <model>] [--no-settled] [--dry-run]
 #
-# Repo mode reads <commit> of <root>, HEAD when --at is not given, in a detached worktree of its own. A worktree holds
-# tracked files alone, so a secret file that git ignores is never in Codex's folder, and the worktree is removed when
-# the run ends, failed, locked or broken, and with it this worktree's registration alone, never another's. A commit
-# that tracks a symbolic link is refused, since a link can lead out of the folder.
-# --base names the branch or commit a change is measured from, and the frame then names the change as a git diff from
-# their merge base, what git diff <base>...HEAD shows, so a main that moved on is not read as part of it. Files mode
-# copies a folder of files, patches from several repos for one, into a throwaway repo, and checks the copy. It refuses
-# a folder that is a repo or holds one, a symbolic link, a file named like a secret file in any case (.env*, *.pem,
-# *.key, *.p12, *.pfx, *.tfvars, *.tfstate*, an ssh key, .git-credentials, .netrc, anything under keys/) and a file
-# that holds a token's shape. The brief is read once, into a copy, which is held to the same checks and framed.
+# Repo mode reads <commit> of <root>, HEAD when --at is not given, in a detached worktree of its own, made with no
+# checkout, so none of the repo's hooks runs, and then filled. A worktree holds tracked files alone, so a secret file
+# that git ignores is never in Codex's folder, and the worktree is removed when the run ends, failed, locked or broken,
+# and with it this worktree's registration alone, never another's. A commit that tracks a symbolic link is refused,
+# since a link can lead out of the folder. --base names the branch or commit a change is measured from, and the frame
+# then names the change as a git diff from their merge base, what git diff <base>...HEAD shows, so a main that moved
+# on is not read as part of it. Files mode copies a folder of files, patches from several repos for one, into a
+# throwaway repo, and checks the copy. It refuses a folder that is a repo or holds one, a symbolic link, a file named
+# like a secret file in any case (.env*, *.pem, *.key, *.p12, *.pfx, *.tfvars, *.tfstate*, an ssh key,
+# .git-credentials, .netrc, anything under keys/), a name judged before anything is copied, and a file that holds a
+# token's shape. The brief's name is judged before it is read, and then it is read once, into a copy, which is held to
+# the same checks and framed. Every GIT_ variable is dropped first, so none points the tool or Codex elsewhere.
 #
 # The brief holds the session's question alone, and the tool sets it in the standard frame. Read only, files in this
 # folder alone, PowerShell for commands since Git Bash cannot start in Codex's sandbox, the ecosystem's writing
@@ -37,9 +39,9 @@
 # settled decisions file, for a test.
 set -uo pipefail
 export LC_ALL=C
-# git finds its repo through these first, so none may point the tool, its cleanup or Codex at another repo
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
-	GIT_NAMESPACE GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+# git finds its repo, its config and its programs through GIT_ variables first, and the tool needs none of them, so
+# every one goes and none can point the tool, its cleanup or Codex anywhere else
+while IFS= read -r variable; do unset "$variable"; done < <(compgen -e | grep '^GIT_')
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 workspace="$(cd "$here/../../.." && pwd)"
@@ -53,11 +55,28 @@ token_shapes="$token_shapes|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}"
 die() { local code=$1; shift; printf 'kdf-ask-codex: %s\n' "$*" >&2; exit "$code"; }
 say() { printf 'kdf-ask-codex: %s\n' "$*"; }
 usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"; }
-# the first file under the paths named like a secret file, in any case, the guard's names and the usual key files
-secret_named() {
-	find "$@" -type f \( -iname '.env*' -o -iname '*.pem' -o -iname '*.key' -o -iname '*.p12' -o -iname '*.pfx' \
-		-o -iname '*.tfvars' -o -iname '*.tfstate*' -o -iname 'id_rsa*' -o -iname 'id_dsa*' -o -iname 'id_ecdsa*' \
-		-o -iname 'id_ed25519*' -o -iname '.git-credentials' -o -iname '.netrc' -o -ipath '*/keys/*' \) -print -quit
+# the names of secret files, matched in any case, the guard's names and the usual key and state files
+secret_globs=('.env*' '*.pem' '*.key' '*.p12' '*.pfx' '*.tfvars' '*.tfstate*' 'id_rsa*' 'id_dsa*' 'id_ecdsa*'
+	'id_ed25519*' '.git-credentials' '.netrc')
+# whether a path is named like a secret file or sits under a keys folder, judged from the name alone, no file read
+secret_name() {
+	local path="${1,,}" glob
+	path="${path//\\//}"   # a Windows path's backslashes, so its last part is still its name
+	for glob in "${secret_globs[@]}"; do
+		# shellcheck disable=SC2254 # the glob is a pattern on purpose
+		case "${path##*/}" in $glob) return 0 ;; esac
+	done
+	case "/$path" in */keys/*) return 0 ;; esac
+	return 1
+}
+# the first file under a folder named like a secret file, as its path below that folder
+secret_under() {
+	local found
+	while IFS= read -r -d '' found; do
+		found="${found#"$1"/}"
+		if secret_name "$found"; then printf '%s\n' "$found"; return 0; fi
+	done < <(find "$1" -type f -print0)
+	return 1
 }
 
 repo="" files="" brief="" at="" base="" effort="high" model="gpt-6.1-sol" settled=1 dry=0
@@ -84,17 +103,18 @@ if [ -n "$repo" ] && [ -n "$files" ] || [ -z "$repo$files" ]; then
 fi
 [ -z "$files" ] || [ -z "$at$base" ] || die 2 "--at and --base go with --repo"
 [ -n "$brief" ] || die 2 "--brief is required. See --help."
+! secret_name "$brief" || die 2 "the brief $brief is named like a secret file, Codex never reads one"
 case "$effort" in high|xhigh) ;; *) die 2 "--effort is high or xhigh" ;; esac
 command -v node >/dev/null 2>&1 || die 2 "node is not on PATH, it reads Codex's events"
 [ "$dry" -eq 1 ] || command -v "$codex_bin" >/dev/null 2>&1 || die 2 "$codex_bin is not on PATH"
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/kdf-ask-codex.XXXXXX")" || die 2 "no scratch folder"
 folder="$work/folder"
-admin=""
+added=0 admin=""
 cleanup() {
 	# the worktree is this run's alone, so a forced removal, locked or not, takes nothing of anyone else's
 	local removed=1
-	if [ -n "$admin" ]; then git -C "$repo" worktree remove --force --force "$folder" >/dev/null 2>&1 || removed=0; fi
+	if [ "$added" -eq 1 ]; then git -C "$repo" worktree remove --force --force "$folder" >/dev/null 2>&1 || removed=0; fi
 	rm -rf "$work"
 	# git refuses a worktree it cannot validate, so its registration goes by hand, this one alone, where prune
 	# would take every registration whose folder is missing, another session's moved worktree among them
@@ -102,11 +122,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# the brief is read once, into a copy, and the checks and the frame read that copy, never the file again
+# the brief, its name judged above, is read once, into a copy, and the checks and the frame read that copy alone
 if ! cp -P "$brief" "$work/brief.md" 2>/dev/null; then die 2 "the brief $brief is missing or cannot be read"; fi
 [ ! -L "$work/brief.md" ] || die 2 "the brief $brief is a symbolic link, give the file itself"
 [ -s "$work/brief.md" ] || die 2 "the brief $brief is missing or empty"
-[ -z "$(secret_named "$brief")" ] || die 2 "the brief $brief is named like a secret file, Codex never reads one"
 ! grep -q -E "$token_shapes" "$work/brief.md" || die 2 "the brief $brief holds a token's shape, nothing is sent"
 
 # ---- 2. the folder Codex reads, holding tracked files alone
@@ -125,23 +144,30 @@ if [ -n "$repo" ]; then
 	link="$(git -C "$repo" ls-tree -r "$commit" \
 		| awk -F '\t' 'index($1, "120000 ") == 1 && !found { print $2; found = 1 }')"
 	[ -z "$link" ] || die 2 "${at:-HEAD} tracks $link, a symbolic link, which can lead Codex out of its folder"
-	git -C "$repo" worktree add -q --detach "$folder" "$commit" >/dev/null 2>&1 || die 2 "the worktree could not be made"
-	# where git registered this worktree, read now while its link is whole, so cleanup removes this one alone
+	# no checkout, so none of the repo's hooks runs, git runs post-checkout after a worktree add that checks out
+	git -C "$repo" worktree add -q --detach --no-checkout "$folder" "$commit" >/dev/null 2>&1 \
+		|| die 2 "the worktree could not be made"
+	added=1
+	# where git registered this worktree, read while its link is whole, so cleanup removes this one alone
 	admin="$(git -C "$folder" rev-parse --absolute-git-dir)" || die 2 "the worktree could not be read"
+	git -C "$folder" reset -q --hard "$commit" >/dev/null 2>&1 || die 2 "the worktree could not be filled"
 	subject="$(git -C "$repo" log -1 --format=%s "$commit" | cut -c1-90)"
 	what="$(basename "$top") at commit $commit, \"$subject\""
 	label="$(basename "$top")-${commit:0:7}"
 else
 	files="$(cd "$files" 2>/dev/null && pwd)" || die 2 "--files is not a directory"
 	[ ! -e "$files/.git" ] || die 2 "$files is a repo, read it with --repo"
-	# every check reads the copy, so nothing that lands in the source after them reaches Codex
+	# a secret's name refuses the folder before anything is copied
+	found="$(secret_under "$files")"
+	[ -z "$found" ] || die 2 "$found in $files is named like a secret file, Codex never reads one"
+	# and every check reads the copy, so nothing that lands in the source after them reaches Codex
 	if ! { mkdir -p "$folder" && cp -R "$files/." "$folder/"; }; then die 2 "the files could not be copied"; fi
 	found="$(find "$folder" -name .git -print -quit)"
 	[ -z "$found" ] || die 2 "${found#"$folder"/} in $files is a repo inside it, nothing is sent"
 	found="$(find "$folder" -type l -print -quit)"
 	[ -z "$found" ] || die 2 "${found#"$folder"/} in $files is a symbolic link, which can lead Codex out of its folder"
-	found="$(secret_named "$folder")"
-	[ -z "$found" ] || die 2 "${found#"$folder"/} in $files is named like a secret file, Codex never reads one"
+	found="$(secret_under "$folder")"
+	[ -z "$found" ] || die 2 "$found in $files is named like a secret file, Codex never reads one"
 	! grep -r -q -E "$token_shapes" "$folder" || die 2 "a file in $files holds a token's shape, nothing is sent"
 	if ! {
 		git -C "$folder" init -q -b main \
@@ -223,7 +249,10 @@ read -r commands tokens strange errors < <(node -e '
 		if (!line.trim()) continue;
 		let event;
 		try { event = JSON.parse(line); } catch (err) { event = null; }
-		if (!event || typeof event !== "object") { unreadable += 1; continue; }
+		if (!event || typeof event !== "object" || Array.isArray(event) || typeof event.type !== "string") {
+			unreadable += 1;
+			continue;
+		}
 		if (event.type === "item.completed" && event.item) {
 			const type = String(event.item.type).replace(/[^\w.-]/g, "_");
 			types[type] = (types[type] || 0) + 1;
