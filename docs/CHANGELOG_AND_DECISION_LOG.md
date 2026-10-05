@@ -2756,4 +2756,6 @@ the owner settled one of them, the module level variable rule, against the kit's
 - *Keep the runbooks here.* Rejected, they are the owner's procedures, not the engine's documentation.
 
 **Consequences.** Kit v1.16.0 waits for the owner's next Distribute. A public reader of this repo no longer sees the
-runbooks, and the owner reads them in the context repo on either machine. VERSION 0.2.132.
+runbooks, and the owner reads them in the context repo on either machine. Earlier entries of this log keep the
+`docs/guides/` paths they were written with, since the log is append only, and this entry is where the move is
+recorded. VERSION 0.2.132.
