@@ -13,6 +13,7 @@ import json
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -257,6 +258,7 @@ def test_a_clean_ecosystem_has_nothing_to_report(registries: None) -> None:
         "pins_unjudged": 0,
         "drift": 0,
         "notices": 0,
+        "notices_old": 0,
         "errors": 0,
     }
     canonical = [p for p in snapshot["repos"][0]["pins"] if p["package"] == "kdf-fmt (canonical pin)"]
@@ -826,3 +828,63 @@ def test_one_repo_or_source_that_cannot_be_read_never_ends_the_run(registries: N
     assert snapshot["releases"]["kriegerdataforge-sdk"]["error"] == "the read failed, KeyError"
     assert snapshot["summary"]["alerts_total"] == 1
     assert ew.render(snapshot)[2] == "open"
+
+# ======================================================================================================================
+# The first live run, 2026-10-05
+# ======================================================================================================================
+
+def dated_notices(table: dict[str, ew.Response], runs: dict[str, tuple[str, str]]) -> dict[str, ew.Response]:
+    """
+    Repo A with one workflow per entry, each workflow's latest run started at its date and carrying its notice.
+    """
+    flows = [{"id": index, "name": name, "path": f".github/workflows/w{index}.yml", "state": "active"}
+             for index, name in enumerate(runs, start = 1)]
+    table[f"/repos/{A}/actions/workflows"] = ok({"workflows": flows})
+    for index, (name, (started, message)) in enumerate(runs.items(), start = 1):
+        run = {"name": name, "check_suite_id": 100 + index, "created_at": started}
+        table[f"/repos/{A}/actions/workflows/{index}/runs"] = ok({"workflow_runs": [run]})
+        table[f"/repos/{A}/check-suites/{100 + index}/check-runs"] = ok({"check_runs": [
+            {"id": 900 + index, "name": "job", "output": {"annotations_count": 1}},
+        ]})
+        table[f"/repos/{A}/check-runs/{900 + index}/annotations"] = ok([
+            {"path": ".github", "annotation_level": "warning", "message": message},
+        ])
+    return table
+
+
+def test_a_notice_seen_only_on_an_old_run_is_listed_and_not_counted(registries: None) -> None:
+    """
+    The first live run counted three notices from runs four months old, Terraform's CD among them, whose code had
+    moved on and which only a deploy would run again. Such a notice is listed with its run's date and keeps nothing
+    open, while one a recent run carries still counts, its old sightings listed with it.
+    """
+    terraform = "Node.js 20 actions are deprecated. hashicorp/setup-terraform@v3 runs on Node.js 20."
+    now       = datetime(2026, 10, 5, 0, 10, tzinfo = timezone.utc)
+    table     = dated_notices(base_table(), {
+        "CD": ("2026-05-30T22:07:07Z", terraform),
+        "CI": ("2026-10-04T08:00:00Z", UBUNTU),
+        "Release": ("2026-06-01T00:00:00Z", UBUNTU),
+    })
+    snapshot  = ew.collect(FakeTransport(table), workers = 1, now = now)
+    assert (snapshot["summary"]["notices"], snapshot["summary"]["notices_old"]) == (1, 1)
+    body, _, state = ew.render(snapshot)
+    assert state == "open"
+    assert "**1 deprecation notices**" in body
+    assert f"Only on runs older than {ew.NOTICE_DAYS} days, so not counted." in body
+    assert "Seen in repo-a (CD, last ran 2026-05-30)." in body
+    assert "Seen in repo-a (CI), repo-a (Release, last ran 2026-06-01)." in body
+    keys = ew.previous_keys(body)
+    assert ew.remembered(f"notice:{ew._short(UBUNTU)}") in keys
+    assert ew.remembered(f"notice:{ew._short(terraform)}") not in keys
+    table    = dated_notices(base_table(), {"CD": ("2026-05-30T22:07:07Z", terraform)})
+    snapshot = ew.collect(FakeTransport(table), workers = 1, now = now)
+    assert ew.render(snapshot)[2] == "clear"
+
+
+@pytest.mark.parametrize(
+    ("started", "old"),
+    [("2026-08-06T00:00:00Z", False), ("2026-08-05T00:00:00Z", True), ("", False), ("not a date", False)],
+)
+def test_a_notice_is_old_past_notice_days_and_an_undated_one_counts(started: str, old: bool) -> None:
+    assert ew.is_old({"run_at": started}, "2026-10-05T00:10:00Z") is old
+    assert ew.is_old({"run_at": "2026-05-30T22:07:07Z"}, "") is False

@@ -57,9 +57,9 @@ the exact file that implements it.
 beyond the job that used them.
 
 Privileged and cross repo jobs mint a **short lived GitHub App installation token** via
-`actions/create-github-app-token` (pinned to the v3.2.0 commit SHA `bcd2ba49…` since PR #148, the
-one remaining v2.2.2 `fee1f7d…` pin is `run-e2e/action.yml:76`, a known follow up, not fixed in
-this docs pass) instead of a standing PAT. The action **auto revokes the token when the job ends**, so the real exposure window
+`actions/create-github-app-token` (pinned to the v3.2.0 commit SHA `bcd2ba49…` since PR #148, and
+`run-e2e/action.yml` since D-049's first run, the last v2.2.2 pin, every step passing `client-id`)
+instead of a standing PAT. The action **auto revokes the token when the job ends**, so the real exposure window
 is the job's runtime (minutes), not the 1-hour nominal TTL (`ops-rotate-secrets.yml:53-71`). Two
 axes of least privilege are applied:
 

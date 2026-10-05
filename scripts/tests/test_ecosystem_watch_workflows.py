@@ -152,6 +152,29 @@ def test_the_expiry_monitor_starts_on_its_schedule_or_by_hand_alone() -> None:
     assert re.findall(r"^  (\w+):", on, re.MULTILINE) == ["schedule", "workflow_dispatch"]
 
 
+def test_every_app_token_step_is_on_one_pin_and_passes_a_client_id() -> None:
+    """
+    The watch's first run found the deprecated `app-id` input across the workflows, and the last v2.2.2 pin, on
+    Node.js 20, in `run-e2e`. Every step that mints an App token now names the v3.2.0 commit and `client-id`, which
+    the action reads as the App's id or its client id alike.
+    """
+    root  = TESTS.parents[1]
+    files = [*WORKFLOWS.glob("*.yml"), *root.glob(".github/actions/*/action.yml")]
+    files.append(root / "scripts" / "fetch_private_job.template.yml")
+    steps = []
+    every = 0
+    for path in files:
+        text = path.read_text(encoding = "utf-8")
+        every += text.count("uses: actions/create-github-app-token@")
+        for match in re.finditer(r"uses: actions/create-github-app-token@(\S+).*\n(\s+)with:\n((?:\2  .*\n)+)", text):
+            steps.append((path.name, match.group(1), match.group(3)))
+    # each step read, none skipped by a shape the pattern does not know
+    assert len(steps) == every >= 25
+    for name, pin, inputs in steps:
+        assert pin == "bcd2ba49218906704ab6c1aa796996da409d3eb1", f"{name} pins {pin}"
+        assert "client-id: ${{" in inputs and "app-id:" not in inputs, f"{name}:\n{inputs}"
+
+
 def test_the_expiry_issue_opens_on_drift_too() -> None:
     issue = _step(EXPIRY, "Open / update / close the tracking issue")
     assert "DRIFT: ${{ steps.check.outputs.drift }}" in issue
