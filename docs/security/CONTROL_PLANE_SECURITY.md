@@ -7,7 +7,7 @@ This document is the source of truth **security reference** for the control plan
 reusable workflows, composite action, Python gate scripts, and JSON registries that every tenant
 repo calls live from `@main`. It catalogs each control, grounds it in the real file that
 implements it (`file:line`), and states the **fail mode**. It is a reference, not a runbook, for
-*how to rotate a secret* see [`../guides/SECRET_ROTATION.md`](../guides/SECRET_ROTATION.md), for
+*how to rotate a secret* see the owner's `SECRET_ROTATION.md` (private, `kriegerdataforge-context/ops/`), for
 *who can deploy* the live data is [`scripts/deployer_registry.json`](../../scripts/deployer_registry.json).
 
 > **No secret values appear here.** Every credential is referenced by **name and location** only,
@@ -208,9 +208,9 @@ writes the token into its job's git config (`cd-python-vercel.yml:110-115`), a f
 app side secret. The app side is **authoritative**. Rotate there first, then paste the same value
 here (`secret_registry.json:141-162`). Both halves fail closed. The trigger engine refuses to POST
 until the cicd copy is set, and the endpoint answers 503 until the app side value exists.
-The rotation recipe is [`SECRET_ROTATION.md`](../guides/SECRET_ROTATION.md) §8.13a and the ops
-runbook is [`REPORTS_TRIAGE_OPS.md`](../guides/REPORTS_TRIAGE_OPS.md), cross referenced here
-rather than duplicated.
+The rotation recipe is `SECRET_ROTATION.md` §8.13a and the ops runbook is `REPORTS_TRIAGE_OPS.md`,
+both the owner's in the private `kriegerdataforge-context/ops/`, cross referenced here rather than
+duplicated.
 
 ### C5. Strict +1 version discipline
 
@@ -339,10 +339,10 @@ task). They are recorded for the owner in the summary.
 
 - [`../reference/WORKFLOWS.md`](../reference/WORKFLOWS.md). The full per workflow contract
   (inputs/secrets/outputs/callers) and the deployment/Environment-gate model.
-- [`../guides/SECRET_ROTATION.md`](../guides/SECRET_ROTATION.md). How to rotate a repo/environment
-  secret via `rotate_secret.py` + `secret_registry.json`.
-- [`../guides/MANUAL_SETUP.md`](../guides/MANUAL_SETUP.md). GitHub Environments, environment
-  secrets, PAT/token creation, tenant onboarding, org migration (the non-automatable half).
+- The owner's runbooks in the private `kriegerdataforge-context/ops/`. `SECRET_ROTATION.md`, how to
+  rotate a repo/environment secret via `rotate_secret.py` + `secret_registry.json`, and
+  `MANUAL_SETUP.md`, GitHub Environments, environment secrets, PAT/token creation, tenant onboarding,
+  org migration (the non-automatable half).
 - [`../guides/E2E_TESTING.md`](../guides/E2E_TESTING.md) + [`../../e2e/README.md`](../../e2e/README.md).
  The reusable E2E engine and its run modes.
 - [`../design/github-app-migration.md`](../design/github-app-migration.md). The design note behind

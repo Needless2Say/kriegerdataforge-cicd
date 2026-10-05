@@ -74,8 +74,8 @@ owner only and rarely run, so the residual exposure is minimal.
 
 The new standing secrets are **`KDF_APP_ID`** (not sensitive) and **`KDF_APP_PRIVATE_KEY`** (a `.pem`,
 stored as a cicd repo secret and monitored in `secret_registry.json`). Setup steps:
-[`docs/guides/MANUAL_SETUP.md` → "GitHub App (ephemeral tokens)"](../guides/MANUAL_SETUP.md). Private key
-rotation recipe. [`SECRET_ROTATION.md` §8.3a](../guides/SECRET_ROTATION.md).
+the owner's `MANUAL_SETUP.md` → "GitHub App (ephemeral tokens)". Private key rotation recipe.
+`SECRET_ROTATION.md` §8.3a. Both are in the private `kriegerdataforge-context/ops/` since 2026-10-05.
 
 ---
 

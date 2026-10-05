@@ -152,21 +152,27 @@ GitHub secrets come in two scopes and rotate differently:
   itself (`CICD_PAT`, `VERCEL_MASTER_TOKEN`, `KDF_APP_PRIVATE_KEY`) are also repository level but rotated
   **by hand**.
 - **Environment secrets** (`prod` / `dev` / `github-pages`). The remaining per environment deploy credentials
-  (`VERCEL_PROJECT_ID`, DB URLs, signing keys) that stay behind the approval gate, owner managed (most via
-  Terraform).
+  (`VERCEL_PROJECT_ID`, DB URLs, signing keys), loaded only by jobs that name the environment, owner managed (most
+  via Terraform).
 
 The rotation + kit workflows are migrating off the long lived `CICD_PAT` to a **GitHub App** that mints
 short lived, scoped installation tokens per run (auto revoked at job end). Phase 1 is wired behind the
 `USE_GITHUB_APP` flag with a `CICD_PAT` fallback, see
-[docs/design/github-app-migration.md](docs/design/github-app-migration.md) and
-[docs/guides/MANUAL_SETUP.md](docs/guides/MANUAL_SETUP.md) Phase 6.7 to switch it on.
+[docs/design/github-app-migration.md](docs/design/github-app-migration.md) and the owner's runbook
+`kriegerdataforge-context/ops/MANUAL_SETUP.md` Phase 6.7 to switch it on.
 
 > **Scope.** This engine is **CI plane only**. App plane secrets owned by Terraform (DB URLs, the RS256
 > keypair, `KDF_SERVICE_KEY`, `STRIPE_*`, OIDC client secrets, `CRON_SECRET`) are rotated via the
 > terraform `SECRETS_ROTATION` runbook. The engine refuses `terraform_managed` entries.
 
 **Full step by step instructions** (repo secrets, environment secrets, the issue form, the `gh` CLI,
-adding a secret to the registry, verification & troubleshooting), **[docs/guides/SECRET_ROTATION.md](docs/guides/SECRET_ROTATION.md)**.
+adding a secret to the registry, verification & troubleshooting) are the owner's runbook,
+`kriegerdataforge-context/ops/SECRET_ROTATION.md`.
+
+> **The owner's runbooks live in the private context repo.** `MANUAL_SETUP.md`, `SECRET_ROTATION.md`,
+> `PROJECTS_BOARDS.md` and `REPORTS_TRIAGE_OPS.md` moved from `docs/guides/` to `kriegerdataforge-context/ops/` on
+> 2026-10-05 (D-050), with the rest of the ecosystem's context. A name such as `SECRET_ROTATION.md §8.3a` in this
+> repo's scripts, registries and workflows means that page.
 
 ---
 
@@ -177,9 +183,7 @@ adding a secret to the registry, verification & troubleshooting), **[docs/guides
   workflows/             # reusable CD + CI workflows, scheduled rotation, ops issue handlers
   ISSUE_TEMPLATE/        # new-repo + owner ops forms (ops-rotate-secrets, ops-distribute-kit)
 docs/
-  guides/
-    MANUAL_SETUP.md      # first-time setup: environments, secrets, PATs
-    SECRET_ROTATION.md   # rotation runbook: repository + environment secrets
+  guides/                # PROD Gate, E2E testing, contributor onboarding
   reference/
     WORKFLOWS.md         # calling syntax + secrets reference per workflow
 scripts/
@@ -205,6 +209,5 @@ This runs actionlint against all workflow files in `.github/workflows/`. Fix any
 ## Further Reading
 
 - [docs/reference/WORKFLOWS.md](docs/reference/WORKFLOWS.md). Complete workflow reference, inputs, outputs, and secrets for each reusable workflow
-- [docs/guides/MANUAL_SETUP.md](docs/guides/MANUAL_SETUP.md). Initial setup instructions for environments, secrets, and PAT configuration in a new consumer repo
-- [docs/guides/SECRET_ROTATION.md](docs/guides/SECRET_ROTATION.md). **rotation runbook**. How to rotate repository secrets and environment secrets (engine + by hand), emergency leak triage, per secret recipes, and the automated monitoring cadence
+- The owner's runbooks for first time setup and secret rotation, `kriegerdataforge-context/ops/MANUAL_SETUP.md` and `SECRET_ROTATION.md` (private)
 - [docs/design/github-app-migration.md](docs/design/github-app-migration.md). Move to a GitHub App (ephemeral tokens) to retire the long lived PATs (**Phase 1 implemented**, behind the `USE_GITHUB_APP` flag)

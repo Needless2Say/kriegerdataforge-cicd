@@ -21,10 +21,9 @@ there, carry on with this page.
 
 `kriegerdataforge-cicd` is the **centralized CI/CD platform library** for the KriegerDataForge (KDF)
 ecosystem, a single, public home for reusable GitHub Actions workflows and the cross repo automation
-that every tenant repo calls instead of maintaining its own pipelines. KDF's hub (`kriegerdataforge`)
-is the auth/identity service, and the ultimate goal is a large multi-tenant data platform that other
-apps (fitness-app, tiffanys-space, arthurs-portfolio, and future tenants) build on top of. This repo
-is the connective tissue that makes that scale possible. Deploy behavior, security gates, version
+that every tenant repo calls instead of maintaining its own pipelines. Where KDF is headed, the map of
+its repos and the owner's runbooks live in the private context repo, `kriegerdataforge-context` (ADR
+D-050). This repo is the engine. Deploy behavior, security gates, version
 discipline, and secret handling are defined **once** here and propagate to every consumer at once. A
 tenant's `cd.yml` is a thin caller (`uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/<wf>.yml@main`
 + `secrets: inherit`). All the real logic lives here.
@@ -33,9 +32,9 @@ The owner's vision is **safe, uniform, least privilege automation that one perso
 collaborators into**. Every deploy is manual (`workflow_dispatch` only, Vercel git auto deploy is off),
 runs under a GitHub Environment that pauses for approval only where a reviewer is configured (none is
 today, measured 2026-09-17), and is fenced by a per repo **deployer authorization gate** that fails closed. Credentials never live in `.env` or code, only in
-GitHub Environment secrets, and the shared Vercel deploy token plus the `GH_PACKAGES_PAT` are rotated on
-a schedule by scripts in this repo. As KDF grows, this library is also the planned home for AI driven
-agent workflows (`agents/`, skeleton only) so automation scales with the platform.
+GitHub Actions secrets, repository secrets for the shared tokens and environment secrets for each app's deploy
+values, and the shared Vercel deploy token plus the `GH_PACKAGES_PAT` are rotated on a schedule by scripts in this
+repo. As KDF grows, this library may also host AI driven agent workflows, an idea the context repo keeps.
 
 ## Tech stack
 
@@ -66,11 +65,10 @@ agent workflows (`agents/`, skeleton only) so automation scales with the platfor
 | `scripts/common/bump_version.py`, `check_version.py`, `version_targets.py` | Canonical version tooling. Origin/main-based bump + strict +1 consistency/increment check + shared target resolution (vendored to every repo's `scripts/kdf_scripts/` via the scripts sync engine) |
 | `scripts/distribute_scripts.py` + `scripts_registry.json` + `SCRIPTS_VERSION` | Version scripts sync engine: vendors the version tooling to all repos' `scripts/kdf_scripts/` (style isolated: tenant kdf-fmt/ruff configs exclude it), deletes superseded paths, and patches Makefile + kdf-fmt.toml + ruff config (check / distribute, review gated PRs, ADR D-013/D-014) |
 | `scripts/*/db_backup.py` | Per tenant Neon DB backup |
-| `docs/reference/WORKFLOWS.md`, `docs/guides/MANUAL_SETUP.md` | Workflow catalog (inputs/secrets/callers) + manual setup runbook |
+| `docs/reference/WORKFLOWS.md` | Workflow catalog (inputs/secrets/callers). The owner's runbooks (manual setup, secret rotation, project boards, report triage) are in `kriegerdataforge-context/ops/`, private |
 | `kit/common/`, `scripts/kit_registry.json`, `scripts/distribute_kit.py` | The agentic workflow kit's canonical source, its sync registry and its engine, which opens owner reviewed PRs to every repo. The KDF Code Review Process is `kit/common/docs/agent/CODE_REVIEW_PROCESS.md` with its four templates |
 | `tools/claude-code/` | The KDF Code Review Process tooling, installed on the owner's machine and **not synced**. `kdf-guard.js` (the PreToolUse guard), `kdf-review.sh` (starts a fresh reviewer in the repo folder at a pinned commit, opens and closes the folder for Codex, brings in a report Codex wrote in the cloud, and checks git afterward), `kdf-brief.js` (a brief's commit line and line counts, measured at the pin), `kdf-retro.js` (a slice's retrospective numbers), `check-wiring.js`, `install.sh`, `guard-cases.json`. Tested by `scripts/tests/test_claude_code_tools.py`, see its `README.md` |
 | `tools/codex-cloud/` | `kdf-codex-install.sh` and `kdf-codex-start-skill.md`, the Install script and Start skill the owner pastes into a repo's Codex cloud environment, on trial for the kdf-sdk's S2 (ADRs D-039 and D-048). Installs with no token, leaving out the owner's private development packages, and refuses a repo whose runtime needs one. Tested by `scripts/tests/test_codex_cloud_install.py` |
-| `agents/` | Skeleton for future AI driven agent workflows, **not yet implemented** |
 | `CONTRIBUTING.md` | Two tier model + breaking change governance |
 
 ## Critical rules
@@ -121,15 +119,16 @@ agent workflows (`agents/`, skeleton only) so automation scales with the platfor
 1. [`README.md`](./README.md). What this library is, the workflow catalog, deployment + environment gate model.
 2. [`docs/WORKFLOWS.md`](docs/reference/WORKFLOWS.md). Full per workflow reference. Inputs, secrets, caller patterns,
    the **deployer authorization gate**, and the consumer repo summary.
-3. [`docs/MANUAL_SETUP.md`](docs/guides/MANUAL_SETUP.md). The runbook for everything that can't be automated:
-   GitHub Environments, environment secrets, PAT/token creation + rotation, tenant onboarding, org migration.
-4. [`CONTRIBUTING.md`](./CONTRIBUTING.md). The two tier model (what belongs here vs. a tenant repo) and the
+3. [`CONTRIBUTING.md`](./CONTRIBUTING.md). The two tier model (what belongs here vs. a tenant repo) and the
    breaking change rules for modifying a reusable workflow.
-5. [`agents/README.md`](agents/README.md). The (not yet built) AI agent vision for where this repo is heading.
+4. The owner's runbooks, when the task touches setup, secrets, boards or report triage. They are in the private
+   context repo beside this one, `kriegerdataforge-context/ops/` (`MANUAL_SETUP.md`, `SECRET_ROTATION.md`,
+   `PROJECTS_BOARDS.md`, `REPORTS_TRIAGE_OPS.md`). A name such as `SECRET_ROTATION.md §8.3a` in this repo means
+   that page.
 
 ### Quick lookups
 
-Workflow inputs/secrets → `docs/reference/WORKFLOWS.md`, setup/secrets/PAT steps → `docs/guides/MANUAL_SETUP.md`, **rotating a secret** (repo / environment) → `docs/guides/SECRET_ROTATION.md`, who can deploy → `scripts/deployer_registry.json`, rotation registry → `scripts/secret_registry.json`.
+Workflow inputs/secrets → `docs/reference/WORKFLOWS.md`, setup/secrets/PAT steps → `kriegerdataforge-context/ops/MANUAL_SETUP.md`, **rotating a secret** (repo / environment) → `kriegerdataforge-context/ops/SECRET_ROTATION.md`, who can deploy → `scripts/deployer_registry.json`, rotation registry → `scripts/secret_registry.json`.
 
 ## How to work in this repo, the agent kit
 

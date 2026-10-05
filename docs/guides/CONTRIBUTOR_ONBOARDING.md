@@ -70,8 +70,8 @@ keeps `.env.local.example` and `.env.kdf.example` at the root. `.env.kdf` holds 
 the Makefile uses, `GH_PACKAGES_PAT`, to install the private kdf-fmt, and `.env.local` holds nothing
 today. The workflows' credentials live as **GitHub Environment secrets** and are only ever
 referenced as `${{ secrets.NAME }}`. (The runbook for creating and rotating those secrets in GitHub
-is [`docs/MANUAL_SETUP.md`](MANUAL_SETUP.md), that is owner operated setup, not something you wire
-up to develop here.) The E2E suite keeps its own settings in `e2e/.env`, see `e2e/.env.example`.
+is the owner's `MANUAL_SETUP.md` in the private `kriegerdataforge-context/ops/`, owner operated setup,
+not something you wire up to develop here.) The E2E suite keeps its own settings in `e2e/.env`, see `e2e/.env.example`.
 
 ---
 
@@ -133,9 +133,7 @@ workflow interface change → major.
 | `scripts/<tenant>/db_backup.py` | Per tenant Neon DB backup |
 | `scripts/tests/` | pytest suite for everything in `scripts/` (this is what `make test` runs) |
 | `kit/common/` | The canonical agentic kit sources synced byte identical into every repo (`WORKFLOW.md` etc.) |
-| `agents/` | Skeleton for future AI driven agent workflows, **not yet implemented** |
 | `docs/WORKFLOWS.md` | Full per workflow reference. Inputs, secrets, caller patterns, the deployer gate |
-| `docs/MANUAL_SETUP.md` | Owner runbook. Environments, secrets, PAT/token creation + rotation, tenant onboarding |
 | `docs/CHANGELOG_AND_DECISION_LOG.md` | ADRs (`D-NNN`), record architectural decisions here |
 
 When you touch a workflow YAML, update `docs/WORKFLOWS.md` (and the catalog/consumer tables in
@@ -165,7 +163,8 @@ Implications for how you change things here:
   callers**. Use `required: false` + `default:`, or coordinate the change across all consumers first
   (see the breaking change table in [`CONTRIBUTING.md`](../../CONTRIBUTING.md)).
 - **Pin every third party action** to a tag or full SHA, never `@main` / `@latest`.
-- **Every deploy workflow sets `environment:`** to activate the GitHub Environment approval gate, and
+- **Every deploy workflow sets `environment:`**, which loads that environment's secrets and pauses for approval
+  where the environment configures a reviewer, and
   sets **minimum `permissions:`** (`id-token: write` only where Vercel OIDC needs it).
 - **Deploys fail closed.** A repo/env/actor not in `scripts/deployer_registry.json` is denied. When
   you onboard a tenant, add its registry entry *before* its first deploy. Environment names are exactly
@@ -228,8 +227,10 @@ and pause for owner approval before any behavior changing edit.
 - **Don't understand the purpose or how your task fits the goal?** Stop and ask, that's step 1 of the
   Standard lane, not a failure.
 - **Workflow inputs / secrets / caller pattern?** → [`docs/WORKFLOWS.md`](../reference/WORKFLOWS.md).
-- **Environments, secrets, PAT/token setup, tenant onboarding, org migration?** → [`docs/MANUAL_SETUP.md`](MANUAL_SETUP.md).
-- **How do I rotate a secret (repository / environment)?** → [`docs/SECRET_ROTATION.md`](SECRET_ROTATION.md).
+- **Environments, secrets, PAT/token setup, tenant onboarding, org migration?** → the owner's
+  `kriegerdataforge-context/ops/MANUAL_SETUP.md` (private).
+- **How do I rotate a secret (repository / environment)?** → the owner's
+  `kriegerdataforge-context/ops/SECRET_ROTATION.md` (private).
 - **Who can deploy what?** → `scripts/deployer_registry.json`. **Rotation registry** →
   `scripts/secret_registry.json`. **Kit distribution** →
   `scripts/kit_registry.json`.

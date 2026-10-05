@@ -227,7 +227,6 @@ previously caused 403-on-push across every repo.
 
 - [`WORKFLOWS.md`](WORKFLOWS.md) - every reusable workflow and its inputs
 - [`../../AGENTS.md`](../../AGENTS.md) - vision, module map, critical rules
-- [`../FOLLOW_UPS_MAKEFILE_PASS_2026-08-09.md`](../FOLLOW_UPS_MAKEFILE_PASS_2026-08-09.md) - open items
 
 ---
 

@@ -2718,3 +2718,44 @@ v2.2.2 pin on Node.js 20, moves to v3.2.0. Its own `app-id` input keeps its name
 calls it change nothing. The hub mints its own tokens and changes in its own pull request, and the npm alerts are
 cleared in each repo's lockfile, all but `braces` (GHSA-vfj7-8cjw-p6xm), whose advisory has no fixed release. Pinned
 by `test_every_app_token_step_is_on_one_pin_and_passes_a_client_id` and the old notice tests. VERSION 0.2.131.
+
+## D-050. The ecosystem's context leaves this repo for kriegerdataforge-context, and the kit's settled code rules
+
+- **Date.** 2026-10-05
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it, after the context repo's
+  pull request that receives the moved pages.
+- **Tier / scope:** Standard · `docs/guides/` (four runbooks out), `docs/FOLLOW_UPS_MAKEFILE_PASS_2026-08-09.md` and
+  `agents/` out · every reference to them · the kit's `skills.md` and `REPORTS_STANDARD.md` · kit v1.16.0
+
+**Context.** The owner decided on 2026-10-05 that all of KDF's context lives in the private context repo, and that
+this repo keeps its engine and the docs of that engine (rule 12, the reusable engine only). The owner's runbooks,
+`MANUAL_SETUP.md`, `SECRET_ROTATION.md`, `PROJECTS_BOARDS.md` and `REPORTS_TRIAGE_OPS.md`, are procedures the owner
+follows across every repo, and they named every secret and repo in a public repo. The same day an audit of the
+supporting session's memory found rules that lived nowhere a second machine, Codex or a reviewer could read, and
+the owner settled one of them, the module level variable rule, against the kit's wording.
+
+**Decision.**
+
+- **The runbooks move to `kriegerdataforge-context/ops/`**, the Makefile pass follow ups and the `agents/` skeleton
+  to its `docs/engineering/`. Every link and path here names the new home as a path, since this repo is public,
+  and a bare name such as `SECRET_ROTATION.md §8.3a` in a script, a registry or a workflow means that page. The
+  expiry monitor's issue links the page on GitHub, which only the owner can open.
+- **The agent kit stays here and keeps its copy in every repo**, since Codex in the cloud and a reviewer see only
+  the one repo. The context repo holds what is true about KDF, the kit holds how to work.
+- **`skills.md` gains the owner's module level variable rule** with its one exception, a bare boot audit call in
+  an app's entry module, which replaces "no module level `get_*_settings()`". It also gains three traps that lived
+  only in memory, a raised `HTTPException` drops a handler's headers, a partial update refuses a supplied field
+  with a field validator and `validate_default = False`, and `next dev` writes a block into `AGENTS.md`.
+- **Two claims of an approval gate are made accurate.** An Environment loads its secrets and pauses only where it
+  configures a reviewer.
+
+**Alternatives considered.**
+
+- *Move the kit's source to the context repo and Distribute from there.* Rejected by the owner, it would change the
+  engine for no reader's gain, and the public repos would still receive public copies.
+- *Keep the runbooks here.* Rejected, they are the owner's procedures, not the engine's documentation.
+
+**Consequences.** Kit v1.16.0 waits for the owner's next Distribute. A public reader of this repo no longer sees the
+runbooks, and the owner reads them in the context repo on either machine. Earlier entries of this log keep the
+`docs/guides/` paths they were written with, since the log is append only, and this entry is where the move is
+recorded. VERSION 0.2.132.

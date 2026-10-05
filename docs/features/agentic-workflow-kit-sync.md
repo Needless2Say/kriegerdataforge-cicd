@@ -348,7 +348,7 @@ hard coding repo names in the script.
 - Epic tracker. `kriegerdataforge/docs/epics/agent-kit-distribution.md` (in the hub repo).
 - [`../reference/WORKFLOWS.md`](../reference/WORKFLOWS.md). The full workflow catalog (the PAT used by
   the kit engine and repo provisioning is described in its secrets section).
-- [`../guides/SECRET_ROTATION.md`](../guides/SECRET_ROTATION.md). The sibling Ops Console flow
+- The owner's `SECRET_ROTATION.md` (private, `kriegerdataforge-context/ops/`). The sibling Ops Console flow
   (`rotate_secret.py`) that shares the same `_authorize-owner.yml` gate pattern.
 - `scripts/common/check_version.py`. The consumer side kit only PR version-check exemption
   (ADR D-001 option B).
