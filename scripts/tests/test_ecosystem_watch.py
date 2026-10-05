@@ -186,7 +186,8 @@ def test_latest_release_takes_the_highest_plain_tag_and_maps_every_commit() -> N
         (SHA_LATEST, False, "commit of v1.3.0"),
         (SHA_OLDER, True, "commit of v1.2.0"),
         ("f" * 40, True, "a commit that is no release tag"),
-        ("main", False, "not a version tag"),
+        ("main", False, "tracks main"),
+        ("develop", False, "not a version tag"),
     ],
 )
 def test_judge_reads_a_tag_or_a_full_commit(ref: str, behind: bool, note: str | None) -> None:
@@ -199,8 +200,62 @@ def test_judge_never_calls_a_pin_behind_an_unknown_release() -> None:
     verdict = ew.judge("v0.1.0", ew.Release(None, None, {}, "HTTP 403"))
     assert (verdict["behind"], verdict["judged"]) == (False, False)
     assert "latest release unknown" in verdict["note"]
-    assert ew.judge("main", ew.Release("v1.3.0", SHA_LATEST, {}))["judged"] is False
+    assert ew.judge("develop", ew.Release("v1.3.0", SHA_LATEST, {}))["judged"] is False
+    assert ew.judge("main", ew.Release("v1.3.0", SHA_LATEST, {}))["judged"] is True
+    assert ew.judge("main", ew.Release(None, None, {}, "HTTP 403"))["judged"] is False
     assert ew.judge("v1.2.0", ew.Release("v1.3.0", SHA_LATEST, {}))["judged"] is True
+
+
+@pytest.mark.parametrize(
+    ("holds", "behind", "note"),
+    [
+        (True, False, "a commit after v1.3.0"),
+        (False, True, "a commit that is no release tag"),
+        (None, True, "a commit that is no release tag"),
+    ],
+)
+def test_judge_calls_a_commit_that_holds_the_latest_release_current(
+    holds: bool | None,
+    behind: bool,
+    note: str,
+) -> None:
+    release = ew.Release("v1.3.0", SHA_LATEST, {SHA_LATEST: "v1.3.0", SHA_OLDER: "v1.2.0"})
+    asked: list[str] = []
+
+
+    def holds_latest(sha: str) -> bool | None:
+        asked.append(sha)
+        return holds
+
+
+    verdict = ew.judge("7" * 40, release, holds_latest)
+    assert (verdict["behind"], verdict["note"]) == (behind, note)
+    assert ew.judge(SHA_OLDER, release, holds_latest)["note"] == "commit of v1.2.0"
+    assert ew.judge(SHA_LATEST, release, holds_latest)["note"] == "commit of v1.3.0"
+    assert asked == ["7" * 40]
+
+
+def test_releases_compare_a_commit_with_the_latest_tag_once_each() -> None:
+    def compare(sha: str) -> str:
+        return f"/repos/{OWNER}/x/compare/v1.3.0...{sha}"
+
+
+    transport = FakeTransport({
+        f"/repos/{OWNER}/x/tags": tags(("v1.3.0", SHA_LATEST), ("v1.2.0", SHA_OLDER)),
+        compare("7" * 40): ok({"status": "ahead"}),
+        compare("8" * 40): ok({"status": "identical"}),
+        compare("9" * 40): ok({"status": "behind"}),
+        compare("6" * 40): ok({"status": "diverged"}),
+        compare("5" * 40): ConnectionResetError("reset"),
+        compare("4" * 40): ok({"message": "no status"}),
+    })
+    releases  = ew.Releases(transport)
+    answers   = {sha: releases.holds_latest("x", sha * 40) for sha in "789654"}
+    assert answers == {"7": True, "8": True, "9": False, "6": False, "5": None, "4": None}
+    assert releases.holds_latest("x", "3" * 40) is None
+    assert releases.holds_latest("x", "7" * 40) is True
+    assert transport.calls.count(compare("7" * 40)) == 1
+    assert ew.Releases(FakeTransport({})).holds_latest("gone", "7" * 40) is None
 
 
 def test_find_pins_reads_every_shape_and_skips_comments_and_other_owners() -> None:
@@ -333,6 +388,60 @@ def test_pins_are_judged_against_each_source_repos_latest_release(registries: No
     assert snapshot["summary"]["pins_behind"] == 2
     repo_b = next(r for r in snapshot["repos"] if r["repo"] == B)
     assert repo_b["errors"] == [{"section": "pins", "detail": "pyproject.toml: HTTP 500, Server Error"}]
+
+
+def test_a_slow_compare_never_holds_up_a_release_lookup() -> None:
+    started  = threading.Event()
+    finished = threading.Event()
+
+
+    class SlowCompare(FakeTransport):
+        """
+        A compare that waits until the test lets it finish, standing in for a slow GitHub answer.
+        """
+        def get(self, path: str, params: dict[str, Any] | None = None, raw: bool = False) -> ew.Response:
+            if "/compare/" in path:
+                started.set()
+                finished.wait(5)
+            return super().get(path, params, raw)
+
+
+    transport = SlowCompare({
+        f"/repos/{OWNER}/x/tags": tags(("v1.3.0", SHA_LATEST)),
+        f"/repos/{OWNER}/x/compare/v1.3.0...{'7' * 40}": ok({"status": "ahead"}),
+    })
+    releases  = ew.Releases(transport)
+    releases.get("x")
+    with ThreadPoolExecutor(max_workers = 1) as pool:
+        pending = pool.submit(releases.holds_latest, "x", "7" * 40)
+        assert started.wait(5)
+        began = time.monotonic()
+        assert releases.get("x").tag == "v1.3.0"
+        assert time.monotonic() - began < 1
+        finished.set()
+        assert pending.result(5) is True
+
+
+def test_a_pin_of_main_and_its_lock_after_the_latest_tag_are_current(registries: None) -> None:
+    sdk   = "kriegerdataforge-sdk[fastapi] @ git+https://github.com/Needless2Say/kriegerdataforge-sdk.git"
+    table = base_table()
+    table[f"/repos/{A}/contents/requirements.in"] = ok(f"{sdk}@main\n")
+    table[f"/repos/{A}/contents/requirements.txt"] = ok(f"{sdk}@{'7' * 40}\n")
+    table[f"/repos/{B}/contents/requirements.txt"] = ok(f"{sdk}@{'6' * 40}\n")
+    table[f"/repos/{OWNER}/kriegerdataforge-sdk/compare/v0.12.2...{'7' * 40}"] = ok({"status": "ahead"})
+    table[f"/repos/{OWNER}/kriegerdataforge-sdk/compare/v0.12.2...{'6' * 40}"] = ok({"status": "behind"})
+    snapshot = ew.collect(FakeTransport(table), workers = 2)
+    pins     = {(r["repo"], p["file"]): p for r in snapshot["repos"] for p in r["pins"] if p["source"].endswith("-sdk")}
+    assert (pins[(A, "requirements.in")]["behind"], pins[(A, "requirements.in")]["note"]) == (False, "tracks main")
+    assert (pins[(A, "requirements.txt")]["behind"], pins[(A, "requirements.txt")]["note"]) == (
+        False,
+        "a commit after v0.12.2",
+    )
+    assert (pins[(B, "requirements.txt")]["behind"], pins[(B, "requirements.txt")]["note"]) == (
+        True,
+        "a commit that is no release tag",
+    )
+    assert snapshot["summary"]["pins_behind"] == 1
 
 
 def test_a_pin_of_another_owned_repo_reads_that_repos_tags_once(registries: None) -> None:

@@ -350,6 +350,45 @@ def test_a_branch_out_of_a_requirement_file_is_refused():
         fpp.classify("repo", "main", fpp.parse_ls_remote(LS_REMOTE), False, "requirements.txt")
 
 
+def test_a_branch_its_lock_covers_is_deferred_and_a_tag_is_not():
+    refs = fpp.parse_ls_remote(LS_REMOTE)
+    assert fpp.classify("repo", "main", refs, False, "requirements.in", defer_branch = True) == ("deferred", "1" * 40)
+    assert fpp.classify("repo", "v1.0.0", refs, False, "requirements.in", defer_branch = True) == ("tag", "3" * 40)
+    with pytest.raises(fpp.FetchError, match = "both a tag and a branch"):
+        fpp.classify("repo", "both", refs, False, "requirements.in", defer_branch = True)
+
+
+@pytest.mark.parametrize("pins, covered", [
+    ({("sdk", "main"): ["requirements.in"], ("sdk", SDK_SHA): ["requirements.txt"]}, True),
+    ({("sdk", "main"): ["requirements-dev.in"], ("sdk", SDK_SHA): ["requirements-dev.txt"]}, True),
+    ({("sdk", "main"): ["x:requirements.in"], ("sdk", SDK_SHA): ["x:requirements.txt"]}, True),
+    ({("sdk", "main"): ["requirements.in"]}, False),
+    ({("sdk", "main"): ["requirements.in"], ("sdk", "v1.0.0"): ["requirements.txt"]}, False),
+    ({("sdk", "main"): ["requirements.in"], ("fmt", SDK_SHA): ["requirements.txt"]}, False),
+    ({("sdk", "main"): ["requirements.txt"], ("sdk", SDK_SHA): ["requirements.txt"]}, False),
+    ({("sdk", "main"): ["requirements.in", "requirements-dev.in"], ("sdk", SDK_SHA): ["requirements.txt"]}, False),
+    ({("sdk", "main"): ["requirements.in"], ("sdk", SDK_SHA): ["requirements-dev.txt"]}, False),
+    ({("sdk", "main"): ["x:requirements.in"], ("sdk", SDK_SHA): ["requirements.txt"]}, False),
+])
+def test_a_lock_covers_a_ref_only_beside_every_in_file_that_names_it(pins, covered):
+    assert fpp.lock_covers("sdk", "main", pins[("sdk", "main")], pins) is covered
+
+
+@pytest.mark.parametrize("files, named", [
+    ({"requirements.txt": "-r fitness-app-backend:requirements.txt\n", "fitness-app-backend:requirements.txt": ""},
+     ["requirements.txt"]),
+    ({"x:requirements.txt": ""}, ["x:requirements.txt"]),
+])
+def test_a_file_name_with_a_colon_is_refused_so_none_passes_for_a_mirrors(files, named):
+    with pytest.raises(fpp.FetchError, match = "holds no colon"):
+        fpp.scan_tree(_reader(files), named, "", required = False)
+
+
+def test_a_full_commit_is_never_left_to_a_lock():
+    pins = {("sdk", SDK_SHA): ["requirements.in"], ("sdk", "2" * 40): ["requirements.txt"]}
+    assert fpp.lock_covers("sdk", SDK_SHA, ["requirements.in"], pins) is False
+
+
 @pytest.mark.parametrize("ref, message", [("both", "both a tag and a branch"), ("gone", "names no tag or branch")])
 def test_an_ambiguous_or_unknown_ref_is_refused(ref, message):
     with pytest.raises(fpp.FetchError, match = message):
@@ -487,6 +526,45 @@ def test_the_fetch_clones_each_pin_whole_into_a_bare_mirror_and_records_it(tmp_p
     assert f"{'7' * 40}:refs/heads/kdf-pin-777777777777" in fetch and "+refs/tags/v1.2.0:refs/tags/v1.2.0" in fetch
     assert "https://github.com/Needless2Say/kriegerdataforge-fmt.git" in fetch
     assert all("@github.com" not in part for call in git.calls for part in call), "no URL carries a credential"
+
+
+def test_a_branch_in_a_compile_input_is_left_to_the_commit_its_lock_pins(tmp_path, capsys):
+    """
+    D-051 names the owner's private packages at main in requirements.in. The lock beside it pins the commit every lane
+    installs, so the fetch takes that commit and never the branch.
+    """
+    git     = FakeGit({"kriegerdataforge-sdk": f"{'1' * 40}\trefs/heads/main\n{'2' * 40}\trefs/tags/v0.12.2"})
+    data    = {
+        "caller_private": True,
+        "repositories": ["kriegerdataforge-sdk"],
+        "extras": [],
+        "scan": [],
+        "pins": [
+            {"repo": "kriegerdataforge-sdk", "ref": "main", "sources": ["requirements.in"]},
+            {"repo": "kriegerdataforge-sdk", "ref": SDK_SHA, "sources": ["requirements.txt"]},
+        ],
+    }
+    entries = fpp.fetch(data, tmp_path, git)
+    assert [(entry["ref"], entry["kind"], entry["sources"]) for entry in entries] == [
+        (SDK_SHA, "sha", ["requirements.txt"]),
+    ]
+    fetched = " ".join(next(call for call in git.calls if "fetch" in call))
+    assert "refs/heads/main" not in fetched and "1" * 40 not in fetched, "the branch is not fetched"
+    assert "left to the commit its lock pins" in capsys.readouterr().out
+
+
+def test_a_branch_in_a_compile_input_with_no_lock_pin_is_still_refused(tmp_path):
+    git  = FakeGit({"kriegerdataforge-sdk": f"{'1' * 40}\trefs/heads/main"})
+    data = {
+        "caller_private": True,
+        "repositories": ["kriegerdataforge-sdk"],
+        "extras": [],
+        "scan": [],
+        "pins": [{"repo": "kriegerdataforge-sdk", "ref": "main", "sources": ["requirements.in"]}],
+    }
+    with pytest.raises(fpp.FetchError, match = "requirements.in: kriegerdataforge-sdk@main is a branch"):
+        fpp.fetch(data, tmp_path, git)
+    assert not any("fetch" in call for call in git.calls)
 
 
 def test_two_refs_of_one_repo_are_one_fetch_with_automatic_maintenance_off(tmp_path):
