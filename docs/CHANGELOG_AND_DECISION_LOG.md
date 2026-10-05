@@ -2764,8 +2764,9 @@ recorded. VERSION 0.2.132.
 
 - **Date.** 2026-10-05
 - **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
-- **Tier / scope:** Standard · `scripts/ecosystem_watch.py` and its tests · the kit's `skills.md`,
-  `REPORTS_STANDARD.md` and contributor onboarding template · kit v1.17.0
+- **Tier / scope:** Standard · `scripts/ecosystem_watch.py` and its tests · `scripts/fetch_private_packages.py`, its
+  copies in the reusable Python lanes and its tests · the kit's `skills.md`, `REPORTS_STANDARD.md` and contributor
+  onboarding template · kit v1.17.0
 
 **Context.** The owner asked on 2026-10-05 that a consumer's `requirements.in` name `kdf_sdk` and `kdf_reports`
 without a version, so that `make compile-requirements` takes the latest release, where each consumer had pinned a
@@ -2786,17 +2787,26 @@ commit past the tag, which it called behind every week.
   pins the same tag in `kdf_fmt_ref`, and the scripts sync refuses a repo whose pin differs, so a moving formatter
   would split local style from CI's.
 - **The kit's three pages that told a consumer to pin a tag say `main`**, kit v1.17.0.
+- **D-035's fetch leaves a `.in` branch to its lock** (the owner's choice, 2026-10-05). A ref read out of a
+  requirement file stays a tag or a full commit id, with one exception. A branch written only in `.in` files is let
+  through when the lock compiled from each, the `.txt` file of the same name beside it, pins the same repo by a
+  full commit id. The fetch takes that commit and never the branch. Every lane installs the lock, pip-audit included,
+  so CI still fetches only commits that cannot move, and a branch with no such lock pin is refused as before. The
+  five consumers' first runs found the gap, the fetch refused `@main` in a job no local run exercises.
 
 **Alternatives considered.**
 
 - *Keep a tag in `requirements.in` and have `make compile-requirements` write the newest release tag into it
-  before locking.* Exact releases and no change to the watch, but a new script in the compile step of every
-  consumer. Not taken, the owner chose `main`.
+  before locking.* Exact releases and no change to the watch or the fetch, but a new script in the compile step of
+  every consumer. Not taken, the owner chose `main`, and when the fetch refused it, the lock's commit over a tag.
+- *Fetch the branch itself.* Rejected, the job that holds the token would fetch a ref that can move between the
+  fetch and the install, the very thing D-035 refuses.
 - *Float kdf-fmt too.* Not taken, for the reason above.
 
 **Trade-offs.** A merge whose Release run failed leaves code on `main` that no tag names, and a compile in that
 window locks it. A failed Release run is already the owner's to fix. The watch makes one more GitHub call for each
-pinned commit past the latest tag.
+pinned commit past the latest tag. D-035's rule gains one exception, bounded by the lock beside the file.
 
 **Consequences.** Kit v1.17.0 waits for the owner's next Distribute. The five consumers change their
-`requirements.in` in pull requests of their own, and each compiles its lock when the owner chooses. VERSION 0.2.133.
+`requirements.in` in pull requests of their own, and each compiles its lock when the owner chooses. Their CI passes
+once this merges and each runs again, since a run reuses the cicd commit it first resolved. VERSION 0.2.133.

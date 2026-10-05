@@ -112,7 +112,11 @@ jobs:
           rule is not the fence, a pin the scan misses fails closed in the install job, which has no mirror and no token for it.
           A ref read out of a
           requirement file is a tag or a full commit id, never a branch. A branch is allowed only for a repo the caller lists by
-          name as an extra repo, and is resolved to the commit it points at, which the manifest records.
+          name as an extra repo, and is resolved to the commit it points at, which the manifest records. One branch is let
+          through without being fetched. A branch written only in `.in` files, where the owner names a private package at
+          `main` (D-051), is left to the lock compiled from each, the `.txt` file of the same name beside it, when that lock
+          pins the same repo by a full commit id. The fetch takes the lock's commit, which every lane installs, and never the
+          branch.
 
           The workflows run this file's own text, written into the fetch job by `render_fetch_job.py` (a test holds every copy
           to this file), with the runner's `/usr/bin/python3` in isolated mode. Standard library only, Python 3.12 or later.
@@ -658,7 +662,14 @@ jobs:
               return refs
 
 
-          def classify(repo: str, ref: str, refs: dict[str, str], allow_branch: bool, source: str) -> tuple[str, str]:
+          def classify(
+              repo: str,
+              ref: str,
+              refs: dict[str, str],
+              allow_branch: bool,
+              source: str,
+              defer_branch: bool = False,
+          ) -> tuple[str, str]:
               """
               The kind of a ref and the commit it names.
 
@@ -668,12 +679,15 @@ jobs:
                   refs: the repo's refs from ls-remote
                   allow_branch: whether a branch is allowed, only for a repo the caller lists by name
                   source: where the ref was written, for a refusal's message
+                  defer_branch: whether a branch that is not allowed is left to the lock beside the files that name it, as
+                      lock_covers says, rather than refused
 
               Returns:
-                  tuple[str, str]: the kind, tag, sha or branch, and the commit id
+                  tuple[str, str]: the kind, tag, sha, branch or deferred, and the commit id, a deferred branch's never fetched
 
               Raises:
-                  FetchError: on a branch where none is allowed, a name that is both a tag and a branch, or no such ref
+                  FetchError: on a branch where none is allowed or deferred, a name that is both a tag and a branch, or no such
+                      ref
               """
               if FULL_SHA.fullmatch(ref):
                   return "sha", ref
@@ -684,10 +698,37 @@ jobs:
               if tag:
                   return "tag", tag
               if head:
-                  if not allow_branch:
-                      raise FetchError(f"{source}: {repo}@{ref} is a branch, pin a tag or a full commit id")
-                  return "branch", head
+                  if allow_branch:
+                      return "branch", head
+                  if defer_branch:
+                      return "deferred", head
+                  raise FetchError(f"{source}: {repo}@{ref} is a branch, pin a tag or a full commit id")
               raise FetchError(f"{source}: {repo}@{ref} names no tag or branch of {repo}")
+
+
+          def lock_covers(repo: str, ref: str, sources: list[str], pins: dict[tuple[str, str], list[str]]) -> bool:
+              """
+              Whether every file that pins a repo at a ref is a `.in` file whose lock, the `.txt` file of the same name beside
+              it, pins the same repo by a full commit id, so the lock's commit stands for the ref (D-051).
+
+              Args:
+                  repo: the repo's name under the owner
+                  ref: the ref as written
+                  sources: every file that pins the repo at the ref, a mirror's files carrying its `repo:` prefix
+                  pins: every pin of the plan, by repo and ref, with the files that wrote it
+
+              Returns:
+                  bool: True when each source is a `.in` file whose lock pins the repo by a full commit id
+              """
+              if FULL_SHA.fullmatch(ref) or not sources:
+                  return False
+              locked = {
+                  source
+                  for (pin_repo, pin_ref), pin_sources in pins.items()
+                  if pin_repo == repo and FULL_SHA.fullmatch(pin_ref)
+                  for source in pin_sources
+              }
+              return all(source.endswith(".in") and f"{source[:-3]}.txt" in locked for source in sources)
 
 
           @dataclass
@@ -840,7 +881,11 @@ jobs:
                       pins.setdefault((pin.repo, pin.ref), []).extend(pin.sources)
               by_repo: dict[str, list[dict]] = {}
               for (repo, ref), sources in sorted(pins.items()):
-                  kind, sha = classify(repo, ref, mirrors.refs(repo), False, sources[0])
+                  covered = lock_covers(repo, ref, sources, pins)
+                  kind, sha = classify(repo, ref, mirrors.refs(repo), False, sources[0], defer_branch = covered)
+                  if kind == "deferred":
+                      print(f"  {repo}@{ref} from {', '.join(sources)} is a branch, left to the commit its lock pins")
+                      continue
                   by_repo.setdefault(repo, []).append({"ref": ref, "kind": kind, "sha": sha, "sources": sources})
               for repo, wanted in by_repo.items():
                   mirrors.fetch(repo, wanted)
