@@ -75,7 +75,7 @@ from an example. Delete this line in a repo that has no such scripts.}
 | You need | How you get it |
 | --- | --- |
 | **Your own local dev OIDC client** | Issued **per developer** from a hub checkout. `python -m api.seed.dev_clients register-dev --username <your-kdf-username> --yes-dev` (dev only, refuses prod and forces a localhost redirect URI. `list-dev` / `revoke-dev` manage it). The returned `client_id` is this app's expected audience (`KDF_JWT_AUDIENCE` / `AUTH_AUDIENCE`). The issuer is the hub auth-UI URL. |
-| **Private Python SDK (`kdf_sdk`)** | Installs via `git+https://github.com/Needless2Say/kriegerdataforge-sdk.git@vX.Y.Z`. Needs a **fine grained GitHub PAT with Contents. Read on `kriegerdataforge-sdk` only**, set as `GH_PACKAGES_PAT` in `.env.kdf`. Install time only, not needed at runtime. There is **no public PyPI package**. Never add one. |
+| **Private Python SDK (`kdf_sdk`)** | Installs via `git+https://github.com/Needless2Say/kriegerdataforge-sdk.git@main`, which `requirements.txt` locks to a commit. Needs a **fine grained GitHub PAT with Contents. Read on `kriegerdataforge-sdk` only**, set as `GH_PACKAGES_PAT` in `.env.kdf`. Install time only, not needed at runtime. There is **no public PyPI package**. Never add one. |
 
 ---
 

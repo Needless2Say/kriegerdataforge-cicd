@@ -19,7 +19,7 @@ the owner's `PROJECTS_BOARDS.md` in the private `kriegerdataforge-context/ops/`)
 
 | Package | What | Pinning |
 | --- | --- | --- |
-| `kriegerdataforge-reports-sdk` (import `kdf_reports`) | The whole backend. 5 `rpt_*` tables, role gated `/reports` endpoints, redaction, AI triage, GitHub issue + board writes, `X-Cron-Secret` cron endpoint | `requirements.in`: `@ git+https://…/kriegerdataforge-reports-sdk.git@vX.Y.Z`. **Tag pinned, bump deliberately**. Peer: `kdf_sdk` ≥ the version its import time guard names. |
+| `kriegerdataforge-reports-sdk` (import `kdf_reports`) | The whole backend. 5 `rpt_*` tables, role gated `/reports` endpoints, redaction, AI triage, GitHub issue + board writes, `X-Cron-Secret` cron endpoint | `requirements.in`: `@ git+https://…/kriegerdataforge-reports-sdk.git@main`. **Tracks `main`**, where every code merge is a release. `requirements.txt` locks the commit, and `make compile-requirements` moves it to the newest. Peer: `kdf_sdk` ≥ the version its import time guard names. |
 | `@needless2say/report-form` (private GH Packages) | The frontend widget. Validated form, context capture, no `app_slug` (server stamps it) | `package.json` `^X.Y.Z` + committed `.npmrc`. Installs need `GH_NPM_TOKEN` (**classic** PAT, `read:packages`, GH Packages rejects fine-grained/App tokens). |
 
 Never vendor/copy the module source into an app. That is exactly what this standard replaced.

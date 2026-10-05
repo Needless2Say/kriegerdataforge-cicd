@@ -6,7 +6,8 @@ It reads four things across every repo of the kit registry and cicd itself, and 
   alerts    open Dependabot alerts, with the package, the severity, the fixed version and a link
   pins      each pin of a package built from one of the owner's repos (the requirements files, pyproject.toml,
             package.json, the kdf_fmt_ref of ci.yml, and cicd's canonical kdf-fmt pin) against that repo's latest
-            release tag
+            release tag. A pin of `main` tracks the latest release, since every code merge there is one, and a
+            commit that is no tag is current when GitHub's compare finds the latest tag in it
   drift     each repo's kit version against cicd's, and each vendored dev script against cicd's canonical copy, by git
             blob sha
   notices   the deprecation notices GitHub attached to the latest completed run of each workflow
@@ -40,9 +41,11 @@ import re
 import subprocess
 import sys
 import threading
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import parse_qsl, urlencode, urlparse
@@ -419,13 +422,19 @@ def latest_release(transport: Transport, repo: str) -> Release:
     return Release(best[1] if best else None, best[2] if best else None, by_sha)
 
 
-def judge(ref: str, release: Release) -> dict[str, Any]:
+def judge(ref: str, release: Release, holds_latest: Callable[[str], bool | None] | None = None) -> dict[str, Any]:
     """
     Whether a pinned ref is behind its repo's latest release.
 
+    A pin of `main` tracks the latest release, since every merge that changes an owned package's code bumps its
+    version and is released, and only kit and script syncs land on main between releases. A lockfile made from such a
+    pin holds a commit after the latest tag, which is current when the tag is in it.
+
     Args:
-        ref: a version tag or a full commit sha
+        ref: a version tag, `main` or a full commit sha
         release: the source repo's latest release
+        holds_latest: whether a commit that is no release tag holds the latest release, None when that could not be
+            told, and when not given such a commit is called behind
 
     Returns:
         dict[str, Any]: the pinned ref, the latest tag, whether it is behind, whether it could be judged at all, and a
@@ -437,6 +446,9 @@ def judge(ref: str, release: Release) -> dict[str, Any]:
         out["judged"] = False
         return out
     latest = semver(release.tag)
+    if ref == "main":
+        out["note"] = "tracks main"
+        return out
     if FULL_SHA.match(ref):
         tag = release.by_sha.get(ref)
         if ref == release.sha:
@@ -444,6 +456,8 @@ def judge(ref: str, release: Release) -> dict[str, Any]:
         elif tag:
             out["note"] = f"commit of {tag}"
             out["behind"] = semver(tag) < latest
+        elif holds_latest is not None and holds_latest(ref):
+            out["note"] = f"a commit after {release.tag}"
         else:
             out["note"] = "a commit that is no release tag"
             out["behind"] = True
@@ -469,7 +483,8 @@ class Releases:
         """
         self._transport = transport
         self._lock      = threading.Lock()
-        self.known: dict[str, Release] = {}
+        self.known:    dict[str, Release] = {}
+        self.compared: dict[tuple[str, str], bool | None] = {}
 
 
     def get(self, repo: str) -> Release:
@@ -489,6 +504,34 @@ class Releases:
                 except Exception as exc:  # noqa: BLE001, a blind spot named by its type, never the run's end
                     self.known[repo] = Release(None, None, {}, f"the read failed, {type(exc).__name__}")
             return self.known[repo]
+
+
+    def holds_latest(self, repo: str, sha: str) -> bool | None:
+        """
+        Whether a commit holds its repo's latest release, by GitHub's compare of the tag with it, asked once a commit.
+
+        Args:
+            repo: the repo's name, without the owner
+            sha: a full commit sha that is no release tag
+
+        Returns:
+            bool | None: True when the compare finds the commit ahead of the tag or the same, False when behind it or
+            split from it, None when the release or the compare could not be read
+        """
+        release = self.get(repo)
+        if not release.tag:
+            return None
+        with self._lock:
+            if (repo, sha) not in self.compared:
+                answer: bool | None = None
+                try:
+                    resp = self._transport.get(f"/repos/{OWNER}/{repo}/compare/{release.tag}...{sha}")
+                    if resp.ok and isinstance(resp.data, dict) and resp.data.get("status"):
+                        answer = resp.data["status"] in ("ahead", "identical")
+                except Exception:  # noqa: BLE001, an unread compare leaves the commit behind, never the run's end
+                    answer = None
+                self.compared[(repo, sha)] = answer
+            return self.compared[(repo, sha)]
 
 # ======================================================================================================================
 # Collection
@@ -787,13 +830,18 @@ def collect_notices(transport: Transport, repo: str) -> tuple[list[dict[str, str
     return notices, errors
 
 
-def judge_pin(pin: dict[str, str], release: Release) -> dict[str, Any]:
+def judge_pin(
+    pin: dict[str, str],
+    release: Release,
+    holds_latest: Callable[[str], bool | None] | None = None,
+) -> dict[str, Any]:
     """
     One pin's verdict, a ref against the latest tag, or an npm range against the latest version.
 
     Args:
         pin: the pin, as find_pins gives it
         release: its source repo's latest release
+        holds_latest: whether a commit of its source repo holds the latest release, as judge takes it
 
     Returns:
         dict[str, Any]: the pin's file, package and source with the verdict of judge
@@ -815,7 +863,7 @@ def judge_pin(pin: dict[str, str], release: Release) -> dict[str, Any]:
             "note": note,
         }
     else:
-        verdict = judge(pin["ref"], release)
+        verdict = judge(pin["ref"], release, holds_latest)
     return {"file": pin["file"], "package": pin["package"], "source": pin["repo"], **verdict}
 
 
@@ -849,7 +897,9 @@ def collect_repo(
         pins, pin_errors = collect_pins(transport, repo)
         drift, drift_errors = collect_drift(transport, repo, kit_set, scripts, kit_version, canonical)
         notices, run_errors = collect_notices(transport, repo)
-        judged = [judge_pin(pin, releases.get(pin["repo"])) for pin in pins]
+        judged = [
+            judge_pin(pin, releases.get(pin["repo"]), partial(releases.holds_latest, pin["repo"])) for pin in pins
+        ]
     except Exception as exc:  # noqa: BLE001, a blind spot named by its type, never the run's end
         detail = f"the read failed, {type(exc).__name__}"
         empty  = {"status": "unavailable", "reason": detail, "open": []}
