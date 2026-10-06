@@ -241,10 +241,13 @@ one. `--no-settled` leaves the settled decisions out, and `--dry-run` prints the
 
 `--kind` sets the closing instruction, the one part of the frame that changes (D-053). `review`, the default, asks for
 real problems in a change, each with its file, its line and what triggers it. `plan` tells Codex the question holds a
-plan, not code, and asks what in it is wrong, missing or riskier than it says, each tied to the file and line that
-shows it, with what Codex would do instead. `decision` asks Codex to choose among the options in the question as if
-the choice were its own, its pick first, then why, then the strongest case against its pick. Each says plainly when
-nothing is wrong, since a model asked for problems tends to find some.
+plan, not code, and asks first for Codex's own approach in a few lines, then whether the route is worth taking at all
+and its simplest alternative, then what in the plan is wrong, missing or riskier than it says, each tied to the file
+and line that shows it, with what Codex would do instead. `decision` asks Codex to choose among the options as if the
+choice were its own, its pick first, which may be none of the options, doing nothing included, or a simpler
+alternative, so it says whether the decision is worth taking at all, then why, then the strongest case against its
+pick. A reader asked only what is wrong takes the route as given, so the question of worth is asked every time
+(D-055). Each says plainly when nothing is wrong, since a model asked for problems tends to find some.
 
 In repo mode Codex reads a detached worktree of the commit, `HEAD` when `--at` is not given. The worktree is made with
 `--no-checkout`, since git runs the repo's post-checkout hook after any other worktree add, and is then filled with

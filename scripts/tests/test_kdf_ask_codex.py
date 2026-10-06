@@ -253,7 +253,7 @@ def test_two_runs_in_the_same_second_keep_their_own_answer_frame_and_events(rig:
 
 @pytest.mark.parametrize("kind, closes", [
     ("review", "Report only real problems, most severe first"),
-    ("plan", "The question holds a plan, not code. Judge it against what you read."),
+    ("plan", "The question holds a plan, not code. Judge it against what you read, in this order."),
     ("decision", "The question holds a decision and its options. Choose as if the choice were yours."),
 ])
 def test_each_kind_closes_the_frame_with_its_own_instruction(rig: Rig, kind: str, closes: str) -> None:
@@ -270,6 +270,38 @@ def test_each_kind_closes_the_frame_with_its_own_instruction(rig: Rig, kind: str
     assert f"**Kind.** {kind}." in max(_answers(rig), key = lambda path: path.stat().st_mtime_ns).read_text(
         encoding = "utf-8",
     )
+
+
+def test_a_plan_asks_whether_its_route_is_worth_taking_before_it_is_judged(rig: Rig) -> None:
+    # D-055, the owner's ask of 2026-10-06. A reader asked only what is wrong takes the route as given, so a plan first
+    # asks for the reader's own approach, then whether the route is worth taking at all and its simplest alternative,
+    # and only then for its problems
+    assert _ask(rig, "--kind", "plan").returncode == 0
+    closing = " ".join(rig.frame.read_text(encoding = "utf-8").split("The question holds")[-1].split())
+    asked   = [closing.find(words) for words in (
+        "how you would approach it yourself", "worth taking at all", "the simplest alternative",
+        "report what is wrong, missing or riskier",
+    )]
+    assert -1 not in asked and asked == sorted(asked), "own approach, worth taking, simplest alternative, then judged"
+
+
+def test_a_decision_names_its_pick_first_and_lets_it_be_none_of_the_options(rig: Rig) -> None:
+    # D-053 keeps a decision's pick first, since the owner wants a pick and the case against it. D-055 lets that pick
+    # be none of the options or doing nothing, so the question of worth is asked there too
+    assert _ask(rig, "--kind", "decision").returncode == 0
+    closing = " ".join(rig.frame.read_text(encoding = "utf-8").split("The question holds")[-1].split())
+    asked   = [closing.find(words) for words in (
+        "Name your pick first", "doing nothing included", "a simpler alternative", "worth taking at all",
+        "the strongest case against your pick",
+    )]
+    assert -1 not in asked and asked == sorted(asked), "the pick first, then none or simpler, then the case against"
+
+
+def test_a_review_asks_no_worth_taking_question(rig: Rig) -> None:
+    # a review reads a change the session already made, so its closing asks for real problems alone
+    assert _ask(rig).returncode == 0
+    frame = " ".join(rig.frame.read_text(encoding = "utf-8").split())
+    assert "worth taking" not in frame and "how you would approach it yourself" not in frame
 
 
 def test_the_frame_carries_the_question_the_conventions_and_the_settled_decisions(rig: Rig) -> None:

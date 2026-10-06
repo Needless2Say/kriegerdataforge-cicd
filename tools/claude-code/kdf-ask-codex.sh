@@ -223,15 +223,18 @@ triggers it, and what goes wrong. If you find nothing real, say so plainly.
 EOF
 		;;
 		plan) cat <<'EOF'
-The question holds a plan, not code. Judge it against what you read. Report what is wrong, missing or riskier than the
-plan says, most severe first, each tied to the file and the line that shows it, and what you would do instead. If the
+The question holds a plan, not code. Judge it against what you read, in this order. First, in a few lines, how you
+would approach it yourself, before you weigh the plan. Then whether the route is worth taking at all, and the
+simplest alternative that would get most of its value. Then report what is wrong, missing or riskier than the plan
+says, most severe first, each tied to the file and the line that shows it, and what you would do instead. If the
 plan is sound, say so plainly.
 EOF
 		;;
 		decision) cat <<'EOF'
-The question holds a decision and its options. Choose as if the choice were yours. Name your pick first, then why,
-each reason tied to the file and the line that shows it, then the strongest case against your pick. If no option is
-sound, say which and why.
+The question holds a decision and its options. Choose as if the choice were yours. Name your pick first. It may be none
+of the options, doing nothing included, or a simpler alternative that would get most of the value, so say whether the
+decision is worth taking at all. Then why, each reason tied to the file and the line that shows it, then the
+strongest case against your pick. If no option is sound, say which and why.
 EOF
 		;;
 	esac
