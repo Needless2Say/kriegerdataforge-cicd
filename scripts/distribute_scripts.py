@@ -101,7 +101,7 @@ _REQUIREMENTS_HEADER = (
 # name, which is all we need to decide "is this package already declared here".
 _REQ_NAME_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:@|==|>=|<=|~=|!=|<|>|\[|$)")
 
-# The reusable style job pins kdf-fmt itself, separately from the requirements file.
+# A ci.yml may still pass the reusable style job an override ref, which must match the canonical one (D-054).
 _KDF_FMT_REF_RE = re.compile(r"^(\s*kdf_fmt_ref\s*:\s*)(\S+)\s*$", re.MULTILINE)
 
 # The canonical `ci-version-check` recipe every repo converges on: a thin call of the
@@ -305,7 +305,12 @@ def patch_requirements(text: str | None, packages: list[dict]) -> str:
 
 def patch_ci_yaml(text: str | None, expected_ref: str) -> str:
     """
-    Verify the reusable style job pins the same kdf-fmt the requirements file does.
+    Verify a ci.yml that overrides the formatter's ref names the canonical one.
+
+    Since D-054 the reusable style lanes read kdf-fmt's ref from the caller's
+    requirements-dev.in, and kdf_fmt_ref is only an override, which most callers leave
+    out. A ci.yml that passes one must name the canonical ref, or local dev and CI would
+    format with different kdf-fmt versions.
 
     Returns the content UNCHANGED when the two agree, which the engine treats as "no
     drift" and therefore never writes. That is deliberate: pushing a change to
@@ -317,23 +322,23 @@ def patch_ci_yaml(text: str | None, expected_ref: str) -> str:
 
     Args:
         text: the repo's current ci.yml content, or None when absent
-        expected_ref: the canonical git ref, e.g. ``v1.1.1``
+        expected_ref: the canonical git ref, e.g. ``main``
 
     Returns:
-        str: the content exactly as received, when it is already consistent
+        str: the content exactly as received, when it passes no override or the canonical one
 
     Raises:
-        PatchError: when ci.yml is missing, has no kdf_fmt_ref, or pins another ref
+        PatchError: when ci.yml is missing or overrides the ref with another one
     """
     if text is None:
         raise PatchError(f"{CI_YAML_DEST} not found in the target repo")
     match = _KDF_FMT_REF_RE.search(text.replace("\r\n", "\n"))
     if match is None:
-        # NOT drift, and emphatically not a reason to block the repo: a workflow with
-        # no kdf_fmt_ref simply does not call the reusable style job, so there is no
-        # second pin to disagree with. Raising here failed the WHOLE repo -- the
-        # requirements pin and the three vendored scripts along with it -- for 8 of
-        # the 17 registry repos, which is how this was found.
+        # NOT drift. Since D-054 a caller with no kdf_fmt_ref still calls the reusable
+        # style job, which reads the ref from its requirements-dev.in, the declaration the
+        # requirements patch already checks. Before D-054 raising here failed the WHOLE
+        # repo, the requirements pin and the three vendored scripts with it, for 8 of the
+        # 17 registry repos, which is how this was found.
         return text
     found = match.group(2).strip().strip("\"'")
     if found != expected_ref:
