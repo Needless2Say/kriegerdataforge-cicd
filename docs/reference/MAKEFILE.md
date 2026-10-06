@@ -73,7 +73,7 @@ report green for a check that never ran.
 | Per section `.PHONY` | Declared next to the targets it covers, not batched at the top. |
 | Canned recipes | `$(call banner,...)`. |
 | ASCII only | Windows consoles (cp1252) mangle anything else mid-recipe. This file had **415** non-ASCII characters. |
-| No hardcoded versions | The kdf-fmt pin is read from this repo's own `ci.yml` (`kdf_fmt_ref`), never duplicated. |
+| No hardcoded versions | The kdf-fmt ref, `main`, is read from this repo's own `ci.yml` (`kdf_fmt_ref`), never duplicated, and `make style` and `make ci-style` refresh the formatter from it before each check (D-054). |
 
 ---
 

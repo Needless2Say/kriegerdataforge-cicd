@@ -2922,3 +2922,62 @@ decision's pick is Codex's advice. The session still recommends its own, and the
 
 **Consequences.** The context repo's rule and its ways of working say when each kind runs and how both views reach the
 owner. VERSION 0.2.135.
+
+## D-054. kdf-fmt tracks main, declared once in requirements-dev.in, where the style lanes read it
+
+- **Date.** 2026-10-06
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Epic · `scripts/fetch_private_packages.py` and its nine rendered copies, `render_fetch_job.py`,
+  both style lanes, the scripts registry, the ecosystem watch, cicd's own `ci.yml` and `Makefile`, the kit's
+  `skills.md`, kit v1.18.0 · then each repo with a style lane, in pull requests of their own
+
+**Context.** Since D-043 every repo pinned kdf-fmt at a tag twice, `kdf_fmt_ref` in `ci.yml` and a line in
+`requirements-dev.in`, and each formatter release meant moving both in every repo, which the scripts sync policed.
+D-051 moved the owner's runtime packages to `main` and kept the formatter on its tag. On 2026-10-05 the owner chose
+that kdf-fmt tracks `main` too, declared once in `requirements-dev.in`, so the local check and CI run the same
+formatter and a style failure never first shows in CI, where it costs Actions minutes. Two facts shaped how. The
+formatter's repo is private, so CI fetches it with the token, and a branch read out of a requirement file was refused
+unless a lock beside the file pins it (D-035, D-051), and no repo locks `requirements-dev.in`. And the style lane read
+no requirement file at all, its ref the one package version written into every `ci.yml`. Codex reviewed the plan in
+two rounds, six runs across cicd, the hub and fitness-app-frontend, and found the second round sound in all three.
+
+**Decision.**
+
+- **`requirements-dev.in` names kdf-fmt at `main`, the one declaration.** The scripts registry's canonical line says
+  `main`.
+- **The fetch lets the formatter's repo alone be named at a branch in a requirement file.** The branch is resolved
+  once to the commit it points at and mirrored at that commit, as an extra repo's branch is, so a move of the branch
+  afterward changes nothing a lane installs. Every other branch keeps the D-035 and D-051 rules.
+- **Both style lanes read the formatter's ref from the caller's `requirements-dev.in`**, at the commit they check
+  out, the URL fixed to the owner's formatter, so a pull request picks which commit of it runs, never whose code. A
+  file or a line that is missing, names kdf-fmt twice or names another URL fails the job by name. `kdf_fmt_ref`
+  becomes an optional override, for a repo that must hold a release, the SDK through its review campaign, and for
+  cicd, which has no `requirements-dev.in` and passes `main`.
+- **`make ci-style` refreshes the formatter before each check**, in cicd now and in each repo with its pull request,
+  so the local check runs the formatter CI will, and a failed install stops it. pip moves an installed requirement at
+  a branch to the newest commit on a reinstall, measured with pip 25.3.
+- **The watch reads `kdf_fmt_ref: main` as tracking `main`**, and a repo with no override names its formatter in
+  `requirements-dev.in`, which the watch already judged.
+
+**Alternatives considered.**
+
+- *Take kdf-fmt out of `requirements-dev.in` and install it from `ci.yml` in `make setup`*, Codex's pick in two of
+  its first three reviews, since no exception enters the fetch and the test lanes stop installing a formatter they
+  never run. Not taken, the owner keeps every development tool declared in `requirements-dev.in`, where contributors
+  look for it and where `make setup` installs it.
+- *Lock `requirements-dev.in` beside each repo*, so D-051's deferral covers the formatter. Rejected, a lock per repo
+  is the upkeep this removes.
+- *Keep `kdf_fmt_ref` in every `ci.yml`, set to `main`.* Rejected, two declarations that must agree are what the owner
+  wants gone, and `ci.yml` is no place for a package version.
+
+**Trade-offs.** A broken commit on kdf-fmt's `main` fails every job that installs `requirements-dev.in`, the hub's
+unit, system and mutation jobs and its release gate among them, until it is fixed, a cost the owner accepted, with
+kdf-fmt's own CI and the owner's review of its merges as the guard. A merge to kdf-fmt's `main` reaches every repo's
+next style check at once, so a new rule that flags existing code needs those repos formatted or baselined in the same
+step, under the frozen style spec. Each `make ci-style` reaches the network for a few seconds.
+
+**Consequences.** About fourteen consumer pull requests follow this one, each moving its `requirements-dev.in` line to
+`main`, dropping `kdf_fmt_ref` from `ci.yml` and refreshing the formatter in `make ci-style`, and the template python
+package also clears a stale lock that still pins kdf-fmt. Kit v1.18.0 and the scripts sync wait for the owner's
+Distribute after all of them merge, since the sync reports a repo still on the tag for manual attention, the SDK until
+its campaign closes. D-051 stays as written, and this supersedes its formatter part. VERSION 0.2.136.

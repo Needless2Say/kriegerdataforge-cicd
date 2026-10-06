@@ -15,9 +15,10 @@ name: Python · Style (kdf-fmt), a public repo's
 # Usage, the caller's job keeps the check name `style / Style (kdf-fmt)`
 #   style:
 #     uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ci-kdf-fmt-public.yml@main
-#     with:
-#       kdf_fmt_ref: v1.3.0
 #     secrets: inherit
+#
+# The formatter's ref comes from the caller's requirements-dev.in (D-054). A caller with none, this repo, passes
+# kdf_fmt_ref, the same override the shared lane takes.
 permissions:
   contents: read
 
@@ -25,9 +26,9 @@ on:
   workflow_call:
     inputs:
       kdf_fmt_ref:
-        description: Git ref of kriegerdataforge-fmt to install (pin a vX.Y.Z tag or a full commit id)
+        description: An override of the formatter's ref, a branch, tag or full commit id of kriegerdataforge-fmt. Empty, the default, reads the ref from the caller's requirements-dev.in, where every repo names kdf-fmt at main (D-054)
         type: string
-        required: true
+        default: ""
       baseline:
         description: The caller's style debt file passed to --baseline, a plain file name, empty for none
         type: string
@@ -52,6 +53,42 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ inputs.python_version }}
+
+      # D-054. Without kdf_fmt_ref the formatter's ref comes from the caller's requirements-dev.in at the commit checked
+      #   out, before any token exists in this job. Only the ref is read, the URL stays the owner's formatter, so a pull
+      #   request picks which commit of it runs, never whose code, and a file or a line that is missing or names any
+      #   other URL fails here. ci-python-kdf-fmt.yml holds the same text, a test keeps the two equal
+      - name: Read the formatter's ref
+        id: formatter
+        env:
+          KDF_FMT_REF: ${{ inputs.kdf_fmt_ref }}
+        run: |
+          python -I - <<'KDF_FORMATTER_REF'
+          import os
+          import re
+          import sys
+
+          REF = r"[A-Za-z0-9][A-Za-z0-9._/+-]*"
+          ref = os.environ.get("KDF_FMT_REF", "")
+          if not ref:
+              try:
+                  with open("requirements-dev.in", encoding = "utf-8") as handle:
+                      lines = [re.sub(r"(^|\s)#.*$", "", line).strip() for line in handle]
+              except OSError:
+                  sys.exit("::error::requirements-dev.in is missing. It declares kdf-fmt, or the caller passes kdf_fmt_ref")
+              named = [line for line in lines if re.match(r"kdf[-_.]fmt(?![A-Za-z0-9_.-])", line, re.IGNORECASE)]
+              url = r"kdf-fmt\s*@\s*git\+https://github\.com/Needless2Say/kriegerdataforge-fmt\.git@"
+              found = re.fullmatch(url + f"({REF})", named[0]) if len(named) == 1 else None
+              if found is None:
+                  sys.exit("::error::requirements-dev.in names kdf-fmt once, as kdf-fmt @ "
+                           "git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@<ref>")
+              ref = found.group(1)
+          elif not re.fullmatch(REF, ref):
+              sys.exit("::error::kdf_fmt_ref is not a git ref")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding = "utf-8") as output:
+              output.write(f"ref={ref}\n")
+          print(f"kdf-fmt at {ref}")
+          KDF_FORMATTER_REF
 
       # App token first (D-010), minted for the formatter's repo alone and read only, else the package token
       - name: Mint GitHub App token for the formatter
@@ -96,7 +133,7 @@ jobs:
           GIT_CONFIG_COUNT: "1"
           GIT_CONFIG_KEY_0: ${{ format('url.https://__token__:{0}@github.com/.insteadOf', steps.pkg-token.outputs.token || secrets.GH_PACKAGES_PAT) }}
           GIT_CONFIG_VALUE_0: https://github.com/
-          KDF_FMT_REF: ${{ inputs.kdf_fmt_ref }}
+          KDF_FMT_REF: ${{ steps.formatter.outputs.ref }}
         run: python -I -m pip install --quiet "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@$KDF_FMT_REF"
 
       # The command is fixed here and isolated so the checkout cannot stand in for kdf_fmt. A caller names only the

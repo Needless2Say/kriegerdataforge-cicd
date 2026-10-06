@@ -845,14 +845,17 @@ def test_the_style_lane_checks_in_a_job_that_names_no_secret():
 
 def test_the_style_lanes_fetch_always_runs_and_mirrors_the_formatter_alone():
     """
-    The style lane always needs the private formatter, so its fetch job carries no if, reads no requirement file and
-    mirrors only the release the caller pins, with a token minted for kriegerdataforge-fmt alone.
+    The style lane always needs the private formatter, so its fetch job carries no if, and its token is minted for
+    kriegerdataforge-fmt alone. With no kdf_fmt_ref it reads the caller's requirements-dev.in, where every repo names
+    kdf-fmt at main and nothing else private (D-054), and with one, the override, it reads no requirement file.
     """
     text  = _text("ci-python-kdf-fmt.yml")
     fetch = _jobs(text)["fetch-private"]
     assert "  fetch-private:\n    name: Fetch private packages\n    runs-on: ubuntu-latest\n" in text
-    assert "          REQUIREMENT_FILES: \"\"\n" in fetch and "          SCAN_FILES: \"\"\n" in fetch
-    assert "          EXTRA_REPOS: kriegerdataforge-fmt@${{ inputs.kdf_fmt_ref }}\n" in fetch
+    assert "          REQUIREMENT_FILES: ${{ inputs.kdf_fmt_ref == '' && 'requirements-dev.in' || '' }}\n" in fetch
+    assert "          SCAN_FILES: \"\"\n" in fetch
+    assert "          EXTRA_REPOS: ${{ inputs.kdf_fmt_ref != '' && format('kriegerdataforge-fmt@{0}', " \
+           "inputs.kdf_fmt_ref) || '' }}\n" in fetch
     assert "          TOKEN_REPOSITORIES: kriegerdataforge-fmt\n" in fetch
     assert "          repositories: ${{ steps.plan.outputs.repositories }}\n" in fetch
 

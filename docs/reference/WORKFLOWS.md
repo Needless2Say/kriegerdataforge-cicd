@@ -428,8 +428,11 @@ and resolved to its commit), `scan_files` (`repo:path` items read inside an extr
 `token_repositories` (the narrower fence per call, empty is every repo the fetch clones). The style
 lane splits the same way since D-038, because `python -m` put the checkout first on the import path,
 so a pull request's `pip.py` or `kdf_fmt/` ran where the secret was, and `check_command` is the
-caller's own text. Its fetch job always runs, reads no requirement file, mirrors only
-`kriegerdataforge-fmt` at `kdf_fmt_ref` and mints for that repo alone, and its check job keeps the
+caller's own text. Its fetch job always runs, mirrors only `kriegerdataforge-fmt` and mints for
+that repo alone. With no `kdf_fmt_ref` it reads the caller's `requirements-dev.in`, where every repo
+declares kdf-fmt at `main`, the one branch a requirement file may name (D-054), and its check job
+reads the ref from the same line, the URL fixed, failing by name when the line is missing. A caller
+that passes `kdf_fmt_ref`, an override, gets that ref alone. The check job keeps the
 name `Style (kdf-fmt)`, names no secret and installs in isolated mode (`python -I`). Isolated mode
 covers the install and the default command only, a caller's own command runs in a job with no
 secret to reach. A public caller cannot mirror the private formatter, so every public repo, this
@@ -442,8 +445,8 @@ runner.
 | Workflow | Inputs (`string` unless noted) → default | `needs_sdk_auth`? | Top level `permissions` |
 |---|---|---|---|
 | `ci-python-format.yml` | `python_version`=`3.14`, `install_command`=`pip install -e ".[dev]"`, `format_command`=`python -m ruff format --check src/ tests/` | no | `contents: read` (`:4-5`) |
-| `ci-python-kdf-fmt.yml` | `python_version`=`3.14`, `kdf_fmt_ref` (**required**, pin a `vX.Y.Z` tag or a full commit id), `check_command`=`python -I -m kdf_fmt.cli check --no-cache`, `ref`=`""` | always, two jobs (D-038), the fetch mints for `kriegerdataforge-fmt` alone (App token first, `GH_PACKAGES_PAT` fallback, callers pass `secrets: inherit`), private callers only | `contents: read` |
-| `ci-kdf-fmt-public.yml` | `python_version`=`3.14`, `kdf_fmt_ref` (**required**), `baseline`=`""` (a plain file name) | always, one job (D-044), mints for `kriegerdataforge-fmt` alone (App token first, `GH_PACKAGES_PAT` fallback, `secrets: inherit`), fails when no token reaches it, PUBLIC callers, no artifact | `contents: read` |
+| `ci-python-kdf-fmt.yml` | `python_version`=`3.14`, `kdf_fmt_ref`=`""` (an override, empty reads the ref from `requirements-dev.in`, D-054), `check_command`=`python -I -m kdf_fmt.cli check --no-cache`, `ref`=`""` | always, two jobs (D-038), the fetch mints for `kriegerdataforge-fmt` alone (App token first, `GH_PACKAGES_PAT` fallback, callers pass `secrets: inherit`), private callers only | `contents: read` |
+| `ci-kdf-fmt-public.yml` | `python_version`=`3.14`, `kdf_fmt_ref`=`""` (an override, empty reads `requirements-dev.in`), `baseline`=`""` (a plain file name) | always, one job (D-044), mints for `kriegerdataforge-fmt` alone (App token first, `GH_PACKAGES_PAT` fallback, `secrets: inherit`), fails when no token reaches it, PUBLIC callers, no artifact | `contents: read` |
 | `ci-python-lint.yml` | `python_version`=`3.14`, `install_command`=`pip install -r requirements.txt`, `lint_command`=`python -m ruff check .`, `needs_sdk_auth` (bool)=`false` | yes | `contents: read` |
 | `ci-python-typecheck.yml` | + `typecheck_command`=`python -m mypy api/` (same shape as lint) | yes | `contents: read` |
 | `ci-python-tests.yml` | + `test_command`=`python -m pytest unit_tests/ -q --tb=short` (fast, DB free unit lane), `ref`=`""` (the ref to check out, a release dispatch passes the tag, D-024) | yes | `contents: read` |
