@@ -268,7 +268,7 @@ read -r commands fresh cached spoken strange errors < <(node -e '
 	const fs = require("fs");
 	const allowed = new Set(["command_execution", "agent_message", "reasoning", "todo_list"]);
 	const types = {};
-	let input = 0, cached = 0, output = 0, errors = 0, turns = 0, unreadable = 0;
+	let fresh = 0, cached = 0, output = 0, errors = 0, turns = 0, unreadable = 0;
 	for (const line of fs.readFileSync(process.argv[1], "utf8").split("\n")) {
 		if (!line.trim()) continue;
 		let event;
@@ -283,9 +283,13 @@ read -r commands fresh cached spoken strange errors < <(node -e '
 		}
 		if (event.type === "turn.completed") {
 			turns += 1;
+			// the input Codex read again from its cache apart from the new, most of a run and the cheaper part, each
+			// turn on its own, so one turn reporting more cached than input never hides the new input of another
 			const usage = event.usage || {};
-			input += usage.input_tokens || 0;
-			cached += usage.cached_input_tokens || 0;
+			const input = usage.input_tokens || 0;
+			const again = Math.min(usage.cached_input_tokens || 0, input);
+			fresh += input - again;
+			cached += again;
 			output += usage.output_tokens || 0;
 		}
 		if (event.type === "error" || event.type === "turn.failed") errors += 1;
@@ -294,8 +298,6 @@ read -r commands fresh cached spoken strange errors < <(node -e '
 	if (unreadable) strange.push("unreadable");
 	// with no completed turn, or a line that is no event, nothing vouches for what Codex did
 	if (!turns || unreadable) errors += 1;
-	// the input Codex read again from its cache apart from the new, which is most of a run and costs least
-	const fresh = Math.max(input - cached, 0);
 	console.log([types.command_execution || 0, fresh, cached, output, strange.join(",") || "none", errors].join(" "));
 ' "$work/events.jsonl" 2>/dev/null || echo "0 0 0 0 unread 1")
 
@@ -311,7 +313,10 @@ else
 fi
 
 # ---- 7. the archive, each run under a name of its own, then the verdict said
+answer=""
 unarchived() {
+	# no answer file stays behind to claim a verdict the archive could not keep whole
+	[ -z "$answer" ] || rm -f "$answer"
 	if [ -s "$work/answer.md" ]; then
 		printf 'Codex answered, and the answer could not be archived. It follows.\n\n'
 		cat "$work/answer.md"
@@ -321,6 +326,10 @@ unarchived() {
 mkdir -p "$archive" || unarchived "the archive $archive could not be made"
 answer="$(mktemp --suffix=.md "$archive/$(date '+%Y-%m-%d-%H%M%S')-$label-XXXXXX")" \
 	|| unarchived "no answer file could be made in $archive"
+# the frame and the events first and the answer last, so an answer in the archive always has its whole record
+if ! { cp "$frame" "${answer%.md}.frame.md" && cp "$work/events.jsonl" "${answer%.md}.events.jsonl"; }; then
+	unarchived "the frame and the events could not be written beside $answer"
+fi
 {
 	printf '# Codex on %s\n\n' "$what"
 	printf -- '- **Verdict.** %s.\n' "$verdict"
@@ -332,9 +341,6 @@ answer="$(mktemp --suffix=.md "$archive/$(date '+%Y-%m-%d-%H%M%S')-$label-XXXXXX
 	printf -- '- **Outside the shell.** %s.\n\n' "$strange"
 	if [ -s "$work/answer.md" ]; then cat "$work/answer.md"; else printf '(no answer was written)\n'; fi
 } > "$answer" || unarchived "the answer could not be written to $answer"
-if ! { cp "$frame" "${answer%.md}.frame.md" && cp "$work/events.jsonl" "${answer%.md}.events.jsonl"; }; then
-	unarchived "the frame and the events could not be written beside $answer"
-fi
 
 if [ "$strange" != none ]; then
 	say "WARNING Codex did more than run commands and answer, $strange, read ${answer%.md}.events.jsonl"

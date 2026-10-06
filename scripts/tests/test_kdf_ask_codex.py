@@ -64,6 +64,8 @@ case "${STUB_MODE:-clean}" in
     strange) printf '{"type":"item.completed","item":{"id":"2","type":"mcp_tool_call","server":"s","tool":"t"}}\\n' ;;
     garbled) printf 'not an event\\n' ;;
     shapeless) printf '{}\\n[]\\n' ;;
+    turns) usage='"usage":{"input_tokens":100,"cached_input_tokens":150,"output_tokens":10}'
+           printf '{"type":"turn.completed",%s}\\n' "$usage" ;;
     dirty) printf 'x\\n' > written.txt ;;
     commit) git -c user.name=s -c user.email=s@example.com commit -q --allow-empty -m moved ;;
     nogit) rm -f .git ;;
@@ -252,16 +254,22 @@ def test_two_runs_in_the_same_second_keep_their_own_answer_frame_and_events(rig:
 @pytest.mark.parametrize("kind, closes", [
     ("review", "Report only real problems, most severe first"),
     ("plan", "The question holds a plan, not code. Judge it against what you read."),
-    ("decision", "Choose as if the choice were yours. Name your pick first"),
+    ("decision", "The question holds a decision and its options. Choose as if the choice were yours."),
 ])
 def test_each_kind_closes_the_frame_with_its_own_instruction(rig: Rig, kind: str, closes: str) -> None:
     others = {"review": "Report only real problems", "plan": "holds a plan", "decision": "Name your pick first"}
+    assert _ask(rig).returncode == 0
+    review = rig.frame.read_text(encoding = "utf-8")
     assert _ask(rig, "--kind", kind).returncode == 0
     frame = rig.frame.read_text(encoding = "utf-8")
-    assert closes in frame and frame.rstrip().endswith("it changes nothing by itself.")
+    assert frame.count(closes) == 1 and frame.rstrip().endswith("it changes nothing by itself.")
     assert not [text for name, text in others.items() if name != kind and text in frame], "one closing, its own"
-    assert "Settled line one." in frame and "commas and periods" in frame, "the rest of the frame is the same"
-    assert f"**Kind.** {kind}." in _answers(rig)[0].read_text(encoding = "utf-8")
+    review_closes = "Report only real problems, most severe first"
+    assert frame.split(closes)[0] == review.split(review_closes)[0], "the frame before the closing is the same"
+    assert frame.count("it changes nothing by itself.") == 1
+    assert f"**Kind.** {kind}." in max(_answers(rig), key = lambda path: path.stat().st_mtime_ns).read_text(
+        encoding = "utf-8",
+    )
 
 
 def test_the_frame_carries_the_question_the_conventions_and_the_settled_decisions(rig: Rig) -> None:
@@ -502,6 +510,13 @@ def test_a_frame_that_cannot_be_kept_beside_the_answer_fails_the_run(rig: Rig) -
     done   = _ask(rig, env = broken)
     assert done.returncode == 1 and "could not be written beside" in done.stderr, done.stderr
     assert "No real problems." in done.stdout and not _left(rig)
+    assert _answers(rig) == [], "no answer stays behind to claim a verdict its archive could not keep"
+
+
+def test_new_input_is_counted_turn_by_turn(rig: Rig) -> None:
+    assert _ask(rig, mode = "turns").returncode == 0
+    text = _answers(rig)[0].read_text(encoding = "utf-8")
+    assert "**Tokens.** 60 new input, 140 cached input read again, 30 output." in text, text
 
 # ======================================================================================================================
 # files mode
