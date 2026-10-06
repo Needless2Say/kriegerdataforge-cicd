@@ -3,7 +3,8 @@
 #
 #   bash kdf-ask-codex.sh --repo <root> --brief <file> [--at <commit>] [--base <commit>]
 #   bash kdf-ask-codex.sh --files <folder> --brief <file>
-#   either takes [--kind review|plan|decision] [--effort high|xhigh] [--model <model>] [--no-settled] [--dry-run]
+#   either takes [--kind review|plan|decision|rules] [--effort high|xhigh] [--model <model>] [--no-settled] [--dry-run]
+#   and a review takes [--fix] [--security], the session declaring which of its questions swap (D-056)
 #
 # --kind says what the brief asks for, and only the frame's closing instruction changes with it (D-053). review, the
 # default, asks for real problems in the change. plan asks Codex to judge a plan in the brief against the code it reads,
@@ -114,7 +115,8 @@ fi
 [ -n "$brief" ] || die 2 "--brief is required. See --help."
 ! secret_name "$brief" || die 2 "the brief $brief is named like a secret file, Codex never reads one"
 case "$kind" in review|plan|decision|rules) ;; *) die 2 "--kind is review, plan, decision or rules" ;; esac
-[ "$kind" = review ] || [ "$fix$security" = 00 ] || die 2 "--fix and --security go with a review, a change before its push"
+[ "$kind" = review ] || [ "$fix$security" = 00 ] \
+	|| die 2 "--fix and --security go with a review, a change before its push"
 # the five questions each kind asks (D-056). The session declares a review's swaps, so every reader gets the same five
 case "$kind" in
 	plan) asked="1 2 3 6 14" ;;
@@ -281,10 +283,10 @@ EOF
 		;;
 		rules) cat <<'EOF'
 The question holds rules or process text, proposed or about to be pushed, which sessions and readers will follow as
-written. Judge it against what you read, in this order. First, in a few lines, how you would write it yourself, before you weigh it. Then whether
-the change is worth making at all, and the simplest alternative that would get most of its value. Then report what
-is wrong, missing or riskier than it says, most severe first, each tied to the file and the line that shows it, and
-what you would do instead. If it is sound, say so plainly.
+written. Judge it against what you read, in this order. First, in a few lines, how you would write it yourself,
+before you weigh it. Then whether the change is worth making at all, and the simplest alternative that would get most
+of its value. Then report what is wrong, missing or riskier than it says, most severe first, each tied to the file
+and the line that shows it, and what you would do instead. If it is sound, say so plainly.
 EOF
 		;;
 	esac

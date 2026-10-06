@@ -349,7 +349,12 @@ def test_each_kind_asks_exactly_its_five_and_the_answer_names_them(
     # clone shows
     assert _ask(rig, *args).returncode == 0
     frame = rig.frame.read_text(encoding = "utf-8")
-    found = {number for number, words in QUESTION_WORDS.items() if f"\n{words}" in frame}
+    lines = frame.splitlines()
+    found = {number for number, words in QUESTION_WORDS.items() if any(line.startswith(words) for line in lines)}
+    # each asked once, whole, a heading alone or a repeat failing
+    for number in asked:
+        printed = [line for line in lines if line.startswith(QUESTION_WORDS[number])]
+        assert len(printed) == 1 and printed[0].endswith("?") and len(printed[0]) > len(QUESTION_WORDS[number]) + 20
     assert found == asked
     assert "the probe it rests on" in frame and "not applicable" in frame and "unresolved" in frame
     answer = max(_answers(rig), key = lambda path: path.stat().st_mtime_ns).read_text(encoding = "utf-8")
@@ -361,6 +366,13 @@ def test_the_bank_holds_all_fourteen_questions_once() -> None:
     text    = TOOL.read_text(encoding = "utf-8")
     numbers = [int(match) for match in re.findall(r"^questions\[(\d+)\]=", text, re.MULTILINE)]
     assert sorted(numbers) == list(range(1, 15))
+    # each whole, its number first and a question at its end, a part added with += included
+    bank = {number: "" for number in numbers}
+    for number, part in re.findall(r'^questions\[(\d+)\]\+?="(.*)"$', text, re.MULTILINE):
+        bank[int(number)] += part
+    assert all(
+        words.startswith(f"{number}. ") and words.endswith("?") and len(words) > 40 for number, words in bank.items()
+    )
 
 
 def test_rules_is_its_own_kind_with_its_own_opening_and_archived_as_rules(rig: Rig) -> None:
