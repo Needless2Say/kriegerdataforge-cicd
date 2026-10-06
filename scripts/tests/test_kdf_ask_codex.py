@@ -337,6 +337,13 @@ def test_a_review_asks_no_worth_taking_question(rig: Rig) -> None:
     (["--fix"], {2, 10, 4, 6, 9}, "review, 2 10 4 6 9"),
     (["--security"], {2, 3, 4, 5, 9}, "review, 2 3 4 5 9"),
     (["--fix", "--security"], {2, 10, 4, 5, 9}, "review, 2 10 4 5 9"),
+    # what the session declares on top of a kind's five, each once, in the order given
+    (["--kind", "plan", "--also", "8"], {1, 2, 3, 6, 14, 8}, "plan, 1 2 3 6 14 8"),
+    (["--kind", "plan", "--security"], {1, 2, 3, 6, 14, 5}, "plan, 1 2 3 6 14 5"),
+    (["--kind", "decision", "--fix"], {1, 2, 9, 13, 14, 10}, "decision, 1 2 9 13 14 10"),
+    (["--also", "8"], {2, 3, 4, 6, 9, 8}, "review, 2 3 4 6 9 8"),
+    (["--kind", "plan", "--also", "3"], {1, 2, 3, 6, 14}, "plan, 1 2 3 6 14"),
+    (["--kind", "rules", "--also", "8", "--also", "5"], {3, 7, 11, 12, 13, 8, 5}, "rules, 3 7 11 12 13 8 5"),
 ])
 def test_each_kind_asks_exactly_its_five_and_the_answer_names_them(
     rig: Rig,
@@ -463,7 +470,8 @@ def test_a_session_in_the_reviewer_role_is_refused(rig: Rig) -> None:
     (["--files", "TMP", "--brief", "BRIEF", "--at", "HEAD"], "go with --repo"),
     (["--repo", "REPO", "--brief", "BRIEF", "--effort", "low"], "high or xhigh"),
     (["--repo", "REPO", "--brief", "BRIEF", "--kind", "essay"], "review, plan, decision or rules"),
-    (["--repo", "REPO", "--brief", "BRIEF", "--kind", "plan", "--fix"], "--fix and --security go with a review"),
+    (["--repo", "REPO", "--brief", "BRIEF", "--also", "15"], "--also takes a question's number, 1 to 14"),
+    (["--repo", "REPO", "--brief", "BRIEF", "--also", "load"], "--also takes a question's number, 1 to 14"),
     (["--repo", "REPO", "--brief", "BRIEF", "--surprise"], "unknown argument"),
 ])
 def test_a_wrong_call_is_refused_before_codex_starts(rig: Rig, args: list[str], says: str) -> None:

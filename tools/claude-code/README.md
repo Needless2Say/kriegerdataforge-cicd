@@ -262,9 +262,12 @@ kind's five stays in it for a reader to add.
 | `review` | 2 assumptions, 3 blast radius, 4 inputs and authority, 6 failure, order and undo, 9 evidence of success. `--fix` asks 10 the class in place of 3, `--security` asks 5 trust in place of 6, and a security fix passes both |
 | `rules` | 3 blast radius, 7 time, 11 enforcement and wording, 12 contradiction and drift, 13 the doer and the cost |
 
-Question 8, load, is in no kind's five. The session declares a review's swaps, so every reader of one change gets the
-same five, and a reader who thinks the change is a fix or touches security says so. The answer's header names the five
-asked, `Questions. plan, 1 2 3 6 14`, so a frame from a clone that was never pulled shows at once. The kind follows the
+The session declares more on top of the five, so every reader of one question gets the same list. `--fix` and
+`--security` swap a review's 3 and 6 and add 10 or 5 as an extra to any other kind, and `--also <n>` adds any
+question of the bank by its number, each once, such as `--also 8` for work where load or a failing dependency
+matters, since question 8 is in no kind's five. A reader of a review who thinks the change is a fix or touches
+security says so. The answer's header names every question asked, `Questions. plan, 1 2 3 6 14 8`, so a frame from a
+clone that was never pulled shows at once. The kind follows the
 judgment asked, not the subject. A plan to change the rules is a `plan`, and `rules` is for rules, briefs and process
 text alone, proposed or about to be pushed, with the plan's base three. A brief need not repeat its kind's questions,
 and may sharpen one under its own number. A question's words change by a pull request here. A clone gets the

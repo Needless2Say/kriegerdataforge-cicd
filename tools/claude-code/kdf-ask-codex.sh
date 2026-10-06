@@ -4,7 +4,7 @@
 #   bash kdf-ask-codex.sh --repo <root> --brief <file> [--at <commit>] [--base <commit>]
 #   bash kdf-ask-codex.sh --files <folder> --brief <file>
 #   either takes [--kind review|plan|decision|rules] [--effort high|xhigh] [--model <model>] [--no-settled] [--dry-run]
-#   and a review takes [--fix] [--security], the session declaring which of its questions swap (D-056)
+#   and [--fix] [--security] [--also <n>]..., the questions the session declares on top of its kind's five (D-056)
 #
 # --kind says what the brief asks for, and only the frame's closing instruction changes with it (D-053). review, the
 # default, asks for real problems in the change. plan asks Codex to judge a plan in the brief against the code it reads,
@@ -87,12 +87,14 @@ secret_under() {
 }
 
 repo="" files="" brief="" at="" base="" kind="review" effort="high" model="gpt-6.1-sol" settled=1 dry=0 fix=0 security=0
+also=""
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--repo) repo="${2:-}"; shift 2 || die 2 "--repo needs a value" ;;
 		--kind) kind="${2:-}"; shift 2 || die 2 "--kind needs a value" ;;
 		--fix) fix=1; shift ;;
 		--security) security=1; shift ;;
+		--also) also="$also ${2:-}"; shift 2 || die 2 "--also needs a question's number" ;;
 		--files) files="${2:-}"; shift 2 || die 2 "--files needs a value" ;;
 		--brief) brief="${2:-}"; shift 2 || die 2 "--brief needs a value" ;;
 		--at) at="${2:-}"; shift 2 || die 2 "--at needs a value" ;;
@@ -115,15 +117,24 @@ fi
 [ -n "$brief" ] || die 2 "--brief is required. See --help."
 ! secret_name "$brief" || die 2 "the brief $brief is named like a secret file, Codex never reads one"
 case "$kind" in review|plan|decision|rules) ;; *) die 2 "--kind is review, plan, decision or rules" ;; esac
-[ "$kind" = review ] || [ "$fix$security" = 00 ] \
-	|| die 2 "--fix and --security go with a review, a change before its push"
-# the five questions each kind asks (D-056). The session declares a review's swaps, so every reader gets the same five
+for number in $also; do
+	case "$number" in [1-9]|1[0-4]) ;; *) die 2 "--also takes a question's number, 1 to 14, not $number" ;; esac
+done
+# the five questions each kind asks (D-056), and what the session declares on top, so every reader gets the same list.
+# A review swaps 3 for 10 on a fix and 6 for 5 on a change to security, and any other kind adds them as extras
 case "$kind" in
 	plan) asked="1 2 3 6 14" ;;
 	decision) asked="1 2 9 13 14" ;;
 	rules) asked="3 7 11 12 13" ;;
 	review) asked="2 $([ "$fix" -eq 1 ] && echo 10 || echo 3) 4 $([ "$security" -eq 1 ] && echo 5 || echo 6) 9" ;;
 esac
+if [ "$kind" != review ]; then
+	[ "$fix" -eq 0 ] || also="$also 10"
+	[ "$security" -eq 0 ] || also="$also 5"
+fi
+for number in $also; do
+	case " $asked " in *" $number "*) ;; *) asked="$asked $number" ;; esac
+done
 case "$effort" in high|xhigh) ;; *) die 2 "--effort is high or xhigh" ;; esac
 command -v node >/dev/null 2>&1 || die 2 "node is not on PATH, it reads Codex's events"
 [ "$dry" -eq 1 ] || command -v "$codex_bin" >/dev/null 2>&1 || die 2 "$codex_bin is not on PATH"
@@ -293,7 +304,7 @@ EOF
 	# shellcheck disable=SC2086 # the five numbers split into one argument each
 	ask $asked
 	if [ "$kind" = review ]; then
-		printf '\nIf the change is a fix or touches security and these five do not show it, say so.\n'
+		printf '\nIf the change is a fix or touches security and these questions do not show it, say so.\n'
 	fi
 	printf '\n'
 	printf 'Your answer is advice for the session that asked, it changes nothing by itself.\n'
