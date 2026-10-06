@@ -3073,7 +3073,7 @@ the frozen frame too. The context repo's rules name `--kind rules` and the quest
   `epic-tracker`, `scripts/kit_registry.json` · synced to every repo
 
 **Context.** A long session's context fills and is compacted into a summary that keeps about one to two percent of it,
-and the sessions of one machine had been compacted 168 times in six weeks. Reviews already keep their state in files
+and long sessions are compacted often. Reviews already keep their state in files
 (section 11, "State lives in files"), and some designs keep a log beside them, but nothing asked it of other work, and
 sessions improvised, in memory notes and in scratch files that are not kept. On 2026-10-06 the owner asked for
 permanent records, in dedicated folders of the repo where the work happens, for features, bugs and reviews alike,
