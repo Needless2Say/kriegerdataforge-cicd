@@ -12,6 +12,7 @@ GitHub's runners have all three, and a machine without them skips the module. Th
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -23,6 +24,24 @@ import pytest
 TOOL = Path(__file__).resolve().parents[2] / "tools" / "claude-code" / "kdf-ask-codex.sh"
 NODE = shutil.which("node")
 BASH = os.environ.get("KDF_TEST_BASH") or shutil.which("bash")
+
+# the review panel's fourteen questions by the words each opens with in a frame (D-056)
+QUESTION_WORDS = {
+    1: "1. Outcome.",
+    2: "2. Assumptions.",
+    3: "3. Blast radius.",
+    4: "4. Inputs and authority.",
+    5: "5. Trust.",
+    6: "6. Failure, order and undo.",
+    7: "7. Time.",
+    8: "8. Load.",
+    9: "9. Evidence of success.",
+    10: "10. The class.",
+    11: "11. Enforcement and wording.",
+    12: "12. Contradiction and drift.",
+    13: "13. The doer and the cost.",
+    14: "14. Pre mortem.",
+}
 
 # the flags verified on 2026-10-05, each as the tool must pass it
 VERIFIED = (
@@ -255,9 +274,15 @@ def test_two_runs_in_the_same_second_keep_their_own_answer_frame_and_events(rig:
     ("review", "Report only real problems, most severe first"),
     ("plan", "The question holds a plan, not code. Judge it against what you read, in this order."),
     ("decision", "The question holds a decision and its options. Choose as if the choice were yours."),
+    ("rules", "The question holds rules or process text, proposed or about to be pushed"),
 ])
 def test_each_kind_closes_the_frame_with_its_own_instruction(rig: Rig, kind: str, closes: str) -> None:
-    others = {"review": "Report only real problems", "plan": "holds a plan", "decision": "Name your pick first"}
+    others = {
+        "review": "Report only real problems",
+        "plan": "holds a plan",
+        "decision": "Name your pick first",
+        "rules": "holds rules or process text",
+    }
     assert _ask(rig).returncode == 0
     review = rig.frame.read_text(encoding = "utf-8")
     assert _ask(rig, "--kind", kind).returncode == 0
@@ -302,6 +327,73 @@ def test_a_review_asks_no_worth_taking_question(rig: Rig) -> None:
     assert _ask(rig).returncode == 0
     frame = " ".join(rig.frame.read_text(encoding = "utf-8").split())
     assert "worth taking" not in frame and "how you would approach it yourself" not in frame
+
+
+@pytest.mark.parametrize("args, asked, header", [
+    (["--kind", "plan"], {1, 2, 3, 6, 14}, "plan, 1 2 3 6 14"),
+    (["--kind", "decision"], {1, 2, 9, 13, 14}, "decision, 1 2 9 13 14"),
+    (["--kind", "rules"], {3, 7, 11, 12, 13}, "rules, 3 7 11 12 13"),
+    ([], {2, 3, 4, 6, 9}, "review, 2 3 4 6 9"),
+    (["--fix"], {2, 10, 4, 6, 9}, "review, 2 10 4 6 9"),
+    (["--security"], {2, 3, 4, 5, 9}, "review, 2 3 4 5 9"),
+    (["--fix", "--security"], {2, 10, 4, 5, 9}, "review, 2 10 4 5 9"),
+    # what the session declares on top of a kind's five, each once, in the order given
+    (["--kind", "plan", "--also", "8"], {1, 2, 3, 6, 14, 8}, "plan, 1 2 3 6 14 8"),
+    (["--kind", "plan", "--security"], {1, 2, 3, 6, 14, 5}, "plan, 1 2 3 6 14 5"),
+    (["--kind", "decision", "--fix"], {1, 2, 9, 13, 14, 10}, "decision, 1 2 9 13 14 10"),
+    (["--also", "8"], {2, 3, 4, 6, 9, 8}, "review, 2 3 4 6 9 8"),
+    (["--kind", "plan", "--also", "3"], {1, 2, 3, 6, 14}, "plan, 1 2 3 6 14"),
+    (["--kind", "rules", "--also", "8", "--also", "5"], {3, 7, 11, 12, 13, 8, 5}, "rules, 3 7 11 12 13 8 5"),
+    (["--kind", "rules", "--security", "--fix"], {3, 7, 11, 12, 13, 10, 5}, "rules, 3 7 11 12 13 10 5"),
+    (["--kind", "plan", "--also", "8", "--also", "8"], {1, 2, 3, 6, 14, 8}, "plan, 1 2 3 6 14 8"),
+    (["--kind", "plan", "--security", "--also", "5"], {1, 2, 3, 6, 14, 5}, "plan, 1 2 3 6 14 5"),
+    (["--fix", "--also", "10"], {2, 10, 4, 6, 9}, "review, 2 10 4 6 9"),
+])
+def test_each_kind_asks_exactly_its_five_and_the_answer_names_them(
+    rig: Rig,
+    args: list[str],
+    asked: set[int],
+    header: str,
+) -> None:
+    # D-056. Each kind asks its five of the bank, a review's swaps declared by the session so every reader gets the
+    # same five, and the answer's header names them, so a question left out, mapped wrong, or a frame from an old
+    # clone shows
+    assert _ask(rig, *args).returncode == 0
+    frame = rig.frame.read_text(encoding = "utf-8")
+    lines = frame.splitlines()
+    found = {number for number, words in QUESTION_WORDS.items() if any(line.startswith(words) for line in lines)}
+    # each asked once, whole, a heading alone or a repeat failing
+    for number in asked:
+        printed = [line for line in lines if line.startswith(QUESTION_WORDS[number])]
+        assert len(printed) == 1 and printed[0].endswith("?") and len(printed[0]) > len(QUESTION_WORDS[number]) + 20
+    assert found == asked
+    assert "the probe it rests on" in frame and "not applicable" in frame and "unresolved" in frame
+    answer = max(_answers(rig), key = lambda path: path.stat().st_mtime_ns).read_text(encoding = "utf-8")
+    assert f"**Questions.** {header}." in answer
+
+
+def test_the_bank_holds_all_fourteen_questions_once() -> None:
+    # the words live in the script alone, every question of the bank once, those in no kind's five included
+    text    = TOOL.read_text(encoding = "utf-8")
+    numbers = [int(match) for match in re.findall(r"^questions\[(\d+)\]=", text, re.MULTILINE)]
+    assert sorted(numbers) == list(range(1, 15))
+    # each whole, its number first and a question at its end, a part added with += included
+    bank = {number: "" for number in numbers}
+    for number, part in re.findall(r'^questions\[(\d+)\]\+?="(.*)"$', text, re.MULTILINE):
+        bank[int(number)] += part
+    assert all(
+        words.startswith(f"{number}. ") and words.endswith("?") and len(words) > 40 for number, words in bank.items()
+    )
+
+
+def test_rules_is_its_own_kind_with_its_own_opening_and_archived_as_rules(rig: Rig) -> None:
+    # rules or process text is read as text that sessions follow, not as a plan, and its answer says so
+    assert _ask(rig, "--kind", "rules").returncode == 0
+    frame = " ".join(rig.frame.read_text(encoding = "utf-8").split())
+    assert "The question holds rules or process text" in frame and "holds a plan" not in frame
+    assert "**Kind.** rules." in max(_answers(rig), key = lambda path: path.stat().st_mtime_ns).read_text(
+        encoding = "utf-8",
+    )
 
 
 def test_the_frame_carries_the_question_the_conventions_and_the_settled_decisions(rig: Rig) -> None:
@@ -381,7 +473,12 @@ def test_a_session_in_the_reviewer_role_is_refused(rig: Rig) -> None:
     (["--repo", "REPO", "--files", "REPO", "--brief", "BRIEF"], "give --repo or --files"),
     (["--files", "TMP", "--brief", "BRIEF", "--at", "HEAD"], "go with --repo"),
     (["--repo", "REPO", "--brief", "BRIEF", "--effort", "low"], "high or xhigh"),
-    (["--repo", "REPO", "--brief", "BRIEF", "--kind", "essay"], "review, plan or decision"),
+    (["--repo", "REPO", "--brief", "BRIEF", "--kind", "essay"], "review, plan, decision or rules"),
+    (["--repo", "REPO", "--brief", "BRIEF", "--also", "15"], "--also takes a question's number, 1 to 14"),
+    (["--repo", "REPO", "--brief", "BRIEF", "--also", "load"], "--also takes a question's number, 1 to 14"),
+    (["--repo", "REPO", "--brief", "BRIEF", "--also", ""], "--also takes a question's number, 1 to 14"),
+    (["--repo", "REPO", "--brief", "BRIEF", "--also", "8 11"], "--also takes a question's number, 1 to 14"),
+    (["--repo", "REPO", "--brief", "BRIEF", "--also", "*"], "--also takes a question's number, 1 to 14"),
     (["--repo", "REPO", "--brief", "BRIEF", "--surprise"], "unknown argument"),
 ])
 def test_a_wrong_call_is_refused_before_codex_starts(rig: Rig, args: list[str], says: str) -> None:

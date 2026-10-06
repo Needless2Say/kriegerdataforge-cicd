@@ -3021,3 +3021,45 @@ weighs each finding on its evidence.
 **Consequences.** Every plan and decision a session sends through the tool asks the question. The review panel trial
 of 2026-10-06, a fresh Claude reader beside Codex on a consequential question, lives in the context repo. VERSION
 0.2.138.
+
+## D-056. Each kind of read asks its five critical questions, and rules text is a kind of its own
+
+- **Date.** 2026-10-06
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Standard · `tools/claude-code/kdf-ask-codex.sh`, its README section and
+  `scripts/tests/test_kdf_ask_codex.py` · not synced
+
+**Context.** On 2026-10-06 the owner adopted fourteen critical questions beyond "is anything wrong" and "is it worth
+doing", and five that suit each kind of work, and chose to strengthen the questions before adding readers. A question
+a session must remember to paste into each brief is a question some session forgets.
+
+**Decision.**
+
+- **One bank in the script.** The fourteen questions are worded once, in the array `questions`, so the words cannot
+  drift between copies. A question in no kind's five, 8 load, stays in the bank for a reader to add.
+- **Each kind asks its five**, answered in a line or two apart from the findings, with the file and line or the probe
+  each rests on, or not applicable, or unresolved and what would settle it. A plan 1, 2, 3, 6 and 14. A decision 1,
+  2, 9, 13 and 14. A review 2, 3, 4, 6 and 9.
+- **The session declares more**, so every reader of one question gets the same list. `--fix` and `--security` swap a
+  review's 3 for 10 and 6 for 5, and add 10 or 5 as an extra to any other kind. `--also <n>` adds any question of the
+  bank by its number, each once, such as 8, load, which is in no kind's five. The owner asked for this on 2026-10-06,
+  since a plan touching security or fixing a defect, and work where load matters, asked none of them.
+- **`--kind rules`** for rules, briefs and process text alone, proposed or about to be pushed, opening as text that
+  sessions and readers follow as written, with the plan's base three and questions 3, 7, 11, 12 and 13. The kind
+  follows the judgment asked, not the subject.
+- **The answer's header names every question asked**, `Questions. plan, 1 2 3 6 14 8`, so a frame from a clone that
+  was never pulled shows at once.
+
+**Alternatives considered.**
+
+- *Paste the questions into each brief.* Rejected, it depends on every session remembering, the risk the frame exists
+  to remove (D-053).
+- *A second tool or flags for each question.* Not taken, one frame with a closing per kind already carries it.
+
+**Trade-offs.** Every answer grows by a few short lines. A reader can answer five headings and probe little, so the
+session still judges each answer by the line or probe it gives. The questions reach a machine only once its cicd clone
+is pulled.
+
+**Consequences.** Every read through the tool asks its kind's questions, and the panel's second reader gets them in
+the frozen frame too. The context repo's rules name `--kind rules` and the questions after this merges. VERSION
+0.2.139.
