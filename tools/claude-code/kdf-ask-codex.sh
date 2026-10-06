@@ -87,14 +87,17 @@ secret_under() {
 }
 
 repo="" files="" brief="" at="" base="" kind="review" effort="high" model="gpt-6.1-sol" settled=1 dry=0 fix=0 security=0
-also=""
+also=()
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--repo) repo="${2:-}"; shift 2 || die 2 "--repo needs a value" ;;
 		--kind) kind="${2:-}"; shift 2 || die 2 "--kind needs a value" ;;
 		--fix) fix=1; shift ;;
 		--security) security=1; shift ;;
-		--also) also="$also ${2:-}"; shift 2 || die 2 "--also needs a question's number" ;;
+		--also)
+			# each value whole, one number, so an empty, spaced or wildcard value is refused rather than split
+			case "${2:-}" in [1-9]|1[0-4]) also+=("$2") ;; *) die 2 "--also takes a question's number, 1 to 14" ;; esac
+			shift 2 ;;
 		--files) files="${2:-}"; shift 2 || die 2 "--files needs a value" ;;
 		--brief) brief="${2:-}"; shift 2 || die 2 "--brief needs a value" ;;
 		--at) at="${2:-}"; shift 2 || die 2 "--at needs a value" ;;
@@ -117,9 +120,6 @@ fi
 [ -n "$brief" ] || die 2 "--brief is required. See --help."
 ! secret_name "$brief" || die 2 "the brief $brief is named like a secret file, Codex never reads one"
 case "$kind" in review|plan|decision|rules) ;; *) die 2 "--kind is review, plan, decision or rules" ;; esac
-for number in $also; do
-	case "$number" in [1-9]|1[0-4]) ;; *) die 2 "--also takes a question's number, 1 to 14, not $number" ;; esac
-done
 # the five questions each kind asks (D-056), and what the session declares on top, so every reader gets the same list.
 # A review swaps 3 for 10 on a fix and 6 for 5 on a change to security, and any other kind adds them as extras
 case "$kind" in
@@ -129,10 +129,10 @@ case "$kind" in
 	review) asked="2 $([ "$fix" -eq 1 ] && echo 10 || echo 3) 4 $([ "$security" -eq 1 ] && echo 5 || echo 6) 9" ;;
 esac
 if [ "$kind" != review ]; then
-	[ "$fix" -eq 0 ] || also="$also 10"
-	[ "$security" -eq 0 ] || also="$also 5"
+	[ "$fix" -eq 0 ] || also+=(10)
+	[ "$security" -eq 0 ] || also+=(5)
 fi
-for number in $also; do
+for number in ${also[@]+"${also[@]}"}; do
 	case " $asked " in *" $number "*) ;; *) asked="$asked $number" ;; esac
 done
 case "$effort" in high|xhigh) ;; *) die 2 "--effort is high or xhigh" ;; esac
