@@ -33,7 +33,9 @@ on:
         type: string
         default: "3.14"
       kdf_fmt_ref:
-        description: An override of the formatter's ref, a branch, tag or full commit id of kriegerdataforge-fmt. Empty, the default, reads the ref from the caller's requirements-dev.in, where every repo names kdf-fmt at main (D-054)
+        description: >-
+          An override of the formatter's ref, a branch, tag or full commit id of kriegerdataforge-fmt. Empty, the
+          default, reads the ref from the caller's requirements-dev.in, where every repo names kdf-fmt at main (D-054)
         type: string
         default: ""
       check_command:
@@ -1065,7 +1067,8 @@ jobs:
                       lines = [re.sub(r"(^|\s)#.*$", "", line).strip() for line in handle]
               except OSError:
                   sys.exit("::error::requirements-dev.in is missing. It declares kdf-fmt, or the caller passes kdf_fmt_ref")
-              named = [line for line in lines if re.match(r"kdf[-_.]fmt(?![A-Za-z0-9_.-])", line, re.IGNORECASE)]
+              # any name pip reads as kdf-fmt, a run of - _ or . between its parts, in any case
+              named = [line for line in lines if re.match(r"kdf[-_.]+fmt(?![A-Za-z0-9_.-])", line, re.IGNORECASE)]
               url = r"kdf-fmt\s*@\s*git\+https://github\.com/Needless2Say/kriegerdataforge-fmt\.git@"
               found = re.fullmatch(url + f"({REF})", named[0]) if len(named) == 1 else None
               if found is None:
