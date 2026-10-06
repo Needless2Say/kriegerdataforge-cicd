@@ -64,6 +64,8 @@ case "${STUB_MODE:-clean}" in
     strange) printf '{"type":"item.completed","item":{"id":"2","type":"mcp_tool_call","server":"s","tool":"t"}}\\n' ;;
     garbled) printf 'not an event\\n' ;;
     shapeless) printf '{}\\n[]\\n' ;;
+    turns) usage='"usage":{"input_tokens":100,"cached_input_tokens":150,"output_tokens":10}'
+           printf '{"type":"turn.completed",%s}\\n' "$usage" ;;
     dirty) printf 'x\\n' > written.txt ;;
     commit) git -c user.name=s -c user.email=s@example.com commit -q --allow-empty -m moved ;;
     nogit) rm -f .git ;;
@@ -73,7 +75,7 @@ case "${STUB_MODE:-clean}" in
     fail) echo "boom" >&2; exit 3 ;;
 esac
 printf '{"type":"item.completed","item":{"id":"3","type":"agent_message","text":"No real problems."}}\\n'
-printf '{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":0,"output_tokens":20}}\\n'
+printf '{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":20}}\\n'
 [ -z "$answer" ] || printf 'No real problems.\\n' > "$answer"
 """
 
@@ -224,7 +226,9 @@ def test_a_clean_run_passes_the_verified_flags_and_archives_the_answer(rig: Rig)
     text = answers[0].read_text(encoding = "utf-8")
     assert text.startswith("# Codex on repo at commit ")
     assert "**Settled decisions in the frame.** yes." in text and "**Outside the shell.** none." in text
-    assert "120 tokens, 1 commands" in text and text.rstrip().endswith("No real problems.")
+    assert "**Verdict.** passed." in text and "**Kind.** review." in text, "review is the default kind"
+    assert "**Tokens.** 60 new input, 40 cached input read again, 20 output." in text
+    assert ", 1 commands, " in text and text.rstrip().endswith("No real problems.")
     assert answers[0].with_suffix(".events.jsonl").is_file() and (rig.archive / f"{answers[0].stem}.frame.md").is_file()
     assert "its folder unchanged" in done.stdout and not _left(rig)
 
@@ -245,6 +249,27 @@ def test_two_runs_in_the_same_second_keep_their_own_answer_frame_and_events(rig:
     answers = _answers(rig)
     assert len(answers) == 2 and all(answer.name.startswith("2026-10-05-120000-") for answer in answers)
     assert len(list(rig.archive.glob("*.frame.md"))) == 2 and len(list(rig.archive.glob("*.events.jsonl"))) == 2
+
+
+@pytest.mark.parametrize("kind, closes", [
+    ("review", "Report only real problems, most severe first"),
+    ("plan", "The question holds a plan, not code. Judge it against what you read."),
+    ("decision", "The question holds a decision and its options. Choose as if the choice were yours."),
+])
+def test_each_kind_closes_the_frame_with_its_own_instruction(rig: Rig, kind: str, closes: str) -> None:
+    others = {"review": "Report only real problems", "plan": "holds a plan", "decision": "Name your pick first"}
+    assert _ask(rig).returncode == 0
+    review = rig.frame.read_text(encoding = "utf-8")
+    assert _ask(rig, "--kind", kind).returncode == 0
+    frame = rig.frame.read_text(encoding = "utf-8")
+    assert frame.count(closes) == 1 and frame.rstrip().endswith("it changes nothing by itself.")
+    assert not [text for name, text in others.items() if name != kind and text in frame], "one closing, its own"
+    review_closes = "Report only real problems, most severe first"
+    assert frame.split(closes)[0] == review.split(review_closes)[0], "the frame before the closing is the same"
+    assert frame.count("it changes nothing by itself.") == 1
+    assert f"**Kind.** {kind}." in max(_answers(rig), key = lambda path: path.stat().st_mtime_ns).read_text(
+        encoding = "utf-8",
+    )
 
 
 def test_the_frame_carries_the_question_the_conventions_and_the_settled_decisions(rig: Rig) -> None:
@@ -324,6 +349,7 @@ def test_a_session_in_the_reviewer_role_is_refused(rig: Rig) -> None:
     (["--repo", "REPO", "--files", "REPO", "--brief", "BRIEF"], "give --repo or --files"),
     (["--files", "TMP", "--brief", "BRIEF", "--at", "HEAD"], "go with --repo"),
     (["--repo", "REPO", "--brief", "BRIEF", "--effort", "low"], "high or xhigh"),
+    (["--repo", "REPO", "--brief", "BRIEF", "--kind", "essay"], "review, plan or decision"),
     (["--repo", "REPO", "--brief", "BRIEF", "--surprise"], "unknown argument"),
 ])
 def test_a_wrong_call_is_refused_before_codex_starts(rig: Rig, args: list[str], says: str) -> None:
@@ -406,6 +432,8 @@ def test_codex_changing_its_folder_fails_the_run_and_the_worktree_still_goes(rig
     done = _ask(rig, mode = "dirty")
     assert done.returncode == 1 and "changed its folder" in done.stderr and "written.txt" in done.stderr
     assert not _left(rig) and not Path(_logged(rig, "pwd=")).exists()
+    text = _answers(rig)[0].read_text(encoding = "utf-8")
+    assert "**Verdict.** failed, Codex changed its folder" in text, "its answer is kept and never passes for a review"
 
 
 def test_a_commit_in_the_folder_fails_the_run_though_git_status_is_clean(rig: Rig) -> None:
@@ -417,7 +445,7 @@ def test_a_commit_in_the_folder_fails_the_run_though_git_status_is_clean(rig: Ri
 def test_a_folder_git_cannot_read_fails_the_run_and_its_registration_still_goes(rig: Rig) -> None:
     done = _ask(rig, mode = "nogit")
     assert done.returncode == 1 and "git could not read the folder" in done.stderr, done.stderr
-    assert not _left(rig), "git would not remove the broken worktree, so prune dropped it"
+    assert not _left(rig), "git would not remove the broken worktree, so its registration went by hand"
 
 
 def test_a_locked_worktree_is_still_removed(rig: Rig) -> None:
@@ -445,12 +473,15 @@ def test_codex_failing_fails_the_run_and_keeps_what_it_was_told(rig: Rig) -> Non
     done = _ask(rig, mode = "fail")
     assert done.returncode == 1 and "codex exited 3" in done.stderr and "boom" in done.stderr
     assert list(rig.archive.glob("*.frame.md")), "the frame is archived for the next try"
+    assert "**Verdict.** failed, codex exited 3" in _answers(rig)[0].read_text(encoding = "utf-8")
 
 
 def test_codex_writing_no_answer_fails_the_run(rig: Rig) -> None:
     done = _ask(rig, mode = "silent")
     assert done.returncode == 1 and "wrote no answer" in done.stderr, done.stderr
-    assert "(no answer was written)" in _answers(rig)[0].read_text(encoding = "utf-8")
+    text = _answers(rig)[0].read_text(encoding = "utf-8")
+    assert "(no answer was written)" in text
+    assert "**Verdict.** failed, Codex exited cleanly and wrote no answer." in text
 
 
 def test_events_that_cannot_be_read_fail_the_run(rig: Rig) -> None:
@@ -479,6 +510,13 @@ def test_a_frame_that_cannot_be_kept_beside_the_answer_fails_the_run(rig: Rig) -
     done   = _ask(rig, env = broken)
     assert done.returncode == 1 and "could not be written beside" in done.stderr, done.stderr
     assert "No real problems." in done.stdout and not _left(rig)
+    assert _answers(rig) == [], "no answer stays behind to claim a verdict its archive could not keep"
+
+
+def test_new_input_is_counted_turn_by_turn(rig: Rig) -> None:
+    assert _ask(rig, mode = "turns").returncode == 0
+    text = _answers(rig)[0].read_text(encoding = "utf-8")
+    assert "**Tokens.** 60 new input, 140 cached input read again, 30 output." in text, text
 
 # ======================================================================================================================
 # files mode
