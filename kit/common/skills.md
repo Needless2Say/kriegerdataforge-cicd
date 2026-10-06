@@ -208,7 +208,8 @@ server authoritative rule above is necessary but **not** sufficient. Also:
 - **Private Python packages stay private** *(kdf_sdk · template-python-package)*: they install via
   `git+https://…@main` with a fine grained PAT (Contents: Read on the package repo only), and the consumer's
   `requirements.txt` locks the commit. Every code merge there is a release, so `main` is the latest one. The formatter
-  kdf-fmt keeps cicd's canonical tag pin. **Never add a public PyPI publish workflow**. The sanctioned future is an
+  kdf-fmt is declared once, at `main` in `requirements-dev.in`, which the style lane reads and `make ci-style` refreshes
+  from before each check (cicd D-054). **Never add a public PyPI publish workflow**. The sanctioned future is an
   **internal PyPI in GCP** (needs an ADR first).
 - **A token is one step's, never a job's.** Hand a package token to the step that clones and to no other, through
   git's per process settings in that step's `env` (`GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0`, `GIT_CONFIG_VALUE_0`).

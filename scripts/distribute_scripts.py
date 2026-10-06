@@ -89,12 +89,12 @@ VENDOR_DIR        = "scripts/kdf_scripts/"
 # and a lockfile would add a compile-requirements target to six Makefiles for no gain.
 _REQUIREMENTS_HEADER = (
     "# Managed by kriegerdataforge-cicd (distribute_scripts.py, ADR D-013).\n"
-    "# Pins the Python toolchain that operates on the vendored scripts/kdf_scripts/\n"
+    "# Declares the Python toolchain that operates on the vendored scripts/kdf_scripts/\n"
     "# copies. The scripts themselves are stdlib-only and need nothing to RUN.\n"
     "#\n"
-    "# The distributor never rewrites a pin it did not expect: a version here that\n"
-    "# disagrees with the canonical one fails the sync as NEEDS MANUAL ATTENTION\n"
-    "# rather than silently moving you to another release.\n"
+    "# kdf-fmt tracks main (cicd D-054), and this line is its one declaration. The reusable\n"
+    "# style lane reads its ref from here, and `make ci-style` reinstalls from it before\n"
+    "# each check, so the local check and CI run the same formatter.\n"
 )
 
 # `name @ git+https://...` and plain `name==x.y.z` both start with the distribution

@@ -26,7 +26,7 @@ SCRIPT  = TOOLS / "kdf-codex-install.sh"
 SKILL   = TOOLS / "kdf-codex-start-skill.md"
 BASH    = os.environ.get("KDF_TEST_BASH") or shutil.which("bash")
 REPO    = "kriegerdataforge-sdk"
-PRIVATE = "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@v1.3.0"
+PRIVATE = "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@main"
 
 # the venv's python. Each call is one line of the log, and a pip install that reads a requirements file also logs every
 # line it read, so a test sees what reached pip. STUB_FAIL names a call that fails, the way a broken install would

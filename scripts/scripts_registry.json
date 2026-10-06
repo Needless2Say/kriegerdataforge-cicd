@@ -38,13 +38,13 @@
   "makefile_patch": true,
   "kdf_fmt_patch": true,
   "requirements_patch": {
-    "_comment": "Canonical Python toolchain pins merged into every repo's requirements-dev.in. The vendored scripts are stdlib-only and need nothing to RUN; this pins the tools that LINT and FORMAT them, so local dev and CI agree. A package already declared at a different version fails the sync as NEEDS MANUAL ATTENTION -- never rewritten, because a kdf-fmt version change moves style baselines. 'kdf_fmt_ref' is checked read-only against .github/workflows/ci.yml and never written (pushing workflow files needs the 'workflow' token scope).",
+    "_comment": "Canonical Python toolchain declarations merged into every repo's requirements-dev.in. The vendored scripts are stdlib-only and need nothing to RUN, and this declares the tools that LINT and FORMAT them, so local dev and CI agree. kdf-fmt tracks main (D-054), the style lanes read its ref from requirements-dev.in and make ci-style refreshes it before each check, so no pin moves again. A package already declared differently fails the sync as NEEDS MANUAL ATTENTION and is never rewritten. 'kdf_fmt_ref' is checked read only against .github/workflows/ci.yml, where a repo passes it only as an override and most pass none, and never written, since pushing workflow files needs the 'workflow' token scope.",
     "target": "requirements-dev.in",
-    "kdf_fmt_ref": "v1.3.0",
+    "kdf_fmt_ref": "main",
     "packages": [
       {
         "name": "kdf-fmt",
-        "spec": "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@v1.3.0"
+        "spec": "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@main"
       }
     ]
   },

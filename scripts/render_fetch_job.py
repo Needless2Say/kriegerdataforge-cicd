@@ -64,10 +64,12 @@ LANE_FILLS = {
     "NEEDS_SDK_AUTH": "inputs.needs_sdk_auth",
 }
 
-# and fixed in the style lane, no requirement file read, the pinned formatter its one mirror and its token's one repo
+# and fixed in the style lane, the formatter its one mirror and its token's one repo. With no kdf_fmt_ref it comes from
+# the caller's requirements-dev.in, the one private package every repo names there (D-054), and with one, the override,
+# from that ref alone with no requirement file read
 STYLE_FILLS = {
-    "REQUIREMENT_FILES": '""',
-    "EXTRA_REPOS": "kriegerdataforge-fmt@${{ inputs.kdf_fmt_ref }}",
+    "REQUIREMENT_FILES": "${{ inputs.kdf_fmt_ref == '' && 'requirements-dev.in' || '' }}",
+    "EXTRA_REPOS": "${{ inputs.kdf_fmt_ref != '' && format('kriegerdataforge-fmt@{0}', inputs.kdf_fmt_ref) || '' }}",
     "SCAN_FILES": '""',
     "TOKEN_REPOSITORIES": "kriegerdataforge-fmt",
     "NEEDS_SDK_AUTH": "true",

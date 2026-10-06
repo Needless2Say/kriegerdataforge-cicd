@@ -62,11 +62,12 @@ jobs:
   # KDF house style over scripts/, baseline gated so only NEW violations fail. This repo is public, so it calls the one
   # job lane for public repos (D-044, D-038 before it), because the shared lane's fetch refuses a public caller's mirror
   # of the private formatter. The shared lane's fetch job is the seven lanes' template, which the secretless proof below
-  # runs, and its check job is held to the template by test_secretless_lanes.py
+  # runs, and its check job is held to the template by test_secretless_lanes.py. This repo has no requirements-dev.in,
+  # where every other repo declares the formatter, so it passes the ref, main, the canonical one (D-054)
   style:
     uses: ./.github/workflows/ci-kdf-fmt-public.yml
     with:
-      kdf_fmt_ref: v1.3.0
+      kdf_fmt_ref: main
       baseline: kdf-style-debt.json
     secrets: inherit
 

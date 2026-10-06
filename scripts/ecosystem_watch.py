@@ -89,8 +89,9 @@ _PIN_HEAD = r"""^[ \t]*["']?(?P<name>[A-Za-z0-9_.-]+)(?:\[[^\]\n]*\])?[ \t]*@[ \
 _PIN_TAIL = r"""/(?P<repo>[A-Za-z0-9_.-]+?)(?:\.git)?@(?P<ref>[A-Za-z0-9_.-]+)"""
 GIT_PIN   = re.compile(_PIN_HEAD + re.escape(OWNER) + _PIN_TAIL, re.MULTILINE)
 
-# the style lane's input in a repo's ci.yml, `kdf_fmt_ref: v1.3.0`, never in a comment
-KDF_FMT_REF = re.compile(r"""^[ \t]*kdf_fmt_ref:[ \t]*["']?(?P<ref>v?\d+\.\d+\.\d+)["']?[ \t]*$""", re.MULTILINE)
+# the style lane's input in a repo's ci.yml, `kdf_fmt_ref: v1.3.0` or `main`, never in a comment. Since D-054 a repo
+# passes it only as an override, and requirements-dev.in names the formatter
+KDF_FMT_REF = re.compile(r"""^[ \t]*kdf_fmt_ref:[ \t]*["']?(?P<ref>v?\d+\.\d+\.\d+|main)["']?[ \t]*$""", re.MULTILINE)
 
 # an npm package of the owner's, by its name, and the repo whose tags are its releases
 NPM_SOURCES = {"@needless2say/report-form": "kriegerdataforge-report-form"}

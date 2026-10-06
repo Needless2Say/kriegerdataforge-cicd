@@ -1,5 +1,5 @@
 # kdf-fmt configuration — the KDF Python house style (spec: kriegerdataforge-fmt
-# docs/reference/KDF_FMT_SPEC.md; tool pinned in ci.yml `kdf_fmt_ref` + Makefile).
+# docs/reference/KDF_FMT_SPEC.md; tool at main, ci.yml `kdf_fmt_ref`, refreshed by the Makefile, D-054).
 # Adoption is BASELINE-gated (kdf-style-debt.json): pre-existing findings are
 # recorded debt, only NEW violations fail. Burn down with `kdf-fmt format` per area,
 # then `kdf-fmt check --update-baseline`.

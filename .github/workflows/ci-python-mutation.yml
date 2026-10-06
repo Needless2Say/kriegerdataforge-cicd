@@ -112,8 +112,11 @@ jobs:
           rule is not the fence, a pin the scan misses fails closed in the install job, which has no mirror and no token for it.
           A ref read out of a
           requirement file is a tag or a full commit id, never a branch. A branch is allowed only for a repo the caller lists by
-          name as an extra repo, and is resolved to the commit it points at, which the manifest records. One branch is let
-          through without being fetched. A branch written only in `.in` files, where the owner names a private package at
+          name as an extra repo, and is resolved to the commit it points at, which the manifest records. The house formatter's
+          repo is the one exception (D-054). Every repo's requirements-dev.in names kdf-fmt at main with no lock beside it, so
+          its branch is resolved once to the commit it points at and fetched as an extra repo's is, the mirror's branch set to
+          that commit, so a move of the branch after the fetch changes nothing a lane installs. One branch is let through
+          without being fetched. A branch written only in `.in` files, where the owner names a private package at
           `main` (D-051), is left to the lock compiled from each, the `.txt` file of the same name beside it, when that lock
           pins the same repo by a full commit id. The fetch takes the lock's commit, which every lane installs, and never the
           branch. A requirement file's name holds no colon, since a mirror's files are named `repo:path`.
@@ -156,6 +159,10 @@ jobs:
               # the public stand in that lets this repo's own CI prove the path without publishing private code
               "kriegerdataforge-cicd": "public",
           }
+
+          # the house formatter's repo, the one repo a requirement file may name at a branch, since every repo declares kdf-fmt
+          # at main in requirements-dev.in with no lock beside it (D-054)
+          FORMATTER = "kriegerdataforge-fmt"
 
           PIN = re.compile(r"git\+https://github\.com/Needless2Say/(?P<repo>[A-Za-z0-9._-]+?)\.git@(?P<ref>[^\s#;,'\"\[\]]+)")
           MENTION    = re.compile(r"github\.com[:/]+needless2say/", re.IGNORECASE)
@@ -680,7 +687,7 @@ jobs:
                   repo: the repo's name under the owner
                   ref: the ref as written
                   refs: the repo's refs from ls-remote
-                  allow_branch: whether a branch is allowed, only for a repo the caller lists by name
+                  allow_branch: whether a branch is allowed, only for a repo the caller lists by name, or the house formatter's
                   source: where the ref was written, for a refusal's message
                   defer_branch: whether a branch that is not allowed is left to the lock beside the files that name it, as
                       lock_covers says, rather than refused
@@ -885,7 +892,7 @@ jobs:
               by_repo: dict[str, list[dict]] = {}
               for (repo, ref), sources in sorted(pins.items()):
                   covered = lock_covers(repo, ref, sources, pins)
-                  kind, sha = classify(repo, ref, mirrors.refs(repo), False, sources[0], defer_branch = covered)
+                  kind, sha = classify(repo, ref, mirrors.refs(repo), repo == FORMATTER, sources[0], defer_branch = covered)
                   if kind == "deferred":
                       print(f"  {repo}@{ref} from {', '.join(sources)} is a branch, left to the commit its lock pins")
                       continue
