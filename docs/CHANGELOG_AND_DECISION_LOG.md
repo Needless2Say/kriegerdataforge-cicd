@@ -2982,3 +2982,42 @@ step, under the frozen style spec. Each `make ci-style` reaches the network for 
 package also clears a stale lock that still pins kdf-fmt. Kit v1.18.0 and the scripts sync wait for the owner's
 Distribute after all of them merge, since the sync reports a repo still on the tag for manual attention, the SDK until
 its campaign closes. D-051 stays as written, and this supersedes its formatter part. VERSION 0.2.136.
+
+## D-055. A plan or a decision first asks whether its route is worth taking
+
+- **Date.** 2026-10-06
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Standard · `tools/claude-code/kdf-ask-codex.sh`, its README section and
+  `scripts/tests/test_kdf_ask_codex.py` · not synced
+
+**Context.** D-053's plan and decision frames asked what is wrong with a plan, or for a pick among its options. A
+reader asked only that takes the route as given, and every plan answer in the archive called the direction sound, as
+a fresh Claude reader pointed out on 2026-10-06. The owner works alone, and the worry is a route that more feedback
+would have shown was not the best. On 2026-10-06 the owner asked that "is it worth it" stand beside "is anything
+wrong" in every plan and decision Codex reads, after Codex and a fresh Claude reader both judged the idea.
+
+**Decision.**
+
+- **`plan`** asks, in this order, for Codex's own approach in a few lines before it weighs the plan, then whether the
+  route is worth taking at all and the simplest alternative that would get most of its value, then what is wrong,
+  missing or riskier than the plan says, each tied to a file and line, with what it would do instead.
+- **`decision`** keeps D-053's pick first, since the owner wants a pick and the case against it, and lets the pick be
+  none of the options, doing nothing included, or a simpler alternative that would get most of the value, so the
+  answer says whether the decision is worth taking at all. Then why, then the strongest case against the pick. A
+  fresh Claude reader of this change's plan asked for the pick to stay first.
+- **`review` is unchanged.** It reads a change the session already made and asks for real problems alone.
+
+**Alternatives considered.**
+
+- *Write the question into each brief.* Rejected, for D-053's reason, the frame exists so no session writes the
+  standard words again or forgets one.
+- *Ask it in reviews too.* Not taken. A review's change is already made, and a reader asked for problems tends to find
+  some, so its closing stays narrow.
+
+**Trade-offs.** An answer grows by a few lines. The reader's own approach is fresh reasoning, not a blind one, since
+the plan sits in the same brief, and it can anchor the session as the plan anchors the reader, so the session still
+weighs each finding on its evidence.
+
+**Consequences.** Every plan and decision a session sends through the tool asks the question. The review panel trial
+of 2026-10-06, a fresh Claude reader beside Codex on a consequential question, lives in the context repo. VERSION
+0.2.138.
