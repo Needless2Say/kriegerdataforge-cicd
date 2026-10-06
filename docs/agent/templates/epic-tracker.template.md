@@ -2,7 +2,8 @@
 
 > **How to use.** Copy this to `kriegerdataforge/docs/epics/{name}.md` (the ecosystem hub). ONE
 > tracker per cross repo epic. Every slice PR in every repo links back here. This is the single
-> source of truth for "where is this epic." See [`../DESIGN_AND_EPICS.md`](../DESIGN_AND_EPICS.md).
+> source of truth for "where is this epic." Each repo's design folder and its `LOG.md` hold that repo's own work, and
+> this tracker the epic's state across them. See [`../DESIGN_AND_EPICS.md`](../DESIGN_AND_EPICS.md).
 >
 > Status: Planning | In progress | Integrating | Done | Parked · Flag: `{feature_flag_name}`
 > (default off) · Started: YYYY-MM-DD · Design doc: {link} · ADRs: D-NNN, D-MMM

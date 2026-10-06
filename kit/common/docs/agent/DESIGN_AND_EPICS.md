@@ -22,6 +22,10 @@ PRs, never one mega-PR.**
 
 When in doubt, write the design doc. It's cheaper than rebuilding.
 
+Gate or no gate, Standard and Epic work keeps a record from its first step, a dated design folder whose `DESIGN.md` is
+the full design or, where the gate is optional, the short approved plan, with `LOG.md` beside it
+([`DOCUMENTATION_STANDARD.md`](DOCUMENTATION_STANDARD.md), "Work records").
+
 ---
 
 ## 2. The design gate (Discovery → Design → Approval)
@@ -58,8 +62,11 @@ Write the design using
 [`templates/design-spec.template.md`](templates/design-spec.template.md), the same 10-section
 spec the app repos already use (overview, user stories, MoSCoW requirements, UX, technical
 design, data, success metrics, risks, open questions, future). Keep it as long as the decision
-is hard and no longer. Store it at `docs/design/<feature>.md` (or inside the epic tracker for
-cross repo work).
+is hard and no longer. Store it as `DESIGN.md` in a folder of its own, `docs/design/<YYYY-MM-DD>-<slug>/`, dated the
+day the work began, with `LOG.md` beside it from
+[`templates/work-log.template.md`](templates/work-log.template.md), opened with the design and written as each step
+lands. Cross repo work keeps the epic's state in its tracker and a design folder in each repo it changes. Designs
+stored before 2026-10-06 as `docs/design/<feature>.md` keep their names.
 
 ### 2.3 ADR, record the decision
 

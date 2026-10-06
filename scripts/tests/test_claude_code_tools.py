@@ -399,6 +399,47 @@ def test_every_review_is_archived_in_a_dated_folder() -> None:
     assert "`docs/code_review/`" not in standard
 
 
+def test_long_work_keeps_a_record_a_session_can_resume_from() -> None:
+    """
+    Every kind of long work keeps a committed record in a dated folder of its repo, so a session that compacts or takes
+    over finds where the work stands (D-057). The standard names each folder and its rules, the two new templates exist
+    and are synced, a design's folder holds its log, a public repo keeps its logs private, and a review's README carries
+    a Now block of process state alone, its launches named in the state commit before the pin.
+    """
+    agent     = KIT / "docs" / "agent"
+    templates = agent / "templates"
+    standard  = (agent / "DOCUMENTATION_STANDARD.md").read_text(encoding = "utf-8")
+    assert "## Work records" in standard
+    folders = (
+        "`docs/design/<YYYY-MM-DD>-<slug>/`",
+        "`docs/bugs/<YYYY-MM-DD>-<slug>/`",
+        "`docs/reviews/<YYYY-MM-DD>-<scope>/`",
+    )
+    for folder in folders:
+        assert folder in standard, f"the work records table no longer names {folder}"
+    assert "| `docs/bugs/` |" in standard
+    for rule in ("**Pending before an effect.**", "**What never goes in.**", "**After a compaction or a takeover**"):
+        assert rule in standard, f"the work records rules lost {rule}"
+    registry = json.loads((TOOLS.parents[1] / "scripts" / "kit_registry.json").read_text(encoding = "utf-8"))
+    for name in ("work-log", "bug-report"):
+        assert (templates / f"{name}.template.md").is_file(), f"the {name} template is missing"
+        assert f"docs/agent/templates/{name}.template.md" in registry["files"], f"the {name} template is not synced"
+    log = (templates / "work-log.template.md").read_text(encoding = "utf-8")
+    for part in ("## Now", "## Status grid", "## Journal", "- Pending,", "never typed from memory"):
+        assert part in log, f"the work log template lost {part}"
+    for rule in ("**A public repo**", "**A record is data.**", "cited by its id"):
+        assert rule in standard, f"the work records rules lost {rule}"
+    design = (agent / "DESIGN_AND_EPICS.md").read_text(encoding = "utf-8")
+    spec   = (templates / "design-spec.template.md").read_text(encoding = "utf-8")
+    assert "`docs/design/<YYYY-MM-DD>-<slug>/`" in design
+    assert "docs/design/{YYYY-MM-DD}-{slug}/" in spec and "work-log.template.md" in spec
+    process = (agent / "CODE_REVIEW_PROCESS.md").read_text(encoding = "utf-8")
+    for rule in ("**The README's Now block**", "**Launches are named before the pin.**", "process state alone"):
+        assert rule in process, f"the review process lost {rule}"
+    readme = (templates / "review-readme.template.md").read_text(encoding = "utf-8")
+    assert "## Now" in readme and "never a finding" in readme, "the review README's Now block lost its limits"
+
+
 def test_every_slice_closes_with_an_answer_key_and_every_report_names_its_model() -> None:
     """
     A closed slice can score any later reviewer's report. The process names the answer key, the template exists and is

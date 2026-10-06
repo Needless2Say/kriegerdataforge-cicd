@@ -121,7 +121,7 @@ reader walks the review in the order it happened.
 docs/reviews/
   README.md                                        the archive's front door, one line per review, newest first
   2026-09-28-sdk/                                  a repo review, opened on the day it was asked for
-    README.md                                      the review's index, what a person reads first
+    README.md                                      the review's index, what a person reads first, its Now block on top
     SDK_REVIEW_PLAN.md                             the plan, from the feature scale up
     SDK_REVIEW_CAMPAIGN_RETRO.md                   the whole review's retrospective, written when it closes
     s1-foundation/                                 one folder per slice, its id and a short name
@@ -633,7 +633,22 @@ reviews run meanwhile.
 
 **State lives in files.** The review folder's README, the plan's progress table, the briefs, the reports, the Sol
 dispatches and answers and the adjudication logs carry the review, so a session that compacts or restarts reads them
-and goes on. Every step ends by updating them.
+and goes on. Every step ends by updating them. The review is a work record
+([`DOCUMENTATION_STANDARD.md`](DOCUMENTATION_STANDARD.md), "Work records"), and three rules make it one.
+
+- **The README's Now block** says where the review stands, the slice, the step and the pin, the launches planned or
+  running and how to check each, what waits on the owner, and the next action. It holds process state alone, never a
+  finding or a judgment of the code, since the reviewers read the pinned tree. The orchestrator rewrites it at each
+  step, outside a pin's freeze.
+- **After a compaction or a takeover**, before any step, the orchestrator reads, in order, its role in
+  [`AGENT_ROLES.md`](AGENT_ROLES.md), the README's Now block, the plan's goal and progress table, then the open
+  slice's adjudication log, and checks git, the pin and every open Pending line before doing anything again.
+- **Launches are named before the pin.** The state commit before a pin names in the Now block each launch the pin
+  will start, with how to check it, the run's log and the report's `.usage.json` beside it. From the pin until both
+  of its reports are in, the folder is frozen, so the orchestrator only reads, and the launcher's refusal of a second
+  open review of the folder stops a duplicate. Once both reports are in, the Now block takes the results. Outside a
+  freeze, a Codex run, a Sol dispatch or a pull request is named Pending before it starts and comes out once its
+  result is checked.
 
 ## 12. Starting a review
 

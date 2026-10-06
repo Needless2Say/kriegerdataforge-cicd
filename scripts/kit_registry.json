@@ -23,7 +23,9 @@
 		"docs/agent/templates/review-report.template.md",
 		"docs/agent/templates/review-adjudication.template.md",
 		"docs/agent/templates/review-answer-key.template.md",
-		"docs/agent/templates/review-retro.template.md"
+		"docs/agent/templates/review-retro.template.md",
+		"docs/agent/templates/work-log.template.md",
+		"docs/agent/templates/bug-report.template.md"
 	],
 	"repos": [
 		{ "repo": "Needless2Say/kriegerdataforge", "branch": "main" },
