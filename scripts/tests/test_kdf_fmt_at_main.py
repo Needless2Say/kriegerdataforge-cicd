@@ -161,15 +161,15 @@ def test_the_style_lanes_read_the_formatters_ref_or_fail_by_name(
 def test_this_repos_style_recipes_refresh_the_formatter_before_every_check(target: str) -> None:
     """
     An import that succeeds proves only that some formatter is installed, so the recipe never skips the install on it.
-    It reinstalls from ci.yml's kdf_fmt_ref each time, which moves a branch to its newest commit, and stops when no
-    ref is found or the install fails.
+    It reinstalls from ci.yml's kdf_fmt_ref each time, forced, since pip 26 skips a reinstall whose version number has
+    not changed, so a branch moves to its newest commit, and it stops when no ref is found or the install fails.
     """
     makefile = (ROOT / "Makefile").read_text(encoding = "utf-8").replace("\r\n", "\n")
     recipe   = makefile.split(f"\n{target}: ", 1)[1].split("\n\n", 1)[0]
+    install  = "\n\t@$(PIP_GIT_AUTH) $(PYTHON) -m pip install --quiet --no-deps --force-reinstall \\\n"
     assert "import kdf_fmt" not in recipe, f"{target} never skips the install when an older formatter is there"
     assert '\n\t@[ -n "$(KDF_FMT_VERSION)" ] || ' in recipe, f"{target} stops when ci.yml names no ref"
-    assert f'\n\t@$(PIP_GIT_AUTH) $(PYTHON) -m pip install --quiet \\\n\t\t"kdf-fmt @ {FMT_URL}@$(KDF_FMT_VERSION)"' \
-        in recipe
+    assert f'{install}\t\t"kdf-fmt @ {FMT_URL}@$(KDF_FMT_VERSION)"' in recipe, f"{target} forces the reinstall"
     assert not re.search(r"^\t@?-", recipe, re.MULTILINE), f"{target} ignores no failure, a failed install stops it"
     assert "grep -oE 'v[0-9.]+'" not in makefile, "the ref is read whatever it is, main included"
 

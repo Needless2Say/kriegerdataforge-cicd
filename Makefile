@@ -240,10 +240,12 @@ lint: ## Lint the GitHub Actions workflows with actionlint
 # kdf-fmt.toml. Baseline-gated: the pre-existing findings in kdf-style-debt.json are
 # recorded debt and only NEW violations fail. Refreshed from ci.yml's kdf_fmt_ref before
 # every check (D-054), so the check runs the formatter CI will, and a failed install stops it.
+# The reinstall is forced, since pip skips one whose version number has not changed, and a
+# commit to kdf-fmt's main that changes no code keeps it (measured with pip 26.2.1).
 style: _ensure-venv ## Style check with kdf-fmt (the KDF house style, baseline-gated)
 	@printf "$(GREEN)Running kdf-fmt style check...$(NC)\n"
 	@[ -n "$(KDF_FMT_VERSION)" ] || { printf "kdf_fmt_ref not found in .github/workflows/ci.yml\n"; exit 1; }
-	@$(PIP_GIT_AUTH) $(PYTHON) -m pip install --quiet \
+	@$(PIP_GIT_AUTH) $(PYTHON) -m pip install --quiet --no-deps --force-reinstall \
 		"kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@$(KDF_FMT_VERSION)"
 	$(PYTHON) -m kdf_fmt.cli check --no-cache --baseline kdf-style-debt.json
 
@@ -289,7 +291,7 @@ ci-lint: ## CI: actionlint over the workflows -- mirrors ci.yml lint
 ci-style: _ensure-venv ## CI: kdf-fmt style check -- mirrors ci.yml style
 	@printf "$(GREEN)CI [2/4]: kdf-fmt style...$(NC)\n"
 	@[ -n "$(KDF_FMT_VERSION)" ] || { printf "kdf_fmt_ref not found in .github/workflows/ci.yml\n"; exit 1; }
-	@$(PIP_GIT_AUTH) $(PYTHON) -m pip install --quiet \
+	@$(PIP_GIT_AUTH) $(PYTHON) -m pip install --quiet --no-deps --force-reinstall \
 		"kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@$(KDF_FMT_VERSION)"
 	$(PYTHON) -m kdf_fmt.cli check --no-cache --baseline kdf-style-debt.json
 

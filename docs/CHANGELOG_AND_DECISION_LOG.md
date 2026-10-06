@@ -2954,8 +2954,9 @@ two rounds, six runs across cicd, the hub and fitness-app-frontend, and found th
   becomes an optional override, for a repo that must hold a release, the SDK through its review campaign, and for
   cicd, which has no `requirements-dev.in` and passes `main`.
 - **`make ci-style` refreshes the formatter before each check**, in cicd now and in each repo with its pull request,
-  so the local check runs the formatter CI will, and a failed install stops it. pip moves an installed requirement at
-  a branch to the newest commit on a reinstall, measured with pip 25.3.
+  so the local check runs the formatter CI will, and a failed install stops it. The reinstall is forced, about four
+  seconds, since pip 26 skips a reinstall whose version number has not changed, and a commit to kdf-fmt's `main` that
+  changes no code keeps it (measured with pip 26.2.1, while pip 25.3 had reinstalled).
 - **The watch reads `kdf_fmt_ref: main` as tracking `main`**, and a repo with no override names its formatter in
   `requirements-dev.in`, which the watch already judged.
 
