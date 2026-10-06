@@ -85,11 +85,13 @@ secret_under() {
 	return 1
 }
 
-repo="" files="" brief="" at="" base="" kind="review" effort="high" model="gpt-6.1-sol" settled=1 dry=0
+repo="" files="" brief="" at="" base="" kind="review" effort="high" model="gpt-6.1-sol" settled=1 dry=0 fix=0 security=0
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--repo) repo="${2:-}"; shift 2 || die 2 "--repo needs a value" ;;
 		--kind) kind="${2:-}"; shift 2 || die 2 "--kind needs a value" ;;
+		--fix) fix=1; shift ;;
+		--security) security=1; shift ;;
 		--files) files="${2:-}"; shift 2 || die 2 "--files needs a value" ;;
 		--brief) brief="${2:-}"; shift 2 || die 2 "--brief needs a value" ;;
 		--at) at="${2:-}"; shift 2 || die 2 "--at needs a value" ;;
@@ -111,7 +113,15 @@ fi
 [ -z "$files" ] || [ -z "$at$base" ] || die 2 "--at and --base go with --repo"
 [ -n "$brief" ] || die 2 "--brief is required. See --help."
 ! secret_name "$brief" || die 2 "the brief $brief is named like a secret file, Codex never reads one"
-case "$kind" in review|plan|decision) ;; *) die 2 "--kind is review, plan or decision" ;; esac
+case "$kind" in review|plan|decision|rules) ;; *) die 2 "--kind is review, plan, decision or rules" ;; esac
+[ "$kind" = review ] || [ "$fix$security" = 00 ] || die 2 "--fix and --security go with a review, a change before its push"
+# the five questions each kind asks (D-056). The session declares a review's swaps, so every reader gets the same five
+case "$kind" in
+	plan) asked="1 2 3 6 14" ;;
+	decision) asked="1 2 9 13 14" ;;
+	rules) asked="3 7 11 12 13" ;;
+	review) asked="2 $([ "$fix" -eq 1 ] && echo 10 || echo 3) 4 $([ "$security" -eq 1 ] && echo 5 || echo 6) 9" ;;
+esac
 case "$effort" in high|xhigh) ;; *) die 2 "--effort is high or xhigh" ;; esac
 command -v node >/dev/null 2>&1 || die 2 "node is not on PATH, it reads Codex's events"
 [ "$dry" -eq 1 ] || command -v "$codex_bin" >/dev/null 2>&1 || die 2 "$codex_bin is not on PATH"
@@ -190,6 +200,38 @@ fi
 [ -z "$(git -C "$folder" status --ignored --short)" ] || die 2 "the folder holds a file git ignores or does not track"
 
 # ---- 3. the frame, the session's question in the standard words
+# The review panel's fourteen questions, worded here alone so they cannot drift (D-056). Each kind asks its own five,
+# and a reader may answer any other that applies. A question in no kind's five stays in the bank.
+questions[1]="1. Outcome. What exact result must hold, for whom, in which states?"
+questions[2]="2. Assumptions. What could overturn the answer, and what evidence supports it, a test, a probe, or a"
+questions[2]+=" platform's or dependency's documented behaviour quoted from the folder?"
+questions[3]="3. Blast radius. Who else reads or depends on what changes, repos, synced copies, consumers, citations,"
+questions[3]+=" and do they still work?"
+questions[4]="4. Inputs and authority. What happens with missing, malformed or competing values, and who controls each"
+questions[4]+=" input, path, child's environment and parse?"
+questions[5]="5. Trust. Who can now do or read what they could not before?"
+questions[6]="6. Failure, order and undo. A crash halfway, a rerun, two at once, events reordered, versions that"
+questions[6]+=" differ during a rollout, and the way back?"
+questions[7]="7. Time. What expires, rotates, grows or turns on a date?"
+questions[8]="8. Load. What happens under real load, or when a dependency fails?"
+questions[9]="9. Evidence of success. Which broken version would still pass the checks, does each number match its"
+questions[9]+=" source, and does the conclusion follow?"
+questions[10]="10. The class. Does the fix close every instance of its cause and keep what is valid?"
+questions[11]="11. Enforcement and wording. What holds each rule, a tool, a test or words, what if two rules conflict"
+questions[11]+=" or the tool is down, and which sentence reads two ways?"
+questions[12]="12. Contradiction and drift. Does it disagree with a file, a settled decision, an ADR or itself, or"
+questions[12]+=" make a second copy that can drift?"
+questions[13]="13. The doer and the cost. Walk each step as whoever does it, with only what they have. What does it"
+questions[13]+=" cost the owner in time, merges, quota and money?"
+questions[14]="14. Pre mortem. If it is reverted in a month, what is the likeliest reason?"
+# the questions a kind asks, each answered briefly and apart from the findings
+ask() {
+	local number
+	printf '\nAlso answer each question below in a line or two, apart from your findings. Give the file and line or the'
+	printf ' probe it rests on, or say it is not applicable, or say it is unresolved and what would settle it.\n\n'
+	for number in "$@"; do printf '%s\n' "${questions[$number]}"; done
+}
+
 frame="$work/frame.md"
 with_settled="no"
 {
@@ -237,7 +279,21 @@ decision is worth taking at all. Then why, each reason tied to the file and the 
 strongest case against your pick. If no option is sound, say which and why.
 EOF
 		;;
+		rules) cat <<'EOF'
+The question holds rules or process text, proposed or about to be pushed, which sessions and readers will follow as
+written. Judge it against what you read, in this order. First, in a few lines, how you would write it yourself, before you weigh it. Then whether
+the change is worth making at all, and the simplest alternative that would get most of its value. Then report what
+is wrong, missing or riskier than it says, most severe first, each tied to the file and the line that shows it, and
+what you would do instead. If it is sound, say so plainly.
+EOF
+		;;
 	esac
+	# shellcheck disable=SC2086 # the five numbers split into one argument each
+	ask $asked
+	if [ "$kind" = review ]; then
+		printf '\nIf the change is a fix or touches security and these five do not show it, say so.\n'
+	fi
+	printf '\n'
 	printf 'Your answer is advice for the session that asked, it changes nothing by itself.\n'
 } > "$frame"
 if [ "$settled" -eq 1 ] && [ -n "$settled_file" ] && [ -s "$settled_file" ]; then with_settled="yes"; fi
@@ -337,6 +393,7 @@ fi
 	printf '# Codex on %s\n\n' "$what"
 	printf -- '- **Verdict.** %s.\n' "$verdict"
 	printf -- '- **Kind.** %s.\n' "$kind"
+	printf -- '- **Questions.** %s, %s.\n' "$kind" "$asked"
 	printf -- '- **Asked.** %s, %s seconds, %s commands, %s at %s effort.\n' \
 		"$began" "$seconds" "$commands" "$model" "$effort"
 	printf -- '- **Tokens.** %s new input, %s cached input read again, %s output.\n' "$fresh" "$cached" "$spoken"

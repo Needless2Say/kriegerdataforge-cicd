@@ -231,6 +231,7 @@ bash kdf-ask-codex.sh --repo <repo> --brief <question.md> --at <commit>        #
 bash kdf-ask-codex.sh --files <folder> --brief <question.md>                   # patches from several repos at once
 bash kdf-ask-codex.sh --repo <repo> --brief <plan.md> --kind plan              # a plan, judged against the code
 bash kdf-ask-codex.sh --repo <repo> --brief <choice.md> --kind decision        # a choice among options
+bash kdf-ask-codex.sh --repo <repo> --brief <rules.md> --kind rules            # rules or process text itself
 ```
 
 The brief holds the session's question alone, what to check and why. The tool sets it in the standard frame, read
@@ -248,6 +249,27 @@ choice were its own, its pick first, which may be none of the options, doing not
 alternative, so it says whether the decision is worth taking at all, then why, then the strongest case against its
 pick. A reader asked only what is wrong takes the route as given, so the question of worth is asked every time
 (D-055). Each says plainly when nothing is wrong, since a model asked for problems tends to find some.
+
+Each kind also asks its five of the review panel's fourteen questions (D-056), each answered in a line or two apart
+from the findings, with the file and line or the probe it rests on, or not applicable, or unresolved and what would
+settle it. The words live in the script alone, the array `questions`, so they cannot drift, and a question in no
+kind's five stays in it for a reader to add.
+
+| Kind | Questions |
+| --- | --- |
+| `plan` | 1 outcome, 2 assumptions, 3 blast radius, 6 failure, order and undo, 14 pre mortem |
+| `decision` | 1 outcome, 2 assumptions, 9 evidence of success, 13 the doer and the cost, 14 pre mortem |
+| `review` | 2 assumptions, 3 blast radius, 4 inputs and authority, 6 failure, order and undo, 9 evidence of success. `--fix` asks 10 the class in place of 3, `--security` asks 5 trust in place of 6, and a security fix passes both |
+| `rules` | 3 blast radius, 7 time, 11 enforcement and wording, 12 contradiction and drift, 13 the doer and the cost |
+
+Question 8, load, is in no kind's five. The session declares a review's swaps, so every reader of one change gets the
+same five, and a reader who thinks the change is a fix or touches security says so. The answer's header names the five
+asked, `Questions. plan, 1 2 3 6 14`, so a frame from a clone that was never pulled shows at once. The kind follows the
+judgment asked, not the subject. A plan to change the rules is a `plan`, and `rules` is for rules, briefs and process
+text alone, proposed or about to be pushed, with the plan's base three. A brief need not repeat its kind's questions,
+and may sharpen one under its own number. A question's words change by a pull request here. A clone gets the
+questions only once it is pulled, so after this change merges each machine pulls its cicd clone and checks one
+`--dry-run` of each kind.
 
 In repo mode Codex reads a detached worktree of the commit, `HEAD` when `--at` is not given. The worktree is made with
 `--no-checkout`, since git runs the repo's post-checkout hook after any other worktree add, and is then filled with
