@@ -24,7 +24,9 @@ report it to me (the fix lands in `cicd/kit/common/`). Don't patch it here.
   exist. Follow them, don't edit them.
 
 **Output, and only this.**
-- Write the design doc `docs/design/<slug>.md` (create `docs/design/` if absent).
+- Write the design doc `docs/design/<YYYY-MM-DD>-<slug>/DESIGN.md`, dated the day the work began, with `LOG.md` beside
+  it from `docs/agent/templates/work-log.template.md`, as the kit's "Work records" in
+  `docs/agent/DOCUMENTATION_STANDARD.md` lays out.
 - Append the decision as an immutable `D-NNN` ADR entry to `docs/CHANGELOG_AND_DECISION_LOG.md`
   (create it if absent, never rewrite prior entries).
 - This task WRITES A PROPOSAL. No product code, migrations, or config change.

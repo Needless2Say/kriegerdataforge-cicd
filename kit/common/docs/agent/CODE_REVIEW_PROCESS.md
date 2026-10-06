@@ -644,11 +644,12 @@ and goes on. Every step ends by updating them. The review is a work record
   [`AGENT_ROLES.md`](AGENT_ROLES.md), the README's Now block, the plan's goal and progress table, then the open
   slice's adjudication log, and checks git, the pin and every open Pending line before doing anything again.
 - **Launches are named before the pin.** The state commit before a pin names in the Now block each launch the pin
-  will start, with how to check it, the run's log and the report's `.usage.json` beside it. From the pin until both
-  of its reports are in, the folder is frozen, so the orchestrator only reads, and the launcher's refusal of a second
-  open review of the folder stops a duplicate. Once both reports are in, the Now block takes the results. Outside a
-  freeze, a Codex run, a Sol dispatch or a pull request is named Pending before it starts and comes out once its
-  result is checked.
+  will start, the reviewer, the planned command and the report's path, the pin being the commit its brief names, and
+  how each is checked, a Claude run by its report and the report's `.usage.json`, a Codex run by its report in the
+  folder or on its collect branch. From the pin until both of its reports are in, the folder is frozen, so the
+  orchestrator only reads, and the launcher's refusal of a second open review of the folder stops a duplicate. Once
+  both reports are in, the Now block takes the results. Outside a freeze, a Codex run, a Sol dispatch or a pull
+  request is named Pending before it starts and comes out once its result is checked.
 
 ## 12. Starting a review
 

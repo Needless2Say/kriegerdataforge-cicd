@@ -4,8 +4,9 @@
 > than a Quick fix, with `LOG.md` beside it from [`work-log.template.md`](work-log.template.md), fill every `{...}`, and
 > delete this box and every hint in braces. A Quick fix needs neither, its pull request is its record. Name a secret's
 > variable, never its value, cite a user's report by its id, never its text, and leave out anything sensitive, which
-> never goes into any repo. A public repo's bug report, and its log, are kept in the ecosystem's private context until
-> the fix merges, never in the public repo. Read the staged diff before each commit and before the first push.
+> never goes into any repo. A public repo's bug report and its log are kept in the ecosystem's private context for
+> good, never in the public repo. Read the staged diff before each commit, and every outgoing commit's patch before a
+> push.
 
 | | |
 | --- | --- |

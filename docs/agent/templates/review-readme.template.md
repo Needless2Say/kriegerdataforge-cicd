@@ -24,9 +24,10 @@ takeover, before the plan's progress table and the open slice's adjudication log
 or a judgment of the code, since the reviewers read the pinned tree. The launches a pin will start are named here in
 the state commit before the pin, and from the pin until both of its reports are in nothing here changes.}
 
-- Slice {S1}, step {n}, pin `{sha}`. Next, {the next action}.
-- Launches, {each launch this pin starts or started, and how to check it, the run's log and the report's
-  `.usage.json`}, or none.
+- Slice {S1}, step {n}, pin {the commit its brief names, its sha once it exists}. Next, {the next action}.
+- Launches, {each launch this pin starts, the reviewer, the planned command and the report's path, and how it is
+  checked, a Claude run by its report and its `.usage.json`, a Codex run by its report in the folder or on its collect
+  branch}, or none.
 - Pending, {outside a freeze, a Codex run, a Sol dispatch or a pull request started and not yet checked, its target,
   the output expected and how to check it}, or none.
 - Waiting on the owner, {what}, or nothing.

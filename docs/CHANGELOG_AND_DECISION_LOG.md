@@ -3092,14 +3092,15 @@ because the archive is worth looking back on.
 - **Reviews gain a Now block and an order to resume in.** The Now block holds process state alone, never a finding,
   since the reviewers read the pinned tree. The launches a pin starts are named in the state commit before it, and
   nothing in the folder changes from the pin until both reports are in, where the launcher's refusal of a second open
-  review stops a duplicate.
+  review stops a duplicate. A review resumes by section 11, never by writing during a freeze.
 - **Never in a record.** A secret's value, a token and anything sensitive, in any repo, and a user's report is cited
-  by its id. A public repo commits only what is fit for the public, and its logs, its bug reports and any design naming
-  an unfixed weakness are kept in the ecosystem's private context until the fix merges. The staged diff is read before
-  each commit and before the first push.
+  by its id. A public repo commits only what is fit for the public. Its logs and its bug reports are kept in the
+  ecosystem's private context for good, and a design naming an unfixed weakness until a public version can follow
+  the fix. A record's staged diff is read before each commit, and every outgoing commit's patch before a push.
 - **Committed with the work**, on its branch. A private repo's branch with no pull request may be pushed at a
   validated checkpoint, once its workflow triggers are read, so the record reaches the other machine. A public repo's
-  branch is pushed once, when ready, and once a pull request is open only its normal pushes.
+  branch is never pushed for a record alone, only when its work needs it, a review's pin or the pull request, and once
+  a pull request is open only its normal pushes.
 - **A repo on a hold keeps it.** A repo whose kit is held for a campaign takes this release when the hold ends, and
   the campaign takes the review rules from its own trial page meanwhile.
 
@@ -3112,8 +3113,10 @@ because the archive is worth looking back on.
 - *Moving every older design and log into the new layout.* Churn with no gain, they keep their names.
 
 **Trade-offs.** A record costs a few lines a step and a commit's worth of text, and pull requests carry more docs. It
-holds only as well as sessions write it, so the Pending rule and the order to resume in carry the weight, and a
-measure after two weeks checks it.
+holds only as well as sessions write it, so the Pending rule and the order to resume in carry the weight. A measure
+two weeks from the merge, kept with this work's private record, counts compactions against the records then open. The
+distributor has no hold of its own, so a held repo's sync pull request stays open by the owner's hand. Each repo's own
+design prompt in `docs/prompts/`, which is not synced, names the new layout when that repo next changes it.
 
 **Consequences.** Every repo gets the layout and the templates with this kit's sync, a design's folder and its log
 replace a single design file for new work, and every review README gains a Now block. VERSION 0.2.140.

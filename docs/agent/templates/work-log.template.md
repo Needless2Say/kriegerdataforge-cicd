@@ -8,7 +8,9 @@
 > grows, written with the Edit tool, each line's time taken from a `date` call, never typed from memory. The owner's
 > words go in word for word, except anything sensitive, which never goes into any repo, and the line says what was
 > left out. A public repo's log is kept in the ecosystem's private context, not here. Name a secret's variable, never
-> its value, cite a user's report by its id, and read the staged diff before each commit and before the first push.
+> its value, cite a user's report by its id, read the staged diff before each commit, and read every outgoing commit's
+> patch before a push. A review keeps no log of this shape, its README's Now block and its adjudication logs are its
+> record.
 > The rules are [`../DOCUMENTATION_STANDARD.md`](../DOCUMENTATION_STANDARD.md), "Work records".
 
 - **Status.** {OPEN, WAITING ON THE OWNER, DONE or DROPPED}, {YYYY-MM-DD}.
