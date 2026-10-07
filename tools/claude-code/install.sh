@@ -23,25 +23,54 @@ fi
 
 hooks="$home/.claude/hooks"
 mkdir -p "$hooks"
-cp "$here/kdf-guard.js" "$hooks/kdf-guard.js"
-chmod +x "$hooks/kdf-guard.js"
-node --check "$hooks/kdf-guard.js"
-say "Installed $hooks/kdf-guard.js"
+# The new guard is staged beside the live one and smoke tested there, so a copy that fails never goes live, and the
+# live copy is kept as kdf-guard.prev.js to go back to (D-059). Both keep the .js ending, which node needs, and the
+# staged name carries this run's process id, so two installs at once never test one copy and place the other.
+staged="$hooks/kdf-guard.staged.$$.js"
+cp "$here/kdf-guard.js" "$staged"
+node --check "$staged" || { rm -f "$staged"; die "the new guard does not parse, the installed one is unchanged"; }
 
-# The smoke test feeds the installed copy three calls and reads the exit code, 2 is a refusal.
+# The smoke test feeds the staged copy three calls and input it cannot read, and reads the exit code, 2 is a refusal.
 call() { printf '{"tool_name":"Bash","tool_input":{"command":"%s"},"cwd":"."}' "$1"; }
-expect() {
-	local want=$1 role=$2 command=$3 got
+exit_of() {
 	set +e
-	call "$command" | KDF_ROLE="$role" node "$hooks/kdf-guard.js" >/dev/null 2>&1
+	printf '%s' "$2" | KDF_ROLE="$1" node "$staged" >/dev/null 2>&1
+	printf '%s' "$?"
+}
+expect() {
+	local want=$1 role=$2 input=$3 named=$4 got
+	got=$(exit_of "$role" "$input")
+	if [ "$got" -ne "$want" ]; then
+		rm -f "$staged"
+		die "smoke test failed, $named as '${role:-owner}' exited $got, wanted $want, the installed guard is unchanged"
+	fi
+}
+expect 2 "" "$(call "git push origin main")" "'git push origin main'"
+expect 2 "reviewer" "$(call "git add .")" "'git add .'"
+expect 0 "" "$(call "git status")" "'git status'"
+expect 2 "" "not json" "input that is not JSON"
+if [ -f "$hooks/kdf-guard.js" ]; then
+	cp "$hooks/kdf-guard.js" "$hooks/kdf-guard.prev.js"
+fi
+mv -f "$staged" "$hooks/kdf-guard.js"
+chmod +x "$hooks/kdf-guard.js"
+say "Installed $hooks/kdf-guard.js, the previous copy kept as kdf-guard.prev.js."
+say "Smoke test passed, a push to main, a reviewer git add and input that is not JSON are refused, git status runs."
+
+# The compaction hook (D-058), beside the guard. It refuses nothing, so its smoke test is that input it cannot read
+# prints nothing and exits 0.
+if [ -f "$here/kdf-compact.js" ]; then
+	node --check "$here/kdf-compact.js"
+	cp "$here/kdf-compact.js" "$hooks/kdf-compact.js"
+	set +e
+	printed=$(printf 'not json' | node "$hooks/kdf-compact.js" session-start 2>/dev/null)
 	got=$?
 	set -e
-	[ "$got" -eq "$want" ] || die "smoke test failed, '$command' as '${role:-owner}' exited $got, wanted $want"
-}
-expect 2 "" "git push origin main"
-expect 2 "reviewer" "git add ."
-expect 0 "" "git status"
-say "Smoke test passed, a push to main and a reviewer git add are refused, git status is allowed."
+	if [ "$got" -ne 0 ] || [ -n "$printed" ]; then
+		die "smoke test failed, the compaction hook exited $got or printed on input it cannot read"
+	fi
+	say "Installed $hooks/kdf-compact.js, wired by hand as the README's compaction hook section says."
+fi
 say ""
 node "$here/check-wiring.js" --home "$home" --print
 say ""

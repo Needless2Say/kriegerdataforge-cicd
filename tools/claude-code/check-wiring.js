@@ -24,7 +24,7 @@ const MUST_MATCH = [
   'mcp__claude_ai_Google_Drive__share_file', 'Artifact', 'ArtifactData', 'SendUserFile', 'SendMessage',
   'PushNotification', 'RemoteTrigger', 'CronCreate', 'DesignSync', 'EnterWorktree', 'Workflow'
 ];
-// A second fence behind the guard, which never blocks when it crashes. .env.local is not among them, the owner opened
+// A second fence behind the guard, for a call it never sees. .env.local is not among them, the owner opened
 // it on 2026-09-29 and the guard keeps one that still holds a credential closed. .env.kdf holds the credentials, and
 // .env.dev and .env.prod are the owner's admin files.
 const SECRET_READ_DENIES = [
@@ -45,7 +45,10 @@ const hookPath = home.replace(/\\/g, '/') + '/.claude/hooks/kdf-guard.js';
 function recommended() {
   return {
     defaultShell: 'bash',
-    hooks: { PreToolUse: [{ matcher: MATCHER, hooks: [{ type: 'command', command: 'node "' + hookPath + '"' }] }] },
+    // || exit 2 refuses when the guard cannot start, a missing file or a missing node, which Claude Code lets through
+    hooks: {
+      PreToolUse: [{ matcher: MATCHER, hooks: [{ type: 'command', command: 'node "' + hookPath + '" || exit 2' }] }]
+    },
     permissions: { deny: ['PowerShell'].concat(SECRET_READ_DENIES) }
   };
 }
@@ -102,6 +105,11 @@ if (settings) {
     const pointed = (command.match(/"([^"]*kdf-guard\.js)"/) || [])[1];
     if (!pointed) add('WARN', 'the hook command does not quote a path to kdf-guard.js', command);
     else if (!fs.existsSync(pointed)) add('FAIL', 'the hook points at a file that does not exist', pointed);
+    // A warning, not a failure, so a review the launcher starts is not stopped before the owner adds it (D-059).
+    if (!/\|\|\s*exit\s+2\s*$/.test(command)) {
+      add('WARN', 'the hook command does not end with || exit 2',
+        'a guard that cannot start would let every call through');
+    }
   }
 
   const missingReads = SECRET_READ_DENIES.filter((r) => !deny.includes(r));

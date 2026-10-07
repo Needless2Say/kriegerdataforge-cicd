@@ -15,7 +15,7 @@ repos, the kit ships Markdown only (ADR D-028), so each machine installs them fr
 | `kdf-ask-codex.sh` | Asks Codex for a read only review of a change, a plan or a decision, the one way every session does (D-052, D-053). Gives Codex a detached worktree of a commit, or a throwaway repo of a folder of patches with no secret file, link or token in it, sets the session's question in the standard frame, runs Codex with the verified flags and archives its answer in the workspace's `temp/codex`, never in a repo. Refuses a reviewer, and fails when Codex changed its folder or wrote no answer |
 | `check-wiring.js` | Read only. Says whether this machine's settings wire the guard as the process needs, and prints the block to add when they do not |
 | `kdf-compact.js` | A Claude Code SessionStart hook for the work records (D-058). After a compaction or a resume it prints the paths of the open records the session wrote, read from its own transcript, and nothing for a reviewer or a subagent. It never blocks |
-| `install.sh` | Copies the guard to `~/.claude/hooks/`, smoke tests it, and prints the settings block. It edits no settings and refuses to run inside a Claude Code session |
+| `install.sh` | Stages the guard in `~/.claude/hooks/`, smoke tests the staged copy, then puts it in place and keeps the previous one, copies `kdf-compact.js`, and prints the settings block. It edits no settings and refuses to run inside a Claude Code session |
 
 `../codex-cloud/kdf-codex-install.sh` and `../codex-cloud/kdf-codex-start-skill.md` are not run here. The owner pastes
 them into a repo's Codex cloud environment as its Install script and Start skill, on trial for the kdf-sdk's S2 (ADRs
@@ -26,8 +26,10 @@ D-039 and D-048), and the process's section 11 says how.
 Once per machine, by the owner, in a terminal. Git Bash on Windows.
 
 1. Clone this repo, and `git pull` it whenever the guard changes.
-2. `bash tools/claude-code/install.sh`. It copies `kdf-guard.js` to `~/.claude/hooks/`, proves it refuses a push to
-   `main` and a reviewer's `git add` and allows `git status`, and prints a settings block.
+2. `bash tools/claude-code/install.sh`. It stages `kdf-guard.js` in `~/.claude/hooks/`, proves the staged copy
+   refuses a push to `main`, a reviewer's `git add` and input that is not JSON and allows `git status`, then puts it
+   in place and keeps the previous one as `kdf-guard.prev.js`. It copies `kdf-compact.js` beside it and prints a
+   settings block, whose guard command ends with `|| exit 2`.
 3. Merge the block into `~/.claude/settings.json` by hand. `defaultShell` and `hooks` are top level keys. The
    `permissions.deny` list merges with yours, so keep your existing rules and add the new entries beside them. The
    block sets Git Bash as the default shell, denies the PowerShell tool, hooks the guard on the tools it must see, and
@@ -374,9 +376,14 @@ byte identical.
 3. `make test` runs every case, in parallel, and the launcher, checker and installer tests.
 4. Run `bash tools/claude-code/install.sh` on each machine, then `install.sh --check`.
 
-A crash in the guard exits 1, which Claude Code treats as a non blocking error. That is deliberate, a bug here must
-never stall a session. `KDF_GUARD_LOG=<file>` appends a line per refusal when the owner wants to see what a session
-tried. To switch the guard off, remove its hook from `settings.json`.
+Input the guard cannot read, a call that names no tool, or an error while it checks refuses the call, every tool,
+reads included, since an error before the secret checks once let a secret read through (D-059, the owner's choice of
+2026-10-07 over the earlier "a bug here must never stall a session"). A guard that cannot start, a missing file or a
+missing `node`, exits 1 or 127, which Claude Code lets through, so its settings line ends with `|| exit 2` and
+`check-wiring.js` warns when it does not. A hook that times out still lets the call through, by Claude Code's design.
+So a bug here stalls every session until it is fixed, and the way back is the owner's, put `kdf-guard.prev.js` back
+in place or remove the guard's hook from `settings.json`. `KDF_GUARD_LOG=<file>` appends a line per refusal when the
+owner wants to see what a session tried.
 
 ## Notes
 
