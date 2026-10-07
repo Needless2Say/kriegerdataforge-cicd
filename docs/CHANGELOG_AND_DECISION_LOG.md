@@ -3155,3 +3155,41 @@ record's own words, since a hook's output reaches the context as Claude Code's o
 **Consequences.** A session resuming after a compaction is told which records are its own, and a session with none
 is told where they are listed. Run once on the machine it was built on, it read a 129 MB transcript in under half a
 second. VERSION 0.2.141.
+
+## D-059. The guard refuses a call it cannot check
+
+- **Date.** 2026-10-07
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Standard · `tools/claude-code/kdf-guard.js`, `check-wiring.js`, `install.sh`, their tests and
+  the tools README · installed per machine by the owner, not synced
+
+**Context.** Until now a crash in the guard exited 1, which Claude Code treats as a non blocking error, so the call
+went through, chosen so that "a bug here must never stall a session". An outside review and the owner's review panel
+showed what that costs. The guard resolves the session's folder before its secret checks, so input that breaks that
+step reaches the catch with no secret check done, and a read of a secret file went through. Input naming no tool
+reached no rule and exited 0. And a guard that cannot start at all, a missing file or a missing `node`, exits 1 or
+127, which Claude Code also lets through. The settings deny rules behind the guard cover a few Read patterns only.
+
+**Decision.**
+
+- **What the guard cannot check, it refuses.** Input that is not JSON, a call that names no tool, and an error while
+  checking a call each exit 2, every tool, reads included, with a message naming the way back. A check that could not
+  run counts too, git that cannot start, is stopped at its timeout or ends on any fatal error but its own "not a git
+  repository" at the start of its output, and a repo's credential example that exists but cannot be read, where the
+  helpers once fell back to an answer that allowed the call. Git's own no, exit 1, or a path in no repository, keeps
+  its meaning, and git is asked from the nearest folder that exists, so a tracked file whose folder was deleted is
+  still tracked. The owner's choice of 2026-10-07, over the earlier rule.
+- **A guard that cannot start refuses too.** The settings line runs `node "<guard>" || exit 2`, which turns exit 1
+  and 127 into a refusal and leaves an allowed call at 0. `check-wiring.js` prints that line and warns, never fails,
+  when a machine's command lacks it, so a review the launcher starts is not stopped before the owner adds it.
+- **A new guard is proven before it goes live.** `install.sh` stages it under a name that carries its process id,
+  smoke tests the staged copy with a push to `main`, a reviewer's `git add`, `git status` and input that is not JSON,
+  then puts it in place and keeps the previous one as `kdf-guard.prev.js`. A copy that fails leaves the live guard as
+  it was, and two installs at once never test one copy and place the other. It also copies the compaction hook
+  (D-058).
+- **What stays open.** A hook that times out lets the call through, by Claude Code's design, and the guard's own git
+  calls stop at 10 and 20 seconds. A bug in the guard now stalls every session until it is fixed, the cost the owner
+  took, and the way back is the owner's, the previous copy or removing the hook from `settings.json`.
+
+**Consequences.** A crash or a missing guard no longer lets a call through. The owner applies this with the hook's
+settings line, between the review reads of any campaign running on that machine. VERSION 0.2.142.

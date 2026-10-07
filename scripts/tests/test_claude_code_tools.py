@@ -298,18 +298,155 @@ def test_the_cases_cover_both_roles_and_both_outcomes() -> None:
     assert any(case.get("via") == "env" for case in CASES)
 
 
-def test_a_crash_never_blocks(tmp_path: Path) -> None:
+@pytest.mark.parametrize("payload", ["not json", "", "null", "[]", "{}", '{"tool_name": ""}', '{"tool_name": 7}'])
+def test_input_the_guard_cannot_read_is_refused(payload: str) -> None:
     """
-    Input the guard cannot read exits 1, a non blocking error to Claude Code, and never 2.
+    Input the guard cannot read, or a call that names no tool, could be any call, so it is refused with exit 2
+    (D-059), where it once exited 1, which Claude Code lets through.
     """
     done = subprocess.run(
         [str(NODE), str(GUARD)],
-        input = "not json",
+        input = payload,
         capture_output = True,
         text = True,
         check = False,
     )
-    assert done.returncode == 1
+    assert done.returncode == 2
+    assert "could not check this call" in done.stderr
+
+
+def test_an_error_while_checking_refuses_even_a_read(tmp_path: Path) -> None:
+    """
+    An error before the secret checks once let a secret read through, so an error while checking refuses every tool,
+    a read included, and names the way back.
+    """
+    env     = {key: value for key, value in os.environ.items() if key not in ("CLAUDE_PROJECT_DIR", "KDF_ROLE")}
+    payload = {"tool_name": "Read", "tool_input": {"file_path": "example.pem"}, "cwd": 42}
+    done    = subprocess.run(
+        [str(NODE), str(GUARD)],
+        input = json.dumps(payload),
+        env = env,
+        capture_output = True,
+        text = True,
+        check = False,
+    )
+    assert done.returncode == 2
+    assert "It failed while checking" in done.stderr
+    assert "remove its hook from settings.json" in done.stderr
+
+
+def test_the_settings_line_refuses_when_the_guard_cannot_start(tmp_path: Path) -> None:
+    """
+    The command the checker prints is run as Claude Code runs it. With the guard missing it exits 1, and with node
+    missing 127, and Claude Code lets both through, so its `|| exit 2` turns them into refusals, while an allowed call
+    still passes once the guard is in place (D-059).
+    """
+    home    = tmp_path / "home"
+    command = _printed_settings(home)["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+    allowed = json.dumps({"tool_name": "Bash", "tool_input": {"command": "git status"}, "cwd": tmp_path.as_posix()})
+    env     = {**os.environ, "CLAUDE_PROJECT_DIR": tmp_path.as_posix()}
+    env.pop("KDF_ROLE", None)
+
+
+    def run(line: str) -> int:
+        done = subprocess.run(
+            [str(BASH), "-c", line],
+            input = allowed,
+            env = env,
+            capture_output = True,
+            text = True,
+            check = False,
+        )
+        return done.returncode
+
+
+    assert command.startswith("node ") and command.endswith(" || exit 2")
+    assert run(command) == 2
+    assert run("kdf-no-such-node" + command[len("node"):]) == 2
+    (home / ".claude" / "hooks").mkdir(parents = True)
+    shutil.copy(GUARD, home / ".claude" / "hooks" / "kdf-guard.js")
+    assert run(command) == 0
+
+
+@pytest.mark.parametrize("failure", ["git cannot start", "git fails", "git fails naming the words"])
+def test_a_check_that_cannot_run_refuses_the_call(tmp_path: Path, failure: str) -> None:
+    """
+    A reviewer's read asks git whether the path is ignored. When git cannot start, or stops on a fatal error other than
+    "not a git repository", even one that quotes those words, that check could not run, so the read is refused, where
+    it once went through, while the same read with git working is allowed (D-059).
+    """
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", str(repo)], check = True, capture_output = True)
+    target = repo / "notes.txt"
+    target.write_text("hello\n", encoding = "utf-8")
+    empty = tmp_path / "no-git"
+    empty.mkdir()
+
+    payload = {"tool_name": "Read", "tool_input": {"file_path": target.as_posix()}, "cwd": repo.as_posix()}
+    working = {**os.environ, "KDF_ROLE": "reviewer", "CLAUDE_PROJECT_DIR": repo.as_posix()}
+    broken  = {**working, "PATH": str(empty)}
+    if failure == "git fails":
+        # an index file that is a folder stops git with a fatal error other than "not a git repository"
+        broken = {**working, "GIT_INDEX_FILE": str(empty)}
+    if failure == "git fails naming the words":
+        # a setting whose value is those words stops git with a fatal error that quotes them
+        broken = {
+            **working,
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "core.abbrev",
+            "GIT_CONFIG_VALUE_0": "not a git repository",
+        }
+
+
+    def guard(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [str(NODE), str(GUARD)],
+            input = json.dumps(payload),
+            env = env,
+            capture_output = True,
+            text = True,
+            check = False,
+        )
+
+
+    assert guard(working).returncode == 0
+    done = guard(broken)
+    assert done.returncode == 2
+    assert "could not check this call" in done.stderr
+
+
+def test_a_tracked_file_in_a_deleted_folder_is_still_tracked(tmp_path: Path) -> None:
+    """
+    Git is asked from the nearest folder that exists, so a reviewer's write over a tracked report whose folder was
+    deleted is refused like any tracked file, while a new report in a new folder is allowed (D-059).
+    """
+    repo = tmp_path / "repo"
+    old  = repo / "docs" / "reviews" / "2026-09-01-old" / "REPORT.md"
+    old.parent.mkdir(parents = True)
+    old.write_text("an old report\n", encoding = "utf-8")
+    for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "old"]):
+        subprocess.run(["git", "-C", str(repo), *args], check = True, capture_output = True)
+    shutil.rmtree(old.parent)
+    fresh = repo / "docs" / "reviews" / "2026-10-07-new" / "REPORT.md"
+    env   = {**os.environ, "KDF_ROLE": "reviewer", "CLAUDE_PROJECT_DIR": repo.as_posix()}
+
+
+    def write(target: Path) -> int:
+        tool_input = {"file_path": target.as_posix(), "content": "x"}
+        payload    = {"tool_name": "Write", "tool_input": tool_input, "cwd": repo.as_posix()}
+        done       = subprocess.run(
+            [str(NODE), str(GUARD)],
+            input = json.dumps(payload),
+            env = env,
+            capture_output = True,
+            text = True,
+            check = False,
+        )
+        return done.returncode
+
+
+    assert write(old) == 2
+    assert write(fresh) == 0
 
 
 def test_a_refusal_is_logged_when_asked(tmp_path: Path) -> None:
@@ -2019,6 +2156,22 @@ def test_the_checker_fails_on_broken_json_and_warns_on_secret_reads(rig: Rig) ->
     assert _checker(rig.home).returncode == 1
 
 
+def test_the_checker_warns_when_the_guard_command_lacks_its_exit_2(rig: Rig) -> None:
+    """
+    The printed block ends the guard's command with || exit 2, and a command without it only warns, so a review the
+    launcher starts is not stopped before the owner adds it (D-059).
+    """
+    printed = _printed_settings(rig.home)
+    assert printed["hooks"]["PreToolUse"][0]["hooks"][0]["command"].endswith('" || exit 2')
+    settings = json.loads((rig.home / ".claude" / "settings.json").read_text(encoding = "utf-8"))
+    command  = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+    settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"] = command.replace(" || exit 2", "")
+    _write_settings(rig.home, settings)
+    done = _checker(rig.home)
+    assert done.returncode == 0
+    assert "does not end with || exit 2" in done.stdout
+
+
 def test_the_installer_installs_and_smoke_tests_the_guard(tmp_path: Path) -> None:
     """
     It copies the guard, proves it refuses and allows, and prints the block for the owner to add. It edits no settings.
@@ -2041,6 +2194,46 @@ def test_the_installer_installs_and_smoke_tests_the_guard(tmp_path: Path) -> Non
         check = False,
     )
     assert checked.returncode == 1
+
+
+def test_the_installer_keeps_the_live_guard_when_a_new_one_fails(tmp_path: Path) -> None:
+    """
+    The new guard is staged and smoke tested before it replaces the live one, so a copy that fails leaves the live guard
+    as it was, and a good one keeps the previous copy beside it. The compaction hook is copied too (D-058, D-059).
+    """
+    home  = tmp_path / "home"
+    tools = tmp_path / "tools"
+    shutil.copytree(TOOLS, tools)
+    env = {key: value for key, value in os.environ.items() if key != "CLAUDECODE"}
+    env["KDF_HOME"] = home.as_posix()
+    hooks = home / ".claude" / "hooks"
+
+
+    def install() -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [str(BASH), str(tools / "install.sh")],
+            capture_output = True,
+            text = True,
+            env = env,
+            check = False,
+        )
+
+
+    first = install()
+    assert first.returncode == 0, first.stderr
+    assert (hooks / "kdf-compact.js").read_bytes() == COMPACT.read_bytes()
+    live = (hooks / "kdf-guard.js").read_bytes()
+    # a guard that allows everything fails the smoke test's push to main
+    (tools / "kdf-guard.js").write_text("process.exit(0);\n", encoding = "utf-8")
+    broken = install()
+    assert broken.returncode == 1
+    assert "the installed guard is unchanged" in broken.stderr
+    assert (hooks / "kdf-guard.js").read_bytes() == live
+    assert not list(hooks.glob("kdf-guard.staged.*"))
+    shutil.copy(GUARD, tools / "kdf-guard.js")
+    again = install()
+    assert again.returncode == 0, again.stderr
+    assert (hooks / "kdf-guard.prev.js").read_bytes() == live
 
 
 def test_the_installer_refuses_to_run_inside_a_session(tmp_path: Path) -> None:

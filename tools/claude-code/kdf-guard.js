@@ -26,9 +26,11 @@
  * A permission deny rule matches one tool and one spelling. This guard reads the command the way a shell does,
  * so it also catches the PowerShell tool, git -C, a nested shell, an env prefix, find -exec and a command after a
  * shell keyword such as do, then or !, and it ignores quoted text such as a commit message. Exit 0 allows the
- * call. Exit 2 blocks it and stderr tells the model why. A crash exits 1, which Claude Code treats as a non
- * blocking error, so a bug here never stalls a session and the permission deny rules stay as the first fence. To
- * switch it off, remove the hook from the settings file.
+ * call. Exit 2 blocks it and stderr tells the model why. Input it cannot read, a call with no tool name, or an error
+ * while it checks refuses the call with exit 2, every tool, since an error before a check would let that check's
+ * call through (D-059). A guard that cannot start exits 1 or 127, which Claude Code lets through, so its settings line
+ * runs node ... || exit 2, and a hook that times out still lets a call through. To switch it off, remove the hook
+ * from the settings file.
  *
  * Environment. KDF_ROLE=reviewer picks the reviewer rules. KDF_GUARD_ALLOW_SELF_EDIT=1, set by the owner when the
  * session is started, lets that session edit guardrail files. KDF_GUARD_LOG=<file> appends one line per refusal.
@@ -146,12 +148,25 @@ process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => {
   raw += chunk;
 });
+// A call the guard cannot check could be any call, and an error before a check once let a secret read through, so it
+// is refused, every tool, reads included (D-059).
+const CANNOT_CHECK = 'The guard could not check this call, so it refuses it. The way back is the owner\'s, fix the ' +
+  'guard or remove its hook from settings.json. ';
 process.stdin.on('end', () => {
+  let input;
   try {
-    run(JSON.parse(raw));
+    input = JSON.parse(raw);
   } catch (err) {
-    process.stderr.write('kdf-guard error, call allowed. ' + err.message + '\n');
-    process.exit(1);
+    deny(CANNOT_CHECK + 'Its input is not JSON.', 'input not JSON');
+  }
+  if (!input || typeof input !== 'object' || Array.isArray(input) || typeof input.tool_name !== 'string' ||
+    !input.tool_name) {
+    deny(CANNOT_CHECK + 'Its input names no tool.', 'no tool name');
+  }
+  try {
+    run(input);
+  } catch (err) {
+    deny(CANNOT_CHECK + 'It failed while checking, ' + err.message, input.tool_name + ' ' + err.message);
   }
   process.exit(0);
 });
@@ -210,7 +225,8 @@ function credentialNames(dir) {
   try {
     for (const m of fs.readFileSync(path.join(dir, '.env.kdf.example'), 'utf8').matchAll(EXAMPLE_NAME)) names.add(m[1]);
   } catch (err) {
-    // no example, the built in names alone
+    // no example, the built in names alone. An example that exists and cannot be read is a check that failed (D-059).
+    if (err.code !== 'ENOENT') throw err;
   }
   return names;
 }
@@ -286,13 +302,38 @@ function checkSecretWords(toks, prog, args, whole) {
 
 // ------------------------------------------------------------ reading files
 
-// A path git tracks, judged by the repo that holds it. Anything git cannot answer for counts as untracked.
+// Whether git ran and answered no, exit 1, or said the path is in no repository, exit 128 with git's own message for
+// that at the start of its output, so the words elsewhere in another fatal error do not count. Anything else, git
+// failing to start, stopped at its timeout or a fatal error of another kind, is a check that could not run and
+// refuses the call (D-059).
+function gitSaidNo(err) {
+  if (err.code || err.signal || typeof err.status !== 'number') return false;
+  if (err.status === 1) return true;
+  return err.status === 128 && /^fatal: not a git repository/.test(String(err.stderr || '').trimStart());
+}
+const GIT_QUIET = { stdio: ['ignore', 'ignore', 'pipe'], timeout: 10000, windowsHide: true };
+
+// The nearest folder that exists, the path's own or one above it, since git cannot be started in a folder that does
+// not exist, a new report's or a tracked file's whose folder was deleted.
+function nearestFolder(dir) {
+  let at = dir;
+  while (!fs.existsSync(at)) {
+    const up = path.dirname(at);
+    if (up === at) break;
+    at = up;
+  }
+  return at;
+}
+
+// A path git tracks, judged by the repo that holds it, asked from the nearest folder that exists. Anything git answers
+// no to counts as untracked.
 function trackedByGit(p) {
   const abs = path.resolve(CWD, p);
   try {
-    execFileSync('git', ['-C', path.dirname(abs), 'ls-files', '--error-unmatch', '--', abs], { stdio: 'ignore', timeout: 10000, windowsHide: true });
+    execFileSync('git', ['-C', nearestFolder(path.dirname(abs)), 'ls-files', '--error-unmatch', '--', abs], GIT_QUIET);
     return true;
   } catch (err) {
+    if (!gitSaidNo(err)) throw err;
     return false;
   }
 }
@@ -307,9 +348,10 @@ function ignoredByGit(p) {
     return false;
   }
   try {
-    execFileSync('git', ['-C', dir, 'check-ignore', '-q', '--', abs], { stdio: 'ignore', timeout: 10000, windowsHide: true });
+    execFileSync('git', ['-C', dir, 'check-ignore', '-q', '--', abs], GIT_QUIET);
     return true;
   } catch (err) {
+    if (!gitSaidNo(err)) throw err;
     return false;
   }
 }
