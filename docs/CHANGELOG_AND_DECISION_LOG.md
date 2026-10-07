@@ -3120,3 +3120,38 @@ design prompt in `docs/prompts/`, which is not synced, names the new layout when
 
 **Consequences.** Every repo gets the layout and the templates with this kit's sync, a design's folder and its log
 replace a single design file for new work, and every review README gains a Now block. VERSION 0.2.140.
+
+## D-058. A compaction hook points a session at the work records it wrote
+
+- **Date.** 2026-10-07
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Standard · `tools/claude-code/kdf-compact.js`, its tests and the tools README · installed per
+  machine, not synced
+
+**Context.** D-057 asks a session, after a compaction, to find its work record before any task work, which rests on
+the session remembering it or on the summary naming it. Claude Code's SessionStart hook with the matcher `compact`
+adds a command's plain output to the context after a compaction, and the hook's input names the session's transcript,
+which holds every file tool call the session made. An outside review of the work records, and the owner's review
+panel on the plan, asked for the record to be named by a hook rather than by memory, without the hook carrying a
+record's own words, since a hook's output reaches the context as Claude Code's own.
+
+**Decision.**
+
+- **One hook, SessionStart on `compact|resume`.** `kdf-compact.js session-start` reads the session's transcript for
+  the work record files it wrote with a file tool, a design or bug `LOG.md`, a review's `README.md` and a brainstorm's
+  `NOTES.md`, and prints each open one's path and status word, the newest first, after one sentence telling the
+  session to read its record before any task work. Paths only, never a record's text, made of plain characters only,
+  at most ten and under 2,000 characters. With none it points at the status page that names each open record.
+- **Silent where no record applies.** A reviewer (`KDF_ROLE=reviewer`) keeps no record and a subagent has none of its
+  own, so the hook prints nothing for either, nor for a session that is starting or cleared.
+- **It never blocks or fails a session.** Any error exits 0 with nothing on stdout. A transcript that takes longer
+  than eight seconds to read gives what was found, marked as possibly short. Its settings entry carries a timeout.
+- **No PreCompact or PostCompact hook.** Claude Code's docs do not say PreCompact's output reaches the summary, and
+  every compaction's summary is already in the transcript, so a count of summaries that named their record comes from
+  the transcripts, with nothing wired.
+- **Wired by the owner**, once a review campaign running on that machine has closed, so a measured campaign's
+  sessions do not change in the middle.
+
+**Consequences.** A session resuming after a compaction is told which records are its own, and a session with none
+is told where they are listed. Run once on the machine it was built on, it read a 129 MB transcript in under half a
+second. VERSION 0.2.141.

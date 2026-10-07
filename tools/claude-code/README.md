@@ -14,6 +14,7 @@ repos, the kit ships Markdown only (ADR D-028), so each machine installs them fr
 | `kdf-retro.js` | Read only. The numbers a slice's retrospective starts from, counted from its answer key, the launcher's counts beside its reports or else their headers, and its Sol rounds, the escapes first |
 | `kdf-ask-codex.sh` | Asks Codex for a read only review of a change, a plan or a decision, the one way every session does (D-052, D-053). Gives Codex a detached worktree of a commit, or a throwaway repo of a folder of patches with no secret file, link or token in it, sets the session's question in the standard frame, runs Codex with the verified flags and archives its answer in the workspace's `temp/codex`, never in a repo. Refuses a reviewer, and fails when Codex changed its folder or wrote no answer |
 | `check-wiring.js` | Read only. Says whether this machine's settings wire the guard as the process needs, and prints the block to add when they do not |
+| `kdf-compact.js` | A Claude Code SessionStart hook for the work records (D-058). After a compaction or a resume it prints the paths of the open records the session wrote, read from its own transcript, and nothing for a reviewer or a subagent. It never blocks |
 | `install.sh` | Copies the guard to `~/.claude/hooks/`, smoke tests it, and prints the settings block. It edits no settings and refuses to run inside a Claude Code session |
 
 `../codex-cloud/kdf-codex-install.sh` and `../codex-cloud/kdf-codex-start-skill.md` are not run here. The owner pastes
@@ -321,6 +322,33 @@ reads go through `kdf-review.sh`.
 
 `KDF_CODEX_BIN`, `KDF_SETTLED` and `KDF_CODEX_ARCHIVE` override the codex program, the settled decisions file and the
 archive, the tests use them.
+
+## The compaction hook
+
+`kdf-compact.js` serves the work records of the kit's `DOCUMENTATION_STANDARD.md` (D-057, D-058). After a compaction
+or a resume it reads the session's own transcript for the record files the session wrote with a file tool, a design
+or bug `LOG.md`, a review's `README.md` and a brainstorm's `NOTES.md`, and prints each open one's path and status
+word, the newest first, so the session reads its record before any task work. It prints paths, never a record's
+words, since a hook's output reaches the context as Claude Code's own. With no record it points at the status page,
+`KDF_STATUS_FILE` or the first `kriegerdataforge-context/STATUS.md` above the session's folder. It says nothing to a
+reviewer the launcher started (`KDF_ROLE=reviewer`) or inside a subagent, and it never blocks or fails a session.
+
+To wire it, once per machine, after any review campaign running there has closed, copy it beside the guard and add a
+SessionStart entry to `~/.claude/settings.json`, then restart every session and `claude rc` server.
+
+```json
+"SessionStart": [
+  {
+    "matcher": "compact|resume",
+    "hooks": [
+      { "type": "command", "command": "node \"<home>/.claude/hooks/kdf-compact.js\" session-start", "timeout": 15 }
+    ]
+  }
+]
+```
+
+It needs no wrapper, since it never refuses anything. Every compaction's summary is already in the session's
+transcript, so how often a summary named its record is counted from the transcripts, with no other hook.
 
 ## What the guard cannot stop
 
