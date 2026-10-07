@@ -37,6 +37,7 @@
  */
 const { execFileSync } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const ROLE = String(process.argv[2] || process.env.KDF_ROLE || '').toLowerCase();
@@ -44,8 +45,9 @@ const MODE = ROLE === 'reviewer' ? 'reviewer' : 'orchestrator';
 const SELF_EDIT_OK = process.env.KDF_GUARD_ALLOW_SELF_EDIT === '1';
 const MAX_DEPTH = 5;
 const FILE_TOOLS = /^(Edit|Write|MultiEdit|NotebookEdit)$/;
-// Tools that reach outside the repo. A reviewer uses none of them. The IDE diagnostics tool stays allowed.
-const OUTWARD_TOOLS = /^(mcp__(?!ide__)|Artifact|SendUserFile$|SendMessage$|PushNotification$|RemoteTrigger$|Cron|DesignSync$|EnterWorktree$|Workflow$|WebFetch$|WebSearch$)/;
+// Tools that reach outside the repo, or run code the guard cannot read. A reviewer uses none of them. The IDE
+// diagnostics tool alone stays allowed, its code runner is refused like any other (D-060).
+const OUTWARD_TOOLS = /^(mcp__(?!ide__getDiagnostics$)|Artifact|SendUserFile$|SendMessage$|PushNotification$|RemoteTrigger$|Cron|DesignSync$|EnterWorktree$|Workflow$|WebFetch$|WebSearch$)/;
 const WRAPPERS = new Set([
   'env', 'command', 'sudo', 'nohup', 'time', 'exec', 'builtin', 'nice', 'timeout', 'xargs', 'setsid', 'stdbuf',
   'ionice', 'winpty'
@@ -150,8 +152,9 @@ process.stdin.on('data', (chunk) => {
 });
 // A call the guard cannot check could be any call, and an error before a check once let a secret read through, so it
 // is refused, every tool, reads included (D-059).
-const CANNOT_CHECK = 'The guard could not check this call, so it refuses it. The way back is the owner\'s, fix the ' +
-  'guard or remove its hook from settings.json. ';
+const CANNOT_CHECK = 'The guard could not check this call, so it refuses it. The way back is the owner\'s, put ' +
+  'kdf-guard.prev.js back, or remove its hook from ~/.claude/settings.json and any repo\'s ' +
+  '.claude/settings.local.json and restart the sessions. ';
 process.stdin.on('end', () => {
   let input;
   try {
@@ -177,6 +180,11 @@ function run(input) {
   const tool = input.tool_name || '';
   const args = input.tool_input || {};
   if (tool === 'Bash' || tool === 'PowerShell') {
+    check(String(args.command || ''), 0);
+  } else if (tool === 'Monitor') {
+    // Monitor runs its command in the same shell as Bash, so the command gets Bash's rules, and its WebSocket reaches
+    // outside the repo (D-060)
+    if (args.ws && MODE === 'reviewer') deny('Reviewers open no WebSocket. Monitor with ws is refused.', 'Monitor ws');
     check(String(args.command || ''), 0);
   } else if (FILE_TOOLS.test(tool)) {
     checkFileTool(String(args.file_path || args.notebook_path || ''));
@@ -218,6 +226,12 @@ function checkFileTool(target) {
 
 // ------------------------------------------------------------ secret files, every session
 
+// An error that says the path is not there, a missing file or a parent that is a file, the one error a check reads as
+// an answer. Any other is a check that could not run (D-059, D-060).
+function missingPath(err) {
+  return Boolean(err) && (err.code === 'ENOENT' || err.code === 'ENOTDIR');
+}
+
 // The variable names a .env.local holds no value for, the built in credentials and those its repo's .env.kdf.example
 // names.
 function credentialNames(dir) {
@@ -226,20 +240,22 @@ function credentialNames(dir) {
     for (const m of fs.readFileSync(path.join(dir, '.env.kdf.example'), 'utf8').matchAll(EXAMPLE_NAME)) names.add(m[1]);
   } catch (err) {
     // no example, the built in names alone. An example that exists and cannot be read is a check that failed (D-059).
-    if (err.code !== 'ENOENT') throw err;
+    if (!missingPath(err)) throw err;
   }
   return names;
 }
 
 // Whether a .env.local still holds a credential. The guard reads the file itself and never shows a value to anyone. A
-// file that cannot be read holds nothing to leak.
+// file that does not exist holds nothing to leak, and one that exists and cannot be read is a check that could not
+// run, a lock that clears before the session's own read for example, so it refuses (D-060).
 function holdsCredential(p) {
   const abs = path.resolve(CWD, p);
   let text;
   try {
     text = fs.readFileSync(abs, 'utf8');
   } catch (err) {
-    return false;
+    if (missingPath(err)) return false;
+    throw err;
   }
   const names = credentialNames(path.dirname(abs));
   for (const m of text.matchAll(ENV_LINE)) {
@@ -278,17 +294,253 @@ function isPattern(prog, word) {
   return PATTERN_FIRST.has(prog) && /[\\^$|()[\]*+?{}]/.test(word) && !fs.existsSync(path.resolve(CWD, word));
 }
 
+// Bash expands an unquoted *, ? or [...] into the paths it matches before the program runs, so cat .env* reads
+// .env.kdf though no word names it. The guard judges every call as written, then once more for each path a glob
+// matches, the glob swapped for that path whole and in the form bash gives it, and for the whole list bash would give,
+// so a match meets every rule a named path or word meets, the secret files, a reviewer's ignored and held paths, the
+// protected ones, and git's subcommand, branch and flags. Each extra judgment can only refuse, so a glob never makes
+// the guard allow what it would refuse as written. A glob whose last part starts with a dot and could match a secret's
+// name is refused wherever it runs, since a cd earlier in the line can move it (D-060).
+const GLOB_CHAR = /[*?[]/;
+const DOT_SECRET_NAMES = ['.env', '.env.kdf', '.env.dev', '.env.prod', '.env.x'];
+const GLOB_LIMIT = 200;
+const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+const ALL_WILD = () => true;
+// the matches counted across the whole call, and whether the call turns on dotglob, which lets * match a dot name
+let GLOB_TOTAL = 0;
+let HIDDEN_TOO = false;
+const STAR = { star: true };
+const ONE = { one: true };
+
+// Two characters the same, and on Windows the same in either case, since its file system ignores case. Compared one
+// character at a time, so a letter whose lower case is two characters, such as İ, still lines up.
+function sameChar(a, b) {
+  if (a === b) return true;
+  return process.platform === 'win32' && (a.toLowerCase() === b.toLowerCase() || a.toUpperCase() === b.toUpperCase());
+}
+
+// Where the bracket expression whose [ is at start ends, at the first ] outside quotes after its first member, with
+// [:alpha:], [=a=] and [.a.] held whole, or -1 when it never ends and the [ is itself. wild says which characters
+// came outside quotes.
+function bracketEnd(part, start, wild) {
+  let j = start + 1;
+  if (part[j] === '!' || part[j] === '^') j++;
+  if (part[j] === ']') j++;
+  while (j < part.length) {
+    if (part[j] === '[' && ':=.'.includes(part[j + 1] || ' ')) {
+      const close = part.indexOf(part[j + 1] + ']', j + 2);
+      if (close < 0) return -1;
+      j = close + 2;
+      continue;
+    }
+    if (part[j] === ']' && wild(j)) return j;
+    j++;
+  }
+  return -1;
+}
+
+// One part of a glob as steps, a character, one of any character, or a run of any. Only a *, ? or [ that came outside
+// quotes is a wildcard, so work"[1]" stays itself. A bracket expression is taken as one of any character, which
+// matches more than bash does, never less. Characters are read whole, so ? matches a character outside the basic
+// plane as bash does.
+function globSteps(part, wild) {
+  const steps = [];
+  for (let i = 0; i < part.length;) {
+    const c = String.fromCodePoint(part.codePointAt(i));
+    if (wild(i) && c === '*') {
+      if (steps[steps.length - 1] !== STAR) steps.push(STAR);
+    } else if (wild(i) && c === '?') {
+      steps.push(ONE);
+    } else if (wild(i) && c === '[' && bracketEnd(part, i, wild) >= 0) {
+      steps.push(ONE);
+      i = bracketEnd(part, i, wild) + 1;
+      continue;
+    } else {
+      steps.push(c);
+    }
+    i += c.length;
+  }
+  return steps;
+}
+
+function hasWildcard(part, wild) {
+  for (let i = 0; i < part.length; i++) if (wild(i) && GLOB_CHAR.test(part[i])) return true;
+  return false;
+}
+
+// Whether a name matches the steps, in time bounded by the name's length times the steps' count, a run of any retried
+// from the last one seen only, so no pattern can make the check take long.
+function globMatch(steps, name) {
+  const s = Array.from(name);
+  let i = 0;
+  let j = 0;
+  let star = -1;
+  let mark = 0;
+  while (i < s.length) {
+    if (j < steps.length && steps[j] !== STAR && (steps[j] === ONE || sameChar(steps[j], s[i]))) {
+      i++;
+      j++;
+    } else if (j < steps.length && steps[j] === STAR) {
+      star = j++;
+      mark = i;
+    } else if (star >= 0) {
+      j = star + 1;
+      i = ++mark;
+    } else {
+      return false;
+    }
+  }
+  while (j < steps.length && steps[j] === STAR) j++;
+  return j === steps.length;
+}
+
+// Whether a path is there, a missing one or one under a file being no, any other error a check that could not run.
+function pathThere(p) {
+  try {
+    fs.lstatSync(p);
+    return true;
+  } catch (err) {
+    if (missingPath(err)) return false;
+    throw err;
+  }
+}
+
+// The paths a glob matches that exist, whole and sorted, part by part from the folder the call runs in or from the
+// root, whose own characters are never a glob, so a folder named work[1] stays itself. wild says which of the word's
+// characters came outside quotes. A name starting with a dot matches only a part that starts with one, as in bash. A
+// folder that is not there matches nothing, any other error reading one is a check that could not run, and more than
+// GLOB_LIMIT paths are more than the guard checks.
+function globMatches(word, wild) {
+  const from = globBase(word);
+  let found = [from.base];
+  let start = from.start;
+  for (let i = start; i <= word.length; i++) {
+    if (i < word.length && word[i] !== '/' && word[i] !== '\\') continue;
+    const part = word.slice(start, i);
+    const at = start;
+    start = i + 1;
+    if (!part) continue;
+    const local = (j) => wild(at + j);
+    const next = [];
+    for (const dir of found) {
+      if (!hasWildcard(part, local)) {
+        next.push(path.join(dir, part));
+        continue;
+      }
+      let names;
+      try {
+        names = fs.readdirSync(dir);
+      } catch (err) {
+        if (missingPath(err)) continue;
+        throw err;
+      }
+      const steps = globSteps(part, local);
+      for (const name of names) {
+        if (name.startsWith('.') && !part.startsWith('.') && !HIDDEN_TOO) continue;
+        if (globMatch(steps, name)) next.push(path.join(dir, name));
+      }
+      if (next.length > GLOB_LIMIT) throw new Error('a glob matched more than ' + GLOB_LIMIT + ' paths');
+    }
+    found = next;
+    if (!found.length) break;
+  }
+  return found.filter(pathThere).sort();
+}
+
+// Where a glob starts, the home folder for ~, the drive for Git Bash's /c/, the root for a whole path, otherwise the
+// folder the call runs in, and the place in the word its own parts begin. None of these is ever read as a glob.
+function globBase(word) {
+  if (word === '~' || word.startsWith('~/')) return { base: os.homedir(), start: Math.min(2, word.length) };
+  const drive = process.platform === 'win32' ? /^\/([A-Za-z])(\/|$)/.exec(word) : null;
+  if (drive) return { base: drive[1].toUpperCase() + ':\\', start: drive[0].length };
+  if (path.isAbsolute(word)) {
+    const root = path.parse(word).root;
+    return { base: path.resolve(root), start: root.length };
+  }
+  return { base: CWD, start: 0 };
+}
+
+// A match in the form bash gives it, whole for a glob that starts from a root or ~, otherwise relative to the call's
+// folder, ./ kept.
+function bashForm(word, p) {
+  if (globBase(word).base !== CWD) return p;
+  const rel = path.relative(CWD, p).split(path.sep).join('/');
+  return word.startsWith('./') ? './' + rel : rel;
+}
+
+const REDIRECT_OP = /^\d*(?:<|>>?|&>>?)$/;
+const REDIRECT_JOINED = /^(\d*(?:<|>>?|&>>?))(.+)$/;
+
+// The segment once more for each path an unquoted glob matches, in both forms, for each glob's whole list in each
+// form, and with every glob's whole list at once in each form, which is bash's own expansion when there are several,
+// `git p* origin ma*` for example. Each is a token list analyze judges like the segment, a redirect's target behind
+// its operator. A glob in an assignment before the program is left, as bash leaves it, and a segment led by a command
+// that only shows a file exists, ls for example, gets these only for its redirect targets, since analyze checks
+// nothing else of it.
+function globVariants(toks) {
+  let lead = 0;
+  while (lead < toks.length && !toks[lead].lq && ASSIGNMENT.test(toks[lead].t)) lead++;
+  const existence = lead < toks.length && EXISTENCE_ONLY.has(base(toks[lead].t));
+  const variants = [];
+  const whole = new Map();
+  const shapedAll = new Map();
+  for (let k = lead; k < toks.length; k++) {
+    const t = toks[k];
+    if (!t.g) continue;
+    const joined = REDIRECT_JOINED.exec(t.t);
+    const target = Boolean(joined) || (k > 0 && !toks[k - 1].q && REDIRECT_OP.test(toks[k - 1].t));
+    if (existence && !target) continue;
+    const op = joined ? joined[1] : '';
+    const word = t.t.slice(op.length);
+    const found = globMatches(word, (j) => t.gm.has(j + op.length));
+    GLOB_TOTAL += found.length;
+    if (GLOB_TOTAL > GLOB_LIMIT) throw new Error('globs matched more than ' + GLOB_LIMIT + ' paths in the call');
+    if (!found.length) continue;
+    const shaped = found.map((p) => op + bashForm(word, p));
+    const paths = found.map((p) => op + p);
+    whole.set(k, paths);
+    shapedAll.set(k, shaped);
+    for (const w of paths.concat(shaped)) variants.push(swapWords(toks, new Map([[k, [w]]])));
+    variants.push(swapWords(toks, new Map([[k, shaped]])), swapWords(toks, new Map([[k, paths]])));
+  }
+  if (whole.size > 1) variants.push(swapWords(toks, shapedAll), swapWords(toks, whole));
+  return variants;
+}
+
+// A token list with the words at the given places replaced, each new word a plain token.
+function swapWords(toks, words) {
+  const out = [];
+  toks.forEach((t, k) => {
+    if (!words.has(k)) out.push(t);
+    else for (const w of words.get(k)) out.push({ t: w, q: false, lq: false, g: false });
+  });
+  return out;
+}
+
+// A glob whose last part starts with a dot and could match a secret's name, refused wherever it runs, since a cd
+// earlier in the line can move it. Every glob character counts here, quoted or not, which refuses more, never less.
+function checkDotGlob(word, whole) {
+  const last = String(word || '').split(/[\\/]/).pop();
+  if (!last.startsWith('.') || !GLOB_CHAR.test(last)) return;
+  const steps = globSteps(last, ALL_WILD);
+  if (DOT_SECRET_NAMES.some((name) => globMatch(steps, name))) deny(SECRET_WHY, whole);
+}
+
 // A command names a secret file only to check that it exists. The words are the program, its arguments, the value
 // after an =, a curl style @file, and a redirect's target, so --env-file=.env.prod, -d @.env.kdf and >.env.kdf count.
 // A redirect reads or writes its target whatever the program, so it is checked before the existence checks pass.
 function checkSecretWords(toks, prog, args, whole) {
   for (let k = 0; k < toks.length; k++) {
     const m = toks[k].q ? null : /^\d*(?:<|>>?|&>>?)(.*)$/.exec(toks[k].t);
-    if (m) checkClosed(m[1] || (toks[k + 1] ? toks[k + 1].t : ''), whole);
+    if (!m) continue;
+    const target = m[1] || (toks[k + 1] ? toks[k + 1].t : '');
+    checkClosed(target, whole);
+    if (m[1] ? toks[k].g : toks[k + 1] && toks[k + 1].g) checkDotGlob(target, whole);
   }
   if (EXISTENCE_ONLY.has(prog)) return;
   if (prog === 'git' && gitSplit(args).sub === 'check-ignore') return;
   for (const t of toks) {
+    if (t.g) checkDotGlob(t.t, whole);
     if (isPattern(prog, t.t)) continue;
     const words = [t.t];
     const eq = t.t.indexOf('=');
@@ -325,10 +577,22 @@ function nearestFolder(dir) {
   return at;
 }
 
+// Git's answers in this call, by question and path, since a glob's extra judgments ask about the same path again.
+const GIT_ANSWERS = new Map();
+function remembered(kind, abs, ask) {
+  const key = kind + ' ' + abs;
+  if (!GIT_ANSWERS.has(key)) GIT_ANSWERS.set(key, ask());
+  return GIT_ANSWERS.get(key);
+}
+
 // A path git tracks, judged by the repo that holds it, asked from the nearest folder that exists. Anything git answers
 // no to counts as untracked.
 function trackedByGit(p) {
   const abs = path.resolve(CWD, p);
+  return remembered('tracked', abs, () => askTracked(abs));
+}
+
+function askTracked(abs) {
   try {
     execFileSync('git', ['-C', nearestFolder(path.dirname(abs)), 'ls-files', '--error-unmatch', '--', abs], GIT_QUIET);
     return true;
@@ -338,14 +602,20 @@ function trackedByGit(p) {
   }
 }
 
-// A path git ignores, judged by the repo that holds it. A path that does not exist holds nothing to read.
+// A path git ignores, judged by the repo that holds it. A path that does not exist holds nothing to read, and any
+// other error reading it is a check that could not run (D-060).
 function ignoredByGit(p) {
   const abs = path.resolve(CWD, p);
+  return remembered('ignored', abs, () => askIgnored(abs));
+}
+
+function askIgnored(abs) {
   let dir;
   try {
     dir = fs.statSync(abs).isDirectory() ? abs : path.dirname(abs);
   } catch (err) {
-    return false;
+    if (missingPath(err)) return false;
+    throw err;
   }
   try {
     execFileSync('git', ['-C', dir, 'check-ignore', '-q', '--', abs], GIT_QUIET);
@@ -409,12 +679,19 @@ function segments(cmd) {
   let quoted = false;
   // the token began inside quotes, so FOO="x" is still an assignment and "FOO=x" is a word
   let lead = false;
+  // where a *, ?, [ or ] came outside quotes, so bash's glob is known to the character, ".e"nv* a glob and
+  // work"[1]" not (D-060)
+  let wildAt = new Set();
   const endTok = () => {
-    if (has) cur.push({ t: tok, q: quoted, lq: lead });
+    if (has) {
+      const g = [...wildAt].some((p) => tok[p] === '*' || tok[p] === '?' || tok[p] === '[');
+      cur.push({ t: tok, q: quoted, lq: lead, g, gm: wildAt });
+    }
     tok = '';
     has = false;
     quoted = false;
     lead = false;
+    wildAt = new Set();
   };
   const endSeg = () => {
     endTok();
@@ -477,6 +754,7 @@ function segments(cmd) {
       endTok();
       continue;
     }
+    if (c === '*' || c === '?' || c === '[' || c === ']') wildAt.add(tok.length);
     tok += c;
     has = true;
   }
@@ -493,7 +771,13 @@ function base(t) {
 
 function check(cmd, depth) {
   if (depth > MAX_DEPTH) deny('Nested shells are too deep to check.', cmd);
-  for (const seg of segments(cmd)) analyze(seg, depth, cmd, true);
+  // dotglob or GLOBIGNORE anywhere in the call lets a glob match a dot name, so the guard's globs do too (D-060)
+  if (depth === 0) HIDDEN_TOO = /dotglob|GLOBIGNORE/.test(cmd);
+  for (const seg of segments(cmd)) {
+    analyze(seg, depth, cmd, true);
+    // a glob's matches, judged too, each judgment able only to refuse (D-060)
+    for (const variant of globVariants(seg)) analyze(variant, depth, cmd, true);
+  }
 }
 
 // own is true for a segment of the call itself, false for a command another one runs, such as find -exec's

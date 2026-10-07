@@ -225,6 +225,26 @@ def _ignored_tree(project: Path) -> None:
         "unadopted/.env.local": "PORT=3000\n",
         "docs/reviews/TRACKED.md": "# an earlier log\n",
         ".git/kdf-review/held/docs/reviews/CODEX.md": "# held\n",
+        # keys a glob reaches only through a word shaped like an assignment, or a letter whose lower case is longer,
+        # and a file named ls behind an assignment shaped folder, which an expanded word must not turn into the program
+        "prefix=certs/private.pem": "a key\n",
+        "İkey.pem": "a key\n",
+        "MODE=dir/ls": "not a program\n",
+        "MODE=dir/git": "not a program\n",
+        # a key and a settings file a glob run from inside their folder reaches by a bare name
+        "keys/id_rsa": "a key\n",
+        ".claude/settings.json": "{}\n",
+        # brackets that are literal in a folder's name, git and the words a git glob can turn into, a subcommand, a
+        # branch and a flag, and a folder with no git beside one that has it
+        "work[1]/private.pem": "a key\n",
+        "bin[g]/git": "not a program\n",
+        "bin/git": "not a program\n",
+        "bin/ait": "not a program\n",
+        "a/readme": "nothing\n",
+        "z/git": "not a program\n",
+        "push": "a file\n",
+        "main": "a file\n",
+        "--force": "a file\n",
     }
     for name, text in files.items():
         target = project / name
@@ -332,7 +352,8 @@ def test_an_error_while_checking_refuses_even_a_read(tmp_path: Path) -> None:
     )
     assert done.returncode == 2
     assert "It failed while checking" in done.stderr
-    assert "remove its hook from settings.json" in done.stderr
+    assert "remove its hook from ~/.claude/settings.json and any repo's .claude/settings.local.json" in done.stderr
+    assert "restart the sessions" in done.stderr
 
 
 def test_the_settings_line_refuses_when_the_guard_cannot_start(tmp_path: Path) -> None:
@@ -447,6 +468,131 @@ def test_a_tracked_file_in_a_deleted_folder_is_still_tracked(tmp_path: Path) -> 
 
     assert write(old) == 2
     assert write(fresh) == 0
+
+
+@pytest.mark.parametrize(
+    ("folder", "command"),
+    [
+        ("keys", "cat *"),
+        (".claude", "rm settings*.json"),
+        (".claude", "echo x > settings*.json"),
+        ("work[1]", "cat *"),
+    ],
+)
+def test_a_glob_keeps_the_folders_its_matches_sit_in(tmp_path: Path, folder: str, command: str) -> None:
+    """
+    A glob run from inside keys/ or .claude/ matches bare names, and the guard judges each match by its whole path, so
+    the folder that closes it still counts, and the brackets in a folder's own name are never a glob (D-060).
+    """
+    project = tmp_path / "project"
+    _ignored_tree(project)
+    payload = {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": (project / folder).as_posix()}
+    env     = {key: value for key, value in os.environ.items() if key != "KDF_ROLE"}
+    env     = {**env, "CLAUDE_PROJECT_DIR": project.as_posix()}
+    done    = subprocess.run(
+        [str(NODE), str(GUARD)],
+        input = json.dumps(payload),
+        env = env,
+        capture_output = True,
+        text = True,
+        check = False,
+    )
+    assert done.returncode == 2, done.stderr
+
+
+def _guard_bash(command: str, cwd: Path, project: Path, extra: dict[str, str] | None = None) -> int:
+    """
+    The guard's exit code for an owner's Bash call run from cwd.
+    """
+    payload = {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": cwd.as_posix()}
+    env     = {key: value for key, value in os.environ.items() if key != "KDF_ROLE"}
+    env     = {**env, "CLAUDE_PROJECT_DIR": project.as_posix(), **(extra or {})}
+    done    = subprocess.run(
+        [str(NODE), str(GUARD)],
+        input = json.dumps(payload),
+        env = env,
+        capture_output = True,
+        text = True,
+        check = False,
+    )
+    return done.returncode
+
+
+def test_a_glob_from_home_or_a_git_bash_drive_path_is_judged(tmp_path: Path) -> None:
+    """
+    ~ is the home folder and, on Windows, Git Bash's /c/ is drive C, so a glob written either way reaches the key bash
+    would pass to cat (D-060).
+    """
+    home = tmp_path / "home"
+    (home / "certs").mkdir(parents = True)
+    (home / "certs" / "private.pem").write_text("a key\n", encoding = "utf-8")
+    keys = tmp_path / "project" / "keys"
+    keys.mkdir(parents = True)
+    (keys / "id_rsa").write_text("a key\n", encoding = "utf-8")
+    project = keys.parent
+    spelled = keys.as_posix()
+    if os.name == "nt":
+        spelled = "/" + spelled[0].lower() + spelled[2:]
+    assert _guard_bash("cat ~/certs/*", project, project, {"HOME": str(home), "USERPROFILE": str(home)}) == 2
+    assert _guard_bash("cat " + spelled + "/*", project, project) == 2
+    assert _guard_bash("cat ~/certs/none*", project, project, {"HOME": str(home), "USERPROFILE": str(home)}) == 0
+
+
+def test_the_glob_limit_counts_the_whole_call(tmp_path: Path) -> None:
+    """
+    The limit on a glob's matches counts every segment of the call, so two globs of 120 matches each are more than the
+    guard checks, while either alone is not (D-060).
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+    for n in range(120):
+        (project / f"note{n}.md").write_text("x\n", encoding = "utf-8")
+        (project / f"note{n}.txt").write_text("x\n", encoding = "utf-8")
+    assert _guard_bash("cat *.md", project, project) == 0
+    assert _guard_bash("cat *.md; cat *.txt", project, project) == 2
+
+
+@pytest.mark.parametrize("which", ["a .env.local that is a folder", "a reviewer's path the guard cannot look up"])
+def test_an_error_reading_what_the_guard_checks_refuses_the_call(tmp_path: Path, which: str) -> None:
+    """
+    A .env.local the guard cannot read, and a path a reviewer opens that the guard cannot look up, are checks that could
+    not run, so the call is refused where it once went through, while a path that is simply not there keeps its answer
+    and is allowed (D-060).
+    """
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", str(repo)], check = True, capture_output = True)
+    for folder in ("broken", "absent"):
+        example = repo / folder / ".env.kdf.example"
+        example.parent.mkdir(parents = True)
+        example.write_text("GH_PACKAGES_PAT=\n", encoding = "utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "-f", "broken", "absent"], check = True, capture_output = True)
+    (repo / "broken" / ".env.local").mkdir()
+    env     = {key: value for key, value in os.environ.items() if key != "KDF_ROLE"}
+    env     = {**env, "CLAUDE_PROJECT_DIR": repo.as_posix()}
+    target  = (repo / "broken" / ".env.local").as_posix()
+    control = (repo / "absent" / ".env.local").as_posix()
+    if which == "a reviewer's path the guard cannot look up":
+        # a NUL in a path makes node refuse to look it up, an error that is not a missing path on every system
+        env     = {**env, "KDF_ROLE": "reviewer"}
+        target  = (repo / "notes").as_posix() + "\u0000.md"
+        control = (repo / "missing.md").as_posix()
+
+
+    def read(path: str) -> int:
+        payload = {"tool_name": "Read", "tool_input": {"file_path": path}, "cwd": repo.as_posix()}
+        done    = subprocess.run(
+            [str(NODE), str(GUARD)],
+            input = json.dumps(payload),
+            env = env,
+            capture_output = True,
+            text = True,
+            check = False,
+        )
+        return done.returncode
+
+
+    assert read(control) == 0
+    assert read(target) == 2
 
 
 def test_a_refusal_is_logged_when_asked(tmp_path: Path) -> None:
@@ -2199,7 +2345,8 @@ def test_the_installer_installs_and_smoke_tests_the_guard(tmp_path: Path) -> Non
 def test_the_installer_keeps_the_live_guard_when_a_new_one_fails(tmp_path: Path) -> None:
     """
     The new guard is staged and smoke tested before it replaces the live one, so a copy that fails leaves the live guard
-    as it was, and a good one keeps the previous copy beside it. The compaction hook is copied too (D-058, D-059).
+    as it was, and a good one keeps the previous copy beside it, only when it differs, so the same guard installed twice
+    never overwrites the way back with its own twin. The compaction hook is copied too (D-058, D-059, D-060).
     """
     home  = tmp_path / "home"
     tools = tmp_path / "tools"
@@ -2233,6 +2380,11 @@ def test_the_installer_keeps_the_live_guard_when_a_new_one_fails(tmp_path: Path)
     shutil.copy(GUARD, tools / "kdf-guard.js")
     again = install()
     assert again.returncode == 0, again.stderr
+    assert not (hooks / "kdf-guard.prev.js").exists()
+    assert "kdf-guard.prev.js left as it was" in again.stdout
+    (tools / "kdf-guard.js").write_bytes(GUARD.read_bytes() + b"\n// a newer guard\n")
+    newer = install()
+    assert newer.returncode == 0, newer.stderr
     assert (hooks / "kdf-guard.prev.js").read_bytes() == live
 
 
@@ -2257,14 +2409,18 @@ def _record(root: Path, relative: str, status: str) -> Path:
     return record
 
 
-def _transcript(tmp_path: Path, calls: list[tuple[str, Path]]) -> Path:
+def _transcript(tmp_path: Path, calls: list[tuple[str, Path]], failed: tuple[int, ...] = ()) -> Path:
     """
-    A session's transcript in miniature, one assistant line per tool call, in the order made.
+    A session's transcript in miniature, one assistant line per tool call in the order made, each followed by the user
+    line carrying its result, an error for the calls whose index is in failed.
     """
     lines = []
-    for tool, target in calls:
-        block = {"type": "tool_use", "name": tool, "input": {"file_path": str(target)}}
+    for index, (tool, target) in enumerate(calls):
+        call_id = f"toolu_{index:04d}"
+        block   = {"type": "tool_use", "id": call_id, "name": tool, "input": {"file_path": str(target)}}
+        result  = {"type": "tool_result", "tool_use_id": call_id, "content": "done", "is_error": index in failed}
         lines.append(json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [block]}}))
+        lines.append(json.dumps({"type": "user", "message": {"role": "user", "content": [result]}}))
     transcript = tmp_path / "session.jsonl"
     transcript.write_text("\n".join(lines) + "\n", encoding = "utf-8")
     return transcript
@@ -2321,6 +2477,25 @@ def test_the_compaction_hook_names_the_open_records_the_session_wrote(tmp_path: 
         notes.as_posix() + ", WAITING ON THE OWNER",
         review.as_posix() + ", OPEN",
     ]
+
+
+def test_the_compaction_hook_leaves_out_a_write_that_failed(tmp_path: Path) -> None:
+    """
+    An Edit whose result came back as an error wrote nothing, so another session's open record it touched is not named,
+    and a call whose result never came is left out too, as the measure counts writes (D-060).
+    """
+    space  = tmp_path / "ws"
+    mine   = _record(space, "repo/docs/design/2026-10-07-mine/LOG.md", "OPEN")
+    theirs = _record(space, "repo/docs/design/2026-10-07-theirs/LOG.md", "OPEN")
+    late   = _record(space, "repo/docs/bugs/2026-10-07-late/LOG.md", "OPEN")
+    path   = _transcript(tmp_path, [("Write", mine), ("Edit", theirs)], failed = (1,))
+    block  = {"type": "tool_use", "id": "toolu_late", "name": "Edit", "input": {"file_path": str(late)}}
+    with path.open("a", encoding = "utf-8") as handle:
+        handle.write(json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [block]}}) + "\n")
+
+    done = _compact({"session_id": "s1", "transcript_path": str(path), "source": "compact"})
+    assert done.returncode == 0
+    assert _listed(done.stdout) == [mine.as_posix() + ", OPEN"]
 
 
 @pytest.mark.parametrize(

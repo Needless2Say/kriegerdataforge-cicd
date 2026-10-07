@@ -115,8 +115,14 @@ function writtenRecords(transcript) {
       clearTimeout(timer);
       resolve({ seen, short });
     });
+    // A write counts once its result comes back without an error, as the measure counts them, so an Edit that failed
+    // names no record (D-060). The calls still waiting for their result, by id.
+    const asked = new Map();
     lines.on('line', (line) => {
-      if (!line.includes('"file_path"') || !/(LOG|README|NOTES)\.md/.test(line)) return;
+      const call = line.includes('"file_path"') && /(LOG|README|NOTES)\.md/.test(line);
+      const result =
+        asked.size > 0 && line.includes('"tool_result"') && [...asked.keys()].some((id) => line.includes(id));
+      if (!call && !result) return;
       let rec;
       try {
         rec = JSON.parse(line);
@@ -126,11 +132,16 @@ function writtenRecords(transcript) {
       const content = rec && rec.message && rec.message.content;
       if (!Array.isArray(content)) return;
       for (const block of content) {
-        if (!block || block.type !== 'tool_use' || !FILE_TOOLS.has(block.name)) continue;
-        const file = block.input && block.input.file_path;
-        if (typeof file !== 'string') continue;
-        const norm = normal(file);
-        if (RECORD.test(norm)) seen.set(norm, ++order);
+        if (!block) continue;
+        if (block.type === 'tool_use' && FILE_TOOLS.has(block.name) && typeof block.id === 'string') {
+          const file = block.input && block.input.file_path;
+          if (typeof file !== 'string') continue;
+          const norm = normal(file);
+          if (RECORD.test(norm)) asked.set(block.id, norm);
+        } else if (block.type === 'tool_result' && asked.has(block.tool_use_id)) {
+          if (block.is_error !== true) seen.set(asked.get(block.tool_use_id), ++order);
+          asked.delete(block.tool_use_id);
+        }
       }
     });
     lines.on('close', () => {

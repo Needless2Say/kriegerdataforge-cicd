@@ -27,17 +27,20 @@ Once per machine, by the owner, in a terminal. Git Bash on Windows.
 
 1. Clone this repo, and `git pull` it whenever the guard changes.
 2. `bash tools/claude-code/install.sh`. It stages `kdf-guard.js` in `~/.claude/hooks/`, proves the staged copy
-   refuses a push to `main`, a reviewer's `git add` and input that is not JSON and allows `git status`, then puts it
-   in place and keeps the previous one as `kdf-guard.prev.js`. It copies `kdf-compact.js` beside it and prints a
-   settings block, whose guard command ends with `|| exit 2`.
+   refuses a push to `main`, a reviewer's `git add`, a Read of `.env.kdf` and input that is not JSON and allows
+   `git status`, then puts it in place and keeps the previous one as `kdf-guard.prev.js` when it differs. It copies
+   `kdf-compact.js` beside it and prints a settings block, whose guard command ends with `|| exit 2`.
 3. Merge the block into `~/.claude/settings.json` by hand. `defaultShell` and `hooks` are top level keys. The
    `permissions.deny` list merges with yours, so keep your existing rules and add the new entries beside them. The
    block sets Git Bash as the default shell, denies the PowerShell tool, hooks the guard on the tools it must see, and
    denies the Read tool the usual secret files. A machine set up before 2026-09-29 adds `Read|Grep|Glob` and
-   `WebFetch|WebSearch` to its matcher first, then swaps `Read(**/.env.local)` in its deny list for
+   `WebFetch|WebSearch` to its matcher first, and one set up before D-060 adds `Monitor`, which runs a shell
+   command like Bash, to the matcher of every guard line, then swaps `Read(**/.env.local)` in its deny list for
    `Read(**/.env.kdf)`, `Read(**/.env.dev)` and `Read(**/.env.prod)`, in that order, so the guard's `.env.local` rule
    is in place before the old deny rule goes.
-4. `bash tools/claude-code/install.sh --check`. Every line should pass. Then restart every session and every
+4. `bash tools/claude-code/install.sh --check`. Every line should pass, and a WARN is a step still to do, though the
+   last line says all checks passed. A repo whose `.claude/settings.local.json` also runs the guard, with `reviewer`,
+   ends that line with `|| exit 2` too, which the check does not read. Then restart every session and every
    `claude rc` server, a running session keeps the settings it started with.
 5. In each repo the owner reviews, set the ruleset's bypass to "For pull requests only" and require the repo's CI gate
    as a status check. Without that GitHub cannot tell a session from the owner, both are the same login.
@@ -71,8 +74,15 @@ example and `.env.local`, backups such as `.env.local.bak` included, a `*.tfvars
 `keys/`. Terraform's committed `common.auto.tfvars` stays readable. The words
 checked are the program, its arguments, the value after an `=`, a curl style `@file`, and a redirect's target, whatever
 the program, so `--env-file=.env.prod`, `-d @.env.kdf` and `ls >.env.kdf` count. A search pattern such as `'^\.env'`
-that names no file on disk is not a path. The owner's `.env.dev` and `.env.prod` get a message of their own. A stack or a test starts
-through the repo's make target, which reads the file itself.
+that names no file on disk is not a path. A glob, a `*`, `?` or `[` outside quotes, `".e"nv*` included, is judged by
+what it can match (D-060). The call is judged as written, then again for each path the glob matches in the folder it
+runs in, whole and in the form bash gives it, and for the whole list, so a match meets every rule a named path or
+word meets, a secret file, a reviewer's ignored or held path, a protected one, or git's branch, and these extra
+judgments can only refuse. A bracket expression counts as any one character, which matches more than bash, never
+less. One whose last part starts with a dot and could match a secret's name, `.env*` or `.e[n]v.kdf`, is refused
+wherever it runs, since a `cd` earlier in the line can move it, and `cat *` refuses only where a secret file is
+there. A glob quoted whole is a pattern. The owner's `.env.dev` and `.env.prod` get a message of their own. A stack or
+a test starts through the repo's make target, which reads the file itself.
 
 **`.env.local` opens to every session once its repo has adopted the env standard**, the owner's decision too, since
 the standard (`skills.md`, ADR D-030) keeps only values that work on this machine there and every credential in
@@ -363,7 +373,20 @@ What it cannot read, by design. A program named through a variable (`c=gh; $c pr
 substitution, a letter escaped with a backslash, what a script it runs does inside itself (`bash script.sh`,
 `python -c`), and a direct call to a repo's seed or migration code with the environment pointed at DEV or PROD by
 hand. Each of those is a deliberate way around a rule, and a session that writes one has stopped following the
-process.
+process. Braces are not expanded (`.e{nv,x}.kdf`), and a program that walks folders on its own, `grep -r` or
+`find -exec`, reads what it finds there, so the Read deny rules and `.gitignore` stay part of the fence. A `cd`
+earlier in the same call is not followed, every relative path is judged from the folder the call starts in, so
+`cd .git/kdf-review/held && cat r.md` is not seen as a held report and a `.env.local` is judged by the wrong
+folder's example. Rules that match a name, `.env.kdf` or a dot glob, hold wherever the call runs. For an owner's
+session `mcp__ide__executeCode` is a code runner like `python -c`, a reviewer's is refused.
+
+A glob's extra judgments (D-060) only add refusals, and what they still miss is what the guard missed before them.
+A bracket counts as any one character, so two bracket globs that bash narrows, `git [p]ush origin [m]ain` beside
+files named `hush` and `gain`, can be judged as other words. `**` under `globstar` is one folder level, not many. `~`
+is Node's home folder, which on Windows is `USERPROFILE`, so a glob under bash's `HOME`, where the two differ, is not
+followed, and a quoted `~` counts as home. A call that names `dotglob` at all, even to turn it off, lets globs match
+dot names, refusing more. And a nested shell's globs count against the 200 matches once for each extra judgment,
+which can refuse a call bash would run.
 
 Running a file in a protected folder counts as touching it, so `node ~/.claude/hooks/kdf-guard.js` is refused inside a
 session. To try the installed guard, feed the same input to this folder's copy, which `check-wiring.js` confirms is
@@ -381,9 +404,11 @@ reads included, since an error before the secret checks once let a secret read t
 2026-10-07 over the earlier "a bug here must never stall a session"). A guard that cannot start, a missing file or a
 missing `node`, exits 1 or 127, which Claude Code lets through, so its settings line ends with `|| exit 2` and
 `check-wiring.js` warns when it does not. A hook that times out still lets the call through, by Claude Code's design.
-So a bug here stalls every session until it is fixed, and the way back is the owner's, put `kdf-guard.prev.js` back
-in place or remove the guard's hook from `settings.json`. `KDF_GUARD_LOG=<file>` appends a line per refusal when the
-owner wants to see what a session tried.
+So a bug here stalls every session until it is fixed, and the way back is the owner's. Putting `kdf-guard.prev.js`
+back in place works at once for every session, as long as `node` starts, since each call runs the file afresh.
+Removing the hook means removing it from `~/.claude/settings.json` and from every repo's `.claude/settings.local.json`
+that runs it, then restarting every session and every `claude rc` server, since a running session keeps the hooks it
+started with. `KDF_GUARD_LOG=<file>` appends a line per refusal when the owner wants to see what a session tried.
 
 ## Notes
 
