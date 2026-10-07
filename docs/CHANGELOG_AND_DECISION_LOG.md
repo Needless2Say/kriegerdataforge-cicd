@@ -3193,3 +3193,67 @@ reached no rule and exited 0. And a guard that cannot start at all, a missing fi
 
 **Consequences.** A crash or a missing guard no longer lets a call through. The owner applies this with the hook's
 settings line, between the review reads of any campaign running on that machine. VERSION 0.2.142.
+
+## D-060. The guard sees Monitor, judges a glob by the paths it names, and refuses on every read error
+
+- **Date.** 2026-10-07
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Standard · `tools/claude-code/kdf-guard.js`, `check-wiring.js`, `kdf-compact.js`, `install.sh`,
+  `guard-cases.json`, their tests and the tools README · installed per machine by the owner, not synced
+
+**Context.** The owner's closing review panel on D-058 and D-059, as installed, found two file system errors the
+guard still read as an answer that allowed the call, against D-059. A `.env.local` it could not read counted as
+holding nothing, and a reviewer's path it could not look up counted as not ignored. Checking that class, the guard's
+own cases showed that an unquoted glob went unexpanded in the guard's view, so `cat .env*` and `cat .e[n]v.kdf` read
+`.env.kdf` with no word naming it, and `grep FOO .env*` skipped the word as a search pattern. The panel's second
+reader found two tools the guard never judged, Monitor, which runs a shell command, and a reviewer's
+`mcp__ide__executeCode`. The compaction hook also named a record a session had tried to write and failed, and a
+second install of the same guard overwrote the copy kept as the way back.
+
+**Decision.**
+
+- **Every file system error but a missing path refuses.** Reading a `.env.local`, looking up a reviewer's path and
+  reading a repo's credential example each take a missing file, or a parent that is a file, as their answer, and any
+  other error as a check that could not run (D-059).
+- **A glob is judged by what it can match, and can only add refusals.** The guard judges every call as written,
+  exactly as before, then once more for each path an unquoted glob matches, the glob swapped for that path whole and
+  in the form bash gives it, for its whole list in each form, and with every glob's list at once, bash's own
+  expansion when there are several, `git pu* origin ma*`. So a match meets every rule a named path or word
+  meets, a secret file, a reviewer's ignored or held path, a protected path, a folder's name such as `keys/` when the
+  call runs inside it, and git's subcommand, branch and flags, `git push origin ma*` judged as a push to `main`. Each
+  extra judgment can only refuse, so a glob never makes the guard allow what it refuses as written, which an earlier
+  design that replaced the words did, five rounds of review showed. The tokenizer marks each `*`, `?`, `[` and `]`
+  that came outside quotes, so `".e"nv*` is a glob and `work"[1]"` is not, and the folder the call runs in is never
+  read as a glob. A glob starts from the home folder for `~`, from the drive for Git Bash's `/c/`, from the root for
+  a whole path, otherwise from the call's folder. A name starting with a dot is matched only by a part starting with
+  one, unless the call names `dotglob` or `GLOBIGNORE`, and characters are compared
+  whole and in either case on Windows, a bracket expression, `[[:alpha:]]` included, counts as any one character,
+  which matches more than bash, never less, and matching is linear, so no pattern makes it slow. Only paths that
+  exist count. A glob whose last part starts with a dot and could match a secret's name is refused wherever it runs,
+  since a `cd` earlier in the line can move it, but for `ls` and the other commands that only show a file exists. A
+  folder that cannot be read for another reason than being missing, or more than 200 matches across the whole call,
+  is a check that could not run. A shell profile that turns on `dotglob` for every call is outside the guard's view.
+  A glob in an assignment before the program is left, as bash leaves it, a glob quoted whole stays a pattern, and
+  braces are not expanded, a limit the tools README names. Git's answers are kept for the call.
+- **The compaction hook counts a write once it succeeded.** A file tool call counts when its result came back without
+  an error, as the work records measure counts writes, so a failed Edit names no record.
+- **Monitor gets Bash's rules.** Claude Code's Monitor tool runs a shell command in the same shell as Bash, and the
+  hook's matcher did not name it, so the guard never saw it. The matcher now names it, `check-wiring.js` fails a
+  matcher without it, the guard checks its command like a Bash command, and a reviewer's Monitor that opens a
+  WebSocket is refused.
+- **A reviewer's IDE tools are the diagnostics alone.** The outward rule exempted every `mcp__ide__` tool, which let a
+  reviewer run code through `mcp__ide__executeCode`. Only `mcp__ide__getDiagnostics` stays allowed.
+- **The installer keeps the previous guard only when it differs.** Installing the same guard twice leaves
+  `kdf-guard.prev.js` as it was. Its smoke test adds a Read of `.env.kdf`, so a guard that judged Bash alone fails it.
+- **The way back**, in the README and in the guard's own refusal, names both places a guard hook can be,
+  `~/.claude/settings.json` and a repo's `.claude/settings.local.json`, and the restart a removed hook needs, and the
+  README says a WARN from the check is a step still to do.
+- **What stays open.** A `cd` earlier in the same call is not followed, so a rule that depends on where a path is,
+  a reviewer's held reports or a `.env.local`'s example, is judged from the folder the call starts in. Rules that
+  match a name hold. A glob's extra judgments still miss two bracket globs that bash narrows, `**` under `globstar`,
+  and a home where bash's `HOME` and Windows' `USERPROFILE` differ, and a nested shell's globs count against the
+  limit more than once. Each is something the guard missed before D-060 too, and the tools README names them all.
+
+**Consequences.** `cat .env*`, `grep FOO .env*` and `cat .e[n]v.kdf` are refused where they once read a secret, and
+`cat *` only where a secret file is in the folder. Monitor and a reviewer's IDE code runner no longer go around the
+guard. The owner applies this as they applied D-059, adding `Monitor` to each guard line's matcher. VERSION 0.2.143.

@@ -30,7 +30,8 @@ staged="$hooks/kdf-guard.staged.$$.js"
 cp "$here/kdf-guard.js" "$staged"
 node --check "$staged" || { rm -f "$staged"; die "the new guard does not parse, the installed one is unchanged"; }
 
-# The smoke test feeds the staged copy three calls and input it cannot read, and reads the exit code, 2 is a refusal.
+# The smoke test feeds the staged copy four calls and input it cannot read, and reads the exit code, 2 is a refusal.
+# The Read of a secret file proves a tool other than Bash is judged too (D-060).
 call() { printf '{"tool_name":"Bash","tool_input":{"command":"%s"},"cwd":"."}' "$1"; }
 exit_of() {
 	set +e
@@ -48,14 +49,20 @@ expect() {
 expect 2 "" "$(call "git push origin main")" "'git push origin main'"
 expect 2 "reviewer" "$(call "git add .")" "'git add .'"
 expect 0 "" "$(call "git status")" "'git status'"
+expect 2 "" '{"tool_name":"Read","tool_input":{"file_path":".env.kdf"},"cwd":"."}' "a Read of .env.kdf"
 expect 2 "" "not json" "input that is not JSON"
-if [ -f "$hooks/kdf-guard.js" ]; then
+# the previous copy is kept only when it differs, so installing the same guard twice keeps the way back (D-060)
+kept="the previous copy kept as kdf-guard.prev.js"
+if [ -f "$hooks/kdf-guard.js" ] && ! cmp -s "$hooks/kdf-guard.js" "$staged"; then
 	cp "$hooks/kdf-guard.js" "$hooks/kdf-guard.prev.js"
+elif [ -f "$hooks/kdf-guard.js" ]; then
+	kept="the same as the copy it replaced, kdf-guard.prev.js left as it was"
 fi
 mv -f "$staged" "$hooks/kdf-guard.js"
 chmod +x "$hooks/kdf-guard.js"
-say "Installed $hooks/kdf-guard.js, the previous copy kept as kdf-guard.prev.js."
-say "Smoke test passed, a push to main, a reviewer git add and input that is not JSON are refused, git status runs."
+say "Installed $hooks/kdf-guard.js, $kept."
+say "Smoke test passed, a push to main, a reviewer git add, a Read of .env.kdf and input that is not JSON are refused,"
+say "and git status runs."
 
 # The compaction hook (D-058), beside the guard. It refuses nothing, so its smoke test is that input it cannot read
 # prints nothing and exits 0.
