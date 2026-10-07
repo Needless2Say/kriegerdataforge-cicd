@@ -3063,3 +3063,60 @@ is pulled.
 **Consequences.** Every read through the tool asks its kind's questions, and the panel's second reader gets them in
 the frozen frame too. The context repo's rules name `--kind rules` and the questions after this merges. VERSION
 0.2.139.
+
+## D-057. Long work keeps a record in its repo, so a session that compacts or takes over loses nothing
+
+- **Date.** 2026-10-06
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Standard · kit v1.19.0, `DOCUMENTATION_STANDARD.md`, `DESIGN_AND_EPICS.md`,
+  `CODE_REVIEW_PROCESS.md`, the templates `work-log`, `bug-report`, `review-readme`, `design-spec` and
+  `epic-tracker`, `scripts/kit_registry.json` · synced to every repo
+
+**Context.** A long session's context fills and is compacted into a summary that keeps about one to two percent of it,
+and long sessions are compacted often. Reviews already keep their state in files
+(section 11, "State lives in files"), and some designs keep a log beside them, but nothing asked it of other work, and
+sessions improvised, in memory notes and in scratch files that are not kept. On 2026-10-06 the owner asked for
+permanent records, in dedicated folders of the repo where the work happens, for features, bugs and reviews alike,
+because the archive is worth looking back on.
+
+**Decision.**
+
+- **A record for every kind of long work.** A review keeps its folder as today. Standard and Epic work, through the
+  design gate or not, keeps `docs/design/<YYYY-MM-DD>-<slug>/` with `DESIGN.md`, the design or a short approved plan,
+  and `LOG.md` beside it. A bug beyond a Quick fix keeps `docs/bugs/<YYYY-MM-DD>-<slug>/` with `REPORT.md` and
+  `LOG.md`. The Quick lane and a reviewer's read keep none. Dated like reviews, indexed in `docs/README.md`.
+- **One shape for every log**, `work-log.template.md`, a header and a Now block that say where the work stands, a
+  status grid, and a journal that only grows, written with the Edit tool, each time taken from a `date` call.
+- **Pending before an effect.** A push, a pull request, a launch, a run of another model or a message is named before
+  it starts, with how to check it, and an open Pending line is never done again before it is checked.
+- **Reviews gain a Now block and an order to resume in.** The Now block holds process state alone, never a finding,
+  since the reviewers read the pinned tree. The launches a pin starts are named in the state commit before it, and
+  nothing in the folder changes from the pin until both reports are in, where the launcher's refusal of a second open
+  review stops a duplicate. A review resumes by section 11, never by writing during a freeze.
+- **Never in a record.** A secret's value, a token and anything sensitive, in any repo, and a user's report is cited
+  by its id. A public repo commits only what is fit for the public. Its logs and its bug reports are kept in the
+  ecosystem's private context for good, and a design naming an unfixed weakness until a public version can follow
+  the fix. A record's staged diff is read before each commit, and every outgoing commit's patch before a push.
+- **Committed with the work**, on its branch. A private repo's branch with no pull request may be pushed at a
+  validated checkpoint, once its workflow triggers are read, so the record reaches the other machine. A public repo's
+  branch is never pushed for a record alone, only when its work needs it, a review's pin or the pull request, and once
+  a pull request is open only its normal pushes.
+- **A repo on a hold keeps it.** A repo whose kit is held for a campaign takes this release when the hold ends, and
+  the campaign takes the review rules from its own trial page meanwhile.
+
+**Alternatives considered.**
+
+- *A scratch log outside the repos.* The first plan. Rejected by the owner, it is lost to the archive and to the other
+  machine.
+- *Hooks that hand the record to the session after a compaction.* Settings are the owner's, and the rule already
+  reaches every session. Kept for later, on the owner's word.
+- *Moving every older design and log into the new layout.* Churn with no gain, they keep their names.
+
+**Trade-offs.** A record costs a few lines a step and a commit's worth of text, and pull requests carry more docs. It
+holds only as well as sessions write it, so the Pending rule and the order to resume in carry the weight. A measure
+two weeks from the merge, kept with this work's private record, counts compactions against the records then open. The
+distributor has no hold of its own, so a held repo's sync pull request stays open by the owner's hand. Each repo's own
+design prompt in `docs/prompts/`, which is not synced, names the new layout when that repo next changes it.
+
+**Consequences.** Every repo gets the layout and the templates with this kit's sync, a design's folder and its log
+replace a single design file for new work, and every review README gains a Now block. VERSION 0.2.140.

@@ -3,8 +3,8 @@
 > **How to use.** The orchestrator copies this to `README.md` at the root of the review folder,
 > `docs/reviews/{YYYY-MM-DD}-{scope}/`, on the day the review opens, fills every `{...}`, and deletes this box
 > and every hint in braces. It is the index a person reads first, so keep it short and current. The orchestrator
-> updates it whenever a step closes, and adds the review's line to the top of `docs/reviews/README.md`, the archive's
-> front door, the day the folder is created. The layout it describes is
+> updates it whenever a step closes, rewrites its Now block at every step, and adds the review's line to the top of
+> `docs/reviews/README.md`, the archive's front door, the day the folder is created. The layout it describes is
 > [`../CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md) section 3. Link every file with a path relative to this
 > folder, and name a secret's variable, never its value.
 
@@ -17,9 +17,26 @@
 | Status | {Where it stands in one line, the next step and who takes it} |
 | Plan | {[`{PFX}_REVIEW_PLAN.md`]({PFX}_REVIEW_PLAN.md), its progress table is the timeline. At spot scale none, the brief is the plan} |
 
+## Now
+
+{Where the review stands, rewritten at each step outside a pin's freeze and read first after a compaction or a
+takeover, before the plan's progress table and the open slice's adjudication log. Process state alone, never a finding
+or a judgment of the code, since the reviewers read the pinned tree. The launches a pin will start are named here in
+the state commit before the pin, and from the pin until both of its reports are in nothing here changes.}
+
+- Slice {S1}, step {n}, pin {the commit its brief names, its sha once it exists}. Next, {the next action}.
+- Launches, {each launch this pin starts, the reviewer, the planned command and the report's path, and how it is
+  checked, a Claude run by its report and its `.usage.json`, a Codex run by its report in the folder or on its collect
+  branch}, or none.
+- Pending, {outside a freeze, a Codex run, a Sol dispatch or a pull request started and not yet checked, its target,
+  the output expected and how to check it}, or none.
+- Waiting on the owner, {what}, or nothing.
+- Do not, {what this review settled about its own process, not to redo or ask again}, or nothing.
+
 ## The question
 
-{The owner's words, quoted, what the review is for.}
+{The owner's words, quoted, what the review is for. In a public repo, the question in words fit for the public, and
+the owner's own words kept in the ecosystem's private context.}
 
 ## What is where
 

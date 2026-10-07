@@ -1,8 +1,10 @@
 # Design, {feature name}
 
-> **How to use.** Copy this to `docs/design/{feature}.md` (or paste it into the epic tracker for
-> cross repo work). Fill every section. Delete one only if you can say why it doesn't apply. See
-> [`../DESIGN_AND_EPICS.md`](../DESIGN_AND_EPICS.md) for when this is required and how it's approved.
+> **How to use.** Copy this to `DESIGN.md` in `docs/design/{YYYY-MM-DD}-{slug}/`, dated the day the work began,
+> with `LOG.md` beside it from [`work-log.template.md`](work-log.template.md). Cross repo work keeps a design folder in
+> each repo it changes, and the epic's tracker links them. Fill every section. Delete one only if you can say why it
+> doesn't apply. See [`../DESIGN_AND_EPICS.md`](../DESIGN_AND_EPICS.md) for when this is required and how it's
+> approved.
 >
 > Status: Draft | In review | Approved (date) | Superseded · Tier: Standard plus | Epic ·
 > Repos touched: {list} · Decision log: D-NNN · Epic tracker: {link if cross repo}
