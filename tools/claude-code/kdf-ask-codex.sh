@@ -3,7 +3,8 @@
 #
 #   bash kdf-ask-codex.sh --repo <root> --brief <file> [--at <commit>] [--base <commit>]
 #   bash kdf-ask-codex.sh --files <folder> --brief <file>
-#   either takes [--kind review|plan|decision|rules] [--effort high|xhigh] [--model <model>] [--no-settled] [--dry-run]
+#   either takes [--kind review|plan|decision|rules] [--effort high|xhigh|max] [--model <model>] [--no-settled]
+#   [--dry-run]
 #   and [--fix] [--security] [--also <n>]..., the questions the session declares on top of its kind's five (D-056)
 #
 # --kind says what the brief asks for, and only the frame's closing instruction changes with it (D-053). review, the
@@ -135,7 +136,8 @@ fi
 for number in ${also[@]+"${also[@]}"}; do
 	case " $asked " in *" $number "*) ;; *) asked="$asked $number" ;; esac
 done
-case "$effort" in high|xhigh) ;; *) die 2 "--effort is high or xhigh" ;; esac
+# the efforts a read is worth, of those OpenAI's API takes for its GPT-6 models, max among them since 2026-10-08
+case "$effort" in high|xhigh|max) ;; *) die 2 "--effort is high, xhigh or max" ;; esac
 command -v node >/dev/null 2>&1 || die 2 "node is not on PATH, it reads Codex's events"
 [ "$dry" -eq 1 ] || command -v "$codex_bin" >/dev/null 2>&1 || die 2 "$codex_bin is not on PATH"
 
@@ -374,11 +376,24 @@ read -r commands fresh cached spoken strange errors < <(node -e '
 ' "$work/events.jsonl" 2>/dev/null || echo "0 0 0 0 unread 1")
 
 # ---- 6. the verdict, settled before the archive so the archive records it, a passed run alone counting as a review
+# an answer is a file with something in it besides white space, so blank lines alone are no answer. Node reads it as
+# UTF-8, where white space is Unicode's White_Space property, the no break, em and next line spaces among them, and the
+# invisible format characters, a zero width space or a byte order mark, count as nothing too, which grep in this C
+# locale cannot see. It is judged once, so the verdict, the archive and the exit never disagree, and a check that
+# cannot run counts as no answer
+has_answer=0
+if [ -s "$work/answer.md" ] && node -e '
+	const text = require("fs").readFileSync(process.argv[1], "utf8");
+	process.exit(/[^\p{White_Space}\p{Cf}]/u.test(text) ? 0 : 1);
+' "$work/answer.md" 2>/dev/null; then
+	has_answer=1
+fi
+answered() { [ "$has_answer" -eq 1 ]; }
 if [ -n "$changed" ]; then
 	verdict="failed, Codex changed its folder, which a read only run never does"
 elif [ "$status" -ne 0 ] || [ "$errors" != 0 ]; then
 	verdict="failed, codex exited $status with $errors errors in its events"
-elif [ ! -s "$work/answer.md" ]; then
+elif ! answered; then
 	verdict="failed, Codex exited cleanly and wrote no answer"
 else
 	verdict="passed"
@@ -389,7 +404,7 @@ answer=""
 unarchived() {
 	# no answer file stays behind to claim a verdict the archive could not keep whole
 	[ -z "$answer" ] || rm -f "$answer"
-	if [ -s "$work/answer.md" ]; then
+	if answered; then
 		printf 'Codex answered, and the answer could not be archived. It follows.\n\n'
 		cat "$work/answer.md"
 	fi
@@ -412,7 +427,7 @@ fi
 	printf -- '- **Tokens.** %s new input, %s cached input read again, %s output.\n' "$fresh" "$cached" "$spoken"
 	printf -- '- **Settled decisions in the frame.** %s.\n' "$with_settled"
 	printf -- '- **Outside the shell.** %s.\n\n' "$strange"
-	if [ -s "$work/answer.md" ]; then cat "$work/answer.md"; else printf '(no answer was written)\n'; fi
+	if answered; then cat "$work/answer.md"; else printf '(no answer was written)\n'; fi
 } > "$answer" || unarchived "the answer could not be written to $answer"
 
 if [ "$strange" != none ]; then
@@ -425,7 +440,7 @@ if [ "$status" -ne 0 ] || [ "$errors" != 0 ]; then
 	die 1 "codex exited $status with $errors errors in its events, ${answer%.md}.events.jsonl." \
 		"$(tail -3 "$work/stderr.txt" | tr '\n' ' ')"
 fi
-[ -s "$work/answer.md" ] || die 1 "Codex exited cleanly and wrote no answer, its events are ${answer%.md}.events.jsonl"
+answered || die 1 "Codex exited cleanly and wrote no answer, its events are ${answer%.md}.events.jsonl"
 say "Codex answered the $kind in $seconds seconds, $commands commands, $fresh new and $cached cached input tokens," \
 	"$spoken output tokens, its folder unchanged"
 say "the answer is $answer"

@@ -251,7 +251,9 @@ The brief holds the session's question alone, what to check and why. The tool se
 only, files in the folder alone, PowerShell for Codex's commands since Git Bash cannot start in its sandbox, the
 ecosystem's writing conventions, the owner's settled decisions from `kriegerdataforge-context/context/SETTLED.md`
 when that clone sits beside this one, and a closing instruction. So no session writes those words again, or forgets
-one. `--no-settled` leaves the settled decisions out, and `--dry-run` prints the frame and starts nothing.
+one. `--no-settled` leaves the settled decisions out, and `--dry-run` prints the frame and starts nothing. `--effort`
+is `high` by default, or `xhigh` or `max`, the efforts a read is worth among those OpenAI's API takes for its GPT-6
+models, and any other is refused before Codex starts. `--model` names the model, `gpt-6.1-sol` by default.
 
 `--kind` sets the closing instruction, the one part of the frame that changes (D-053). `review`, the default, asks for
 real problems in a change, each with its file, its line and what triggers it. `plan` tells Codex the question holds a
@@ -312,11 +314,13 @@ search, memories and other agents off, a read only sandbox, and nothing kept aft
 stops writes and the network, not reads, so the frame's rule is what keeps Codex inside its folder.
 
 After the run the tool fails when `git status` shows a change, when the folder's HEAD moved, which a commit does with
-a clean status, or when git cannot read the folder at all. It fails too when Codex failed or wrote no answer, and when
-its events hold no completed turn or a line that is no event, since then nothing shows what Codex did. It warns when
-the events show Codex doing anything but running commands, reasoning, keeping a plan and answering. Each run's answer
-lands in the workspace's `temp/codex`, the owner's scratch, under a name no other run has, beside the frame it read
-and its JSON events. When the archive cannot be written the tool prints the answer before it fails.
+a clean status, or when git cannot read the folder at all. It fails too when Codex failed or wrote no answer, an
+answer of Unicode white space and invisible format characters alone counting as none, judged once for the verdict,
+the archive and the exit alike, and when its events hold no completed turn or a line that is no event, since then
+nothing shows what Codex did. It warns when the events show Codex doing anything but running commands, reasoning,
+keeping a plan and answering. Each run's answer lands in the workspace's `temp/codex`, the owner's scratch, under a
+name no other run has, beside the frame it read and its JSON events. When the archive cannot be written the tool
+prints the answer before it fails.
 
 The answer's header leads with the verdict, `passed` or why the run failed, settled before the archive is written, so
 the answer of a run that failed never passes for a review. Only a run that passed counts as Codex's view. The kind,
