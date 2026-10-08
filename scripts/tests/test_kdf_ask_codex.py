@@ -95,7 +95,15 @@ case "${STUB_MODE:-clean}" in
 esac
 printf '{"type":"item.completed","item":{"id":"3","type":"agent_message","text":"No real problems."}}\\n'
 printf '{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":20}}\\n'
-[ -z "$answer" ] || printf 'No real problems.\\n' > "$answer"
+# blank writes an answer of ASCII white space alone and unicodeblank one of no break, next line, em and zero width
+# spaces, each no answer, and accented an answer of letters past ASCII, which is one
+if [ -z "$answer" ]; then :
+elif [ "${STUB_MODE:-clean}" = blank ]; then printf ' \\r\\n\\t\\n\\n' > "$answer"
+elif [ "${STUB_MODE:-clean}" = unicodeblank ]; then
+    printf '\\302\\240\\302\\205\\342\\200\\203\\342\\200\\213\\n' > "$answer"
+elif [ "${STUB_MODE:-clean}" = accented ]; then printf 'R\\303\\251ponse, aucun probl\\303\\250me.\\n' > "$answer"
+else printf 'No real problems.\\n' > "$answer"
+fi
 """
 
 pytestmark = pytest.mark.skipif(
@@ -472,7 +480,8 @@ def test_a_session_in_the_reviewer_role_is_refused(rig: Rig) -> None:
     (["--repo", "REPO", "--brief", "BRIEF", "--at", "0123456789abcdef"], "has no commit"),
     (["--repo", "REPO", "--files", "REPO", "--brief", "BRIEF"], "give --repo or --files"),
     (["--files", "TMP", "--brief", "BRIEF", "--at", "HEAD"], "go with --repo"),
-    (["--repo", "REPO", "--brief", "BRIEF", "--effort", "low"], "high or xhigh"),
+    (["--repo", "REPO", "--brief", "BRIEF", "--effort", "low"], "high, xhigh or max"),
+    (["--repo", "REPO", "--brief", "BRIEF", "--effort", "ultra"], "high, xhigh or max"),
     (["--repo", "REPO", "--brief", "BRIEF", "--kind", "essay"], "review, plan, decision or rules"),
     (["--repo", "REPO", "--brief", "BRIEF", "--also", "15"], "--also takes a question's number, 1 to 14"),
     (["--repo", "REPO", "--brief", "BRIEF", "--also", "load"], "--also takes a question's number, 1 to 14"),
@@ -611,6 +620,46 @@ def test_codex_writing_no_answer_fails_the_run(rig: Rig) -> None:
     text = _answers(rig)[0].read_text(encoding = "utf-8")
     assert "(no answer was written)" in text
     assert "**Verdict.** failed, Codex exited cleanly and wrote no answer." in text
+
+
+@pytest.mark.parametrize("mode", ["blank", "unicodeblank"])
+def test_an_answer_of_white_space_alone_fails_the_run(rig: Rig, mode: str) -> None:
+    done = _ask(rig, mode = mode)
+    assert done.returncode == 1 and "wrote no answer" in done.stderr, done.stderr
+    text = _answers(rig)[0].read_text(encoding = "utf-8")
+    assert "(no answer was written)" in text
+    assert "**Verdict.** failed, Codex exited cleanly and wrote no answer." in text
+    assert "the answer is" not in done.stdout, "a run that failed never names its answer as one"
+
+
+def test_an_answer_past_ascii_passes(rig: Rig) -> None:
+    done = _ask(rig, mode = "accented")
+    assert done.returncode == 0, done.stderr
+    assert "aucun probl" in _answers(rig)[0].read_text(encoding = "utf-8")
+
+
+def test_an_answer_check_that_cannot_run_fails_the_run_and_never_disagrees(rig: Rig) -> None:
+    broken = _stand_ins(rig, node = 'case "$*" in *White_Space*) exit 1 ;; esac\nexec node "$@"\n')
+    done   = _ask(rig, env = broken)
+    assert done.returncode == 1 and "wrote no answer" in done.stderr, done.stderr
+    text = _answers(rig)[0].read_text(encoding = "utf-8")
+    assert "**Verdict.** failed, Codex exited cleanly and wrote no answer." in text
+    assert "(no answer was written)" in text and "the answer is" not in done.stdout
+
+
+def test_a_blank_answer_that_cannot_be_archived_is_never_printed_as_one(rig: Rig) -> None:
+    rig.archive.write_text("a file where the archive folder should be\n", encoding = "utf-8")
+    done = _ask(rig, mode = "blank")
+    assert done.returncode == 1 and "could not be made" in done.stderr, done.stderr
+    assert "Codex answered" not in done.stdout
+
+
+@pytest.mark.parametrize("effort", ["xhigh", "max"])
+def test_each_effort_above_the_default_reaches_codex_and_the_header(rig: Rig, effort: str) -> None:
+    done = _ask(rig, "--effort", effort)
+    assert done.returncode == 0, done.stderr
+    assert f" -c model_reasoning_effort={effort} " in f" {_logged(rig, 'args=')} "
+    assert f"gpt-6.1-sol at {effort} effort." in _answers(rig)[0].read_text(encoding = "utf-8")
 
 
 def test_events_that_cannot_be_read_fail_the_run(rig: Rig) -> None:
