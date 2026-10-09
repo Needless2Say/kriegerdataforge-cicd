@@ -3454,3 +3454,36 @@ throttles a runner's address too, Google's mirror is a one line host change with
 reaches CI when someone edits the digest in the three files. The hub's and the kdf-sdk's own workflows that start the
 same service follow in their own repositories, and the E2E engine's compose files, run at a release, are not changed
 here. VERSION 0.2.148.
+
+## D-065. The E2E journey pulls nothing from Docker Hub, its services by digest and its base images by tag
+
+- **Date.** 2026-10-09
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Standard · `e2e/docker-compose.shared.yml` and the image test here, and in each repository
+  the journey builds, its `Dockerfile` and its `e2e/docker-compose.e2e.yml` · D-064 carried to the E2E path
+
+**Context.** D-064 moved CI's Postgres off Docker Hub after its anonymous pull limit, shared by every tenant of a
+hosted runner's address, failed eight jobs in a day. The E2E journey a release's PROD Gate runs pulls more from Docker
+Hub on a runner than any of those jobs did, the shared stack's Postgres, two Caddy edges and Mailpit, each tenant
+stack's Postgres, and in each of the six Dockerfiles it builds, the base image and the Dockerfile frontend that a
+`# syntax=docker/dockerfile:1` line makes BuildKit fetch before it reads the file. A failure there blocks a release.
+The owner asked for the change on 2026-10-09.
+
+**Decision.**
+
+1. The E2E stacks' services, test infrastructure like D-064's, are pulled by the digest their tag held on 2026-10-09.
+   Postgres 16-alpine and Caddy 2.10-alpine from AWS ECR Public's gallery of Docker's official images, and Mailpit,
+   which is not one, from its publisher's own GitHub registry, `ghcr.io/axllent/mailpit`, the same digest Docker
+   Hub serves.
+2. The Dockerfiles' base images, `python:3.14-slim` and `node:24-alpine`, come from the same gallery by their tag,
+   not a digest, since they are the image an app runs on locally and in the journey, and a security patch to them
+   should arrive without an edit. The tag names the same image on both registries.
+3. No Dockerfile names a syntax frontend. BuildKit's own, built into the engine on every runner and machine,
+   reads them, so no build fetches `docker/dockerfile`, which only Docker Hub and Google's mirror serve.
+4. `scripts/tests/test_workflow_service_images.py` holds the shared stack's four images to a digest on those two
+   registries, as it holds the workflows'.
+
+**Consequences.** A release's E2E journey no longer meets Docker Hub's limit. A new Postgres, Caddy or Mailpit release
+reaches the journey by a hand edit of its digest, and a base image's patch arrives by its tag as before. A local
+`make docker-up` pulls its base images from ECR Public too. The local compose files, which pull on the developer's
+own address, keep their Docker Hub images. VERSION 0.2.149.
