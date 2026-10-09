@@ -42,14 +42,21 @@ IMAGE_LINE: re.Pattern[str] = re.compile(rf"^\s+image: (?P<image>{PINNED_IMAGE})
 # the words that name an image or pull one, read in any case
 NAMING: re.Pattern[str] = re.compile(r"image|container|docker", re.IGNORECASE)
 
-# a YAML escape that can spell a letter of a key
-ESCAPE: re.Pattern[str] = re.compile(r"\\[xuU]")
+# a YAML escape that can spell a letter of a key, or an explicit key, `?`, which puts a key's value on another line
+ESCAPE: re.Pattern[str] = re.compile(r"\\[xuU]|^\s*\?(\s|$)")
 
 # a whole line comment
 COMMENT: re.Pattern[str] = re.compile(r"^\s*#")
 
 # the reusable workflows that start a Postgres service, each once
 WITH_POSTGRES: tuple[str, ...] = ("ci-python-integration.yml", "ci-python-mutation.yml", "ci-python-system.yml")
+
+# the E2E stack every release's journey starts on a runner (D-065), and the one line that may name an image there,
+# from the official gallery on ECR Public or a publisher's own GitHub registry, by digest
+SHARED_COMPOSE: Path = Path(__file__).resolve().parents[2] / "e2e" / "docker-compose.shared.yml"
+COMPOSE_IMAGE:  re.Pattern[str] = re.compile(
+    rf"^\s+image: (?:{PINNED_IMAGE}|ghcr\.io/[a-z0-9-]+/[a-z0-9._-]+@sha256:[0-9a-f]{{64}})\s*$",
+)
 
 # a pinned reference, and Docker Hub's image, for the forms the cases write
 GOOD: str = "public.ecr.aws/docker/library/postgres@sha256:" + "a" * 64
@@ -106,6 +113,59 @@ def test_no_workflow_names_an_image_but_by_the_pinned_service_line():
     assert refused == []
 
 
+def compose_judged(text: str) -> tuple[int, list[str]]:
+    """
+    A compose file's text judged line by line, the rule of the workflows narrowed to an ``image`` key, since a stack
+    also names the variable ``E2E_IMAGE_TARGET``.
+
+    Args:
+        text: A compose file's text
+
+    Returns:
+        tuple[int, list[str]]: How many pinned image lines it holds, and every other line that names an image key,
+            in any quoting or inside a flow mapping, or holds an escape, each refused
+    """
+    pinned, refused = 0, []
+    for line in text.splitlines():
+        if COMMENT.match(line):
+            continue
+        if ESCAPE.search(line):
+            refused.append(line.strip())
+        elif re.search(r"""["']?\bimage\b["']?\s*:""", line, re.IGNORECASE):
+            if COMPOSE_IMAGE.match(line):
+                pinned += 1
+            else:
+                refused.append(line.strip())
+    return pinned, refused
+
+
+def test_the_e2e_stack_pulls_every_image_by_digest_and_none_from_docker_hub():
+    """
+    A release's E2E journey pulls these on a runner, the postgres, both caddy edges and mailpit (D-065).
+    """
+    assert compose_judged(SHARED_COMPOSE.read_text(encoding = "utf-8")) == (4, [])
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "    image: postgres:16-alpine",
+        "    'image': postgres:16-alpine",
+        '    "image": postgres:16-alpine',
+        "    Image: postgres:16-alpine",
+        "  db: {image: postgres:16-alpine}",
+        f"    image: {GOOD} # postgres",
+        '    "\\x69mage": postgres:16-alpine',
+        "    ? image\n    : postgres:16-alpine",
+    ],
+)
+def test_the_e2e_stack_refuses_a_docker_hub_image_in_any_quoting(line):
+    """
+    A review of D-065 found a quoted key passing a reading of ``image:`` alone.
+    """
+    assert compose_judged(f"services:\n{line}\n")[1] != []
+
+
 def test_the_postgres_services_name_one_image_each_and_the_same_one():
     images = {name: found for name, (found, _) in _workflows().items() if found}
 
@@ -157,6 +217,7 @@ def test_a_tag_a_bare_name_or_another_host_is_refused(image):
         f"      - uses: 'docker://{GOOD}'\n",
         f"      - run: docker pull {HUB}\n",
         f"      - run: |\n          docker run --rm {HUB} pg_dump\n",
+        f"    services:\n      postgres:\n        ? image\n        : {HUB}\n",
     ],
 )
 def test_every_other_way_of_naming_or_pulling_an_image_is_refused(text):

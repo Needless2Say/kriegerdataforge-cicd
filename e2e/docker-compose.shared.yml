@@ -33,8 +33,12 @@
 name: kriegerdataforge-e2e
 
 services:
+  # D-065. Every image here is pulled by digest from a registry without Docker Hub's anonymous limit, which a hosted
+  # runner shares with every tenant of its address. Docker's official images from AWS ECR Public's gallery, mailpit
+  # from its publisher's GitHub registry, each the digest its tag held on 2026-10-09. A new release is a hand edit
   kdf-db:
-    image: postgres:16-alpine
+    # postgres 16-alpine
+    image: public.ecr.aws/docker/library/postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
     environment:
       POSTGRES_DB: kdf_db
       POSTGRES_USER: postgres
@@ -152,7 +156,8 @@ services:
   # stack runs (its docker/Caddyfile). The certificate is the run's, signed by the
   # authority ci_stack.py wrote to ${E2E_CERTS}. Config: e2e/edge/Caddyfile.
   edge:
-    image: caddy:2.10-alpine
+    # caddy 2.10-alpine, D-065
+    image: public.ecr.aws/docker/library/caddy@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
     ports:
       # Loopback alone. A bare "3002:3002" binds every interface, and the stack, with the
       # hub's OIDC endpoints behind the auth UI's proxy, would answer the whole LAN.
@@ -182,7 +187,8 @@ services:
   # The hub behind its own edge, for the auth UI's production image alone (`--target
   # runner`), which refuses an http hub (auth UI D-001). Config: e2e/edge/Caddyfile.hub.
   kdf-api-tls:
-    image: caddy:2.10-alpine
+    # caddy 2.10-alpine, D-065
+    image: public.ecr.aws/docker/library/caddy@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
     profiles: [runner]
     volumes:
       - type: bind
@@ -208,9 +214,10 @@ services:
   # Every message the hub sends lands here over the real path, STARTTLS under the run's
   # authority and a login it accepts whatever it is. The specs read the verification
   # and reset links from its API on http://localhost:${E2E_MAIL_PORT}. Nothing is
-  # forwarded anywhere. Pinned by tag, the ecosystem's rule for a base image.
+  # forwarded anywhere. Pinned by digest from its publisher's GitHub registry, D-065.
   mail:
-    image: axllent/mailpit:v1.31.2
+    # mailpit v1.31.2
+    image: ghcr.io/axllent/mailpit@sha256:74d609a42ec279aa63c6b4622a6fa9b5408d1ad5b1d76a1c4be40a265ce0863d
     command:
       - --smtp=0.0.0.0:1025
       - --listen=0.0.0.0:8025
