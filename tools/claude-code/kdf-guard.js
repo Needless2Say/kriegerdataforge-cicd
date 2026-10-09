@@ -67,15 +67,19 @@ const KEYWORD_PREFIXES = new Set(['if', 'then', 'else', 'elif', 'do', 'while', '
 // Shell keywords whose segment is a word list, a pattern or an end. A loop's or a case's body is a segment of its own.
 const KEYWORD_LISTS = new Set(['for', 'select', 'case', 'in', 'function', 'done', 'fi', 'esac']);
 
-// Files that hold the guardrails. A session never edits them, the owner does.
+// Files that hold the guardrails. A session never edits them, the owner does. Git's global and system config are
+// among them, since a remote's push URL or a pushInsteadOf there sends every repo's origin somewhere else (D-062).
 const PROTECTED = [
   /(^|\/)\.claude\/(settings(\.local)?\.json|hooks(\/|$))/,
   /(^|\/)\.claude\.json$/,
   /(^|\/)\.mcp\.json$/,
-  /(^|\/)\.git\/(hooks(\/|$)|config$)/
+  /(^|\/)\.git\/(hooks(\/|$)|config$)/,
+  /(^|\/)\.gitconfig$/,
+  /(^|\/)\.config\/git\/config$/,
+  /(^|\/)etc\/gitconfig$/
 ];
-const GUARDRAIL_WHY =
-  'Guardrails are the owner\'s to change. Settings, hooks, the MCP list and git hooks are edited by hand.';
+const GUARDRAIL_WHY = 'Guardrails are the owner\'s to change. Settings, hooks, the MCP list, git hooks and git\'s own '
+  + 'config files are edited by hand.';
 // Files that hold secrets, closed to every session. Every .env file is one, .env.kdf, .env.test, the admin files
 // .env.dev and .env.prod, and backups such as .env.local.bak, but an example is not, and .env.local is open unless it
 // still holds a credential. *.pem and keys/ are secrets too, and so is a *.tfvars git does not track. A tracked one,
@@ -199,8 +203,9 @@ function norm(p) {
   return String(p).replace(/\\/g, '/').toLowerCase();
 }
 
+// a dot segment, ~/.config/git/./config or a/../.git/config, names the same file, so it is folded first (D-062)
 function isProtected(p) {
-  const n = norm(p);
+  const n = path.posix.normalize(norm(p));
   return PROTECTED.some((r) => r.test(n));
 }
 
@@ -773,6 +778,14 @@ function check(cmd, depth) {
   if (depth > MAX_DEPTH) deny('Nested shells are too deep to check.', cmd);
   // dotglob or GLOBIGNORE anywhere in the call lets a glob match a dot name, so the guard's globs do too (D-060)
   if (depth === 0) HIDDEN_TOO = /dotglob|GLOBIGNORE/.test(cmd);
+  // a GIT_CONFIG name written as an assignment, anywhere in the call's text (D-062)
+  if (GIT_CONFIG_TEXT.test(cmd)) deny(GIT_CONFIG_WHY, cmd);
+  if (/GIT_CONFIG/i.test(cmd) && ENV_DRIVE_TEXT.test(cmd) && ENV_WRITE_WORD.test(cmd)) deny(GIT_CONFIG_WHY, cmd);
+  if (SET_ENV_CALL.test(cmd) && /GIT_CONFIG/i.test(cmd)) deny(GIT_CONFIG_WHY, cmd);
+  if (NEW_DRIVE_WORD.test(cmd) && /GIT_CONFIG/i.test(cmd)) {
+    deny('A drive made in a call that names a GIT_CONFIG variable can write it under a name the guard does not know, '
+      + 'and send a push elsewhere. Make the drive in a call of its own, or ask the owner.', cmd);
+  }
   for (const seg of segments(cmd)) {
     analyze(seg, depth, cmd, true);
     // a glob's matches, judged too, each judgment able only to refuse (D-060)
@@ -784,9 +797,11 @@ function check(cmd, depth) {
 function analyze(toks, depth, whole, own) {
   const assigns = [];
   let i = 0;
+  // env and sudo read NAME=value among their own arguments, so a quoted one is an assignment there too (D-062)
+  let readsAssigns = false;
   while (i < toks.length) {
     const t = toks[i];
-    if (!t.lq && /^[A-Za-z_][A-Za-z0-9_]*=/.test(t.t)) {
+    if ((!t.lq || readsAssigns) && /^[A-Za-z_][A-Za-z0-9_]*=/.test(t.t)) {
       assigns.push(t.t);
       i++;
       continue;
@@ -797,17 +812,21 @@ function analyze(toks, depth, whole, own) {
     }
     const b = base(t.t);
     if (!WRAPPERS.has(b)) break;
+    readsAssigns = b === 'env' || b === 'sudo';
     i++;
     while (i < toks.length && /^-/.test(toks[i].t)) {
       const opt = toks[i].t;
       i++;
       // env -S runs its value as a command line of its own
-      if (b === 'env' && /^(-S|--split-string)$/.test(opt) && i < toks.length) check(toks[i].t, depth + 1);
-      else if (b === 'env' && /^(-S.|--split-string=)/.test(opt)) check(opt.replace(/^(-S|--split-string=)/, ''), depth + 1);
+      if (b === 'env' && /^(-S|--split-string)$/.test(opt) && i < toks.length) check(splitString(toks[i].t), depth + 1);
+      else if (b === 'env' && /^(-S.|--split-string=)/.test(opt)) {
+        check(splitString(opt.replace(/^(-S|--split-string=)/, '')), depth + 1);
+      }
       if (WRAPPER_VALUE_OPTS[b] && WRAPPER_VALUE_OPTS[b].test(opt)) i++;
     }
     if (b === 'timeout' && i < toks.length && /^\d/.test(toks[i].t)) i++;
   }
+  checkGitConfigVars(toks, assigns, i < toks.length ? base(toks[i].t) : '', toks.slice(i + 1).map((x) => x.t), whole);
   if (i >= toks.length) return;
   if (!toks[i].q && KEYWORD_LISTS.has(toks[i].t)) {
     // a for, select or case header is a list or a pattern, its body is a segment of its own, but a redirect after
@@ -833,6 +852,12 @@ function analyze(toks, depth, whole, own) {
   else if (prog === 'gh') checkGh(args, whole);
   else checkOther(prog, args, assigns, whole);
   if (MODE === 'reviewer') checkReviewerProgram(prog, args, assigns, whole);
+}
+
+// env -S's string, read as more of env's own arguments, its line ends as spaces, so a quoted NAME=value there is an
+// assignment as env reads it (D-062)
+function splitString(s) {
+  return 'env ' + String(s).replace(/[\r\n]+/g, ' ');
 }
 
 function nestedShell(prog, args, depth) {
@@ -875,7 +900,10 @@ function checkProtectedInShell(toks, prog, args, whole) {
   if (SELF_EDIT_OK) return;
   checkProtectedRedirects(toks, whole);
   let readOnly = READ_ONLY_PROGRAMS.has(prog);
-  if (prog === 'git') readOnly = GIT_READ.has(gitSplit(args).sub);
+  if (prog === 'git') {
+    const { sub, rest } = gitSplit(args);
+    readOnly = GIT_READ.has(sub) || (sub === 'config' && configReads(rest));
+  }
   if (!readOnly && args.some((a) => isProtected(a))) deny(GUARDRAIL_WHY, whole);
 }
 
@@ -893,6 +921,84 @@ function gitSplit(args) {
     return { sub: a.toLowerCase(), rest: args.slice(i + 1) };
   }
   return { sub: '', rest: [] };
+}
+
+// The options a push may carry, none of which takes a value (D-062).
+const PUSH_OPTIONS = new Set([
+  '-u', '--set-upstream', '-q', '--quiet', '-v', '--verbose', '-n', '--dry-run', '--porcelain', '--progress',
+  '--no-progress', '--atomic'
+]);
+// A variable that hands git settings no word of a call shows, so a push that names origin still goes where the settings
+// say (D-062). Two readings, so neither one's blind spots let one through. The call's text refuses a GIT_CONFIG name
+// written as an assignment in any shell, bash, cmd's set or PowerShell's $env:, ${env:} and SetEnvironmentVariable,
+// spaced or quoted. Quoted text counts too, since cmd /c and env -S unquote what bash would not, so a commit message
+// that writes such an assignment goes in a file, git commit -F. The call's words refuse the forms that set a variable
+// by its name alone, bash's builtins, cmd's setx and PowerShell's item commands on the env drive. Reading one is open.
+const GIT_CONFIG_VAR = /^GIT_CONFIG(_[A-Za-z0-9_]*)?$/i;
+const GIT_CONFIG_WHY = 'A GIT_CONFIG variable hands git settings the guard never sees, such as a push URL for origin. '
+  + 'The owner sets git\'s settings. A commit message that names such an assignment goes in a file, git commit -F.';
+const GIT_CONFIG_TEXT = new RegExp(
+  '(^|[^A-Za-z0-9_])GIT_CONFIG[A-Za-z0-9_]*[\'"}]*([-+*/%&|^]?=|\\s+[-+*/%&|^]?=(?!=))|'
+  + 'SetEnvironmentVariable\\s*\\(\\s*[\'"]?\\s*GIT_CONFIG',
+  'i'
+);
+// the builtins that set a shell variable by its name, which set -a or an export then hands to git, and cmd's two
+// (cmd's set writes NAME=value, which the text check refuses, and bash's set -- only sets positional parameters)
+const NAME_SETTERS = /^(export|declare|typeset|readonly|local|mapfile|readarray|getopts|setx)$/;
+// read's options that take a value that is not a name
+const READ_VALUE_OPTS = /^-[pdtnNui]$/;
+// PowerShell's commands that write an item, an env drive path among them
+const PS_ITEM_WRITE = new RegExp('^(set-item|si|new-item|ni|set-content|sc|add-content|ac|copy-item|copy|cpi|cp|'
+  + 'move-item|move|mi|mv|rename-item|ren|rni)$', 'i');
+// A call that names a GIT_CONFIG variable and the env drive, Env: or Environment:: as a path and not $env: as a read,
+// beside a command that writes an item or moves onto the drive, wherever its words fall, since PowerShell binds
+// parameters by name, position and abbreviation in ways no guess at its words follows. A read, $env:NAME or
+// Get-Item Env:NAME with no such command, stays open.
+// ${env:NAME} is a read, while {Env:NAME} and every other spelling of the drive is a path
+const ENV_DRIVE_TEXT = /(?<![A-Za-z0-9_$])(?<!\$\{)(env:|environment::)/i;
+// a command that makes a drive, whose provider PowerShell may bind from a name, a position or a piped object, so a
+// drive on the Environment provider writes variables under a name no check knows. A drive lives only in its call, so
+// one made in a call that names a GIT_CONFIG variable is refused, however its provider is bound
+const NEW_DRIVE_WORD = /(^|[^A-Za-z0-9_-])(new-psdrive|ndr|mount)(?![A-Za-z0-9_-])|Drive\s*\.\s*['"]?New\b|PSDriveInfo/i;
+// PowerShell's SetEnvironmentVariable naming a GIT_CONFIG variable anywhere, a cast or a parenthesis around it
+// included, since its argument is an expression
+const SET_ENV_CALL = /SetEnvironmentVariable/i;
+const ENV_WRITE_WORD = new RegExp('(^|[^A-Za-z0-9_-])(set-item|si|new-item|ni|set-content|sc|add-content|ac|copy-item|'
+  + 'copy|cpi|cp|move-item|move|mi|mv|rename-item|ren|rni|set-location|cd|sl|chdir|pushd|push-location)'
+  + '(?![A-Za-z0-9_-])', 'i');
+// the env drive by its drive name or its provider's, Env:, Environment:: or Microsoft.PowerShell.Core\Environment::
+const PS_ENV = '(env:|(microsoft\\.powershell\\.core\\\\)?environment::)[\\\\/]?';
+const PS_ENV_ITEM = new RegExp('^(-[a-z]+:)?' + PS_ENV, 'i');
+const PS_ENV_PATH = new RegExp('^(-[a-z]+:)?' + PS_ENV + 'GIT_CONFIG', 'i');
+const PS_NEW_NAME = /^(-newname:)?GIT_CONFIG/i;
+
+function namesGitConfig(word) {
+  return GIT_CONFIG_VAR.test(String(word).split('=')[0].trim());
+}
+
+function checkGitConfigVars(toks, assigns, prog, args, whole) {
+  if (assigns.some(namesGitConfig)) deny(GIT_CONFIG_WHY, whole);
+  if (NAME_SETTERS.test(prog) && args.some(namesGitConfig)) deny(GIT_CONFIG_WHY, whole);
+  if (prog === 'let' && args.some((a) => /GIT_CONFIG/i.test(a))) deny(GIT_CONFIG_WHY, whole);
+  if (prog === 'printf') {
+    const k = args.findIndex((a) => a === '-v' || /^-v./.test(a));
+    if (k >= 0 && namesGitConfig(args[k] === '-v' ? args[k + 1] || '' : args[k].slice(2))) deny(GIT_CONFIG_WHY, whole);
+  }
+  if (prog === 'read') {
+    for (let k = 0; k < args.length; k++) {
+      if (READ_VALUE_OPTS.test(args[k])) k++;
+      else if (args[k] === '-a' ? namesGitConfig(args[++k] || '') : !args[k].startsWith('-') && namesGitConfig(args[k])) {
+        deny(GIT_CONFIG_WHY, whole);
+      }
+    }
+  }
+  // a rename's new name counts only when what it renames is on the env drive, so a file named GIT_CONFIG.md stays open
+  if (!PS_ITEM_WRITE.test(prog)) return;
+  // a rename's new name counts only when what it renames is on the env drive, so a file named GIT_CONFIG.md stays open.
+  // A copy is refused either way, since PowerShell binds its parameters by name, position and abbreviation in ways a
+  // guess at the destination misreads
+  const onEnv = args.some((a) => PS_ENV_ITEM.test(a));
+  if (args.some((a) => PS_ENV_PATH.test(a) || (onEnv && PS_NEW_NAME.test(a)))) deny(GIT_CONFIG_WHY, whole);
 }
 
 // A git setting can run a command, hide a refused one behind an alias, or send code somewhere else.
@@ -1043,10 +1149,17 @@ function checkPush(rest, whole, dir) {
   if (opts.some((a) => long.test(a) || /^-[a-zA-Z]*[fd][a-zA-Z]*$/.test(a))) {
     deny('Force, delete, tag, mirror and no-verify pushes are refused. Push the branch plainly.', whole);
   }
+  // an option outside the list may take the next word as its value, which leaves the guard judging a word git never
+  // reads as the remote, and git takes an abbreviation of a long option the list above names in full (D-062)
+  const unknown = opts.find((a) => !PUSH_OPTIONS.has(a) && !/^-[uqvn]+$/.test(a));
+  if (unknown) {
+    deny('A push takes -u, --set-upstream, -q, -v, -n, --dry-run, --porcelain, --progress or --atomic, written in '
+      + 'full. ' + unknown + ' is refused, since another option can carry a word git reads as the remote.', whole);
+  }
   if (pos.length < 2) {
     deny('Name the branch, git push -u origin <branch>. A bare push, or one with no branch, is refused.', whole);
   }
-  if (!/^(origin|upstream)$/i.test(pos[0])) {
+  if (pos[0] !== 'origin') {
     deny('Push only to origin. A URL or another remote is refused.', whole);
   }
   for (const ref of pos.slice(1)) {
@@ -1072,10 +1185,38 @@ function checkTag(rest, whole) {
   if (!listing && (creating || named)) deny('Tags cut releases. Only the owner tags.', whole);
 }
 
+// git config in both forms, the options of before git 2.46 and its subcommands since, get, list, set, unset, edit and
+// the section moves. Every word that is not an option is judged as a key, since an option such as --file takes the
+// next word as its value and the subcommand comes first, so a value never hides the key (D-062).
+// A long option git takes in any unique abbreviation, so --rename-sect is --rename-section (D-062).
+function shortens(arg, option, least) {
+  return arg.length >= least && option.startsWith(arg);
+}
+const CONFIG_EDITS = (a) => a === '-e' || shortens(a, '--edit', 3);
+const CONFIG_SECTIONS = (a) => shortens(a, '--rename-section', 5) || shortens(a, '--remove-section', 5);
+const CONFIG_READ_OPTS = new RegExp('^(--get|--get-all|--get-regexp|--get-urlmatch|--get-color|--get-colorbool|--list|'
+  + '-l|--show-origin|--show-scope|--name-only)$');
+
+// Whether a git config call only reads, by its subcommand or its older read options, with nothing that writes.
+function configReads(rest) {
+  const sub = (rest.find((a) => !a.startsWith('-')) || '').toLowerCase();
+  if (/^(get|list|get-color|get-colorbool)$/.test(sub)) return true;
+  if (/^(set|unset|edit|rename-section|remove-section)$/.test(sub)) return false;
+  if (rest.some((a) => CONFIG_EDITS(a) || CONFIG_SECTIONS(a))) return false;
+  return rest.some((a) => CONFIG_READ_OPTS.test(a));
+}
+
 function checkConfig(rest, whole) {
-  if (rest.some((a) => /^(--get|--get-all|--get-regexp|--list|-l|--show-origin|--show-scope|--name-only)$/.test(a))) return;
-  const key = rest.find((a) => !a.startsWith('-')) || '';
-  if (DANGEROUS_GIT_KEY.test(key)) {
+  const words = rest.filter((a) => !a.startsWith('-'));
+  const sub = (words[0] || '').toLowerCase();
+  if (sub === 'edit' || rest.some(CONFIG_EDITS)) {
+    deny('Editing git config hands the whole file to an editor the guard cannot judge. The owner edits it.', whole);
+  }
+  if (/^(rename|remove)-section$/.test(sub) || rest.some(CONFIG_SECTIONS)) {
+    deny('Moving or removing a section of git config can change where code goes. The owner does that.', whole);
+  }
+  if (configReads(rest)) return;
+  if (words.some((w) => DANGEROUS_GIT_KEY.test(w))) {
     deny('Git settings that run commands or change where code goes are the owner\'s.', whole);
   }
 }

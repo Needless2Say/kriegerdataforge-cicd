@@ -3300,3 +3300,66 @@ reach.
 **Consequences.** Every brief written from kit v1.20.0 asks five standing questions, and every slice runs the cite
 check and the mutant pairs. The numbers each change should move are in the review bench's ledger. The tool changes no
 behaviour of `facts`, `counts` or `check`, which the launcher runs. VERSION 0.2.145, kit v1.20.0.
+
+## D-062. A push goes where `origin` leads, and nothing in a call changes where that is
+
+- **Date.** 2026-10-09
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Standard · `tools/claude-code/kdf-guard.js`, `guard-cases.json` and the tools README · installed
+  per machine by the owner, not synced
+
+**Context.** The role charter's rule 4 says a session never pushes anywhere but `origin`, the tools README says a
+push goes to `origin`, and the guard's own refusal says "Push only to origin". The guard itself let a push name a
+remote called `upstream` too, in any case of either name, since its first version (D-028). No clone in the workspace
+has one, and git reads a remote's name case sensitively, so `Origin` is another remote or a path. Asked to hold it to
+`origin`, a panel of two readers, and then Codex's review and a narrow read of the change, found that the name was
+all the guard checked, and that a call could change where `origin` leads.
+
+- A push option that takes the next word as its value, `-o`, `--repo`, `--receive-pack`, `--exec`, left the guard
+  judging `origin` while git pushed to the next word, a URL. And git takes an abbreviated long option, so `--delet`
+  and `--no-verif` passed the refusals beside them.
+- `git config set remote.origin.pushurl <URL>`, the subcommand form of git 2.46, was read with `set` as the key, and
+  `git config --file <file> <key>` with the file as the key. `edit` and a moved or removed section were not judged,
+  nor their abbreviations, so `--rename-sect` could move a harmless `x.pushurl` onto `remote.origin`.
+- A `GIT_CONFIG_COUNT`, `GIT_CONFIG_PARAMETERS` or `GIT_CONFIG_GLOBAL` set in the call handed git a push URL no word
+  of the call showed, inline, through `env`, by `export`, `declare`, `let`, `printf -v` or `read` under `set -a`, by
+  cmd's `set` or `setx`, a value beginning with `=` included, inside `env -S`, or by PowerShell's `$env:`, `${env:}`,
+  `Set-Item`, `Copy-Item` or `Rename-Item` on `Env:` or `Environment::` or a drive made on that provider with
+  `New-PSDrive`, a bare name after `Set-Location Env:`, or `SetEnvironmentVariable`, a quoted name included.
+- `~/.gitconfig` and `~/.config/git/config` were open to a session's writes, and a `./` in a protected path hid it,
+  where a `pushInsteadOf` sends every repo's `origin` elsewhere.
+- And older than all of it, a quoted assignment after `env` or `sudo`, `env "A=1" gh pr merge 5`, made the guard read
+  `A=1` as the program and judge nothing after it, though `env` reads it as an assignment and the README already said
+  an `env` prefix is read quoted or not.
+
+Each was probed against the guard's own verdict, never by a push.
+
+**Decision.**
+
+1. A push's remote is `origin`, exactly, as the one push to `main` the guard allows already is.
+2. A push carries only `-u` or `--set-upstream`, `-q` or `--quiet`, `-v` or `--verbose`, `-n` or `--dry-run`,
+   `--porcelain`, `--progress`, `--no-progress` and `--atomic`, written in full, none taking a value. Any other
+   option is refused, which also closes every abbreviation.
+3. `git config` judges every word that is not an option as a key, in both forms, refuses `edit` and a renamed or
+   removed section and any abbreviation of their options, and lets reads through, a read of a protected config file
+   included.
+4. A `GIT_CONFIG` variable set anywhere in a call is refused, in every form above. The call's text refuses its name
+   written as an assignment, quoted text included, since `cmd /c` and `env -S` unquote what bash would not, and a
+   reading by words alone missed four such forms. So a commit message that writes one goes in a file, `git commit
+   -F`. The call's words refuse the forms that set one by name alone. A PowerShell call that names one on the env
+   drive beside a command that writes an item or moves onto the drive is refused wherever its words fall, so a copy
+   from one is refused too, since a guess at PowerShell's parameter binding was misread twice. A read of one,
+   `$env:NAME` or `Get-Item Env:NAME`, or a comparison, stays open. A call that names one beside
+   `SetEnvironmentVariable` or a command that makes a drive is refused, since a drive lives only in its call and
+   PowerShell may bind its provider from a name, a position or a piped object.
+5. Git's global and system config, `~/.gitconfig`, `~/.config/git/config` and `etc/gitconfig`, join the protected
+   files beside `.git/config`, and a protected path is folded before it is matched.
+6. `env` and `sudo` read a quoted `NAME=value` as an assignment, as they do.
+
+**Consequences.** 107 new cases and the `upstream` case turned to a refusal. All 77 of its refusals fail on the guard
+before this change, and 31 allowed cases keep ordinary pushes, `git config get`, reads of `~/.gitconfig`, a commit
+message that names a variable without assigning it, `git commit -F`, a comparison, a file named like one and reads of
+one in each shell open. The README
+says each rule and what stays out of reach by design, that `origin` is the URL a clone was made from and a variable
+the session started with is in no call's words. A session that needs another option, another remote or a setting
+asks the owner, who still does all of it by hand. VERSION 0.2.146.

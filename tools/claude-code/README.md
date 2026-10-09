@@ -49,8 +49,10 @@ The hook command names the guard by absolute path, so the block differs per user
 this machine's path. Repeat the steps on every machine, the settings file is not shared between them.
 
 The installer never edits `settings.json`, and the guard will not let a session do it either, settings, hooks, the MCP
-list and git hooks are protected files. When the owner wants a session to edit one, the owner starts that session with
-`KDF_GUARD_ALLOW_SELF_EDIT=1`, a session cannot set it for itself.
+list, git hooks and git's own config, a repo's `.git/config`, `~/.gitconfig`, `~/.config/git/config` and the system's
+`etc/gitconfig`, are protected files, each path folded first so a `./` or `../` in it names the file it leads to.
+When the owner wants a session to edit one, the owner starts that session with `KDF_GUARD_ALLOW_SELF_EDIT=1`, a
+session cannot set it for itself.
 
 ## The two roles
 
@@ -58,14 +60,33 @@ list and git hooks are protected files. When the owner wants a session to edit o
 dispatches a workflow, re-runs, cancels or deletes a workflow run, publishes a package, runs `terraform apply` or
 `destroy`, runs `vercel`, or pushes to `main`. The guard reads every spelling of those, including `git -C`, a nested
 `bash -c`, an `env` prefix quoted or not, a command after a shell keyword such as `do`, `then` or `!`, `cmd //c`,
-`env -S` and PowerShell. A push names its branch and goes to `origin`, and force, delete, tag, mirror and
-`--no-verify` pushes are refused, as are `git send-pack` and `git http-push`. The one push to `main` it lets through
+`env -S` and PowerShell, and `env` and `sudo` read `NAME=value` among their arguments quoted or not, so a quoted one
+never hides the program after it (D-062). A push names its branch and goes to `origin`, spelled exactly, and carries
+only `-u` or `--set-upstream`, `-q` or `--quiet`, `-v` or `--verbose`, `-n` or `--dry-run`, `--porcelain`,
+`--progress`, `--no-progress` or `--atomic`, each in full, since another option can take the next word as its value
+and leave a URL where the remote should be, and git reads an abbreviation as the option it shortens. Force, delete,
+tag, mirror and `--no-verify` pushes are refused, as are `git send-pack` and `git http-push` (D-062). The one push to
+`main` it lets through
 is a plain `git push origin main`, the whole call, in `kriegerdataforge-context`, judged by its fetch and push URLs,
 with `main` checked out and every commit since `origin/main` changing `STATUS.md` alone, read after a fetch (D-046).
 Any doubt, a GIT_ variable that moves git, a merge, an empty commit or a git error, refuses it. Git settings that run
 commands or change
 where code goes, aliases, hooks paths, credential helpers, protocols and remote URLs, are refused whether they are
-written with `git config` or passed with `git -c`, and so are `gh gist`, deploy keys and account keys.
+written with `git config`, in its older options or its subcommands, or passed with `git -c`, every word of a `git
+config` judged as a key, and a read of a protected config file through `git config --get` or `get` stays open. So
+are `git config edit` and a moved or removed section, an abbreviation of either option included, and a `GIT_CONFIG`
+variable set anywhere in a call, which hands git settings no command shows. Its name written as an assignment is
+refused wherever it appears in the call's text, spaced or quoted, in bash, in cmd's `set`, in PowerShell's `$env:`
+and `${env:}`, or inside `env -S`, since `cmd /c` and `env -S` unquote what bash would not, so a commit message that
+writes such an assignment goes in a file, `git commit -F`. Its name alone is refused after `export`, `declare`,
+`read`, `printf -v` and the other builtins that set one by name, and cmd's `setx`. A PowerShell call that names one
+on the env drive, `Env:` or `Environment::`, beside a command that writes an item or moves onto the drive, wherever
+its words fall, is refused, since PowerShell binds parameters in ways no guess at its words follows, and so a copy
+from one is refused too, and so is a search for such a call's own text. A call that names one beside
+`SetEnvironmentVariable`, or beside a command that makes a drive, `New-PSDrive`, `ndr` or `mount`, is refused, a
+search or a message naming both among them. Reading one, `$env:NAME` or `Get-Item Env:NAME`, or comparing it, stays
+open (D-062).
+And so are `gh gist`, deploy keys and account keys.
 
 **Secret files are closed to every session**, by the owner's decision of 2026-09-29. No session reads, writes,
 copies, sources or passes one to a command, in the shell or to Read, Grep, Edit and Write. `test`, `[`, `ls`, `stat`
@@ -397,7 +418,10 @@ process. Braces are not expanded (`.e{nv,x}.kdf`), and a program that walks fold
 earlier in the same call is not followed, every relative path is judged from the folder the call starts in, so
 `cd .git/kdf-review/held && cat r.md` is not seen as a held report and a `.env.local` is judged by the wrong
 folder's example. Rules that match a name, `.env.kdf` or a dot glob, hold wherever the call runs. For an owner's
-session `mcp__ide__executeCode` is a code runner like `python -c`, a reviewer's is refused.
+session `mcp__ide__executeCode` is a code runner like `python -c`, a reviewer's is refused. And `origin` is a name the
+guard checks, not a place. It is whatever URL the clone was made from, so a push to the `origin` of a clone a session
+made from some other URL goes there. And a `GIT_CONFIG` variable the session was started with is in no call's words,
+so only one set inside a call is refused. What the guard refuses is a change to where an `origin` leads.
 
 A glob's extra judgments (D-060) only add refusals, and what they still miss is what the guard missed before them.
 A bracket counts as any one character, so two bracket globs that bash narrows, `git [p]ush origin [m]ain` beside

