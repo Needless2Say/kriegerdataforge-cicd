@@ -39,6 +39,31 @@ KIT       = TOOLS.parents[1] / "kit" / "common"
 # a closed slice's record in miniature, for the retrospective tool
 RETRO_SLICE = Path(__file__).resolve().parent / "fixtures" / "retro" / "s1-example"
 
+# a living doc with every kind of cite, for the cite check
+CITING_DOC = (
+    "# Guide\n"
+    "The bound is at `src/auth/client.py:2` and the range `client.py:3-4, 5`.\n"
+    "Ambiguous `limits.py:2`, settled by `auth/limits.py:9`.\n"
+    "Gone `src/auth/gone.py:1`, untracked `new.py:1`, past `client.py:9`, backwards `client.py:4-2`.\n"
+    "Another repo `kriegerdataforge/api/main.py:3`, a host `localhost:5432`, the build `Makefile:2`.\n"
+    "No file `:12` and line 40 of it.\n"
+    "\n"
+    "A span opened `on this line\n"
+    "and closed here` keeps `src/auth/limits.py:3` paired.\n"
+    "```\n"
+    "`client.py:99` in a fence is no cite\n"
+    "```\n"
+    "\n"
+    "> Quoted `opened here\n"
+    "> closed` sees `src/auth/limits.py:4`.\n"
+    ">\n"
+    "> ```\n"
+    "> `client.py:99` quoted in a fence\n"
+    "> ```\n"
+    "\n"
+    "Zero `client.py:2-0`, `client.py:0` and data `gone.csv:1`.\n"
+)
+
 # what the guard refuses, in the words the role charter must keep, so a model that runs no guard is told the same
 GUARD_RULES_IN_WORDS = (
     "merge",
@@ -865,7 +890,7 @@ def test_the_first_retrospective_s_changes_are_in_the_kit() -> None:
     assert "`{n} tokens in, {n} tokens out`" in report
     assert "runs the consumer's own parser on the check's inputs beside the check's" in report
     assert "since v1.13.0" in process
-    assert "Three standing questions close every list, word for word from the template" in process
+    assert "standing questions close every list, word for word from the template, the paths a tool acts on" in process
     assert "A Blocks fix of the last Sol round does not. The final brief names it first" in process
     assert "for a fix of the last Sol round the first place in the final brief, section 4 step 5." in process
     assert "The table's Destroys column marks every tool in it that deletes, resets, cleans or overwrites" in process
@@ -876,6 +901,61 @@ def test_the_first_retrospective_s_changes_are_in_the_kit() -> None:
     assert "from the stream's last result event" in process
     assert "**Codex in the cloud is on trial, for the kdf-sdk's S2 alone.**" in process
     assert "**The first retrospective**, the kdf-sdk's S1" in process
+
+
+def test_the_second_retrospective_s_changes_are_in_the_kit() -> None:
+    """
+    The owner approved the kdf-sdk's S2 retrospective whole (D-061). Every brief closes its look for list with five
+    standing questions, the two new ones asking what pins a constant and whose text a message carries, and may start a
+    loopback peer inside a test. Every number a rule reads gets an up and down pair of mutants from step 0, each killed
+    by a literal. The orchestrator reads every cite into the slice at step 0 and runs the cite check before every pin.
+    The process names each, so the template and the process cannot drift apart in silence.
+    """
+    process   = " ".join((KIT / "docs" / "agent" / "CODE_REVIEW_PROCESS.md").read_text(encoding = "utf-8").split())
+    templates = KIT / "docs" / "agent" / "templates"
+    brief     = " ".join((templates / "review-brief.template.md").read_text(encoding = "utf-8").split())
+    standing  = (
+        "- **What pins a constant.** For every test of a constant, a bound, a limit, a default, a name or a list,",
+        "whether something in the test pins the constant's value on its own, a literal in its input or its expected",
+        "A test whose input and expected answer both move with the constant it checks,",
+        "passes whatever the constant holds, so it proves the code reads the constant and not that the value is right.",
+        "- **Whose text a message carries.** Every message the code writes, an exception's text, a log line,",
+        "a response body,",
+        "and whose text each carries, the caller's, a peer's such as a server's answer or a library's error,",
+        "and the operator's settings.",
+        "Probe whether text someone else wrote reaches a message with harm where it lands,",
+        "a secret shown, a forged log line, a broken encoding or a size no one bounded.",
+    )
+    for line in standing:
+        assert line in brief, f"the brief template lost {line!r}"
+    assert "Keep the five standing bullets after the areas, word for word" in brief
+    assert "a loopback peer a probe needs, started inside a test" in brief
+    assert brief.index("**Two parsers of one string.**") < brief.index("**What pins a constant.**")
+    assert brief.index("**What pins a constant.**") < brief.index("**Whose text a message carries.**")
+    assert brief.index("**Whose text a message carries.**") < brief.index("**The new tests.**")
+    for words in (
+        "Five standing questions close every list, word for word from the template",
+        "two parsers of one string, what pins a constant, and whose text a message carries.",
+        "with a pair for every number a rule reads, its value moved up and down by the smallest step its unit takes.",
+        "Every number a rule reads, a bound, a limit or a default, gets the pair of step 0,",
+        "and each mutant dies of a test that pins the value as a literal",
+        "the list `kdf-brief.js cites --only <the slice's files>` prints at the baseline",
+        "Before the brief's commit the orchestrator runs `kdf-brief.js cites` on the state commit,",
+        "`--since` the last commit whose cites read clean, step 0's baseline before the first pin.",
+        "makes the state commit again and runs it again until it exits 0, a flag never waved through.",
+        "Then it reads every cite it lists beside its line, writes the count in the adjudication log, commits it",
+        "and runs the check once more `--since` the commit before,",
+        "so a cite into the log whose line moved is read too.",
+        "That commit is the state, the clean read the next run starts from, on which `facts` runs last.",
+        "Each Sol round's commit and the final reviews' pin take the same run.",
+        "Only when the tool cannot run at all, an error and not a flag, does the orchestrator read the cites by hand,",
+        "and it says so in the log.",
+        "and fix each that drifted.",
+        "`cites --repo <repo> --pin HEAD [--since <commit>] [--only <paths>]` lists every `file:line` cite",
+        "since v1.20.0 the second retrospective's changes",
+        "**The second retrospective**, the kdf-sdk's S2",
+    ):
+        assert words in process, f"the process lost {words!r}"
 
 
 def test_codex_in_the_rebuilt_cloud_needs_no_token_and_no_pull_request() -> None:
@@ -2004,6 +2084,190 @@ def test_the_brief_tool_checks_a_scope_table_with_its_destroys_column(rig: Rig) 
     assert "ok    src/app.py, 1" in passed.stdout
     brief.write_text(table.replace("| 1 | `git", "| 7 | `git"), encoding = "utf-8", newline = "\n")
     assert _brief_tool(rig, "check", brief.as_posix()).returncode == 1
+
+
+def _numbered(count: int) -> str:
+    return "".join(f"v{n} = {n}\n" for n in range(1, count + 1))
+
+
+def _cite_repo(rig: Rig) -> None:
+    """
+    Two files of one basename, a client of five lines, a Makefile, the citing doc and its three histories, committed.
+    """
+    for folder in ("auth", "web"):
+        (rig.repo / "src" / folder).mkdir()
+    (rig.repo / "src" / "auth" / "client.py").write_text(_numbered(5), encoding = "utf-8", newline = "\n")
+    (rig.repo / "src" / "auth" / "limits.py").write_text(_numbered(10), encoding = "utf-8", newline = "\n")
+    (rig.repo / "src" / "web" / "limits.py").write_text(_numbered(3), encoding = "utf-8", newline = "\n")
+    (rig.repo / "Makefile").write_text("all:\n\ttrue\n", encoding = "utf-8", newline = "\n")
+    (rig.repo / "docs" / "GUIDE.md").write_text(CITING_DOC, encoding = "utf-8", newline = "\n")
+    (rig.repo / "docs" / "tool.py").write_text("one = 1\n", encoding = "utf-8", newline = "\n")
+    (rig.repo / "src" / "docs").mkdir()
+    (rig.repo / "src" / "docs" / "tool.py").write_text("other = 1\n", encoding = "utf-8", newline = "\n")
+    for folder in ("docs/design/2026-10-01-old", "src/fixtures/2026-10-01-data"):
+        (rig.repo / folder).mkdir(parents = True)
+    for history in (
+        "docs/reviews/OLD.md",
+        "docs/design/2026-10-01-old/DESIGN.md",
+        "CHANGELOG.md",
+        "docs/STATUS_LOG.md",
+    ):
+        (rig.repo / history).write_text("`client.py:99`\n", encoding = "utf-8", newline = "\n")
+    living = rig.repo / "src" / "fixtures" / "2026-10-01-data" / "README.md"
+    living.write_text("`src/auth/client.py:1`\n", encoding = "utf-8", newline = "\n")
+    _commit_and_push(rig, "citing docs")
+
+
+def test_the_cite_check_lists_each_cite_beside_its_lines_at_the_pin(rig: Rig) -> None:
+    """
+    Every cite of a living doc is listed beside the lines it names at the pin, an edit after the pin and an untracked
+    file never count, a basename two files share is ambiguous with both candidates, a longer path settles it, and a
+    missing file, a line past the end and a backwards range are flagged. Another repository's path and a line with no
+    file are listed apart and flag nothing, a host and port is no cite, and history is left out, a dated folder outside
+    docs/<kind>/ not being history. A code span pairs its backticks across a line break, inside a quote too, a fenced
+    block holds no cite, quoted or not, and a range ending at line 0 and a line 0 are flagged.
+    """
+    _cite_repo(rig)
+    (rig.repo / "src" / "auth" / "client.py").write_text("changed after the pin\n", encoding = "utf-8")
+    (rig.repo / "src" / "auth" / "new.py").write_text(_numbered(3), encoding = "utf-8")
+    done = _brief_tool(rig, "cites")
+    out  = done.stdout
+    assert done.returncode == 1, out + done.stderr
+    for line in (
+        "#### docs/GUIDE.md",
+        "src/auth/client.py:2  ..The bound is at",
+        "    2 | v2 = 2",
+        "src/auth/client.py:3-4,5",
+        "    3 | v3 = 3",
+        "    4 | v4 = 4",
+        "    5 | v5 = 5",
+        "AMBIGUOUS limits.py:2, 2 files, give the doc a longer path",
+        "candidate src/auth/limits.py",
+        "candidate src/web/limits.py",
+        "src/auth/limits.py:9  ..",
+        "    9 | v9 = 9",
+        "MISSING src/auth/gone.py, no tracked file at the pin",
+        "MISSING new.py, no tracked file at the pin",
+        "PAST THE END 9, src/auth/client.py has 5 lines",
+        "BACKWARDS 4-2",
+        "Makefile:2  ..",
+        "    2 | true",
+        "    9  src/auth/limits.py:3  ..A span opened `on this line and closed here` keeps",
+        "   15  src/auth/limits.py:4  ..Quoted `opened here closed` sees",
+        "BACKWARDS 2-0",
+        "NO LINE 0 0, a file's first line is 1",
+        "MISSING gone.csv, no tracked file at the pin",
+        "#### src/fixtures/2026-10-01-data/README.md",
+        "#### another repository's, read by hand",
+        "docs/GUIDE.md:5  kriegerdataforge/api/main.py:3",
+        "#### a line named with no file, read by hand",
+        "docs/GUIDE.md:6  `:12`",
+        'docs/GUIDE.md:6  "line 40"',
+        "8 flagged, 1 of another repository, 2 with no file",
+    ):
+        assert line in out, f"missing {line!r} in\n{out}"
+    for absent in (
+        "localhost:5432  ..",
+        "MISSING localhost",
+        "OLD.md",
+        "2026-10-01-old",
+        "CHANGELOG",
+        "STATUS_LOG",
+        "BRIEF.md",
+        "PAST THE END 99",
+    ):
+        assert absent not in out, f"{absent!r} should not be listed"
+    for absent in ("changed after the pin",):
+        assert absent not in out, f"{absent!r} should not be listed"
+
+
+def test_the_cite_check_reads_history_when_named_and_filters_only_after_resolving(rig: Rig) -> None:
+    """
+    A named doc is read even when it is history. --only and --since keep or drop a cite by the file it resolved to,
+    never choose a file for it, so a shared basename stays ambiguous under either, and a missing file always shows.
+    --since keeps the cites into a file changed since its commit and every cite of a doc changed since. A doc whose
+    cites all hold exits 0, and a doc, a filter or a commit that names nothing is a bad argument.
+    """
+    _cite_repo(rig)
+    named = _brief_tool(rig, "cites", "docs/reviews/OLD.md")
+    assert named.returncode == 1
+    assert "PAST THE END 99, src/auth/client.py has 5 lines" in named.stdout
+
+    auth_run = _brief_tool(rig, "cites", "--only", "src/auth/*.py")
+    auth     = auth_run.stdout
+    assert auth_run.returncode == 1
+    assert "src/auth/client.py:2  .." in auth
+    assert "AMBIGUOUS limits.py:2" in auth
+    web = _brief_tool(rig, "cites", "--only", "src/web/*").stdout
+    assert "src/auth/client.py" not in web.replace("candidate src/auth/limits.py", "")
+    assert "AMBIGUOUS limits.py:2" in web
+    assert "MISSING src/auth/gone.py" in web
+
+    (rig.repo / "src" / "web" / "limits.py").write_text(_numbered(4), encoding = "utf-8", newline = "\n")
+    _commit_and_push(rig, "a source changed")
+    source_run = _brief_tool(rig, "cites", "--since", "HEAD~1")
+    source     = source_run.stdout
+    assert source_run.returncode == 1
+    assert "AMBIGUOUS limits.py:2" in source
+    assert "MISSING src/auth/gone.py" in source
+    assert "src/auth/client.py:2  .." not in source
+    assert "src/auth/limits.py:9  .." not in source
+    (rig.repo / "docs" / "GUIDE.md").write_text(CITING_DOC + "More.\n", encoding = "utf-8", newline = "\n")
+    _commit_and_push(rig, "the doc changed")
+    doc = _brief_tool(rig, "cites", "--since", "HEAD~1").stdout
+    assert "src/auth/client.py:2  .." in doc
+    assert "src/auth/limits.py:9  .." in doc
+
+    # an exact path wins over the longer path that ends with it, src/docs/tool.py
+    clean_doc = "See `src/auth/client.py:1-5`, `auth/limits.py:10` and `docs/tool.py:1`.\n"
+    (rig.repo / "docs" / "CLEAN.md").write_text(clean_doc, encoding = "utf-8", newline = "\n")
+    _commit_and_push(rig, "a clean doc")
+    clean = _brief_tool(rig, "cites", "docs/CLEAN.md")
+    assert clean.returncode == 0, clean.stdout
+    assert "docs/tool.py:1  .." in clean.stdout
+    assert "3 cites listed from 1 docs" in clean.stdout
+    assert "0 flagged" in clean.stdout
+
+    assert _brief_tool(rig, "cites", "docs/NOT-TRACKED.md").returncode == 2
+    assert _brief_tool(rig, "cites", "--only", "nope/*").returncode == 2
+    assert _brief_tool(rig, "cites", "--since", "no-such-commit").returncode == 2
+
+
+def test_the_cite_check_follows_markdown_s_containers_and_fails_on_any_flag(rig: Rig) -> None:
+    """
+    A quoted fence ends with its quote, so the cite after it is read, and an unmarked line after a quoted paragraph
+    continues it. A name with any extension is a cite, so a missing one is flagged whatever its language, and a host
+    with its port is none. A run whose only flag is a missing file exits 1, and so does a flagged run under both
+    filters.
+    """
+    _cite_repo(rig)
+    quoted = "> ```\n> `client.py:99` quoted in a fence\n\nReal `src/auth/client.py:99`.\n\n"
+    lazy   = "> Lazy `opened here\ncontinued` then `src/auth/limits.py:5`.\n"
+    names  = "`gone.dart:1`, `gone.ex:1`, `gone.svg:1`, `api.example.com:443` and `10.0.0.1:5432`.\n"
+    for name, text in (("QUOTES", quoted + lazy), ("NAMES", names), ("ALONE", "Only `gone.py:1`.\n")):
+        (rig.repo / "docs" / f"{name}.md").write_text(text, encoding = "utf-8", newline = "\n")
+    _commit_and_push(rig, "more docs")
+    quotes = _brief_tool(rig, "cites", "docs/QUOTES.md")
+    assert quotes.returncode == 1
+    assert "PAST THE END 99, src/auth/client.py has 5 lines" in quotes.stdout
+    assert "    4  src/auth/client.py:99  ..Real" in quotes.stdout
+    assert "    7  src/auth/limits.py:5  ..Lazy `opened here continued` then" in quotes.stdout
+    assert "2 cites listed" in quotes.stdout
+    named = _brief_tool(rig, "cites", "docs/NAMES.md")
+    for missing in ("gone.dart", "gone.ex", "gone.svg"):
+        assert f"MISSING {missing}, no tracked file at the pin" in named.stdout
+    assert "example.com" not in named.stdout
+    assert "10.0.0.1" not in named.stdout
+    alone = _brief_tool(rig, "cites", "docs/ALONE.md")
+    assert alone.returncode == 1
+    assert "1 cites listed from 1 docs at" in alone.stdout
+    assert "1 flagged" in alone.stdout
+    (rig.repo / "src" / "web" / "limits.py").write_text(_numbered(4), encoding = "utf-8", newline = "\n")
+    _commit_and_push(rig, "a source changed")
+    both = _brief_tool(rig, "cites", "--only", "src/web/*", "--since", "HEAD~1", "docs/GUIDE.md")
+    assert both.returncode == 1
+    assert "AMBIGUOUS limits.py:2" in both.stdout
+    assert "src/auth/client.py:2  .." not in both.stdout
 
 
 def _retro_tool(folder: Path) -> subprocess.CompletedProcess[str]:

@@ -7,7 +7,9 @@
 > since v1.11.0, a retrospective at every slice's close since v1.12.0, and since v1.13.0 the first retrospective's
 > changes, three standing look for questions, the last Sol round's Blocks fixes read by the final reviews, a run's
 > time and tokens counted by the launcher, and Codex in the cloud on trial, and since v1.15.0 that trial on Codex's
-> rebuilt cloud, with no token and no pull request. Kept byte identical across every KDF repo by the kit sync engine,
+> rebuilt cloud, with no token and no pull request, and since v1.20.0 the second retrospective's changes, a cite check
+> before every pin, two more standing look for questions and a pair of mutants for every number a rule reads. Kept
+> byte identical across every KDF repo by the kit sync engine,
 > canonical source `kriegerdataforge-cicd/kit/common/docs/agent/CODE_REVIEW_PROCESS.md`. Never edit a synced copy,
 > change the canonical one. The tooling that keeps the process safe, the guard, the reviewer
 > launcher and the installer, is not synced. It lives in `kriegerdataforge-cicd/tools/claude-code/` and is installed on
@@ -231,13 +233,17 @@ A spot review is one slice, so it runs this cycle too, without the steps its sca
 
 **Step 0. Freeze the baseline.** Record the tip, the counts and the gates the way the plan's "where the repo
 stands" table does, and note whether the working tree is clean, uncommitted work is part of the baseline. Create the
-slice's mutation table from what already pins the slice.
+slice's mutation table from what already pins the slice, with a pair for every number a rule reads, its value moved up
+and down by the smallest step its unit takes. Read every `file:line` cite into the slice beside its line, the list
+`kdf-brief.js cites --only <the slice's files>` prints at the baseline, section 11, and fix each that drifted.
 
 **Step 1. The orchestrator's review, then its fixes.** Read every file of the slice, then its tests, then its docs,
 and probe every claim that reading cannot settle. Every finding is reproduced before it is one. Each fix lands with
 a test that fails without it and a mutant that proves the test can fail. The mutant dies of the assertion that
 states its rule, never of an exception on the way to it, and a list that decides something, an allowlist or a public
-surface, is written out in its test name by name, never asserted against itself. Docs move with the code, a rule or
+surface, is written out in its test name by name, never asserted against itself. Every number a rule reads, a bound,
+a limit or a default, gets the pair of step 0, and each mutant dies of a test that pins the value as a literal, since
+a test whose input and expected answer are built from the constant move with it. Docs move with the code, a rule or
 contract change gets an ADR, and anything deferred gets a register row. Fix the class a finding belongs to, not the
 one instance. When a finding is the third of one class, turn the rule around, accept by a list or a grammar in place
 of refusing by one. A lane that will first run on another platform than the machine it was written on is run there
@@ -265,7 +271,14 @@ is clean, and write every behaviour change a consumer would notice into the slic
 section 3, where both reports will land beside it. Commit the slice's state on the slice's branch first, then the
 brief alone in a second commit, and push both. The second commit is the pin. A commit cannot hold its own hash, so the
 brief names the state commit and says the pin is the commit that adds the brief on top of it, `git rev-parse HEAD`
-printing the pin and `git rev-parse HEAD~1` the state. Both reviewers read the repo folder
+printing the pin and `git rev-parse HEAD~1` the state. Before the brief's commit the orchestrator runs
+`kdf-brief.js cites` on the state commit, `--since` the last commit whose cites read clean, step 0's baseline before
+the first pin. It fixes each cite that drifted, makes the state commit again and runs it again until it exits 0, a
+flag never waved through. Then it reads every cite it lists beside its line, writes the count in the adjudication
+log, commits it and runs the check once more `--since` the commit before, so a cite into the log whose line moved is
+read too. That commit is the state, the clean read the next run starts from, on which `facts` runs last. Each Sol
+round's commit and the final reviews' pin take the same run. Only when the tool cannot run at all, an error and not a
+flag, does the orchestrator read the cites by hand, and it says so in the log. Both reviewers read the repo folder
 itself, with no copy of it and no second environment, one at a time. Launch the fresh Claude reviewer with the
 launcher of section 11 at the pin, then open the folder for Codex at the same pin, or the other way round, or point
 Codex in the cloud at the pushed commit. Each reads and probes and never fixes, each writes its own report, and neither
@@ -394,10 +407,11 @@ One brief serves both reviewers. Its shape, in this order, is the template's.
    reviewer never starts, stops or resets it. It reads the stack with the tests, a script, `docker ps`, `docker logs`
    and `curl` to this machine, `AGENT_ROLES.md` section 5. It reads no secret file, rule 5 there, and prints no value.
 8. **Settled.** Numbered, with the reasons, so a reviewer does not re-derive a decision.
-9. **Look for.** A starting list, by area. A question becomes a finding only when a probe proves it. Three standing
+9. **Look for.** A starting list, by area. A question becomes a finding only when a probe proves it. Five standing
    questions close every list, word for word from the template, the paths a tool acts on, the environment a child is
-   handed, and two parsers of one string. The kdf-sdk's first retrospective found 26 of its 43 escapes in those three
-   classes, each one read past by a step 2 brief that did not ask.
+   handed, two parsers of one string, what pins a constant, and whose text a message carries. The kdf-sdk's first
+   retrospective found 26 of its 43 escapes in the first three classes, each one read past by a step 2 brief that did
+   not ask, and its second retrospective added the last two.
 10. **Rules of evidence.** Probe, quote the line, reproduce, and put what cannot be settled under "Could not settle".
 11. **The report.** Section 8.
 
@@ -561,7 +575,13 @@ other reviewer of the pin reads it waits outside the tree with the first report'
 
 **The brief's facts.** `node <cicd>/tools/claude-code/kdf-brief.js counts --repo <repo> --pin HEAD <label>=<paths>`
 prints the scope table's rows with the line counts at the pin, and `facts`, run on the state commit before the brief's
-own commit, prints the commit line, which names the state and says the pin is the commit that adds the brief. Every
+own commit, prints the commit line, which names the state and says the pin is the commit that adds the brief.
+`cites --repo <repo> --pin HEAD [--since <commit>] [--only <paths>]` lists every `file:line` cite of the living docs
+beside the lines it names at the pin, a doc under `docs/reviews/`, a dated record under `docs/<kind>/` and a log
+keeping the lines of their own day, and flags a missing file, a line out of range, a backwards range and a basename
+more than one file shares,
+which a longer path in the doc settles. It lists and the orchestrator reads, since only a reader can say whether a
+line holds what the doc claims. Every
 collect warns when a report's header does not name the pin or list what the reviewer read first, and when a report the
 launcher did not start lacks its Usage line or a Time spent line with the clock's two times.
 
@@ -731,3 +751,8 @@ the scoring objective.
 approved all six on 2026-10-03. Three standing look for questions, section 7, the last Sol round's Blocks fixes read
 by the final reviews, section 4 step 5, Codex in the cloud on trial, section 11, and a run's time and tokens counted
 by the launcher, section 11. They are kit v1.13.0, cicd ADR D-039, and S2's retrospective reads them first.
+
+**The second retrospective**, the kdf-sdk's S2, proposed five changes and the owner approved all five on 2026-10-08.
+Three are the kit's. A cite check before every pin, section 4 steps 0 and 2 and section 11, two standing look for
+questions, what pins a constant and whose text a message carries, section 7, and a pair of mutants for every number a
+rule reads, section 4 steps 0 and 1. They are kit v1.20.0, cicd ADR D-061, and S3's retrospective reads them first.

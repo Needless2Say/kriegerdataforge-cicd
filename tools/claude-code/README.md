@@ -10,7 +10,7 @@ repos, the kit ships Markdown only (ADR D-028), so each machine installs them fr
 | `kdf-guard.js` | A Claude Code PreToolUse hook. It reads each Bash and PowerShell command the way a shell does, each Read, Grep and Glob, and each file edit and outward facing tool call, and exits 2 to refuse with the reason. No dependencies, one file |
 | `guard-cases.json` | The table the guard is held to, one case per tool call with its role and whether it is allowed or refused. Every rule change adds cases |
 | `kdf-review.sh` | Starts one fresh Claude reviewer with the reviewer role in the repo folder itself, for at most four hours by default, or opens and closes the folder for Codex, checking first that the pin is pushed, the folder is at it and the brief's counts match it. Compares git before and after and fails the review if the reviewer changed anything but a new file under `docs/reviews`, the review archive. A Claude run's log is claude's stream, one JSON event a line as the run goes, so a detached run is watched by its log, and after a clean run the launcher writes Claude Code's own count of it beside the report, `<report stem>.usage.json`, from the stream's last result event. Brings a report Codex wrote in the cloud in from its branch, and warns when a report it did not start lacks its time or usage line |
-| `kdf-brief.js` | Read only. The facts a brief states, measured at the pin, the commit line and the scope table's line counts, and a check of a written brief's table |
+| `kdf-brief.js` | Read only. The facts a brief states, measured at the pin, the commit line and the scope table's line counts, a check of a written brief's table, and every `file:line` cite of the living docs beside the lines it names |
 | `kdf-retro.js` | Read only. The numbers a slice's retrospective starts from, counted from its answer key, the launcher's counts beside its reports or else their headers, and its Sol rounds, the escapes first |
 | `kdf-ask-codex.sh` | Asks Codex for a read only review of a change, a plan or a decision, the one way every session does (D-052, D-053). Gives Codex a detached worktree of a commit, or a throwaway repo of a folder of patches with no secret file, link or token in it, sets the session's question in the standard frame, runs Codex with the verified flags and archives its answer in the workspace's `temp/codex`, never in a repo. Refuses a reviewer, and fails when Codex changed its folder or wrote no answer |
 | `check-wiring.js` | Read only. Says whether this machine's settings wire the guard as the process needs, and prints the block to add when they do not |
@@ -211,6 +211,7 @@ home directory, the tests use them.
 node kdf-brief.js facts  --repo <repo> --pin HEAD                     # the state, its branch, the tip of main
 node kdf-brief.js counts --repo <repo> --pin HEAD Code=src/pkg/auth "Tests=tests/unit/auth/*.py"
 node kdf-brief.js check  --repo <repo> --pin HEAD <step>/<brief>
+node kdf-brief.js cites  --repo <repo> --pin HEAD --since <last clean commit>   # every cite that can have moved
 ```
 
 `facts` runs on the slice's state commit, before the brief's own commit, and prints the brief's "The commit" line. The
@@ -223,6 +224,20 @@ number of lines an editor shows, so a last line without a newline counts. `check
 `| Files | Lines |` table, and compares each row, one count per path or one total for the row. A directory's files are
 summed, and a row with a line range or a placeholder is skipped. It exits 1 on a count that differs or a path missing
 at the pin, and the launcher runs it before every pinned review.
+
+`cites` lists every `file:line` cite of the docs it is given, or of every living doc, beside the first and last lines
+it names at the pin (D-061). A living doc is a tracked Markdown file outside `docs/reviews/`, a dated record under
+`docs/<kind>/<YYYY-MM-DD>-<slug>/` and a changelog or log, which keep the lines of their own day. A cite is a
+backticked path, a colon and lines, `` `src/a.py:12` ``, `` `a.py:12-20` `` or `` `a.py:12, 40-41` ``, whose path
+names a tracked file, holds a slash, or has an extension and names no host, so `localhost:5432` is no cite. A
+code span may cross a line break within a paragraph or a quote, as Markdown's do, and a fenced code block holds no
+cite. The path resolves against the whole repo, the exact path or else the one file whose path ends
+with it, so a basename two files share is ambiguous and is printed with every candidate, and a longer path in the doc
+settles it. `--only` keeps the cites into the files it names and `--since` the cites into a file changed since that
+commit and every cite of a doc changed since. Both filter after the path resolves and never choose a file. It exits 1
+on a missing file, a line out of range, a backwards range or an ambiguous basename, and lists another repository's
+path and a line named with no file apart, for a hand read. It judges nothing, the orchestrator reads each cite against
+its line before every pin, as the process's section 4 says.
 
 ## A slice's retrospective numbers
 

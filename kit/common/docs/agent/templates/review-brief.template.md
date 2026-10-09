@@ -89,7 +89,8 @@ code.
 
 ## Commands
 
-You may run, from the repo root, {the test, lint and type commands, a single mutant or lane}. A mutant edits a file
+You may run, from the repo root, {the test, lint and type commands, a single mutant or lane, a loopback peer a probe
+needs, started inside a test}. A mutant edits a file
 and restores it, the one edit your role allows, so run `git status --porcelain` before and after it, and stop if they
 differ. You may not run {make ci, make bump, an install, anything that rewrites a tracked file}, and you create
 nothing in the tree but your report and any scratch note, both in this brief's folder, `{step folder}`.
@@ -120,7 +121,7 @@ implementation does not do what the decision says, and then the finding names wh
 
 {The plan's list for this slice is the starting point. What step 1 settled is above, what is left, and what step 1
 added, is where a finding is likeliest. One bullet per area, each naming the specific question, not the topic. In a
-final brief, every Blocks fix of the last Sol round comes first, with its finding id. Keep the three standing bullets
+final brief, every Blocks fix of the last Sol round comes first, with its finding id. Keep the five standing bullets
 after the areas, word for word, and delete a stack's readers only when the slice holds none of that stack.}
 
 - **{Area}.** {Whether X could ever Y, whether Z holds when W, what happens to V when U.}
@@ -134,6 +135,15 @@ after the areas, word for word, and delete a stack's readers only when the slice
 - **Two parsers of one string.** Wherever a check reads a string that another program reads again, a URL, a path, a
   version, a header, run both parsers, the check's and the consumer's own, on the same inputs and report where they
   disagree.
+- **What pins a constant.** For every test of a constant, a bound, a limit, a default, a name or a list, whether
+  something in the test pins the constant's value on its own, a literal in its input or its expected answer. A test
+  whose input and expected answer both move with the constant it checks, `MAX + 1` refused because it is over `MAX`,
+  or `ALLOWED[0]` accepted, passes whatever the constant holds, so it proves the code reads the constant and not that
+  the value is right.
+- **Whose text a message carries.** Every message the code writes, an exception's text, a log line, a response body,
+  and whose text each carries, the caller's, a peer's such as a server's answer or a library's error, and the
+  operator's settings. Probe whether text someone else wrote reaches a message with harm where it lands, a secret
+  shown, a forged log line, a broken encoding or a size no one bounded.
 - **The new tests.** Whether each pins what its name claims. A test that would pass against a broken implementation
   is a finding.
 - **The docs.** Every `file:line` cite into this slice against the code, and every claim in the adjudication log's
