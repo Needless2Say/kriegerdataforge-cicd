@@ -3257,3 +3257,46 @@ second install of the same guard overwrote the copy kept as the way back.
 **Consequences.** `cat .env*`, `grep FOO .env*` and `cat .e[n]v.kdf` are refused where they once read a secret, and
 `cat *` only where a secret file is in the folder. Monitor and a reviewer's IDE code runner no longer go around the
 guard. The owner applies this as they applied D-059, adding `Monitor` to each guard line's matcher. VERSION 0.2.143.
+
+## D-061. The second retrospective's changes, a cite check before every pin, two standing questions and a mutant pair
+
+- **Date.** 2026-10-08
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Standard · `kit/common/docs/agent/CODE_REVIEW_PROCESS.md`, `templates/review-brief.template.md`
+  and their copies in `docs/agent/`, `tools/claude-code/kdf-brief.js`, its tests and the tools README · kit v1.20.0,
+  synced by the Distribute, the tool installed per machine from a clone
+
+**Context.** The kdf-sdk's second slice closed with a retrospective, as every slice does since D-037, and the owner
+approved its five proposals, three of them the kit's. Each closes a gap any review can have. A `file:line` cite in a
+doc goes stale when a line above it moves, and nothing lists every cite beside its line before a pin. A test whose
+input and expected answer are both built from the constant it checks passes whatever the constant holds. And a
+message can carry text someone other than the caller wrote, which a question about the caller's text alone does not
+reach.
+
+**Decision.**
+
+- **A cite check before every pin.** `kdf-brief.js cites` lists every `file:line` cite of the living docs beside the
+  lines it names at the pin, read from git and never the working tree. A path resolves against the whole repo, the
+  exact path or the one file whose path ends with it, so a basename two files share is flagged with its candidates
+  rather than guessed, and `--only` and `--since` filter only after the path resolves. A doc under `docs/reviews/`, a
+  dated record under `docs/<kind>/` and a log keep the lines of their own day and are read only when named. Code spans
+  pair as Markdown pairs them, across a line break and inside a quote, and fenced code holds no cite. It flags a
+  missing file, a line out of range, a backwards range and an ambiguous basename, and lists another repository's path
+  and a line named with no file apart. The process has the orchestrator read every cite into the slice at step 0,
+  and run the check on the state commit before every pin, `--since` the last clean read, repeating until it exits 0,
+  then read what it lists and log the count in the state's last commit. Only a tool that cannot run is replaced by a
+  read by hand. A script lists and only a reader judges, so the brief's "The docs" question stays.
+- **What pins a constant**, a standing look for question. For every test of a constant, whether something in it pins
+  the value on its own, since a test whose input and expected answer both move with the constant passes whatever the
+  constant holds.
+- **A mutant pair for every number a rule reads.** From step 0 the slice's mutation table moves each one up and down
+  by the smallest step its unit takes, and each mutant dies of a test that pins the value as a literal.
+- **Whose text a message carries**, a standing look for question. Every message the code writes and whose text it
+  carries, probed for harm where it lands, a secret shown, a forged log line, a broken encoding or an unbounded size.
+  The brief's commands may start a loopback peer inside a test, since a peer's text needs the peer to run.
+- **The process says five standing questions**, names them in section 7, and the template keeps all five word for
+  word. A test pins each new bullet's words and the process's naming of them.
+
+**Consequences.** Every brief written from kit v1.20.0 asks five standing questions, and every slice runs the cite
+check and the mutant pairs. The numbers each change should move are in the review bench's ledger. The tool changes no
+behaviour of `facts`, `counts` or `check`, which the launcher runs. VERSION 0.2.145, kit v1.20.0.
