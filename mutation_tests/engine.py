@@ -5,8 +5,9 @@ The engine lane's mutants, one deliberate break per rule of the shared mutation 
 The engine came from the SDK's runner, and EN-1 to EN-36 are that runner's own mutants of the SDK's review, slice S1,
 in their order, SDK-FO-255 to SDK-FO-263, SDK-FO-275 to SDK-FO-284, SDK-FO-291 to SDK-FO-306 and SDK-FO-90. EN-37 is the
 hub's RE-M-84, the rule that no run writes bytecode. EN-38 to EN-44 are the rules D-040 added, what a repo's tables
-package says its unit suite needs and the seat the engine finds its repo from. Five are bound to Linux, where the
-modes and owners of folders and a symbolic link a test can make exist.
+package says its unit suite needs and the seat the engine finds its repo from. EN-45 to EN-53 are D-063's, what a
+suite, the compactor and git are handed of the caller's environment. Five are bound to Linux, where the modes and owners of folders
+and a symbolic link a test can make exist.
 
     python scripts/common/mutation_runner.py --lane engine
 """
@@ -25,6 +26,7 @@ TABLE      = f"{RUNNER}::TestTheTableIsValidatedBeforeAnythingRuns"
 SRC_FIRST  = f"{RUNNER}::TestASrcLayoutWorktreeIsImportedFirst"
 BYTECODE   = f"{RUNNER}::TestNoMutantRunsAnotherOnesBytecode"
 SETTINGS   = f"{RUNNER}::TestTheRepoSaysWhatItsUnitSuiteNeeds"
+STEERING   = f"{RUNNER}::TestTheCallersShellSteersNoRun"
 WHOLE_RUN  = f"{RUNNER}::TestALaneRunsInTheRepoTheEngineIsVendoredTo"
 SEAT       = f"{RUNNER}::TestTheEngineFindsItsRepo"
 OWN_TREE   = f"{RUNNER_TREE}::TestTheRunnerDestroysNothingButItsOwnWorktree"
@@ -130,12 +132,13 @@ MUTANTS: list[dict[str, object]] = [
         "id": "EN-10",
         "rule": "the runner's git commands read no GIT_ variable of the caller's shell, a hook hands GIT_DIR to a run",
         "file": ENGINE,
-        "anchor": '    return {name: value for name, value in environ.items() if not name.upper().startswith("GIT_")}',
-        "replacement": "    return dict(environ)",
+        "anchor": "environ.items() if name in PLATFORM_VARIABLES and name not in RUNNER_SIGNALS",
+        "replacement": "environ.items() if name not in RUNNER_SIGNALS",
         "suite": "unit",
         "tests": [
             f"{GIT_ACTS}::test_the_caller_s_git_variables_reach_no_git_command",
             f"{GIT_ACTS}::test_a_hook_s_git_dir_does_not_turn_the_run_on_the_checkout",
+            f"{GIT_ACTS}::test_a_hook_git_runs_is_handed_the_platform_s_names_alone",
         ],
     },
     {
@@ -503,5 +506,98 @@ MUTANTS: list[dict[str, object]] = [
         "replacement": "REPO_ROOT: Path = Path(__file__).resolve().parents[1]",
         "suite": "unit",
         "tests": [SEAT],
+    },
+    {
+        "id": "EN-45",
+        "rule": "a suite is handed the platform's names of the caller's environment and nothing else",
+        "file": ENGINE,
+        "anchor": "    env      = {name: value for name, value in os.environ.items() if name in PLATFORM_VARIABLES}\n",
+        "replacement": "    env      = dict(os.environ)\n",
+        "suite": "unit",
+        "tests": [
+            f"{STEERING}::test_a_name_of_the_caller_s_shell_reaches_no_suite",
+            f"{WHOLE_RUN}::test_a_shell_that_would_steer_pytest_changes_no_result",
+        ],
+    },
+    {
+        "id": "EN-46",
+        "rule": "a suite is handed its own database and not the other suite's",
+        "file": ENGINE,
+        "anchor": "        env[variable] = os.environ[variable]\n",
+        "replacement": (
+            "        env.update({name: os.environ[name] for name in _SUITE_DATABASE_VARIABLE.values()"
+            " if name in os.environ})\n"
+        ),
+        "suite": "unit",
+        "tests": [f"{STEERING}::test_each_suite_is_handed_its_own_database_and_no_other"],
+    },
+    {
+        "id": "EN-47",
+        "rule": "the repo's unit settings read the environment the suite gets, never this process's whole",
+        "file": ENGINE,
+        "anchor": "        env.update(unit_settings(env))\n",
+        "replacement": "        env.update(unit_settings(os.environ))\n",
+        "suite": "unit",
+        "tests": [f"{SETTINGS}::test_the_repo_s_function_reads_the_narrowed_environment"],
+    },
+    {
+        "id": "EN-48",
+        "rule": "a repo's unit settings may not set a name the engine sets, the run stops before any worktree",
+        "file": ENGINE,
+        "anchor": "    if reserved:\n",
+        "replacement": "    if False:\n",
+        "suite": "unit",
+        "tests": [f"{SETTINGS}::test_a_name_the_engine_sets_is_refused_from_the_repo"],
+    },
+    {
+        "id": "EN-49",
+        "rule": "a name the engine sets is refused from the repo in any case of its letters, as Windows reads it",
+        "file": ENGINE,
+        "anchor": "if name.upper() in _RESERVED_NAMES",
+        "replacement": "if name in _RESERVED_NAMES",
+        "suite": "unit",
+        "tests": [f"{SETTINGS}::test_a_name_the_engine_sets_is_refused_from_the_repo"],
+    },
+    {
+        "id": "EN-50",
+        "rule": "a PYTHONPATH of the caller's shell is never kept behind the worktree's src",
+        "file": ENGINE,
+        "anchor": '        env["PYTHONPATH"] = str(worktree / "src")\n',
+        "replacement": (
+            '        env["PYTHONPATH"] = os.pathsep.join([str(worktree / "src"),'
+            ' *filter(None, [os.environ.get("PYTHONPATH")])])\n'
+        ),
+        "suite": "unit",
+        "tests": [f"{SRC_FIRST}::test_a_path_the_caller_set_is_never_kept"],
+    },
+    {
+        "id": "EN-51",
+        "rule": "git is never handed a runner's signal, which a suite reads and git does not need",
+        "file": ENGINE,
+        "anchor": " and name not in RUNNER_SIGNALS",
+        "replacement": "",
+        "suite": "unit",
+        "tests": [
+            f"{GIT_ACTS}::test_the_caller_s_git_variables_reach_no_git_command",
+            f"{GIT_ACTS}::test_a_hook_git_runs_is_handed_the_platform_s_names_alone",
+        ],
+    },
+    {
+        "id": "EN-52",
+        "rule": "a bundle mutant's compactor is handed the unit suite's environment, never this process's whole",
+        "file": ENGINE,
+        "anchor": '                env = suite_environment("unit"),\n',
+        "replacement": "                env = dict(os.environ),\n",
+        "suite": "unit",
+        "tests": [f"{STEERING}::test_the_compactor_is_handed_the_unit_suite_s_environment"],
+    },
+    {
+        "id": "EN-53",
+        "rule": "a run with a bundle mutant judges the repo's unit settings before any worktree, whatever its suite",
+        "file": ENGINE,
+        "anchor": "    if any(mutant.bundle for mutant in mutants if mutant.runs_here()):\n",
+        "replacement": "    if False:\n",
+        "suite": "unit",
+        "tests": [f"{SETTINGS}::test_a_bundle_mutant_s_settings_are_judged_before_any_worktree"],
     },
 ]

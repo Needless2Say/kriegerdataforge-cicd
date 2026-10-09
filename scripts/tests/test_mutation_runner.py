@@ -18,6 +18,7 @@ import ast
 import importlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -411,6 +412,161 @@ class TestTheRepoSaysWhatItsUnitSuiteNeeds:
         assert not worktree.exists()
 
 
+    def test_the_repo_s_function_reads_the_narrowed_environment(self, repo, monkeypatch):
+        """
+        The hub's function makes a keypair only when the environment it is handed holds none, so it is handed what the
+        suite gets, never this process's whole environment.
+        """
+        _write_package(repo, "\n".join([
+            "def unit_settings(environment):",
+            '    return {"KDF_SEEN": environment.get("PYTEST_ADDOPTS", "nothing")}',
+            "",
+        ]))
+        monkeypatch.setenv("PYTEST_ADDOPTS", "-k nothing_matches_this")
+
+        assert run.suite_environment("unit")["KDF_SEEN"] == "nothing"
+
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "PYTHONDONTWRITEBYTECODE",
+            "PYTHONUTF8",
+            "HYPOTHESIS_PROFILE",
+            "KDF_TEST_DATABASE_URL",
+            "KDF_SYSTEM_DATABASE_URL",
+            "PYTHONPATH",
+            "pythonpath",
+        ],
+    )
+    def test_a_name_the_engine_sets_is_refused_from_the_repo(self, repo, name):
+        """
+        A repo that set one would undo what every run is promised, bytecode written, another database, another import
+        path. Windows reads a name in any case, so a name in another case is the same name.
+        """
+        _write_package(repo, f'def unit_settings(environment):\n    return {{"{name}": "set by the repo"}}\n')
+
+        with pytest.raises(run.MutantTableError, match = f"may not set {name}"):
+            run.suite_environment("unit")
+
+
+    def test_a_bundle_mutant_s_settings_are_judged_before_any_worktree(self, repo, tmp_path, monkeypatch, capsys):
+        """
+        A bundle mutant's compactor runs with the unit suite's environment whatever the mutant's suite, so a run of a
+        system mutant alone still has the repo's unit settings judged before a worktree is made.
+        """
+        _write_package(repo, 'def unit_settings(environment):\n    return {"PYTHONPATH": "the checkout"}\n')
+        _write_table(repo, [_entry(suite = "system", bundle = True)])
+        monkeypatch.setenv("KDF_SYSTEM_DATABASE_URL", "postgresql+psycopg2://lane/system")
+        worktree = tmp_path / "kdf-mutation" / "repo" / "demo"
+
+        assert run.main(["--lane", "demo", "--worktree", str(worktree)]) == 2
+
+        assert "may not set PYTHONPATH" in capsys.readouterr().out
+        assert not worktree.exists()
+
+
+class TestTheCallersShellSteersNoRun:
+    """
+    The control and every mutant are handed the platform's names of this process's environment and nothing else
+    (D-063). A shell's ``PYTEST_ADDOPTS`` with ``-W error`` or a plugin's timeout made a mutant's run exit 1, a kill no
+    test made, ``PYTHONOPTIMIZE`` stripped every assert so a kill became a survivor, and libpq's ``PGHOSTADDR``, a
+    dotenv path or a database URL named a database to a suite.
+    """
+    # what a developer's shell or a runner's job can hold, none of it the platform's own
+    STEERING: tuple[str, ...] = (
+        "PYTEST_ADDOPTS",
+        "PYTEST_PLUGINS",
+        "PYTHONHOME",
+        "PYTHONOPTIMIZE",
+        "PYTHONWARNINGS",
+        "PYTHONSTARTUP",
+        "COV_CORE_SOURCE",
+        "COVERAGE_PROCESS_START",
+        "PGHOSTADDR",
+        "DB_DATABASE_URL",
+        "APP_ENV_FILE",
+        "ENVIRONMENT",
+        "GIT_CONFIG_COUNT",
+        "KDF_ANY_OTHER_NAME",
+    )
+
+
+    @pytest.fixture(autouse = True)
+    def _both_databases(self, monkeypatch):
+        monkeypatch.setenv("KDF_TEST_DATABASE_URL", "postgresql+psycopg2://lane/integration")
+        monkeypatch.setenv("KDF_SYSTEM_DATABASE_URL", "postgresql+psycopg2://lane/system")
+
+
+    def test_the_platform_s_names_are_held_name_by_name(self):
+        """
+        The kdf-sdk consumer check's list, copied, so a name added there is added here by hand.
+        """
+        assert frozenset({
+            "PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "TMPDIR", "LD_LIBRARY_PATH",
+            "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PATHEXT", "TEMP", "TMP", "USERPROFILE", "HOMEDRIVE",
+            "HOMEPATH", "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "ALLUSERSPROFILE", "PROGRAMFILES",
+            "PROGRAMFILES(X86)", "PROGRAMW6432", "COMMONPROGRAMFILES", "COMMONPROGRAMFILES(X86)", "COMMONPROGRAMW6432",
+            "USERNAME", "USERDOMAIN", "COMPUTERNAME", "OS", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "CI",
+            "GITHUB_ACTIONS",
+        }) == run.PLATFORM_VARIABLES
+        assert run.RUNNER_SIGNALS == {"CI", "GITHUB_ACTIONS"} <= run.PLATFORM_VARIABLES
+
+
+    @pytest.mark.parametrize("suite", sorted(run.SUITES))
+    def test_a_name_of_the_caller_s_shell_reaches_no_suite(self, repo, monkeypatch, suite):
+        for name in self.STEERING:
+            monkeypatch.setenv(name, "set by the shell")
+
+        env = run.suite_environment(suite)
+
+        assert sorted(set(self.STEERING) & set(env)) == []
+
+
+    @pytest.mark.parametrize("suite", sorted(run.SUITES))
+    def test_the_platform_s_names_and_a_runner_s_signal_are_handed_on(self, repo, monkeypatch, suite):
+        monkeypatch.setenv("TZ", "UTC")
+        monkeypatch.setenv("CI", "true")
+
+        env = run.suite_environment(suite)
+
+        assert (env["TZ"], env["CI"], env["PATH"]) == ("UTC", "true", os.environ["PATH"])
+
+
+    def test_each_suite_is_handed_its_own_database_and_no_other(self, repo):
+        databases = set(run._SUITE_DATABASE_VARIABLE.values())
+
+        assert databases & set(run.suite_environment("unit")) == set()
+        assert databases & set(run.suite_environment("integration")) == {"KDF_TEST_DATABASE_URL"}
+        assert databases & set(run.suite_environment("system")) == {"KDF_SYSTEM_DATABASE_URL"}
+
+
+    def test_the_compactor_is_handed_the_unit_suite_s_environment(self, repo, tmp_path, monkeypatch):
+        """
+        A bundle mutant regenerates the bundle before its tests run, and the compactor is a child like any suite. The
+        repo's compactor here writes down the names it was handed.
+        """
+        (repo / "scripts").mkdir()
+        (repo / "scripts" / "vercel_compactor.py").write_text(
+            "import json, os\nopen('handed.json', 'w', encoding = 'utf-8').write(json.dumps(sorted(os.environ)))\n",
+            encoding = "utf-8",
+        )
+        (repo / "vercel_api" / "app").mkdir(parents = True)
+        for name in ("requirements.txt", "pyproject.toml"):
+            (repo / "vercel_api" / name).write_text("", encoding = "utf-8")
+        worktree = tmp_path / "worktree"
+        shutil.copytree(repo, worktree)
+        for name in self.STEERING:
+            monkeypatch.setenv(name, "set by the shell")
+        mutant = run.parse_mutants([_entry(bundle = True)], repo)[0]
+
+        run.run_mutant(worktree, mutant, 120)
+
+        handed = set(json.loads((worktree / "handed.json").read_text(encoding = "utf-8")))
+        assert handed & {*self.STEERING, *run._SUITE_DATABASE_VARIABLE.values()} == set()
+        assert "PYTHONDONTWRITEBYTECODE" in handed
+
+
 class TestASrcLayoutWorktreeIsImportedFirst:
     """
     A src layout package is installed editable, so its import finds the repo the environment was installed from,
@@ -433,11 +589,15 @@ class TestASrcLayoutWorktreeIsImportedFirst:
         assert env.get("PYTHONPATH") == str(tmp_path / "src")
 
 
-    def test_a_path_the_caller_set_is_kept_behind_it(self, tmp_path: Path, monkeypatch):
+    def test_a_path_the_caller_set_is_never_kept(self, tmp_path: Path, monkeypatch):
+        """
+        A path of the caller's shell behind the worktree's ``src`` could hold the repo's own package or a module that
+        shadows a test's import, so it is dropped with the rest of the shell (D-063), with ``src`` and without it.
+        """
         monkeypatch.setenv("PYTHONPATH", "already-there")
-        env = run.suite_environment("unit", self._worktree(tmp_path))
 
-        assert env["PYTHONPATH"].split(os.pathsep) == [str(tmp_path / "src"), "already-there"]
+        assert run.suite_environment("unit", self._worktree(tmp_path))["PYTHONPATH"] == str(tmp_path / "src")
+        assert "PYTHONPATH" not in run.suite_environment("unit")
 
 
     def test_a_worktree_without_src_changes_nothing(self, tmp_path: Path, monkeypatch):
@@ -630,6 +790,32 @@ class TestALaneRunsInTheRepoTheEngineIsVendoredTo:
         results = json.loads((worktree.parent / "mutation-demo.json").read_text(encoding = "utf-8"))
         assert [(result["id"], result["result"]) for result in results] == [("T-M-1", "killed")]
         assert (repo / A_FILE).read_text(encoding = "utf-8") == RULE, "the checkout's own file is never edited"
+
+
+    @pytest.mark.parametrize(
+        "shell",
+        [
+            {"PYTEST_ADDOPTS": "-k nothing_matches_this"},
+            {"PYTHONSAFEPATH": "1", "PYTHONPATH": "the checkout"},
+        ],
+        ids = ["a selection", "the checkout's package first"],
+    )
+    def test_a_shell_that_would_steer_pytest_changes_no_result(self, repo, tmp_path, monkeypatch, shell):
+        """
+        The rule end to end (D-063). Handed on, the selection left the control running nothing and the run stopped.
+        The safe path kept the worktree off the import path, so every test imported the checkout's own unmutated
+        package from ``PYTHONPATH``, the control passed and the mutant survived, so a rule a test pins read as unpinned.
+        """
+        monkeypatch.delenv("KDF_DEMO", raising = False)
+        self._committed(repo, [_entry()])
+        worktree = tmp_path / "kdf-mutation" / "repo" / "demo"
+        for name, value in shell.items():
+            monkeypatch.setenv(name, str(repo) if value == "the checkout" else value)
+
+        assert run.main(["--lane", "demo", "--worktree", str(worktree), "--timeout", "120"]) == 0
+
+        results = json.loads((worktree.parent / "mutation-demo.json").read_text(encoding = "utf-8"))
+        assert [(result["id"], result["result"]) for result in results] == [("T-M-1", "killed")]
 
 
     def test_a_mutant_no_test_notices_survives_and_fails_the_lane(self, repo, tmp_path, monkeypatch):

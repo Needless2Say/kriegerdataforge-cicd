@@ -28,9 +28,16 @@ default, regenerates ``vercel_api/`` after the edit, for a mutant a system test 
 optional, is the one ``sys.platform`` the rule exists on, ``win32``, ``linux`` or ``darwin``. Elsewhere the code the
 mutant edits never runs, so the mutant is reported as not run and is neither a kill nor a survivor.
 
-What a repo's unit suite needs, the values its ``make ci-unit-tests`` exports, its package ``mutation_tests`` says.
-Its ``__init__.py`` may define ``unit_settings(environment)``, which is handed the environment the unit suite would
-get and returns the variables set over it, names to strings. Without it the unit suite gets this process's alone.
+What a suite is handed of this process's environment is the platform's own names alone, ``PLATFORM_VARIABLES``, what
+a process needs to start and find its tools, and the two a runner declares itself by (D-063). A ``PYTEST_ADDOPTS``,
+a ``PYTHON`` name, a coverage variable or a database URL of the caller's shell never reaches the control or a mutant,
+so it cannot make a kill or a survivor.
+
+What a repo's unit suite needs besides, the values its ``make ci-unit-tests`` exports, its package
+``mutation_tests`` says. Its ``__init__.py`` may define ``unit_settings(environment)``, which is handed the
+environment the unit suite would get and returns the variables set over it, names to strings, and may not set a name
+the engine sets, its own settings, a suite's database or ``PYTHONPATH``. Without it the unit suite gets the
+platform's names and the engine's settings alone.
 
 How a run works. The runner keeps a detached git worktree per lane outside the repo, under the system temp directory,
 moves it to the repo's HEAD, and copies in every file the working tree has changed or added, plus ``.env.test``, so
@@ -52,15 +59,16 @@ other users is refused, so nobody else can put a link at the path between a judg
 resolved once, and right before each of the forced checkout, the clean and ``--remove``, git is asked from inside the
 path where it would act, so a path that became another repository after the judgement is refused too, and the
 worktree is walked for a link, which git would act through and which the repo never tracks. Every git command runs
-without the ``GIT_`` variables of the caller's shell, which name a repository for git whatever folder it runs in, and
-which git hands to every hook. A mutated file is restored by a new file made beside it under a name no test knows,
-which replaces the directory entry, and the results file beside the worktree is written the same way, over a results
-file of the runner's own and nothing else.
+with the platform's names of the caller's shell alone, so without its ``GIT_`` variables, which name a repository for
+git whatever folder it runs in, and with nothing else that git hands to every hook. A mutated file is restored by a
+new file made beside it under a name no test knows, which replaces the directory entry, and the results file beside
+the worktree is written the same way, over a results file of the runner's own and nothing else.
 
 An integration mutant needs ``KDF_TEST_DATABASE_URL`` and a system mutant ``KDF_SYSTEM_DATABASE_URL`` in this
-process's environment, each naming the lane's own database. Neither is printed. A src layout package is installed
-editable, so a test in the worktree would import the package from the repo the environment was installed from and
-never see a mutant, and a worktree that holds ``src`` gets it first on the import path. The engine knows the test
+process's environment, each naming the lane's own database, and each suite is handed its own and not the other.
+Neither is printed. A src layout package is installed editable, so a test in the worktree would import the package
+from the repo the environment was installed from and never see a mutant, and a worktree that holds ``src`` gets it
+alone on the import path. The engine knows the test
 command, the table format and the bundle's paths, and nothing else about a repo.
 
     python scripts/kdf_scripts/mutation_runner.py --lane <lane>
@@ -132,6 +140,70 @@ _SUITE_DATABASE_VARIABLE: dict[str, str] = {
     "integration": "KDF_TEST_DATABASE_URL",
     "system": "KDF_SYSTEM_DATABASE_URL",
 }
+
+# SECURITY: what a suite and a git command are handed of the caller's environment, by name, and nothing else (D-063).
+#   These are the platform's own, what a process needs to start and to find its tools, its libraries, its temp folder
+#   and the user's own, and the two a runner declares itself by. A shell's PYTEST_ADDOPTS, PYTHONOPTIMIZE or
+#   PYTHONWARNINGS steered the control and every mutant alike, and could make a run exit 1 that its test never failed,
+#   a kill, or turn a kill into a survivor, and a shell's libpq variables, dotenv path or database URL named a
+#   database to a suite. A name of this list is matched as written, and on Windows os.environ holds every name in
+#   upper case. It is the kdf-sdk consumer check's PLATFORM_VARIABLES, copied, so the two can drift apart, and
+#   test_mutation_runner.py holds it name by name, a name added here is added there
+PLATFORM_VARIABLES: frozenset[str] = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TZ",
+        "TMPDIR",
+        "LD_LIBRARY_PATH",
+        "SYSTEMROOT",
+        "SYSTEMDRIVE",
+        "WINDIR",
+        "COMSPEC",
+        "PATHEXT",
+        "TEMP",
+        "TMP",
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "PROGRAMDATA",
+        "ALLUSERSPROFILE",
+        "PROGRAMFILES",
+        "PROGRAMFILES(X86)",
+        "PROGRAMW6432",
+        "COMMONPROGRAMFILES",
+        "COMMONPROGRAMFILES(X86)",
+        "COMMONPROGRAMW6432",
+        "USERNAME",
+        "USERDOMAIN",
+        "COMPUTERNAME",
+        "OS",
+        "NUMBER_OF_PROCESSORS",
+        "PROCESSOR_ARCHITECTURE",
+        "CI",
+        "GITHUB_ACTIONS",
+    },
+)
+
+# the two names of the list a runner declares itself by, which a backend's system suite and hypothesis read, and git
+# is never handed
+RUNNER_SIGNALS: frozenset[str] = frozenset({"CI", "GITHUB_ACTIONS"})
+
+# what the engine sets for every suite. no bytecode is written, CPython trusts a cached .pyc by the source's size and
+# its mtime in whole seconds, so a mutant that left its file the size the previous one did, written within that
+# second, ran the previous one's code
+_ENGINE_SETTINGS: dict[str, str] = {"PYTHONUTF8": "1", "HYPOTHESIS_PROFILE": "ci", "PYTHONDONTWRITEBYTECODE": "1"}
+
+# the names a repo's unit settings may not set, the engine's own, each suite's database and the import path, compared
+# in upper case since Windows reads a variable's name in any case
+_RESERVED_NAMES: frozenset[str] = frozenset({*_ENGINE_SETTINGS, *_SUITE_DATABASE_VARIABLE.values(), "PYTHONPATH"})
 
 # the bundle files the compactor writes, restored from the repo after a bundle mutant
 _BUNDLE_OUTPUTS: tuple[str, ...] = ("vercel_api/app", "vercel_api/requirements.txt", "vercel_api/pyproject.toml")
@@ -282,13 +354,15 @@ def unit_settings(environment: Mapping[str, str]) -> dict[str, str]:
     What the repo's unit suite is given over the environment, as its package ``mutation_tests`` says.
 
     Args:
-        environment: The environment the unit suite would get, a copy the repo's function may read
+        environment: The environment the unit suite would get, a copy the repo's function may read, the platform's
+            names and the engine's settings alone
 
     Returns:
         dict[str, str]: The variables to set, none when the repo holds no such package or it defines no function
 
     Raises:
-        MutantTableError: The repo's function returns anything but names mapped to strings
+        MutantTableError: The repo's function returns anything but names mapped to strings, or sets a name the engine
+            sets, its own settings, a suite's database or the import path
     """
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
@@ -307,6 +381,13 @@ def unit_settings(environment: Mapping[str, str]) -> dict[str, str]:
         isinstance(name, str) and isinstance(value, str) for name, value in settings.items()
     ):
         raise MutantTableError(f"{TABLES_PACKAGE}.{UNIT_SETTINGS_HOOK} must return names mapped to strings")
+    # a repo that set one of these would undo what the engine guarantees every run, so it is refused before any
+    # worktree is made rather than overwritten in silence
+    reserved = sorted(name for name in settings if name.upper() in _RESERVED_NAMES)
+    if reserved:
+        raise MutantTableError(
+            f"{TABLES_PACKAGE}.{UNIT_SETTINGS_HOOK} may not set {', '.join(reserved)}, the engine sets it",
+        )
     return dict(settings)
 
 # ======================================================================================================================
@@ -391,12 +472,14 @@ def changed_paths(porcelain: bytes) -> list[str]:
 
 def git_environment(environ: Mapping[str, str]) -> dict[str, str]:
     """
-    The environment every git command of the runner is handed, the caller's less every ``GIT_`` variable.
+    The environment every git command of the runner is handed, the platform's names of the caller's and nothing else.
 
     SECURITY: ``GIT_DIR`` and ``GIT_WORK_TREE`` name the repository and the working tree for every git command,
     whatever folder it runs in, and git exports them to every hook, so a run started from a pre-push hook would
     force its checkout and its clean in the developer's own checkout. The runner's git commands are local and need
-    none of them.
+    none of them, and no ``GIT_`` name is on the list. git hands its environment to every hook it runs, so a hook is
+    handed the platform's names alone too, never a shell's ``PYTEST_`` or ``PYTHON`` names (D-063), and never a
+    runner's signal.
 
     Args:
         environ: The caller's environment
@@ -404,7 +487,7 @@ def git_environment(environ: Mapping[str, str]) -> dict[str, str]:
     Returns:
         dict[str, str]: What git is handed
     """
-    return {name: value for name, value in environ.items() if not name.upper().startswith("GIT_")}
+    return {name: value for name, value in environ.items() if name in PLATFORM_VARIABLES and name not in RUNNER_SIGNALS}
 
 
 def _git(*args: str, cwd: Path) -> bytes:
@@ -677,32 +760,43 @@ def prepare_worktree(worktree: Path) -> int:
 
 def suite_environment(suite: str, worktree: Path | None = None) -> dict[str, str]:
     """
-    The environment a suite's pytest run gets.
+    The environment a suite's pytest run gets, the same for the control and every mutant.
+
+    SECURITY: the caller's environment reaches a suite by the names of ``PLATFORM_VARIABLES`` alone, and by the
+    suite's own database variable, so nothing of a developer's shell steers pytest or the interpreter, or names a
+    database to a suite (D-063). What the run reads besides is the repo's, its config files, its installed plugins and
+    the copied ``.env.test``. A name a suite needs that is not here turns the control red and stops the run, or, where
+    a test skips without it, leaves the mutant it would have killed a survivor, and either fails the lane. It never
+    makes a kill.
 
     Args:
         suite: ``unit``, ``integration`` or ``system``
         worktree: The worktree the run happens in, when there is one. A worktree that holds a ``src`` directory
-            gets it first on the import path, ahead of an editable install of the repo itself
+            gets it alone on the import path, ahead of an editable install of the repo itself
 
     Returns:
-        dict[str, str]: This process's environment with the suite's settings
+        dict[str, str]: The platform's names, the suite's own database, the engine's settings and the repo's unit
+            settings
 
     Raises:
         MutantTableError: The suite's database variable is unset, or the repo's unit settings are not names to strings
+            or set a name the engine sets
     """
-    # no bytecode is written, CPython trusts a cached .pyc by the source's size and its mtime in whole seconds, so a
-    # mutant that left its file the size the previous one did, written within that second, ran the previous one's code
-    env      = {**os.environ, "PYTHONUTF8": "1", "HYPOTHESIS_PROFILE": "ci", "PYTHONDONTWRITEBYTECODE": "1"}
+    env      = {name: value for name, value in os.environ.items() if name in PLATFORM_VARIABLES}
     variable = _SUITE_DATABASE_VARIABLE.get(suite)
-    if variable is not None and not os.environ.get(variable):
-        raise MutantTableError(f"a {suite} mutant needs {variable}, naming the lane's own database")
+    if variable is not None:
+        if not os.environ.get(variable):
+            raise MutantTableError(f"a {suite} mutant needs {variable}, naming the lane's own database")
+        # its own database and no other, the other suite's is not handed on
+        env[variable] = os.environ[variable]
+    env.update(_ENGINE_SETTINGS)
     if suite == "unit":
         env.update(unit_settings(env))
     # a src layout repo is installed editable from the repo itself, so without this every test in the worktree
-    # would import the unmutated package and every mutant of it would read as survived
+    # would import the unmutated package and every mutant of it would read as survived. a PYTHONPATH of the caller's
+    # shell is never kept behind it
     if worktree is not None and (worktree / "src").is_dir():
-        inherited = os.environ.get("PYTHONPATH")
-        env["PYTHONPATH"] = os.pathsep.join([str(worktree / "src"), *([inherited] if inherited else [])])
+        env["PYTHONPATH"] = str(worktree / "src")
     return env
 
 
@@ -1051,8 +1145,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"{mutant.id:12} {mutant.suite:12} {mutant.file}  {mutant.rule}")
         return 0
 
+    # a bundle mutant's compactor runs with the unit suite's environment whatever the mutant's suite, so the repo's unit
+    # settings are judged here too, before any worktree is made
+    judged = {mutant.suite for mutant in mutants if mutant.runs_here()}
+    if any(mutant.bundle for mutant in mutants if mutant.runs_here()):
+        judged.add("unit")
     try:
-        for suite in sorted({mutant.suite for mutant in mutants if mutant.runs_here()}):
+        for suite in sorted(judged):
             suite_environment(suite)
     except MutantTableError as error:
         print(str(error))

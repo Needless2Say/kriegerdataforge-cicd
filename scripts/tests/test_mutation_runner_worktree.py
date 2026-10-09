@@ -266,9 +266,44 @@ class TestGitActsWhereTheRunnerJudged:
 
 
     def test_the_caller_s_git_variables_reach_no_git_command(self):
-        given = {"GIT_DIR": "elsewhere/.git", "git_work_tree": "elsewhere", "PATH": "/bin", "GITHUB_ACTIONS": "true"}
+        """
+        git is handed the platform's names alone (D-063), so no ``GIT_`` name in any case, no shell's pytest or
+        interpreter name, and no runner's signal, which a suite reads and git never needs.
+        """
+        given = {
+            "GIT_DIR": "elsewhere/.git",
+            "git_work_tree": "elsewhere",
+            "GIT_CONFIG_COUNT": "1",
+            "PYTEST_ADDOPTS": "-k nothing_matches_this",
+            "PYTHONHOME": "elsewhere",
+            "GITHUB_ACTIONS": "true",
+            "CI": "true",
+            "PATH": "/bin",
+            "HOME": "/home/runner",
+        }
 
-        assert run.git_environment(given) == {"PATH": "/bin", "GITHUB_ACTIONS": "true"}
+        assert run.git_environment(given) == {"PATH": "/bin", "HOME": "/home/runner"}
+
+
+    def test_a_hook_git_runs_is_handed_the_platform_s_names_alone(self, tmp_path, monkeypatch):
+        """
+        git hands its environment to every hook it runs, and the runner's checkout runs the repository's post checkout
+        hook, so a shell's names would reach it. The hook writes down what it was handed.
+        """
+        repo   = self._repo(tmp_path, monkeypatch)
+        handed = tmp_path / "handed.txt"
+        hook   = repo / ".git" / "hooks" / "post-checkout"
+        hook.write_text(f'#!/bin/sh\nenv > "{handed.as_posix()}"\n', encoding = "utf-8", newline = "\n")
+        hook.chmod(0o755)
+        monkeypatch.setenv("PYTEST_ADDOPTS", "-k nothing_matches_this")
+        monkeypatch.setenv("PYTHONHOME", str(tmp_path))
+        monkeypatch.setenv("CI", "true")
+
+        assert run.prepare_worktree(tmp_path / "kdf-mutation" / "repo" / "a_lane") == 2
+
+        names = {line.split("=", 1)[0] for line in handed.read_text(encoding = "utf-8").splitlines() if "=" in line}
+        assert "PATH" in names, "the hook ran and wrote what it was handed"
+        assert names & {"PYTEST_ADDOPTS", "PYTHONHOME", "CI"} == set()
 
 
     def test_a_hook_s_git_dir_does_not_turn_the_run_on_the_checkout(self, tmp_path, monkeypatch):
