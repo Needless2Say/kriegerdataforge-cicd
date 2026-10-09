@@ -123,8 +123,9 @@ Since 1.5.0 (ADR D-040) the sync also carries the shared mutation engine,
 `scripts/kdf_scripts/mutation_runner.py`. A `files[]` entry may name its `repos`, and this one names
 the four that run hand written Python mutants, the hub, the SDK and both tenant backends, so no other
 repo is handed it. A repo keeps its tables in `mutation_tests/<lane>.py`, says what its unit suite
-needs in `mutation_tests/__init__.py` (`unit_settings(environment)`, names mapped to strings), and
-keeps the tests of its tables. `make test-mutation` runs the vendored engine, and so does
+needs in `mutation_tests/__init__.py` (`unit_settings(environment)`, names mapped to strings, never a
+name the engine sets), and keeps the tests of its tables. A suite is handed the platform's names of
+the caller's environment, its own database and nothing else of it (D-063). `make test-mutation` runs the vendored engine, and so does
 `ci-python-mutation.yml`, which runs nothing else since D-042. The four repos first held the file with their switches
 on 2026-10-03, hub pull request 392, fitness-app-backend 201, tiffanys-space-backend 132 and the SDK's 127 (`59ac7fc`),
 where git reads it as a rename of the SDK's old `mutation_tests/run.py`, no earlier sync having placed it.

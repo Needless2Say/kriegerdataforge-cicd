@@ -3363,3 +3363,51 @@ one in each shell open. The README
 says each rule and what stays out of reach by design, that `origin` is the URL a clone was made from and a variable
 the session started with is in no call's words. A session that needs another option, another remote or a setting
 asks the owner, who still does all of it by hand. VERSION 0.2.146.
+
+## D-063. A mutant's run is handed the platform's names of the caller's environment and nothing else
+
+- **Date.** 2026-10-09
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Standard · `scripts/common/mutation_runner.py`, its tests and the engine's own table
+  `mutation_tests/engine.py` · `SCRIPTS_VERSION` 1.5.3, synced to the four repos that run Python mutants
+
+**Context.** The shared mutation engine (D-040) handed every suite's pytest run the whole of its own environment,
+with three values, the repo's unit settings and a worktree's `src` set over it, and handed git the same less its
+`GIT_` names. Both reads of the kdf-sdk review's third slice asked what a child process is handed and found it. A
+mutant is killed when pytest exits 1 and survives when it exits 0, and the control and every mutant ran under the
+same shell, so a `PYTEST_ADDOPTS` could select nothing or turn a warning into a failure, and a `PYTHONPATH` with a
+`PYTHONSAFEPATH` had every test import the checkout's own unmutated package, so the control passed and the mutant
+survived. A shell's libpq variables, dotenv path or database URL reached a suite as well, and each suite was handed
+both lanes' databases. No result of that slice depended on it. The security playbook already said that tooling that
+runs another repo's tests hands them an allowlist, never the caller's environment less a deny list, since each review
+finds one more name, the kdf-sdk's consumer check having learned it that way. A decision's Round Table of a Claude
+reader and a Codex reader chose an allowlist without a pass through option, and the owner chose it.
+
+**Decision.**
+
+1. A suite is handed the platform's names of this process's environment, `PLATFORM_VARIABLES`, which is the kdf-sdk
+   consumer check's list copied and pinned name by name in a test, with `CI` and `GITHUB_ACTIONS` among them, and
+   nothing else of it. The suite's own database variable is handed to its own suite alone, and the unit suite gets
+   none.
+2. The engine's three settings come next, then the repo's `unit_settings`, which is handed that narrowed
+   environment, never this process's whole. A repo's settings may not set a name the engine sets, its three
+   settings, either database or `PYTHONPATH`, in any case of its letters, and a run whose repo does is refused
+   before any worktree is made. A bundle mutant's compactor is handed the unit suite's environment, so a run that
+   holds one judges the repo's unit settings first too, whatever the mutant's own suite.
+3. A worktree's `src` is the whole of `PYTHONPATH`. A path of the caller's shell is never kept behind it.
+4. git is handed the platform's names without the two runner signals, so a hook git runs is handed the same, and no
+   `GIT_` name, as before.
+
+What a run reads besides stays the repo's, its config files, its installed plugins and the copied `.env.test`. The
+claim is about names inherited from the caller, not those.
+
+**Consequences.** A shell can no longer make a kill or a survivor, or name a database to a suite. A name a suite needs
+that is not on the list turns the control red and stops the run with exit 2, or, where a test skips without it,
+leaves the mutant it would have killed a survivor, and either fails the lane. It never makes a kill, and the fix is
+the repo's, in its own `mutation_tests` package. On the four repos that receive the engine, one mutant of each
+suite of every lane, unit, integration and system with its bundle, ran green and killed on this engine under a shell
+holding `PYTEST_ADDOPTS=-k nothing_matches_this`, `PYTHONSAFEPATH=1` and `PYTHONPATH` on the checkout, either of
+which broke the engine before it. A developer's keypair in the shell no longer reaches the hub's unit suite, whose
+settings make a throwaway pair when the environment holds none, as on a runner. A developer's `XDG_CONFIG_HOME` git
+config is no longer read by the engine's git, `HOME`'s is. The engine's own lane gains EN-45 to EN-53, one per rule,
+each killed. VERSION 0.2.147, `SCRIPTS_VERSION` 1.5.3.
