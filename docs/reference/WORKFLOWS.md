@@ -472,7 +472,16 @@ a reusable workflow of the caller's own and call that in the matrix. The fetch j
 lane is one template, `scripts/fetch_private_job.template.yml`, written by
 `scripts/render_fetch_job.py`, and a test fails when a copy differs.
 
-**`ci-python-integration.yml`** additionally provisions a `postgres:16` **service** (`kdf`/`kdf`/
+The Postgres these three jobs start is Docker's official image from AWS ECR Public's gallery, pinned by its index
+digest, PostgreSQL 16.15 (D-064). Docker Hub's anonymous pull limit, shared by every tenant of a runner's address,
+had failed whole jobs before a test ran. A new patch is a hand edit of the digest in all three files, and
+`scripts/tests/test_workflow_service_images.py` holds every workflow here to one rule on its text. A line that is not
+a comment and names `image`, `container` or `docker`, in any case, must be a service's `image:` line with a pinned
+reference and nothing after it, and no line may hold a `\x`, `\u` or `\U` escape. So a job's container, a `docker://`
+step or a script's `docker run` is refused until the test is changed with it. It catches a mistake, not a workflow
+written to hide a pull, which whoever can edit a workflow could write anyway.
+
+**`ci-python-integration.yml`** additionally provisions a PostgreSQL 16 **service** (`kdf`/`kdf`/
 `kdf_test`, health checked) and exports the connection string under **two** names,
 `DB_DATABASE_URL` (SDK/alembic, `env_prefix=DB_`) and `KDF_TEST_DATABASE_URL` (the pytest conftest
 gate), so a `-m requires_postgres` suite actually runs instead of silently green skipping (finding
@@ -480,7 +489,7 @@ PL-166). It declares `ENVIRONMENT: local`, since a stack started in Actions is l
 definition (2026-09-30) and never the DEV account. App specific schema (e.g. a `kdfusers` table) is
 provisioned by the caller's `seed_command`, whose SQL lives in the caller's private repo (`:68-91`).
 
-**`ci-python-system.yml`** provisions a `postgres:16` service whose database is `kdf_system` and
+**`ci-python-system.yml`** provisions a PostgreSQL 16 service whose database is `kdf_system` and
 exports `KDF_SYSTEM_DATABASE_URL`. The suite's harness builds each server's environment from nothing, so
 the job hands it the database alone. **`ci-python-mutation.yml`** provisions one too, `kdf_mutation`, makes
 a second database `kdf_mutation_sys` beside it, and exports both `KDF_TEST_DATABASE_URL` and
