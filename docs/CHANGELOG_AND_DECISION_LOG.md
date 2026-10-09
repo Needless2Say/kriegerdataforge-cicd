@@ -3411,3 +3411,46 @@ which broke the engine before it. A developer's keypair in the shell no longer r
 settings make a throwaway pair when the environment holds none, as on a runner. A developer's `XDG_CONFIG_HOME` git
 config is no longer read by the engine's git, `HOME`'s is. The engine's own lane gains EN-45 to EN-53, one per rule,
 each killed. VERSION 0.2.147, `SCRIPTS_VERSION` 1.5.3.
+
+## D-064. CI's Postgres is Docker's official image from AWS ECR Public's gallery, pinned by its digest
+
+- **Date.** 2026-10-09
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Standard · `ci-python-integration.yml`, `ci-python-mutation.yml`, `ci-python-system.yml`, a test
+  of every workflow's images and `docs/reference/WORKFLOWS.md` · live for every caller from `main`, no input, output
+  or secret changed
+
+**Context.** The three reusable jobs that need a database start a Postgres service container from `postgres:16`,
+which the hosted runner pulled from Docker Hub without a login before the job's first step. Docker Hub counts
+anonymous pulls per address, and a hosted runner shares its address with every other tenant, so on 2026-10-09 the
+pull failed three times in a day on the limit, eight jobs that ran no test and turned their pull requests red, each
+cleared only by a re-run. The same image, by its index digest, is served by AWS ECR Public's gallery of Docker's
+official images and by Google's mirror. A panel of two readers was put the choice of staying, logging in to Docker
+Hub with a secret, either mirror, or the runner's own PostgreSQL, and both chose ECR Public by digest, as did the
+author, and the owner chose it.
+
+**Decision.**
+
+1. The three jobs start `public.ecr.aws/docker/library/postgres` pinned by the image index's digest, the one the `16`
+   tag held on 2026-10-09, PostgreSQL 16.15, read the same on Docker Hub, ECR Public and Google's mirror. ECR Public
+   documents its anonymous limit, one pull per second per Region, and keeps old images, `16.0` still served.
+2. A digest and not a tag, so no registry can serve another image under the name, and the database a suite meets
+   changes only by a hand edit of the digest, as an action changes only by an edit of its commit.
+3. No login, since a credential in these jobs would sit in a job that runs a repository's code and names no secret
+   by design (D-035), and a secret a caller must pass would be a breaking change.
+4. `scripts/tests/test_workflow_service_images.py` holds every workflow here to a rule on its text. A line that is
+   not a comment and names `image`, `container` or `docker`, in any case, must be a service's `image:` line with a
+   reference of that shape and nothing after it, and no line may hold a `\x`, `\u` or `\U` escape, which can spell a
+   key. So a host misspelled to Docker Hub's, which would pull the same digest from Docker Hub and pass, is caught,
+   and so is a job's container, a `docker://` step or a script's `docker run`, until the test changes with it. Two
+   reviews of the change found a reading of the values missing one more of YAML's forms each time, a comment after
+   the value, a flow mapping, a second key on one line, an escaped key, so it became this rule on the text. It is a
+   check against a mistake, not a boundary. Whoever can edit a workflow can run any code in it, and a third review
+   found a word split by a line continuation and a pull hidden in a script's comment line passing, forms written to
+   hide a pull, which only a reading of every workflow's meaning would catch.
+
+**Consequences.** The three jobs no longer depend on Docker Hub, and a caller changes nothing. If ECR Public ever
+throttles a runner's address too, Google's mirror is a one line host change with the same digest. A Postgres 16 patch
+reaches CI when someone edits the digest in the three files. The hub's and the kdf-sdk's own workflows that start the
+same service follow in their own repositories, and the E2E engine's compose files, run at a release, are not changed
+here. VERSION 0.2.148.
