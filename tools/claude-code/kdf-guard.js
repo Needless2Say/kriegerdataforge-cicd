@@ -6,6 +6,13 @@
  *   node kdf-guard.js                   owner rules, for every session the owner starts
  *   node kdf-guard.js reviewer          reviewer rules, on top of the owner rules
  *   KDF_ROLE=reviewer node kdf-guard.js the same reviewer rules, chosen when the session is launched
+ *   node kdf-guard.js --log             the trial, which logs what it would decide and lets every call through
+ *
+ * The approved list (D-068). A shell command runs only when it is plain and every program in it is on the owner's
+ * list, LIST below, with the subcommands and flags written there. Everything else is refused, and the reason tells the
+ * session to write the command another way or ask the owner. A removal, a command that deletes a file or a folder,
+ * discards uncommitted work or writes over a file, asks the owner with the command in the prompt, unless every path
+ * it names is a temporary file. The owner changes the list by pull request and installs it by hand.
  *
  * Owner rules, every session and every repo. Only the owner merges, approves, tags, releases, deploys or pushes
  * to main. A push names its branch and goes to origin, and force, delete, tag and mirror pushes are refused. The one
@@ -23,52 +30,50 @@
  * tool, and file edits only under docs/reviews. A reviewer follows .gitignore, so it opens no path git ignores
  * but .env.local, no report the launcher holds, and runs no recursive grep.
  *
- * A permission deny rule matches one tool and one spelling. This guard reads the command the way a shell does,
- * so it also catches the PowerShell tool, git -C, a nested shell, an env prefix, find -exec and a command after a
- * shell keyword such as do, then or !, and it ignores quoted text such as a commit message. Exit 0 allows the
- * call. Exit 2 blocks it and stderr tells the model why. Input it cannot read, a call with no tool name, or an error
- * while it checks refuses the call with exit 2, every tool, since an error before a check would let that check's
- * call through (D-059). A guard that cannot start exits 1 or 127, which Claude Code lets through, so its settings line
- * runs node ... || exit 2, and a hook that times out still lets a call through. To switch it off, remove the hook
- * from the settings file.
+ * Exit 0 allows the call, or with a permission decision of ask on stdout asks the owner. Exit 2 blocks it and stderr
+ * tells the model why. Input it cannot read, a call with no tool name, or an error while it checks refuses the call
+ * with exit 2, every tool, since an error before a check would let that check's call through (D-059). The guard keeps
+ * a deadline of its own well inside the hook's timeout and refuses when it runs out. A guard that cannot start exits
+ * 1 or 127, which Claude Code lets through, so its settings line runs node ... || exit 2. To switch it off, remove the
+ * hook from the settings file.
  *
- * Environment. KDF_ROLE=reviewer picks the reviewer rules. KDF_GUARD_ALLOW_SELF_EDIT=1, set by the owner when the
- * session is started, lets that session edit guardrail files. KDF_GUARD_LOG=<file> appends one line per refusal.
+ * Environment. KDF_ROLE=reviewer picks the reviewer rules. KDF_GUARD_MODE=log or enforce picks the trial or the guard,
+ * over --log, so the owner can start a session that enforces during the trial. KDF_GUARD_LOG=<file> appends one line
+ * per refusal, and KDF_GUARD_TRIAL_LOG=<file> is where the trial writes. KDF_GUARD_TEMP_ROOTS lists the temp folders,
+ * separated by ;.
  */
 const { execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const ROLE = String(process.argv[2] || process.env.KDF_ROLE || '').toLowerCase();
+const ROLE = String(process.argv.slice(2).find((a) => a !== '--log') || process.env.KDF_ROLE || '').toLowerCase();
 const MODE = ROLE === 'reviewer' ? 'reviewer' : 'orchestrator';
-const SELF_EDIT_OK = process.env.KDF_GUARD_ALLOW_SELF_EDIT === '1';
-const MAX_DEPTH = 5;
+const LOG_ONLY = (process.env.KDF_GUARD_MODE || (process.argv.includes('--log') ? 'log' : 'enforce')) === 'log';
+const TRIAL_LOG = process.env.KDF_GUARD_TRIAL_LOG || path.join(os.homedir(), '.claude', 'kdf-guard-trial.log');
+// The guard's own deadline, well inside the hook's timeout, since a hook that times out lets the call through.
+const STARTED = Date.now();
+const BUDGET_MS = 20000;
+function timeLeft() {
+  const left = STARTED + BUDGET_MS - Date.now();
+  if (left < 500) throw new Error('its own time ran out');
+  return left;
+}
 const FILE_TOOLS = /^(Edit|Write|MultiEdit|NotebookEdit)$/;
 // Tools that reach outside the repo, or run code the guard cannot read. A reviewer uses none of them. The IDE
 // diagnostics tool alone stays allowed, its code runner is refused like any other (D-060).
 const OUTWARD_TOOLS = /^(mcp__(?!ide__getDiagnostics$)|Artifact|SendUserFile$|SendMessage$|PushNotification$|RemoteTrigger$|Cron|DesignSync$|EnterWorktree$|Workflow$|WebFetch$|WebSearch$)/;
-const WRAPPERS = new Set([
-  'env', 'command', 'sudo', 'nohup', 'time', 'exec', 'builtin', 'nice', 'timeout', 'xargs', 'setsid', 'stdbuf',
-  'ionice', 'winpty'
-]);
-// Wrapper options that take a value, so the value is not mistaken for the program that follows.
-const WRAPPER_VALUE_OPTS = {
-  env: /^(-u|--unset|-C|--chdir|-S|--split-string)$/,
-  sudo: /^(-u|-g|-h|-p|-C|-D|-R|-T|-U)$/,
-  nice: /^-n$/,
-  timeout: /^(-s|-k|--signal|--kill-after)$/,
-  xargs: /^(-I|-n|-P|-d|-E|-L|-s|-a)$/,
-  stdbuf: /^(-i|-o|-e)$/,
-  ionice: /^(-c|-n|-p|-P|-u)$/
-};
-// Shell keywords that open a clause. The command after them is the one that runs.
-const KEYWORD_PREFIXES = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', 'coproc']);
-// Shell keywords whose segment is a word list, a pattern or an end. A loop's or a case's body is a segment of its own.
-const KEYWORD_LISTS = new Set(['for', 'select', 'case', 'in', 'function', 'done', 'fi', 'esac']);
+// The MCP tools any session may call, each by its whole name. A tool not on the list is refused, so a server or
+// connector added later is refused until the owner adds its tools here by pull request (D-066).
+const MCP_ALLOWED = new Set(['mcp__ide__getDiagnostics']);
+const MCP_WHY = 'A session calls only the MCP tools on the guard\'s list, MCP_ALLOWED in kdf-guard.js, which the owner '
+  + 'changes by pull request. ';
 
 // Files that hold the guardrails. A session never edits them, the owner does. Git's global and system config are
 // among them, since a remote's push URL or a pushInsteadOf there sends every repo's origin somewhere else (D-062).
+// What loads into a session is the owner's too, the skills, agents, commands and plugins folders, Codex's config,
+// Claude Code's managed settings and the owner's administrator folder (D-066), and so are the shell's and
+// PowerShell's profile files, which set the PATH, the aliases and the functions a command meets (D-068).
 const PROTECTED = [
   /(^|\/)\.claude\/(settings(\.local)?\.json|hooks(\/|$))/,
   /(^|\/)\.claude\.json$/,
@@ -76,10 +81,16 @@ const PROTECTED = [
   /(^|\/)\.git\/(hooks(\/|$)|config$)/,
   /(^|\/)\.gitconfig$/,
   /(^|\/)\.config\/git\/config$/,
-  /(^|\/)etc\/gitconfig$/
+  /(^|\/)etc\/gitconfig$/,
+  /(^|\/)\.claude\/(skills|agents|commands|plugins)(\/|$)/,
+  /(^|\/)\.codex\/(config\.toml|hooks\.json|rules(\/|$)|agents\.md$)/,
+  /(^|\/)program files\/(claudecode|kriegerdataforge)(\/|$)/,
+  /(^|\/)programdata\/openai(\/|$)/,
+  /(^|\/)\.(bashrc|bash_profile|bash_login|profile|inputrc)$/,
+  /(^|\/)(windows)?powershell\/[^/]*profile[^/]*\.ps1$/
 ];
-const GUARDRAIL_WHY = 'Guardrails are the owner\'s to change. Settings, hooks, the MCP list, git hooks and git\'s own '
-  + 'config files are edited by hand.';
+const GUARDRAIL_WHY = 'Guardrails are the owner\'s to change. Settings, hooks, the MCP list, git hooks, git\'s own '
+  + 'config files, what loads into a session and the shell\'s profile files are edited by hand.';
 // Files that hold secrets, closed to every session. Every .env file is one, .env.kdf, .env.test, the admin files
 // .env.dev and .env.prod, and backups such as .env.local.bak, but an example is not, and .env.local is open unless it
 // still holds a credential. *.pem and keys/ are secrets too, and so is a *.tfvars git does not track. A tracked one,
@@ -145,6 +156,7 @@ function deny(why, detail) {
       // A log that cannot be written must not change the answer.
     }
   }
+  if (LOG_ONLY) trial('refuse', detail, why);
   process.stderr.write(line + '\n');
   process.exit(2);
 }
@@ -175,6 +187,7 @@ process.stdin.on('end', () => {
   } catch (err) {
     deny(CANNOT_CHECK + 'It failed while checking, ' + err.message, input.tool_name + ' ' + err.message);
   }
+  if (LOG_ONLY) trial('allow', input.tool_name + ' ' + String((input.tool_input || {}).command || ''), '');
   process.exit(0);
 });
 
@@ -183,19 +196,24 @@ function run(input) {
   CWD = path.resolve(input.cwd || PROJECT);
   const tool = input.tool_name || '';
   const args = input.tool_input || {};
-  if (tool === 'Bash' || tool === 'PowerShell') {
-    check(String(args.command || ''), 0);
+  if (tool === 'Bash') {
+    checkCall(String(args.command || ''));
+  } else if (tool === 'PowerShell') {
+    deny('The PowerShell tool is refused. Sessions use Bash, the owner\'s rule, and the guard reads bash alone.',
+      'PowerShell');
   } else if (tool === 'Monitor') {
     // Monitor runs its command in the same shell as Bash, so the command gets Bash's rules, and its WebSocket reaches
     // outside the repo (D-060)
     if (args.ws && MODE === 'reviewer') deny('Reviewers open no WebSocket. Monitor with ws is refused.', 'Monitor ws');
-    check(String(args.command || ''), 0);
+    checkCall(String(args.command || ''));
   } else if (FILE_TOOLS.test(tool)) {
     checkFileTool(String(args.file_path || args.notebook_path || ''));
   } else if (tool === 'Read' || tool === 'Grep' || tool === 'Glob') {
     checkReadTool(tool, args);
   } else if (MODE === 'reviewer' && OUTWARD_TOOLS.test(tool)) {
     deny('Reviewers use no connector, artifact, message, schedule or notification tool. ' + tool + ' is refused.', tool);
+  } else if (/^mcp__/i.test(tool) && !MCP_ALLOWED.has(tool)) {
+    deny(MCP_WHY + tool + ' is not on it.', tool);
   }
 }
 
@@ -218,7 +236,7 @@ function insideReviewsDir(p) {
 }
 
 function checkFileTool(target) {
-  if (!SELF_EDIT_OK && isProtected(target)) deny(GUARDRAIL_WHY, target);
+  if (isProtected(target)) deny(GUARDRAIL_WHY, target);
   checkClosed(target, target);
   if (MODE === 'reviewer' && !insideReviewsDir(target)) {
     deny('Reviewers write only under docs/reviews, the review archive. ' + target + ' is outside it.', target);
@@ -517,7 +535,7 @@ function swapWords(toks, words) {
   const out = [];
   toks.forEach((t, k) => {
     if (!words.has(k)) out.push(t);
-    else for (const w of words.get(k)) out.push({ t: w, q: false, lq: false, g: false });
+    else for (const w of words.get(k)) out.push({ t: w, q: false, lq: false, g: false, gm: new Set(), target: t.target });
   });
   return out;
 }
@@ -568,7 +586,8 @@ function gitSaidNo(err) {
   if (err.status === 1) return true;
   return err.status === 128 && /^fatal: not a git repository/.test(String(err.stderr || '').trimStart());
 }
-const GIT_QUIET = { stdio: ['ignore', 'ignore', 'pipe'], timeout: 10000, windowsHide: true };
+// git's answers, each within the guard's own deadline
+const gitQuiet = () => ({ stdio: ['ignore', 'ignore', 'pipe'], timeout: Math.min(10000, timeLeft()), windowsHide: true });
 
 // The nearest folder that exists, the path's own or one above it, since git cannot be started in a folder that does
 // not exist, a new report's or a tracked file's whose folder was deleted.
@@ -599,7 +618,7 @@ function trackedByGit(p) {
 
 function askTracked(abs) {
   try {
-    execFileSync('git', ['-C', nearestFolder(path.dirname(abs)), 'ls-files', '--error-unmatch', '--', abs], GIT_QUIET);
+    execFileSync('git', ['-C', nearestFolder(path.dirname(abs)), 'ls-files', '--error-unmatch', '--', abs], gitQuiet());
     return true;
   } catch (err) {
     if (!gitSaidNo(err)) throw err;
@@ -623,7 +642,7 @@ function askIgnored(abs) {
     throw err;
   }
   try {
-    execFileSync('git', ['-C', dir, 'check-ignore', '-q', '--', abs], GIT_QUIET);
+    execFileSync('git', ['-C', dir, 'check-ignore', '-q', '--', abs], gitQuiet());
     return true;
   } catch (err) {
     if (!gitSaidNo(err)) throw err;
@@ -656,117 +675,1345 @@ function checkReadTool(tool, args) {
   }
 }
 
-// ------------------------------------------------------------ reading a command like a shell
+// ------------------------------------------------------------ the approved list (D-068)
 
-function stripHeredocs(cmd) {
-  const lines = cmd.split(/\r?\n/);
-  const out = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    out.push(line);
-    const here = line.match(/<<-?\s*(['"]?)([A-Za-z_][\w-]*)\1/);
-    if (here && line[here.index - 1] !== '<') {
-      while (i + 1 < lines.length && lines[i + 1].trim() !== here[2]) i++;
-      i++;
-    } else if (/@['"]\s*$/.test(line)) {
-      while (i + 1 < lines.length && !/^\s*['"]@/.test(lines[i + 1])) i++;
-      i++;
-    }
-  }
-  return out.join('\n');
-}
+// The guard lets a command through only when it is plain and on the owner's list below, each program with the
+// subcommands and flags written there, and refuses everything else. Plain means words, single quotes, double quotes
+// with no $, backtick or backslash inside, &&, ||, ;, |, a newline, and a redirect into the temp folder, so the guard
+// reads the command exactly as bash runs it and never has to work out what bash would make of it. A removal asks the
+// owner, the command shown in the prompt, unless every path it names is a temporary file. The owner changes the list
+// by pull request, and only the owner installs it.
 
-function segments(cmd) {
-  const segs = [];
+const MAX_COMMAND = 10000;
+const NOT_PLAIN = 'The guard reads only plain commands, words, quotes, &&, ||, ;, | and a redirect into the temp '
+  + 'folder, so it refuses this one. ';
+const notListed = (name) => name + ' is not on the owner\'s list of approved commands. Write it with listed commands, '
+  + 'or ask the owner, who runs it or adds it to the list by pull request.';
+// The variables a command may set for itself, each an exact name and value.
+const ALLOWED_ASSIGNS = new Set(['PYTHONIOENCODING=utf-8', 'NO_COLOR=1', 'FORCE_COLOR=0', 'GIT_PAGER=cat']);
+// Characters a word may hold outside quotes, each one bash reads as itself.
+const PLAIN_CHAR = /[A-Za-z0-9/._\-=:,@+%^~#*?[\]]/;
+// Where a session writes, and removes, freely. The owner's word of 2026-10-12, "All scrath pads, temp files, and other
+// temporary files should be allowed to be deleted as they are temporary".
+const TEMP_ROOTS = (process.env.KDF_GUARD_TEMP_ROOTS || [os.tmpdir(), 'D:/KriegerDataForge/temp'].join(';'))
+  .split(';').filter(Boolean).map((r) => path.resolve(r).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase());
+
+// A call read into its commands, each a list of tokens. A redirect is a token of its own, op, followed by its target,
+// so the checks that read tokens see the target after its operator. Anything not plain refuses the call.
+function readPlain(cmd) {
+  const cmds = [];
   let cur = [];
-  let tok = '';
-  let has = false;
-  let quoted = false;
-  // the token began inside quotes, so FOO="x" is still an assignment and "FOO=x" is a word
-  let lead = false;
-  // where a *, ?, [ or ] came outside quotes, so bash's glob is known to the character, ".e"nv* a glob and
-  // work"[1]" not (D-060)
-  let wildAt = new Set();
-  const endTok = () => {
-    if (has) {
-      const g = [...wildAt].some((p) => tok[p] === '*' || tok[p] === '?' || tok[p] === '[');
-      cur.push({ t: tok, q: quoted, lq: lead, g, gm: wildAt });
-    }
-    tok = '';
-    has = false;
-    quoted = false;
-    lead = false;
-    wildAt = new Set();
+  let tok = null;
+  let wantTarget = false;
+  const refuse = (why) => deny(NOT_PLAIN + why, cmd);
+  const start = () => {
+    if (!tok) tok = { t: '', q: false, lq: false, g: false, gm: new Set() };
   };
-  const endSeg = () => {
+  const endTok = () => {
+    if (!tok) return;
+    tok.g = tok.gm.size > 0;
+    if (wantTarget) {
+      tok.target = true;
+      wantTarget = false;
+    }
+    cur.push(tok);
+    tok = null;
+  };
+  const endCmd = (op) => {
     endTok();
-    if (cur.length) segs.push(cur);
+    if (wantTarget) refuse('A redirect has no target.');
+    if (!cur.length) {
+      if (op && op !== '\n') refuse('Nothing comes before ' + op + '.');
+      return;
+    }
+    cmds.push({ toks: cur, op });
     cur = [];
   };
-  const text = stripHeredocs(cmd);
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    const n = text[i + 1];
-    if (c === "'") {
-      if (!has) lead = true;
-      has = true;
-      quoted = true;
-      for (i++; i < text.length && text[i] !== "'"; i++) tok += text[i];
+  const quoted = (body) => {
+    start();
+    if (!tok.t && !tok.q) tok.lq = true;
+    tok.q = true;
+    tok.t += body;
+  };
+  for (let i = 0; i < cmd.length; i++) {
+    const c = cmd[i];
+    const n = cmd[i + 1];
+    if (c === ' ' || c === '\t' || (c === '\r' && n === '\n')) {
+      endTok();
+      continue;
+    }
+    if (c === '\n') {
+      endCmd('\n');
+      continue;
+    }
+    if (c === '#' && !tok) {
+      while (i + 1 < cmd.length && cmd[i + 1] !== '\n') i++;
+      continue;
+    }
+    if (c === '\'') {
+      const end = cmd.indexOf('\'', i + 1);
+      if (end < 0) refuse('A quote is never closed.');
+      quoted(cmd.slice(i + 1, end));
+      i = end;
       continue;
     }
     if (c === '"') {
-      if (!has) lead = true;
-      has = true;
-      quoted = true;
-      for (i++; i < text.length && text[i] !== '"'; i++) {
-        if ((text[i] === '\\' || text[i] === '`') && text[i + 1] === '"') {
-          tok += '"';
-          i++;
-          continue;
-        }
-        tok += text[i];
+      const end = cmd.indexOf('"', i + 1);
+      if (end < 0) refuse('A quote is never closed.');
+      const body = cmd.slice(i + 1, end);
+      if (/[$`\\]/.test(body)) {
+        refuse('Double quotes hold a $, a backtick or a backslash, which bash would expand. Use single quotes, or put '
+          + 'the text in a file, git commit -F and gh --body-file.');
       }
+      quoted(body);
+      i = end;
       continue;
     }
-    if ((c === '\\' || c === '`') && (n === '\n' || n === '\r')) {
-      i += n === '\r' && text[i + 2] === '\n' ? 2 : 1;
-      endTok();
+    if (c === '&' && n === '&') {
+      endCmd('&&');
+      i++;
       continue;
     }
-    if (c === '#' && !has) {
-      while (i < text.length && text[i] !== '\n') i++;
-      endSeg();
+    if (c === '|' && n === '|') {
+      endCmd('||');
+      i++;
       continue;
     }
-    if (c === '\n' || c === '\r' || c === ';' || c === '|') {
-      endSeg();
+    if (c === '|') {
+      if (n === '&') refuse('|& is refused, write 2>&1 | instead.');
+      endCmd('|');
       continue;
     }
-    if (c === '&') {
-      if (text[i - 1] === '>' || n === '>') {
-        tok += c;
-        has = true;
-      } else {
-        endSeg();
+    if (c === ';') {
+      if (n === ';') refuse(';; belongs to a case, which is refused.');
+      endCmd(';');
+      continue;
+    }
+    if (c === '<' || c === '>' || (c === '&' && n === '>')) {
+      i = readRedirect(cmd, i);
+      continue;
+    }
+    if (c === '&') refuse('A background & is refused. Run it in the foreground, or use the tool\'s own background run.');
+    if (c === '~') {
+      const prev = tok ? tok.t[tok.t.length - 1] : '';
+      if (!tok && !(n === undefined || n === '/' || /[\s;&|<>]/.test(n))) {
+        refuse('~ is allowed alone or as ~/ at the start of a word.');
       }
+      if (tok && (prev === '=' || prev === ':')) refuse('A ~ after = or : would be expanded. Write the path out.');
+      start();
+      tok.t += c;
       continue;
     }
-    if (c === '(' || c === ')' || c === '{' || c === '}') {
-      endSeg();
+    if (PLAIN_CHAR.test(c)) {
+      start();
+      if (c === '*' || c === '?' || c === '[') tok.gm.add(tok.t.length);
+      tok.t += c;
       continue;
     }
-    if (c === ' ' || c === '\t') {
-      endTok();
-      continue;
-    }
-    if (c === '*' || c === '?' || c === '[' || c === ']') wildAt.add(tok.length);
-    tok += c;
-    has = true;
+    if (c === '$') refuse('A $ would expand a variable or run a command. Write the value out.');
+    if (c === '`') refuse('A backtick runs a command. Run it as a command of its own.');
+    if (c === '\\') refuse('A backslash outside quotes is refused. Use forward slashes, or quotes.');
+    if (c === '(' || c === ')') refuse('A parenthesis opens a subshell or a function. Write the commands out.');
+    if (c === '{' || c === '}') refuse('A brace is refused. Quote it, or write the words out.');
+    if (c === '!') refuse('! is refused outside quotes.');
+    refuse('The character ' + JSON.stringify(c) + ' is refused outside quotes. Quote it.');
   }
-  endSeg();
-  return segs;
+  endCmd('');
+  return cmds;
+
+  // A redirect, its file descriptor taken from the word before when that word is digits joined to it, 2> for example.
+  // A copy of one descriptor to another, 2>&1, needs no target. A heredoc, a here-string and every rarer form refuse.
+  function readRedirect(text, i) {
+    let fd = '';
+    if (tok && !tok.q && /^\d+$/.test(tok.t)) {
+      fd = tok.t;
+      tok = null;
+    } else {
+      endTok();
+    }
+    if (wantTarget) refuse('A redirect has no target.');
+    let op;
+    const rest = text.slice(i, i + 4);
+    if (rest.startsWith('&>>')) op = '&>>';
+    else if (rest.startsWith('&>')) op = '&>';
+    else if (rest.startsWith('<<')) refuse('A heredoc or a here-string is refused. Put the text in a file.');
+    else if (rest.startsWith('<>') || rest.startsWith('>|')) refuse('That redirect is refused.');
+    else if (rest.startsWith('<(') || rest.startsWith('>(')) refuse('A process substitution is refused.');
+    else if (rest.startsWith('>>')) op = '>>';
+    else if (rest.startsWith('>&') || rest.startsWith('<&')) op = rest.slice(0, 2);
+    else op = rest[0];
+    let j = i + op.length;
+    if (op === '>&' || op === '<&') {
+      const m = /^(\d+|-)/.exec(text.slice(j));
+      if (!m || m[1] === '-') refuse('Only a copy of one numbered output to another, such as 2>&1, is allowed.');
+      cur.push({ t: fd + op + m[1], q: false, lq: false, g: false, gm: new Set(), redir: true, dup: true });
+      return j + m[1].length - 1;
+    }
+    cur.push({ t: fd + op, q: false, lq: false, g: false, gm: new Set(), redir: true });
+    wantTarget = true;
+    return j - 1;
+  }
 }
 
+// A path as Windows names it, from Git Bash's spellings, /d/x for D:/x, /tmp for the temp folder and ~ for home.
+function toAbs(p) {
+  let s = String(p);
+  if (s === '~' || s.startsWith('~/')) s = os.homedir() + s.slice(1);
+  s = s.replace(/\\/g, '/');
+  const drive = /^\/([a-zA-Z])(\/|$)/.exec(s);
+  if (drive) s = drive[1] + ':/' + s.slice(3);
+  else if (/^\/tmp(\/|$)/i.test(s)) s = os.tmpdir() + s.slice(4);
+  return path.resolve(CWD, s).replace(/\\/g, '/');
+}
+
+function inTemp(p) {
+  const abs = toAbs(p).toLowerCase();
+  return TEMP_ROOTS.some((root) => abs.startsWith(root + '/'));
+}
+
+// Whether a path lies inside a git working tree under its temp root, a .git between it and the root. A worktree under
+// the temp folder holds a repo's files and work never committed, so it is never a temporary file.
+function insideWorkTree(p) {
+  const abs = toAbs(p);
+  const root = TEMP_ROOTS.find((r) => abs.toLowerCase().startsWith(r + '/'));
+  for (let dir = abs; root && dir.length > root.length; dir = path.posix.dirname(dir)) {
+    if (fs.existsSync(path.join(dir, '.git'))) return true;
+  }
+  return false;
+}
+
+// A temp file a session writes freely, inside a temp root and outside every working tree.
+function tempFile(p) {
+  return inTemp(p) && !insideWorkTree(p);
+}
+
+// Whether a path is, holds or lies inside a git working tree. Holds means a .git within four levels below it, and a
+// folder too large to look through counts as holding one.
+function holdsWorkTree(p) {
+  if (insideWorkTree(p)) return true;
+  const abs = toAbs(p);
+  let seen = 0;
+  const walk = (dir, depth) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (err) {
+      if (missingPath(err) || err.code === 'ENOTDIR') return false;
+      throw err;
+    }
+    for (const e of entries) {
+      if (++seen > 5000) return true;
+      if (e.name === '.git') return true;
+      if (e.isDirectory() && depth < 4 && walk(path.join(dir, e.name), depth + 1)) return true;
+    }
+    return false;
+  };
+  return walk(abs, 1);
+}
+
+// A path removed or written over runs without asking only when it is written out, lies inside a temp root and holds
+// no working tree.
+function freeToRemove(t) {
+  return !t.g && inTemp(t.t) && !holdsWorkTree(t.t);
+}
+
+function exists(p) {
+  try {
+    fs.statSync(toAbs(p));
+    return true;
+  } catch (err) {
+    if (missingPath(err)) return false;
+    throw err;
+  }
+}
+
+function isDir(p) {
+  try {
+    return fs.statSync(toAbs(p)).isDirectory();
+  } catch (err) {
+    if (missingPath(err)) return false;
+    throw err;
+  }
+}
+
+// ---- the list's options
+
+// An option list is space separated. -x takes no value, -x= takes one, joined or the next word, and -x? takes an
+// optional one joined to it. --long takes none, --long= takes one after = or as the next word, --long? one after =
+// only. -# is a number standing alone, head -20. ANY is a program none of whose options writes a file, reads a file
+// unasked or runs a command, so every option passes.
+const ANY = 'any';
+const SPECS = new Map();
+function spec(list) {
+  if (list === ANY) return ANY;
+  if (!SPECS.has(list)) {
+    const m = new Map();
+    for (const o of list.split(/\s+/).filter(Boolean)) {
+      const kind = /[=?]$/.test(o) ? o.slice(-1) : '';
+      m.set(kind ? o.slice(0, -1) : o, kind);
+    }
+    SPECS.set(list, m);
+  }
+  return SPECS.get(list);
+}
+
+// The options and operands of a command's words, each option checked against its list. With first, it stops at the
+// first operand and leaves the rest, a subcommand's or a script's own words. The reason for a refused option comes
+// from why when it names one.
+function readOpts(list, args, label, whole, why = {}, first = false) {
+  const s = spec(list);
+  const operands = [];
+  const seen = [];
+  let k = 0;
+  const refuse = (opt) => deny((why[opt] || (label + ' ' + opt + ' is not on the owner\'s list for ' + label
+    + '. Use another form, or ask the owner.')), whole);
+  for (; k < args.length; k++) {
+    const a = args[k];
+    if (a === '--') {
+      operands.push(...args.slice(k + 1));
+      k = args.length;
+      break;
+    }
+    if (a === '-' || !a.startsWith('-')) {
+      if (first) break;
+      operands.push(a);
+      continue;
+    }
+    if (s === ANY) {
+      seen.push(a);
+      continue;
+    }
+    if (a.startsWith('--')) {
+      const eq = a.indexOf('=');
+      const name = eq < 0 ? a : a.slice(0, eq);
+      if (!s.has(name)) refuse(name);
+      const kind = s.get(name);
+      if (kind === '' && eq >= 0) refuse(name);
+      seen.push(name);
+      if (kind === '=' && eq < 0) k++;
+      continue;
+    }
+    if (/^-\d+$/.test(a) && s.has('-#')) {
+      seen.push('-#');
+      continue;
+    }
+    for (let j = 1; j < a.length; j++) {
+      const name = '-' + a[j];
+      if (!s.has(name)) refuse(name);
+      seen.push(name);
+      const kind = s.get(name);
+      if (kind === '=') {
+        if (j === a.length - 1) k++;
+        break;
+      }
+      if (kind === '?') break;
+    }
+  }
+  return { operands, seen, rest: args.slice(k), has: (o) => seen.includes(o) };
+}
+
+// ---- the list itself, by group
+
+const TEXT = { text: true };
+const GREP_WHY = {
+  '-r': 'grep -r can read a secret file. Search with rg, which skips hidden and ignored files, or git grep.',
+  '-R': 'grep -R can read a secret file. Search with rg, which skips hidden and ignored files, or git grep.',
+  '--recursive': 'grep --recursive can read a secret file. Search with rg or git grep.',
+  '--dereference-recursive': 'grep --dereference-recursive can read a secret file. Search with rg or git grep.',
+  '-d': 'grep -d recurse can read a secret file. Search with rg or git grep.',
+  '--directories': 'grep --directories=recurse can read a secret file. Search with rg or git grep.'
+};
+const RG_WHY = {
+  '--hidden': 'rg --hidden reads hidden files, every secret file among them. Drop the flag.',
+  '-.': 'rg -. reads hidden files, every secret file among them. Drop the flag.',
+  '-u': 'rg -u reads ignored files, every secret file among them. Drop the flag.',
+  '--unrestricted': 'rg --unrestricted reads ignored files, every secret file among them. Drop the flag.',
+  '--no-ignore': 'rg --no-ignore reads ignored files, every secret file among them. Drop the flag.',
+  '--pre': 'rg --pre runs a command on each file. Drop the flag.'
+};
+const LIST = {
+  // read and search, none of whose options writes or runs anything
+  cat: ANY, head: ANY, tail: ANY, wc: ANY, cut: ANY, tr: ANY, nl: ANY, tac: ANY, rev: ANY, paste: ANY, comm: ANY,
+  join: ANY, fold: ANY, column: ANY, seq: ANY, basename: ANY, dirname: ANY, realpath: ANY, cygpath: ANY, md5sum: ANY,
+  sha1sum: ANY, sha256sum: ANY, cmp: ANY, od: ANY, hexdump: ANY, stat: ANY, du: ANY, df: ANY, ls: ANY, which: ANY,
+  type: ANY, pwd: ANY, true: ANY, false: ANY, sleep: ANY, jq: ANY,
+  xxd: { opts: ANY, maxOperands: 1 },
+  file: { opts: '-b -i -L -h -z -s -k -r -N -0 -F= -e= -m= --brief --mime --mime-type --mime-encoding --dereference '
+    + '--no-dereference --uncompress --special-files --keep-going --raw --separator= --exclude= --magic-file=' },
+  grep: {
+    opts: '-n -E -F -G -P -v -i -y -c -o -l -L -w -x -h -H -q -s -a -I -z -Z -T -b -U -A= -B= -C= -m= -e= -f= -# '
+      + '--line-number --extended-regexp --fixed-strings --basic-regexp --perl-regexp --invert-match --ignore-case '
+      + '--no-ignore-case --count --only-matching --files-with-matches --files-without-match --word-regexp '
+      + '--line-regexp --no-filename --with-filename --quiet --silent --no-messages --text --binary-files= --null '
+      + '--null-data --initial-tab --byte-offset --line-buffered --after-context= --before-context= --context= '
+      + '--max-count= --regexp= --file= --color? --colour? --label= --include= --exclude= --exclude-dir=',
+    why: GREP_WHY
+  },
+  rg: {
+    opts: '-n -i -S -s -w -x -v -c -l -o -F -N -H -I -U -L -p -q -0 -r= -e= -t= -T= -g= -A= -B= -C= -m= -d= -j= '
+      + '-M= --line-number --no-line-number --ignore-case --smart-case --case-sensitive --word-regexp --line-regexp '
+      + '--invert-match --count --count-matches --files-with-matches --files-without-match --only-matching '
+      + '--fixed-strings --no-filename --with-filename --no-heading --heading --multiline --multiline-dotall --follow '
+      + '--pretty --quiet --null --replace= --regexp= --type= --type-not= --glob= --iglob= --after-context= '
+      + '--before-context= --context= --max-count= --max-depth= --threads= --max-columns= --sort= --sortr= --files '
+      + '--type-list --json --column --vimgrep --stats --trim --color= --colors= --passthru --no-messages --unicode '
+      + '--no-unicode --crlf --encoding= -E= --engine= --pcre2 --auto-hybrid-regex --max-filesize=',
+    why: RG_WHY
+  },
+  sort: {
+    opts: '-b -d -f -g -h -i -M -n -R -r -V -c -C -m -s -u -z -k= -t= -S= --ignore-leading-blanks --dictionary-order '
+      + '--ignore-case --general-numeric-sort --human-numeric-sort --month-sort --numeric-sort --random-sort --reverse '
+      + '--version-sort --check --merge --stable --unique --zero-terminated --key= --field-separator= --buffer-size= '
+      + '--parallel= --sort= --debug',
+    why: { '-o': 'sort -o writes a file. Redirect into the temp folder instead.' }
+  },
+  uniq: {
+    opts: '-c -d -D -u -i -z -f= -s= -w= --count --repeated --all-repeated? --unique --ignore-case --zero-terminated '
+      + '--skip-fields= --skip-chars= --check-chars= --group?',
+    maxOperands: 1
+  },
+  diff: {
+    opts: '-u -U= -c -C= -q -s -y -w -b -B -i -a -t -p -d -n -e -T -Z -E -W= -I= --brief --report-identical-files '
+      + '--unified? --context? --side-by-side --width= --ignore-all-space --ignore-space-change --ignore-blank-lines '
+      + '--ignore-case --text --expand-tabs --strip-trailing-cr --color? --suppress-common-lines --label= --minimal '
+      + '--normal --show-c-function --ignore-matching-lines= --left-column --speed-large-files '
+      + '--ignore-tab-expansion --ignore-trailing-space --tabsize= --initial-tab',
+    why: { '-r': 'diff -r can read a secret file in either folder. Compare files by name, or use git diff.' }
+  },
+  date: { opts: '-u -d= -r= -I? -R --utc --universal --date= --reference= --iso-8601? --rfc-3339= --rfc-email --debug',
+    operands: /^\+/ },
+  echo: TEXT, printf: TEXT, test: TEXT,
+  cd: { opts: '-L -P', maxOperands: 1 },
+  mkdir: '-p -v -m= --parents --verbose --mode=',
+  touch: '-a -c -m -d= -t= -r= --no-create --date= --reference=',
+  cp: '-r -R -p -a -n -v -f -L -P --recursive --preserve? --no-clobber --verbose --force --archive',
+  mv: '-f -n -v --no-clobber --verbose --force',
+  tee: '-a --append',
+  rm: '-r -R -f -v -d --recursive --force --verbose --dir',
+  rmdir: '-p -v --parents --verbose --ignore-fail-on-non-empty',
+  unlink: '',
+  find: { form: findForm },
+  sed: { form: sedForm },
+  awk: { form: awkForm },
+  command: { form: (args, whole) => {
+    if (!/^-[vV]$/.test(args[0] || '')) deny('command runs only as command -v, to show where a program is.', whole);
+    return { operands: args.slice(1) };
+  } },
+  exit: { form: (args, whole) => {
+    if (args.length > 1 || (args[0] !== undefined && !/^\d{1,3}$/.test(args[0]))) deny('exit takes a number.', whole);
+    return { operands: [] };
+  } },
+  git: { form: gitForm },
+  gh: { form: ghForm },
+  npm: { form: npmForm },
+  npx: { form: npxForm },
+  node: { form: (args, whole) => scriptForm('node', '--test --no-warnings --enable-source-maps --experimental-vm-modules '
+    + '--max-old-space-size= --trace-warnings --version -v', args, whole, { '-e': 'node -e runs code written in the command. '
+    + 'Put it in a file and run node <file>.', '--eval': 'node --eval runs code written in the command. Put it in a file.',
+    '-p': 'node -p runs code written in the command. Put it in a file.', '--print': 'node --print runs code written in '
+    + 'the command. Put it in a file.' }) },
+  bash: { form: (args, whole) => scriptForm('bash', '-e -x -u -n -v -o= --version', args, whole, BASH_WHY) },
+  sh: { form: (args, whole) => scriptForm('sh', '-e -x -u -n -v -o= --version', args, whole, BASH_WHY) },
+  python: { form: pythonForm },
+  make: { form: (args, whole) => {
+    const o = readOpts('-C= -s -j? -k -n -q -w -f= -r -R --no-print-directory --silent --quiet --dry-run --just-print '
+      + '--keep-going --jobs? --directory= --file= --makefile= --print-directory --warn-undefined-variables '
+      + '--no-builtin-rules --no-builtin-variables', args, 'make', whole);
+    return { operands: o.operands, targets: o.operands.filter((x) => !x.includes('=')) };
+  } },
+  docker: { form: dockerForm },
+  'docker-compose': { form: (args, whole) => {
+    dockerLocal(whole);
+    return composeForm(args, whole);
+  } },
+  terraform: { form: (args, whole) => {
+    const subs = { fmt: '-check -diff -recursive -no-color -list= -write=', validate: '-no-color -json',
+      version: '-json' };
+    let k = 0;
+    while (k < args.length && /^-chdir=/.test(args[k])) k++;
+    const sub = args[k] || '';
+    if (sub === '-version' || sub === '--version') return { operands: [] };
+    if (!Object.prototype.hasOwnProperty.call(subs, sub)) {
+      deny('terraform ' + sub + ' is not on the owner\'s list, which holds fmt, validate and version. Ask the owner.',
+        whole);
+    }
+    return { sub, operands: tfOperands(subs[sub], args.slice(k + 1), whole) };
+  } },
+  claude: { form: (args, whole) => {
+    if (!(args.length === 1 && /^(--version|-v)$/.test(args[0]))) {
+      deny('claude runs only as claude --version. What loads into a session, and starting one, are the owner\'s.',
+        whole);
+    }
+    return { operands: [] };
+  } },
+  codex: { form: (args, whole) => {
+    const line = args.join(' ');
+    if (!/^(--version|-V|login status|features list)$/.test(line)) {
+      deny('codex runs only as codex --version, codex login status and codex features list. A Codex read goes '
+        + 'through kdf-ask-codex.sh, and Codex\'s settings are the owner\'s.', whole);
+    }
+    return { operands: [] };
+  } }
+};
+const BASH_WHY = {
+  '-c': 'bash -c runs code written in the command. Put it in a script file and run bash <file>.',
+  '-s': 'bash -s runs code from its input. Put it in a script file and run bash <file>.',
+  '-i': 'An interactive shell is refused.'
+};
+
+// terraform's own options are single dashed words, -check and -list=false.
+function tfOperands(list, args, whole) {
+  const ok = new Set(list.split(' ').map((o) => o.replace(/=$/, '')));
+  const operands = [];
+  for (const a of args) {
+    if (!a.startsWith('-')) operands.push(a);
+    else if (!ok.has(a.split('=')[0])) deny('terraform ' + a + ' is not on the owner\'s list.', whole);
+  }
+  return operands;
+}
+
+// A program that runs a script file, its own options first, then the file, then the script's words, which pass as
+// they are, the owner's word of 2026-10-12 that scripts run unread.
+function scriptForm(name, list, args, whole, why) {
+  const o = readOpts(list, args, name, whole, why, true);
+  if (!o.rest.length) {
+    if (o.has('--version') || o.has('-v')) return { operands: [] };
+    deny(name + ' runs a script file, ' + name + ' <file>. Code from its input or the command line is refused.', whole);
+  }
+  if (o.rest[0] === '-') deny(name + ' - runs code from its input. Put it in a file.', whole);
+  return { operands: [o.rest[0]], script: o.rest[0] };
+}
+
+// The repo's own venv interpreter, a script or a module, never code written in the command.
+function pythonForm(args, whole) {
+  const m = args.indexOf('-m');
+  const own = m < 0 ? args : args.slice(0, m);
+  const o = readOpts('-u -B -I -E -s -S -O -q -X= -W= -V --version', own, 'python', whole, {
+    '-c': 'python -c runs code written in the command. Put it in a file and run it with the venv python.'
+  }, true);
+  if (m >= 0 && o.rest.length === 0) o.rest = args.slice(m);
+  if (!o.rest.length) {
+    if (o.has('-V') || o.has('--version')) return { operands: [] };
+    deny('python runs a file or a module, never code from its input.', whole);
+  }
+  if (o.rest[0] === '-') deny('python - runs code from its input. Put it in a file.', whole);
+  if (o.rest[0] === '-m') {
+    if (!o.rest[1]) deny('python -m needs a module.', whole);
+    return { operands: [], module: o.rest[1], moduleArgs: o.rest.slice(2) };
+  }
+  return { operands: [o.rest[0]], script: o.rest[0] };
+}
+
+// find's tests, single dashed words, each with how many values it takes. Its actions that write a file or run a
+// command are refused, -delete, -exec and their kin.
+const FIND_TESTS = {
+  '-name': 1, '-iname': 1, '-path': 1, '-ipath': 1, '-wholename': 1, '-iwholename': 1, '-regex': 1, '-iregex': 1,
+  '-regextype': 1, '-type': 1, '-xtype': 1, '-maxdepth': 1, '-mindepth': 1, '-mtime': 1, '-mmin': 1, '-atime': 1,
+  '-amin': 1, '-ctime': 1, '-cmin': 1, '-newer': 1, '-newermt': 1, '-anewer': 1, '-cnewer': 1, '-size': 1, '-perm': 1,
+  '-user': 1, '-group': 1, '-links': 1, '-inum': 1, '-samefile': 1, '-lname': 1, '-ilname': 1, '-printf': 1,
+  '-empty': 0, '-readable': 0, '-writable': 0, '-executable': 0, '-print': 0, '-print0': 0, '-ls': 0, '-prune': 0,
+  '-not': 0, '-o': 0, '-or': 0, '-a': 0, '-and': 0, '-true': 0, '-false': 0, '-depth': 0, '-follow': 0, '-mount': 0,
+  '-xdev': 0, '-nouser': 0, '-nogroup': 0, '-quit': 0, '-L': 0, '-H': 0, '-P': 0
+};
+function findForm(args, whole) {
+  const operands = [];
+  let tests = false;
+  for (let k = 0; k < args.length; k++) {
+    const a = args[k];
+    if (a === '(' || a === ')' || a === '!' || a === ',') {
+      tests = true;
+      continue;
+    }
+    if (!a.startsWith('-')) {
+      if (tests) deny('find ' + a + ' is not a test the owner\'s list holds.', whole);
+      operands.push(a);
+      continue;
+    }
+    if (!Object.prototype.hasOwnProperty.call(FIND_TESTS, a)) {
+      deny('find ' + a + ' is not on the owner\'s list. find only lists, a removal goes through rm, which asks.', whole);
+    }
+    tests = true;
+    k += FIND_TESTS[a];
+  }
+  return { operands };
+}
+
+// A sed script as GNU sed reads it, each command checked. A command that writes a file, reads one or runs one, w, W,
+// r, R, e, or an s flag of w or e, refuses the call. Text and labels pass, and a script it cannot read refuses.
+function sedScriptOk(script) {
+  const s = String(script);
+  let i = 0;
+  const skipAddress = () => {
+    const one = () => {
+      if (/\d/.test(s[i])) {
+        while (/[\d~]/.test(s[i])) i++;
+      } else if (s[i] === '$') {
+        i++;
+      } else if (s[i] === '/' || s[i] === '\\') {
+        const d = s[i] === '\\' ? s[++i] : '/';
+        i++;
+        while (i < s.length && s[i] !== d) i += s[i] === '\\' ? 2 : 1;
+        i++;
+        while (s[i] === 'I' || s[i] === 'M') i++;
+      } else {
+        return false;
+      }
+      return true;
+    };
+    if (!one()) return;
+    while (s[i] === ' ') i++;
+    if (s[i] === ',') {
+      i++;
+      while (s[i] === ' ') i++;
+      if (s[i] === '+' || s[i] === '~') i++;
+      one();
+    }
+  };
+  const part = (d) => {
+    while (i < s.length && s[i] !== d) {
+      if (s[i] === '\n') return false;
+      i += s[i] === '\\' ? 2 : 1;
+    }
+    if (i >= s.length) return false;
+    i++;
+    return true;
+  };
+  while (i < s.length) {
+    while (i < s.length && /[\s;]/.test(s[i])) i++;
+    if (i >= s.length) break;
+    if (s[i] === '#') {
+      while (i < s.length && s[i] !== '\n') i++;
+      continue;
+    }
+    skipAddress();
+    while (s[i] === ' ' || s[i] === '!') i++;
+    const c = s[i++];
+    if (c === undefined) return false;
+    if ('{}pdDnNPgGhHxlz=FqQ'.includes(c)) {
+      while (/\d/.test(s[i] || '')) i++;
+      continue;
+    }
+    if (c === ':' || c === 'b' || c === 't' || c === 'T' || c === 'v') {
+      while (i < s.length && !/[;\n}]/.test(s[i])) i++;
+      continue;
+    }
+    if (c === 'a' || c === 'i' || c === 'c') {
+      while (i < s.length && s[i] !== '\n') i += s[i] === '\\' && s[i + 1] === '\n' ? 2 : 1;
+      continue;
+    }
+    if (c === 's' || c === 'y') {
+      const d = s[i++];
+      if (!d || d === '\n' || d === '\\') return false;
+      if (!part(d) || !part(d)) return false;
+      if (c === 's') {
+        while (i < s.length && /[gpiImM0-9]/.test(s[i])) i++;
+        if (i < s.length && !/[\s;}]/.test(s[i])) return false;
+      }
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+function sedForm(args, whole) {
+  const why = 'A sed script that writes a file, reads one or runs a command, w, W, r, R or e, is refused, and so is a '
+    + 'script the guard cannot read. Change a file with the Edit tool.';
+  const o = readOpts('-n -E -r -s -u -z -e= -l= --quiet --silent --regexp-extended --separate --unbuffered '
+    + '--null-data --posix --debug --expression= --line-length=', args, 'sed', whole, {
+    '-i': 'sed -i edits a file in place. Change a file with the Edit tool.',
+    '--in-place': 'sed --in-place edits a file in place. Change a file with the Edit tool.',
+    '-f': 'sed -f runs a script from a file the guard does not read. Write the script in the command.',
+    '--file': 'sed --file runs a script from a file the guard does not read. Write the script in the command.'
+  });
+  const scripts = [];
+  for (let k = 0; k < args.length; k++) {
+    if (args[k] === '-e' || args[k] === '--expression') scripts.push(args[++k] || '');
+    else if (/^-e./.test(args[k])) scripts.push(args[k].slice(2));
+    else if (/^--expression=/.test(args[k])) scripts.push(args[k].slice(13));
+    else if (/^-[nErsuz]*e$/.test(args[k])) scripts.push(args[++k] || '');
+  }
+  let operands = o.operands;
+  if (!scripts.length) {
+    if (!operands.length) deny('sed needs a script.', whole);
+    scripts.push(operands[0]);
+    operands = operands.slice(1);
+  }
+  if (!scripts.every(sedScriptOk)) deny(why, whole);
+  return { operands };
+}
+
+// An awk program that runs a command, reads one, writes a file or reads the environment refuses, system, getline, a
+// pipe, ENVIRON, an @ directive, and a print or printf with a > in its statement.
+function awkForm(args, whole) {
+  const o = readOpts('-F= -v= --field-separator= --assign=', args, 'awk', whole, {
+    '-f': 'awk -f runs a program from a file the guard does not read. Write the program in the command.',
+    '--file': 'awk --file runs a program from a file the guard does not read. Write the program in the command.'
+  });
+  if (!o.operands.length) deny('awk needs a program.', whole);
+  const prog = o.operands[0];
+  const bad = /\bsystem\b|\bgetline\b|\||\bENVIRON\b|\bPROCINFO\b|@/.test(prog)
+    || prog.split(/[;{}\n]/).some((stmt) => /\bprintf?\b/.test(stmt) && stmt.includes('>'));
+  if (bad) {
+    deny('An awk program that runs a command, reads the environment or writes a file, system, getline, a pipe, '
+      + 'ENVIRON or print >, is refused. Redirect its output into the temp folder instead.', whole);
+  }
+  return { operands: o.operands.slice(1) };
+}
+
+// ---- git
+
+const GIT_DIFF = '-p -u -s -z -R -a -b -w -W -D -U= -G= -S= -O= -M? -C? -B? -l= --patch --no-patch --unified= --raw '
+  + '--patch-with-raw --patch-with-stat --stat? --shortstat --numstat --dirstat? --cumulative --dirstat-by-file? '
+  + '--summary --name-only --name-status --check --compact-summary --full-index --binary --abbrev? --no-abbrev '
+  + '--color? --no-color --color-moved? --no-color-moved --color-moved-ws= --word-diff? --word-diff-regex= '
+  + '--color-words? --diff-filter= --find-renames? --find-copies? --find-copies-harder --no-renames --break-rewrites? '
+  + '--relative? --no-relative --text --ignore-space-change --ignore-all-space --ignore-blank-lines '
+  + '--ignore-space-at-eol --ignore-cr-at-eol --ignore-matching-lines= -I= --function-context --minimal --patience '
+  + '--histogram --diff-algorithm= --anchored= --indent-heuristic --no-indent-heuristic --src-prefix= --dst-prefix= '
+  + '--no-prefix --default-prefix --line-prefix= --ita-invisible-in-index --ita-visible-in-index --no-ext-diff '
+  + '--no-textconv --textconv --pickaxe-all --pickaxe-regex --stat-width= --stat-name-width= --stat-graph-width= '
+  + '--stat-count= --inter-hunk-context= --ignore-submodules? --submodule? --output-indicator-new= '
+  + '--output-indicator-old= --output-indicator-context= --exit-code --quiet --rename-empty --no-rename-empty '
+  + '--skip-to= --rotate-to= --follow';
+const GIT_LOG = GIT_DIFF + ' -n= -# -i -E -F -P -g -L= -m -c --cc --dd -t -r -v --oneline --format= --pretty? --date= '
+  + '--all --branches? --tags? --remotes? --since= --until= --after= --before= --since-as-filter= --author= '
+  + '--committer= --grep= --grep-reflog= --all-match --invert-grep --regexp-ignore-case --extended-regexp '
+  + '--fixed-strings --perl-regexp --basic-regexp --merges --no-merges --min-parents= --max-parents= --no-min-parents '
+  + '--no-max-parents --first-parent --exclude-first-parent-only --full-history --graph --decorate? --no-decorate '
+  + '--decorate-refs= --decorate-refs-exclude= --clear-decorations --abbrev-commit --no-abbrev-commit --reverse '
+  + '--max-count= --skip= --left-right --left-only --right-only --cherry-pick --cherry-mark --cherry --boundary '
+  + '--ancestry-path? --simplify-by-decoration --simplify-merges --source --topo-order --date-order '
+  + '--author-date-order --no-walk? --do-walk --walk-reflogs --relative-date --show-signature --encoding= '
+  + '--expand-tabs? --no-expand-tabs --notes? --no-notes --show-notes? --mailmap --no-mailmap --use-mailmap '
+  + '--no-use-mailmap --log-size --children --parents --dense --sparse --show-pulls --exclude= --glob= --not '
+  + '--remove-empty --diff-merges= --no-diff-merges --combined-all-paths --show-linear-break? --count --objects '
+  + '--objects-edge --no-object-names --header --timestamp --oneline --no-commit-id --root --always --stdin '
+  + '--reflog --alternate-refs --single-worktree --bisect --in-commit-order --no-patch';
+const GIT_SUBS = {
+  status: '-s -b -v -z -u? --short --branch --porcelain? --long --verbose --untracked-files? --ignored? --show-stash '
+    + '--ahead-behind --no-ahead-behind --renames --no-renames --find-renames? --column? --no-column --null '
+    + '--ignore-submodules?',
+  diff: GIT_DIFF + ' --cached --staged --merge-base --no-index',
+  log: GIT_LOG, show: GIT_LOG, whatchanged: GIT_LOG, 'rev-list': GIT_LOG, shortlog: GIT_LOG + ' -s -e -w? --summary '
+    + '--numbered --email --committer --group= --format=',
+  'rev-parse': '-q --short? --abbrev-ref? --verify --quiet --git-dir --git-common-dir --absolute-git-dir '
+    + '--is-inside-work-tree --is-inside-git-dir --is-bare-repository --is-shallow-repository --show-toplevel '
+    + '--show-prefix --show-cdup --show-superproject-working-tree --show-object-format? --symbolic '
+    + '--symbolic-full-name --default= --revs-only --no-revs --flags --no-flags --since= --until= --all --branches? '
+    + '--tags? --remotes? --path-format= --local-env-vars --resolve-git-dir= --git-path= --sq --not --disambiguate= '
+    + '--end-of-options',
+  'ls-files': '-c -d -m -o -i -s -u -k -z -t -v -f -x= --cached --deleted --modified --others --ignored --stage '
+    + '--unmerged --killed --directory --no-empty-directory --eol --exclude-standard --error-unmatch --full-name '
+    + '--recurse-submodules --abbrev? --debug --deduplicate --exclude= --format= --sparse --with-tree=',
+  'ls-tree': '-d -r -t -l -z --long --name-only --name-status --object-only --full-name --full-tree --abbrev? --format=',
+  grep: '-n -E -F -G -P -i -I -c -l -L -h -H -o -w -v -q -z -p -W -e= -f= -A= -B= -C= -m= -# --line-number --column '
+    + '--count --name-only --files-with-matches --files-without-match --no-filename --only-matching --word-regexp '
+    + '--invert-match --quiet --null --heading --break --show-function --function-context --after-context= '
+    + '--before-context= --context= --max-count= --threads= --and --or --not --all-match --cached --untracked '
+    + '--recurse-submodules --text --textconv --no-textconv --ignore-case --basic-regexp --extended-regexp '
+    + '--fixed-strings --perl-regexp --full-name --max-depth= --color? --no-color --exclude-standard',
+  blame: '-L= -l -t -S= -p -s -e -w -n -f -c -M? -C? --porcelain --line-porcelain --incremental --show-name '
+    + '--show-number --show-email --date= --root --first-parent --abbrev? --color-lines --color-by-age --ignore-rev= '
+    + '--ignore-revs-file= --progress --no-progress --score-debug',
+  describe: '--tags --all --always --long --abbrev? --dirty? --broken? --exact-match --contains --match= --exclude= '
+    + '--candidates= --first-parent --debug',
+  'cat-file': '-t -s -e -p --batch? --batch-check? --batch-command? --batch-all-objects --textconv --filters --path= '
+    + '--follow-symlinks -Z --buffer --unordered --allow-unknown-type',
+  'merge-base': '-a --all --is-ancestor --fork-point --octopus --independent',
+  'merge-tree': '-z -X= --write-tree --trivial-merge --name-only --messages --no-messages --merge-base= '
+    + '--allow-unrelated-histories --stdin --strategy-option=',
+  'check-ignore': '-q -v -n -z --quiet --verbose --non-matching --no-index --stdin',
+  'check-attr': '-a -z --all --cached --stdin --source=',
+  'diff-tree': GIT_DIFF + ' -r -t -m -c -v --root --no-commit-id --stdin --cc --merge-base --always --pretty? '
+    + '--format= --encoding=',
+  'diff-index': GIT_DIFF + ' -m --cached --merge-base',
+  'for-each-ref': '--count= --sort= --format= --color? --shell --perl --python --tcl --points-at= --merged? '
+    + '--no-merged? --contains? --no-contains? --ignore-case --omit-empty --exclude= --include-root-refs',
+  'show-ref': '-d -s -q --head --branches --tags --heads --dereference --hash? --verify --abbrev? --quiet --exists',
+  'name-rev': '--tags --refs= --exclude= --all --annotate-stdin --name-only --no-undefined --always',
+  'count-objects': '-v -H --verbose --human-readable',
+  'range-diff': GIT_DIFF + ' --creation-factor= --no-dual-color --left-only --right-only',
+  'verify-commit': '-v --raw', 'verify-tag': '-v --raw --format=',
+  version: '--build-options', var: '-l', help: '-a -g --all --guides --config',
+  'ls-remote': '-h -t -q --heads --tags --refs --branches --quiet --exit-code --get-url --sort= --symref -o= '
+    + '--server-option=',
+  fetch: '-q -v -p -P -t -n -4 -6 --quiet --verbose --prune --prune-tags --tags --no-tags --all --depth= --deepen= '
+    + '--shallow-since= --shallow-exclude= --unshallow --update-shallow --dry-run --progress --no-progress --multiple '
+    + '--no-write-fetch-head --write-fetch-head --set-upstream --filter= --refetch --jobs= --negotiate-only '
+    + '--negotiation-tip= --porcelain --no-show-forced-updates --show-forced-updates',
+  pull: '-q -v --quiet --verbose --ff --no-ff --ff-only --rebase? --no-rebase --autostash --no-autostash --stat '
+    + '--no-stat --tags --no-tags --prune --depth= --unshallow --no-edit --commit --no-commit --progress --no-progress',
+  push: '-u -q -v -n --set-upstream --quiet --verbose --dry-run --porcelain --progress --no-progress --atomic',
+  add: '-A -u -N -n -v --all --update --intent-to-add --dry-run --verbose --renormalize --chmod= --ignore-errors '
+    + '--sparse --pathspec-from-file= --pathspec-file-nul --no-all --ignore-removal --refresh --ignore-missing',
+  commit: '-q -m= -F= -a -s -C= -c= -o -i --amend --no-edit --quiet --all --allow-empty --allow-empty-message '
+    + '--signoff --no-signoff --author= --date= --file= --message= --fixup= --squash= --reuse-message= --cleanup= '
+    + '--trailer= --only --include --dry-run --short --porcelain --long --branch --status --no-status '
+    + '--untracked-files? --reset-author --no-post-rewrite --pathspec-from-file= --pathspec-file-nul',
+  switch: '-q -c= -C= -d -t -f --quiet --create= --force-create= --detach --track? --no-track --guess --no-guess '
+    + '--progress --no-progress --orphan= --ignore-other-worktrees --force --discard-changes',
+  checkout: '-q -b= -B= -t -f --quiet --track? --no-track --detach --force --ours --theirs --progress --no-progress '
+    + '--orphan= --ignore-other-worktrees --guess --no-guess',
+  restore: '-s= -S -W -q --source= --staged --worktree --quiet --ours --theirs --progress --no-progress '
+    + '--ignore-unmerged --overlay --no-overlay',
+  reset: '-q -N --quiet --soft --mixed --hard --merge --keep --no-refresh --refresh --intent-to-add '
+    + '--pathspec-from-file= --pathspec-file-nul',
+  rm: '-q -r -f -n --quiet --cached --dry-run --ignore-unmatch --sparse --force --pathspec-from-file=',
+  clean: '-d -f -n -q -x -X -e= --dry-run --quiet --force --exclude=',
+  branch: '-a -r -l -v -q -d -D -m -M -c -C -f -u= -t --all --remotes --list --verbose --quiet --delete --move --copy '
+    + '--force --show-current --contains? --no-contains? --merged? --no-merged? --points-at= --sort= --format= '
+    + '--column? --no-column --color? --no-color --abbrev? --no-abbrev --set-upstream-to= --unset-upstream --track? '
+    + '--no-track --create-reflog --ignore-case --omit-empty',
+  tag: '-l -n? --list --sort= --contains? --no-contains? --merged? --no-merged? --points-at= --format= --column? '
+    + '--no-column --ignore-case --color? --omit-empty',
+  config: '-l -z -f= --get --get-all --get-regexp --get-urlmatch --list --show-origin --show-scope --name-only --null '
+    + '--local --global --system --worktree --file= --blob= --type= --bool --int --bool-or-int --path --expiry-date '
+    + '--default= --includes --no-includes --get-color --get-colorbool',
+  archive: '-o= -l -v -# --output= --format= --prefix= --list --verbose --worktree-attributes --add-file=',
+  'format-patch': GIT_LOG + ' -o= -N -k -v= --output-directory= --stdout --numbered --no-numbered --start-number= '
+    + '--cover-letter --no-cover-letter --subject-prefix= --suffix= --reroll-count= --base= --signoff --no-signature '
+    + '--zero-commit --thread? --no-thread',
+  'hash-object': '-t= -w --stdin --stdin-paths --path= --no-filters --literally',
+  'write-tree': '--missing-ok --prefix=',
+  apply: '-p= -C= -R -3 -v -q --check --stat --numstat --summary --index --cached --3way --reverse --whitespace= '
+    + '--ignore-whitespace --ignore-space-change --verbose --quiet --recount --unidiff-zero --allow-empty --exclude= '
+    + '--include= --directory=',
+  reflog: GIT_LOG,
+  init: '-q -b= --quiet --bare --initial-branch= --object-format=',
+  mv: '-k -n -v --dry-run --verbose',
+  merge: '-q -v -m= -F= -s= -X= --quiet --verbose --ff --no-ff --ff-only --no-edit --commit --no-commit --squash '
+    + '--no-squash --abort --continue --quit --stat --no-stat --log? --no-log --signoff --allow-unrelated-histories '
+    + '--autostash --no-autostash --strategy= --strategy-option= --message= --file= --progress --no-progress',
+  rebase: '-q -v -m -f -n -X= -s= --quiet --verbose --onto= --keep-base --continue --abort --skip --quit --autosquash '
+    + '--no-autosquash --autostash --no-autostash --update-refs --no-update-refs --committer-date-is-author-date '
+    + '--reset-author-date --ignore-date --signoff --root --fork-point --no-fork-point --merge --strategy= '
+    + '--strategy-option= --no-rebase-merges --empty= --keep-empty --no-keep-empty --reapply-cherry-picks '
+    + '--no-reapply-cherry-picks --allow-empty-message --stat --no-stat --force-rebase --no-ff --whitespace=',
+  'cherry-pick': '-x -n -s -m= -X= --no-commit --signoff --mainline= --continue --abort --skip --quit --ff '
+    + '--allow-empty --allow-empty-message --keep-redundant-commits --empty= --strategy= --strategy-option=',
+  revert: '-n -s -m= -X= --no-edit --no-commit --signoff --mainline= --continue --abort --skip --quit --strategy= '
+    + '--strategy-option=',
+  'update-index': '-q --chmod= --refresh --really-refresh --add --ignore-missing',
+  'symbolic-ref': '-q --short --quiet --no-recurse',
+  stash: '', remote: '', worktree: ''
+};
+const GIT_WHY = {
+  '-c': 'git -c sets a setting for one command, and git\'s settings are the owner\'s.',
+  '--config-env': 'git --config-env sets a setting for one command, and git\'s settings are the owner\'s.',
+  '--git-dir': 'git --git-dir points git at another repo. Use git -C <folder>.',
+  '--work-tree': 'git --work-tree points git at another folder. Use git -C <folder>.',
+  '--no-verify': 'Skipping git\'s hooks skips the owner\'s secret scan. Drop --no-verify.',
+  '-n': 'git commit -n skips git\'s hooks, the owner\'s secret scan among them.',
+  '--output': 'git --output writes a file. Redirect into the temp folder instead.',
+  '--ext-diff': 'git --ext-diff runs an outside program. Drop the flag.',
+  '--upload-pack': 'git --upload-pack runs a command. Drop the flag.',
+  '--no-exclude-standard': 'git grep --no-exclude-standard reads ignored files, every secret file among them.',
+  '-O': 'git grep -O runs a program on the files. Drop the flag.',
+  '--open-files-in-pager': 'git grep --open-files-in-pager runs a program on the files. Drop the flag.',
+  '-i': 'An interactive git command waits for an editor. Use its plain form.',
+  '--interactive': 'An interactive git command waits for an editor. Use its plain form.',
+  '-x': 'git rebase -x runs a command at each step. Run the command yourself.',
+  '--exec': 'git rebase --exec runs a command at each step. Run the command yourself.',
+  '-f': 'git add -f adds an ignored file, which can put a secret in a commit.',
+  '--force': 'This --force can lose work or add an ignored file. Ask the owner.',
+  '-e': 'git -e opens an editor, which waits. Pass the text with -m or -F.',
+  '--edit': 'git --edit opens an editor, which waits. Pass the text with -m or -F.',
+  '-p': 'git -p is interactive and waits. Use its plain form.',
+  '--patch': 'git --patch is interactive and waits. Use its plain form.'
+};
+
+function gitForm(args, whole) {
+  let k = 0;
+  for (; k < args.length && args[k].startsWith('-'); k++) {
+    const a = args[k];
+    if (a === '-C') {
+      k++;
+      continue;
+    }
+    if (a === '--no-pager' || a === '-P' || a === '--literal-pathspecs' || a === '--no-optional-locks'
+      || a === '--version') continue;
+    const name = a.split('=')[0];
+    deny(GIT_WHY[name] || ('git ' + name + ' is not on the owner\'s list. Use git -C <folder>.'), whole);
+  }
+  const sub = (args[k] || '').toLowerCase();
+  const rest = args.slice(k + 1);
+  if (!sub) {
+    if (args.includes('--version')) return { sub: '', operands: [] };
+    deny('git needs a subcommand.', whole);
+  }
+  if (!Object.prototype.hasOwnProperty.call(GIT_SUBS, sub)) {
+    deny('git ' + sub + ' is not on the owner\'s list of approved commands. Ask the owner, who runs it or adds it.',
+      whole);
+  }
+  const why = {};
+  for (const [opt, text] of Object.entries(GIT_WHY)) why[opt] = text;
+  if (sub !== 'commit') delete why['-n'];
+  if (sub === 'add') why['-f'] = GIT_WHY['-f'];
+  if (sub === 'stash') return stashForm(rest, whole);
+  if (sub === 'remote') return remoteForm(rest, whole);
+  if (sub === 'worktree') return worktreeForm(rest, whole);
+  if (sub === 'symbolic-ref') {
+    const o = readOpts(GIT_SUBS[sub], rest, 'git symbolic-ref', whole, why);
+    if (o.operands.length > 1) deny('Setting a symbolic ref moves a branch. Ask the owner.', whole);
+    return { sub, ...o };
+  }
+  if (sub === 'config' && !rest.some((a) => /^(--get|--get-all|--get-regexp|--get-urlmatch|--list|-l|--get-color|--get-colorbool)$/.test(a))) {
+    deny('git config only reads, git config --get, --list and their kin. git\'s settings are the owner\'s.', whole);
+  }
+  const o = readOpts(GIT_SUBS[sub], rest, 'git ' + sub, whole, why);
+  return { sub, ...o };
+}
+
+function stashForm(rest, whole) {
+  const subs = {
+    push: '-m= -q -u -k -a -S --message= --quiet --include-untracked --keep-index --no-keep-index --all --staged '
+      + '--pathspec-from-file= --pathspec-file-nul',
+    list: GIT_LOG, show: GIT_DIFF + ' -u --include-untracked --only-untracked', apply: '-q --index --quiet',
+    pop: '-q --index --quiet', drop: '-q --quiet', clear: '', branch: '', create: '-m=', store: '-m= -q'
+  };
+  const first = rest[0] || '';
+  const sub = Object.prototype.hasOwnProperty.call(subs, first) ? first : 'push';
+  const words = sub === first ? rest.slice(1) : rest;
+  const o = readOpts(subs[sub], words, 'git stash ' + sub, whole, GIT_WHY);
+  return { sub: 'stash', stash: sub, ...o };
+}
+
+function remoteForm(rest, whole) {
+  const first = rest[0] || '';
+  if (first === '-v' || first === '--verbose' || first === '') return { sub: 'remote', operands: [] };
+  if (first === 'show' || first === 'get-url') {
+    const o = readOpts('-n --push --all', rest.slice(1), 'git remote ' + first, whole);
+    return { sub: 'remote', ...o };
+  }
+  deny('git remote ' + first + ' changes where code goes. The owner does that.', whole);
+}
+
+function worktreeForm(rest, whole) {
+  const subs = {
+    list: '-v -z --porcelain --verbose --expire=',
+    add: '-b= -B= -f -q --detach --no-checkout --checkout --lock --reason= --track --no-track --guess-remote '
+      + '--no-guess-remote --orphan --force --quiet --relative-paths --no-relative-paths',
+    remove: '-f --force', prune: '-n -v --dry-run --verbose --expire=', lock: '--reason=', unlock: '',
+    move: '', repair: ''
+  };
+  const first = rest[0] || '';
+  if (!Object.prototype.hasOwnProperty.call(subs, first)) {
+    deny('git worktree ' + first + ' is not on the owner\'s list.', whole);
+  }
+  const o = readOpts(subs[first], rest.slice(1), 'git worktree ' + first, whole);
+  return { sub: 'worktree', worktree: first, ...o };
+}
+
+// ---- gh, npm, npx, docker
+
+// gh's groups and verbs a session uses. Their options pass as they are, since none runs a command, and checkGh holds
+// the ones that merge, approve, release or change settings.
+const GH_VERBS = {
+  pr: ['view', 'list', 'create', 'comment', 'checks', 'diff', 'status', 'edit'],
+  run: ['list', 'view', 'watch'],
+  issue: ['view', 'list', 'create', 'comment', 'status'],
+  repo: ['view'], search: ['code', 'prs', 'issues', 'repos', 'commits'], auth: ['status'],
+  workflow: ['list', 'view'], api: null, label: ['list'], release: ['list', 'view']
+};
+function ghForm(args, whole) {
+  if (args.length === 1 && args[0] === '--version') return { operands: [] };
+  const words = args.filter((a) => !a.startsWith('-'));
+  const group = (words[0] || '').toLowerCase();
+  const verb = (words[1] || '').toLowerCase();
+  if (!Object.prototype.hasOwnProperty.call(GH_VERBS, group)) {
+    deny('gh ' + group + ' is not on the owner\'s list of approved commands. Ask the owner.', whole);
+  }
+  if (GH_VERBS[group] && !GH_VERBS[group].includes(verb)) {
+    deny('gh ' + group + ' ' + verb + ' is not on the owner\'s list of approved commands. Ask the owner.', whole);
+  }
+  return { group, verb, operands: [] };
+}
+
+const NPX_TOOLS = new Set(['jest', 'tsc', 'eslint', 'next', 'playwright', 'prettier', 'vitest', 'tsx']);
+function npmForm(args, whole) {
+  if (args.some((a) => /^(-g|--global|--location=global)$/.test(a))) {
+    deny('A global npm install changes the tools of every session. The owner does that.', whole);
+  }
+  const subs = ['install', 'i', 'ci', 'run', 'run-script', 'test', 't', 'audit', 'ls', 'list', 'view', 'outdated',
+    'uninstall', 'un', 'remove', 'rm', '--version', '-v'];
+  const sub = (args.find((a) => !a.startsWith('-') || a === '--version' || a === '-v') || '').toLowerCase();
+  if (!subs.includes(sub)) deny('npm ' + sub + ' is not on the owner\'s list of approved commands. Ask the owner.', whole);
+  return { sub, operands: [] };
+}
+function npxForm(args, whole) {
+  let k = 0;
+  for (; k < args.length && args[k].startsWith('-'); k++) {
+    if (args[k] !== '--no' && args[k] !== '--no-install') {
+      deny('npx ' + args[k] + ' is refused. npx runs only the repo\'s own tools, ' + [...NPX_TOOLS].join(', ') + '.',
+        whole);
+    }
+  }
+  const tool = (args[k] || '').toLowerCase();
+  if (!NPX_TOOLS.has(tool)) {
+    deny('npx ' + tool + ' is not on the owner\'s list. npx runs only the repo\'s own tools, '
+      + [...NPX_TOOLS].join(', ') + '.', whole);
+  }
+  return { tool, operands: [] };
+}
+
+// docker reaches this machine's own engine alone. Its environment and its current context are checked as well as its
+// words, since either can point it at another machine.
+function dockerLocal(whole) {
+  for (const v of ['DOCKER_HOST', 'DOCKER_CONTEXT', 'DOCKER_CONFIG']) {
+    if (process.env[v]) deny(v + ' is set, which can point docker at another machine. The owner unsets it.', whole);
+  }
+  let config;
+  try {
+    config = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.docker', 'config.json'), 'utf8'));
+  } catch (err) {
+    if (missingPath(err)) return;
+    throw err;
+  }
+  const ctx = config && config.currentContext;
+  if (ctx && !['default', 'desktop-linux'].includes(ctx)) {
+    deny('docker\'s current context is ' + ctx + ', which can be another machine. The owner switches it back.', whole);
+  }
+}
+const DOCKER_SUBS = {
+  ps: '-a -q -s -n= -l --all --quiet --size --format= --filter= -f= --no-trunc --last= --latest',
+  logs: '-f -t -n= --follow --timestamps --tail= --since= --until= --details',
+  inspect: '-f= -s --format= --size --type=',
+  images: '-a -q --all --quiet --format= --filter= -f= --digests --no-trunc',
+  build: '-t= -f= -q --tag= --file= --build-arg= --target= --no-cache --pull --progress= --quiet --platform= --label= '
+    + '--load --cache-from=',
+  cp: '-a -L -q --archive --follow-link --quiet',
+  start: '-a --attach', stop: '-t= --time= -s= --signal=', rm: '-f -v --force --volumes',
+  rmi: '-f --force --no-prune', version: '-f= --format=', info: '-f= --format=', port: '',
+  network: '', volume: '', compose: ''
+};
+function dockerForm(args, whole) {
+  dockerLocal(whole);
+  if (args.length === 1 && /^(--version|-v)$/.test(args[0])) return { operands: [] };
+  if (args[0] && args[0].startsWith('-')) {
+    deny('docker ' + args[0] + ' is refused before the subcommand. docker reaches this machine\'s own engine alone.',
+      whole);
+  }
+  const sub = (args[0] || '').toLowerCase();
+  if (!Object.prototype.hasOwnProperty.call(DOCKER_SUBS, sub)) {
+    const why = sub === 'exec' || sub === 'run'
+      ? ' docker exec and run wait for a check of the command they run, a later item of the owner\'s plan.' : '';
+    deny('docker ' + sub + ' is not on the owner\'s list of approved commands.' + why, whole);
+  }
+  if (sub === 'compose') return composeForm(args.slice(1), whole);
+  if (sub === 'network' || sub === 'volume') {
+    const verb = args[1] || '';
+    if (!['ls', 'inspect', 'rm'].includes(verb) || (sub === 'network' && verb === 'rm')) {
+      deny('docker ' + sub + ' ' + verb + ' is not on the owner\'s list.', whole);
+    }
+    const o = readOpts('-q -f= --format= --quiet --filter=', args.slice(2), 'docker ' + sub, whole);
+    return { sub, verb, ...o };
+  }
+  const o = readOpts(DOCKER_SUBS[sub], args.slice(1), 'docker ' + sub, whole);
+  return { sub, ...o };
+}
+const COMPOSE_SUBS = {
+  up: '-d -t= -V --detach --build --no-build --wait --wait-timeout= --force-recreate --no-recreate --remove-orphans '
+    + '--no-deps --quiet-pull --pull= --timeout= --abort-on-container-exit --exit-code-from= --scale= --no-start '
+    + '--renew-anon-volumes --no-color --no-log-prefix --attach= --no-attach= --menu?',
+  down: '-v -t= --remove-orphans --volumes --rmi= --timeout=',
+  ps: '-a -q --all --quiet --services --format= --filter= --status=',
+  logs: '-f -t -n= --follow --timestamps --tail= --since= --until= --no-color --no-log-prefix',
+  build: '-q --no-cache --pull --progress= --quiet --build-arg=',
+  config: '-q --services --volumes --format= --quiet --images --profiles --hash= --no-interpolate'
+};
+function composeForm(args, whole) {
+  let k = 0;
+  for (; k < args.length && args[k].startsWith('-'); k++) {
+    if (/^(-f|--file|-p|--project-name|--profile|--env-file|--project-directory|--ansi|--progress)$/.test(args[k])) k++;
+    else if (!/^(--file|--project-name|--profile|--env-file|--project-directory|--ansi|--progress)=/.test(args[k])) {
+      deny('docker compose ' + args[k] + ' is not on the owner\'s list.', whole);
+    }
+  }
+  const sub = (args[k] || '').toLowerCase();
+  if (!Object.prototype.hasOwnProperty.call(COMPOSE_SUBS, sub)) {
+    const why = sub === 'exec' || sub === 'run'
+      ? ' compose exec and run wait for a check of the command they run, a later item of the owner\'s plan.' : '';
+    deny('docker compose ' + sub + ' is not on the owner\'s list of approved commands.' + why, whole);
+  }
+  const o = readOpts(COMPOSE_SUBS[sub], args.slice(k + 1), 'docker compose ' + sub, whole);
+  return { sub: 'compose', compose: sub, ...o };
+}
+
+// ---- removals
+
+// What a command removes or writes over, for the owner's prompt, or null. A removal whose every path is a temporary
+// file runs without asking.
+function removalOf(prog, form, args, argToks, whole) {
+  const named = (words) => argToks.filter((t) => words.includes(t.t));
+  const all = (toks) => toks.length > 0 && toks.every(freeToRemove);
+  if (prog === 'rm' || prog === 'rmdir' || prog === 'unlink') {
+    const targets = named(form.operands);
+    return all(targets) ? null : prog + ' removes ' + form.operands.join(', ') + '.';
+  }
+  if (prog === 'cp' || prog === 'mv') {
+    if (form.operands.length < 2) return null;
+    const dest = form.operands[form.operands.length - 1];
+    const destTok = named([dest]).pop();
+    const over = isDir(dest)
+      ? form.operands.slice(0, -1).map((src) => dest.replace(/\/+$/, '') + '/' + path.basename(src)).filter(exists)
+      : exists(dest) ? [dest] : [];
+    if (destTok && destTok.g) return prog + ' writes to a pattern, ' + dest + '.';
+    const kept = over.filter((p) => !(inTemp(p) && !holdsWorkTree(p)));
+    return kept.length ? prog + ' writes over ' + kept.join(', ') + '.' : null;
+  }
+  if (prog === 'git') return gitRemoval(form, argToks);
+  if (prog === 'npm' && ['ci', 'uninstall', 'un', 'remove', 'rm'].includes(form.sub)) {
+    return 'npm ' + form.sub + ' removes ' + (form.sub === 'ci' ? 'node_modules before it installs.' : 'a package.');
+  }
+  if (prog === 'python' && form.module === 'pip' && /^(uninstall)$/.test(form.moduleArgs[0] || '')) {
+    return 'pip uninstall removes a package.';
+  }
+  if (prog === 'make') {
+    const t = form.targets.find((x) => /(^|[-_.:])(clean|reset|reseed|prune|down|purge|wipe|nuke)([-_.:]|$)/i.test(x));
+    return t ? 'make ' + t + ' is named for removing.' : null;
+  }
+  if (prog === 'docker' || prog === 'docker-compose') {
+    if (form.verb === 'rm' && form.sub === 'volume') return 'docker volume rm removes a volume and its data.';
+    if (form.sub === 'rm' && (form.has('-v') || form.has('--volumes'))) return 'docker rm -v removes the container\'s volumes.';
+    if (form.compose === 'down' && (form.has('-v') || form.has('--volumes'))) return 'compose down -v removes volumes.';
+    if (form.compose === 'up' && (form.has('-V') || form.has('--renew-anon-volumes'))) {
+      return 'compose up -V removes the anonymous volumes.';
+    }
+  }
+  return null;
+}
+
+function gitRemoval(form, argToks) {
+  const has = (...o) => o.some((x) => form.seen && form.seen.includes(x));
+  switch (form.sub) {
+    case 'rm':
+      return has('--cached', '-n', '--dry-run') ? null : 'git rm removes ' + form.operands.join(', ') + '.';
+    case 'clean':
+      return has('-n', '--dry-run') ? null : 'git clean removes untracked files.';
+    case 'reset':
+      return has('--hard', '--merge', '--keep') ? 'git reset --hard discards uncommitted work.' : null;
+    case 'restore':
+      return has('--staged', '-S') && !has('--worktree', '-W') ? null
+        : 'git restore discards uncommitted changes to ' + form.operands.join(', ') + '.';
+    case 'checkout': {
+      if (has('-f', '--force', '-B', '--ours', '--theirs')) return 'git checkout with that option discards work.';
+      if (argToks.some((t) => t.t === '--')) return 'git checkout -- discards uncommitted changes.';
+      if (!has('-b', '--orphan') && form.operands.some((p) => p === '.' || exists(p))) {
+        return 'git checkout of a path discards its uncommitted changes.';
+      }
+      return null;
+    }
+    case 'switch':
+      return has('-f', '--force', '--discard-changes', '-C', '--force-create')
+        ? 'git switch with that option discards work or resets a branch.' : null;
+    case 'branch':
+      return has('-d', '-D', '--delete', '-M', '-C', '-f', '--force') ? 'git branch with that option deletes or '
+        + 'overwrites a branch.' : null;
+    case 'stash':
+      return ['drop', 'clear', 'pop'].includes(form.stash) ? 'git stash ' + form.stash + ' removes a stash.' : null;
+    case 'worktree':
+      if (form.worktree === 'add' && has('-B')) return 'git worktree add -B resets a branch.';
+      if (form.worktree === 'prune' && !has('-n', '--dry-run')) return 'git worktree prune removes registrations.';
+      if (form.worktree === 'remove') {
+        const targets = argToks.filter((t) => form.operands.includes(t.t));
+        if (has('-f', '--force')) return 'git worktree remove --force can remove work never committed.';
+        return targets.length && targets.every((t) => !t.g && inTemp(t.t)) ? null
+          : 'git worktree remove removes a worktree outside the temp folder.';
+      }
+      return null;
+    default:
+      return null;
+  }
+}
+
+// ---- judging a call
+
+// The program a command names. A path names a program only when it is a repo's venv interpreter or a script, which
+// runs as bash would run it. Any other program is a bare name from the list.
+function programName(word, whole) {
+  const w = word.replace(/\\/g, '/');
+  if (w.includes('/')) {
+    if (/(^|\/)\.venv\/(scripts\/python(\.exe)?|bin\/python3?)$/i.test(w)) return 'python';
+    if (/\.sh$/i.test(w)) return 'script';
+    deny(NOT_PLAIN + 'A program is a bare name from the owner\'s list. A script runs as bash <file>, and Python as the '
+      + 'repo\'s venv interpreter, <repo>/.venv/Scripts/python.exe.', whole);
+  }
+  const name = w.toLowerCase().replace(/\.exe$/, '');
+  if (/^(python[0-9.]*|py|pip[0-9.]*)$/.test(name)) {
+    deny('A bare ' + name + ' is refused. Use the repo\'s own venv interpreter, <repo>/.venv/Scripts/python.exe.', whole);
+  }
+  return name;
+}
+
+function entryOf(prog) {
+  const e = LIST[prog];
+  return typeof e === 'string' ? { opts: e } : e;
+}
+
+// A whole call, each of its commands judged from every folder a cd earlier in the call could have left the shell in.
+// The folders are followed down both of each command's outcomes, since && runs the next command only after a success
+// and || only after a failure, a cd that fails leaves the shell where it was, and a cd in a pipe moves nothing after
+// it. Every refusal ends the call at once, and every removal that asks is gathered into one prompt for the owner.
+function checkCall(cmd) {
+  if (cmd.length > MAX_COMMAND) {
+    deny('The command is longer than the guard reads, ' + MAX_COMMAND + ' characters. Split it, or put long text in '
+      + 'a file.', cmd.slice(0, 120));
+  }
+  const cmds = readPlain(cmd);
+  const asks = [];
+  const start = CWD;
+  const union = (a, b) => [...new Set([...a, ...b])];
+  let ok = [CWD];
+  let fail = [];
+  cmds.forEach((c, i) => {
+    const before = i === 0 ? '' : cmds[i - 1].op;
+    const input = before === '&&' ? ok : before === '||' ? fail : union(ok, fail);
+    let moved = input;
+    for (const dir of input) {
+      CWD = dir;
+      timeLeft();
+      const to = judgeCommand(c.toks, cmd, asks, cmds.length === 1, false);
+      if (to && before !== '|' && c.op !== '|') moved = union(moved === input ? [] : moved, to);
+    }
+    ok = before === '||' ? union(moved, ok) : moved;
+    fail = before === '&&' ? union(input, fail) : input;
+  });
+  CWD = start;
+  if (asks.length) ask([...new Set(asks)], cmd);
+}
+
+// One command, judged in order. The checks every command meets, its redirects, the guardrail files and the secret
+// files, then the program's own rules kept from before the list, then the list, then whether it removes anything.
+// A cd answers the folders it could move to.
+function judgeCommand(toks, whole, asks, single, variant) {
+  const words = toks.filter((t) => !t.redir && !t.target);
+  let p = 0;
+  const assigns = [];
+  while (p < words.length && !words[p].lq && ASSIGNMENT.test(words[p].t)) assigns.push(words[p++].t);
+  for (const a of assigns) {
+    if (!ALLOWED_ASSIGNS.has(a)) {
+      deny(NOT_PLAIN + 'A variable is set only as one of the owner\'s fixed pairs, ' + [...ALLOWED_ASSIGNS].join(', ')
+        + '. Write the value out instead.', whole);
+    }
+  }
+  if (p >= words.length) deny(NOT_PLAIN + 'A variable set on its own is refused, nothing in a plain command reads it.',
+    whole);
+  const progTok = words[p];
+  if (progTok.q || progTok.g) deny(NOT_PLAIN + 'The program is written out, never quoted or a pattern.', whole);
+  let prog = programName(progTok.t, whole);
+  let argToks = words.slice(p + 1);
+  if (prog === 'script') {
+    prog = 'bash';
+    argToks = [progTok, ...argToks];
+  }
+  const args = argToks.map((t) => t.t);
+  if (!Object.prototype.hasOwnProperty.call(LIST, prog)) deny(notListed(prog), whole);
+
+  for (let k = 0; k < toks.length; k++) {
+    const t = toks[k];
+    if (!t.redir || t.dup || t.t.includes('<')) continue;
+    const target = toks[k + 1];
+    if (/^\/dev\/null$/i.test(target.t)) continue;
+    if (target.g || !tempFile(target.t)) {
+      deny('A redirect writes only into a temp folder, ' + TEMP_ROOTS.join(' or ') + ', outside any worktree, or '
+        + '/dev/null. Change a repo file with the Edit tool.', whole);
+    }
+  }
+  checkProtectedInShell(toks, prog, args, whole);
+  checkSecretWords(toks, prog, args, whole);
+  if (MODE === 'reviewer') checkRedirects(toks, whole);
+  if (prog === 'git') checkGit(args, whole, single && !assigns.length && !variant);
+  else if (prog === 'gh') checkGh(args, whole);
+  else checkOther(prog, args, assigns, whole);
+  if (MODE === 'reviewer') checkReviewerProgram(prog, args, assigns, whole);
+
+  const e = entryOf(prog);
+  let form;
+  if (e === ANY) form = readOpts(ANY, args, prog, whole);
+  else if (e.text) form = { operands: args };
+  else if (e.form) form = e.form(args, whole);
+  else form = readOpts(e.opts, args, prog, whole, e.why || {});
+  if (e.maxOperands !== undefined && form.operands.length > e.maxOperands) {
+    deny(prog + ' with ' + form.operands.length + ' paths writes the last one. Redirect into the temp folder instead.',
+      whole);
+  }
+  if (e.operands && !form.operands.every((x) => e.operands.test(x))) {
+    deny(prog + ' ' + form.operands.join(' ') + ' is not on the owner\'s list for ' + prog + '.', whole);
+  }
+  checkWrites(prog, form, args, argToks, whole);
+  if (!variant) {
+    const removal = removalOf(prog, form, args, argToks, whole);
+    if (removal) {
+      if (MODE === 'reviewer') deny('Reviewers remove nothing. ' + removal, whole);
+      asks.push(removal);
+    }
+    // each path a glob matches, judged too, each judgment able only to refuse (D-060)
+    for (const v of globVariants(toks)) judgeCommand(v, whole, asks, single, true);
+  }
+  if (prog === 'cd') {
+    const to = form.operands[0];
+    if (to === '-') deny('cd - is refused. Write the folder out.', whole);
+    return [toAbs(to === undefined ? '~' : to)];
+  }
+  return null;
+}
+
+// The files a listed program writes by a path it is given, each held to a temp folder.
+function checkWrites(prog, form, args, argToks, whole) {
+  const temp = (p, what) => {
+    if (!/^\/dev\/null$/i.test(p) && !tempFile(p)) {
+      deny(what + ' writes only into a temp folder, ' + TEMP_ROOTS.join(' or ') + ', outside any worktree.', whole);
+    }
+  };
+  if (prog === 'tee') {
+    for (const t of argToks.filter((x) => form.operands.includes(x.t))) {
+      if (t.g) deny('tee writes to a pattern. Write the path out.', whole);
+      temp(t.t, 'tee');
+    }
+  }
+  if (prog === 'git' && (form.sub === 'archive' || form.sub === 'format-patch')) {
+    for (let k = 0; k < args.length; k++) {
+      const m = /^(--output=|--output-directory=)(.+)$/.exec(args[k]);
+      if (m) temp(m[2], 'git ' + form.sub);
+      else if (args[k] === '-o' || args[k] === '--output' || args[k] === '--output-directory') temp(args[k + 1] || '',
+        'git ' + form.sub);
+      else if (/^-o./.test(args[k])) temp(args[k].slice(2), 'git ' + form.sub);
+    }
+  }
+  if (prog === 'docker' && form.sub === 'cp' && form.operands.length === 2) {
+    const dest = form.operands[1];
+    if (!/^[^/\\:]{2,}:/.test(dest) && exists(dest) && !tempFile(dest)) {
+      deny('docker cp writes over ' + dest + '. Copy into the temp folder.', whole);
+    }
+  }
+}
+
+// The owner's prompt for the removals a call makes, the command shown with what each one removes. A reviewer, and a
+// run with no one to answer, never sees it, the reviewer's removal refused above and Claude Code denying the other.
+function ask(reasons, whole) {
+  const why = 'kdf-guard asks the owner, since this removes or writes over something. ' + reasons.join(' ');
+  if (LOG_ONLY) trial('ask', whole, why);
+  process.stdout.write(JSON.stringify({
+    hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: why }
+  }) + '\n');
+  process.exit(0);
+}
+
+// The trial, the week the new guard runs beside the old one. It logs what it would refuse, ask or allow, and lets
+// every call through, the old guard still refusing.
+function trial(decision, detail, why) {
+  try {
+    fs.appendFileSync(TRIAL_LOG, JSON.stringify({ at: new Date().toISOString(), mode: MODE, decision,
+      command: String(detail || '').slice(0, 400), why: String(why || '').slice(0, 400) }) + '\n');
+  } catch (err) {
+    // a log that cannot be written must not change the answer
+  }
+  process.exit(0);
+}
+
+// ------------------------------------------------------------ guardrail files
+
+// A program's bare name, its folder and a Windows ending dropped.
 function base(t) {
   return path
     .basename(String(t).replace(/\\/g, '/'))
@@ -774,119 +2021,7 @@ function base(t) {
     .replace(/\.(exe|cmd|bat|ps1|com)$/, '');
 }
 
-function check(cmd, depth) {
-  if (depth > MAX_DEPTH) deny('Nested shells are too deep to check.', cmd);
-  // dotglob or GLOBIGNORE anywhere in the call lets a glob match a dot name, so the guard's globs do too (D-060)
-  if (depth === 0) HIDDEN_TOO = /dotglob|GLOBIGNORE/.test(cmd);
-  // a GIT_CONFIG name written as an assignment, anywhere in the call's text (D-062)
-  if (GIT_CONFIG_TEXT.test(cmd)) deny(GIT_CONFIG_WHY, cmd);
-  if (/GIT_CONFIG/i.test(cmd) && ENV_DRIVE_TEXT.test(cmd) && ENV_WRITE_WORD.test(cmd)) deny(GIT_CONFIG_WHY, cmd);
-  if (SET_ENV_CALL.test(cmd) && /GIT_CONFIG/i.test(cmd)) deny(GIT_CONFIG_WHY, cmd);
-  if (NEW_DRIVE_WORD.test(cmd) && /GIT_CONFIG/i.test(cmd)) {
-    deny('A drive made in a call that names a GIT_CONFIG variable can write it under a name the guard does not know, '
-      + 'and send a push elsewhere. Make the drive in a call of its own, or ask the owner.', cmd);
-  }
-  for (const seg of segments(cmd)) {
-    analyze(seg, depth, cmd, true);
-    // a glob's matches, judged too, each judgment able only to refuse (D-060)
-    for (const variant of globVariants(seg)) analyze(variant, depth, cmd, true);
-  }
-}
-
-// own is true for a segment of the call itself, false for a command another one runs, such as find -exec's
-function analyze(toks, depth, whole, own) {
-  const assigns = [];
-  let i = 0;
-  // env and sudo read NAME=value among their own arguments, so a quoted one is an assignment there too (D-062)
-  let readsAssigns = false;
-  while (i < toks.length) {
-    const t = toks[i];
-    if ((!t.lq || readsAssigns) && /^[A-Za-z_][A-Za-z0-9_]*=/.test(t.t)) {
-      assigns.push(t.t);
-      i++;
-      continue;
-    }
-    if (!t.q && (t.t === '.' || KEYWORD_PREFIXES.has(t.t))) {
-      i++;
-      continue;
-    }
-    const b = base(t.t);
-    if (!WRAPPERS.has(b)) break;
-    readsAssigns = b === 'env' || b === 'sudo';
-    i++;
-    while (i < toks.length && /^-/.test(toks[i].t)) {
-      const opt = toks[i].t;
-      i++;
-      // env -S runs its value as a command line of its own
-      if (b === 'env' && /^(-S|--split-string)$/.test(opt) && i < toks.length) check(splitString(toks[i].t), depth + 1);
-      else if (b === 'env' && /^(-S.|--split-string=)/.test(opt)) {
-        check(splitString(opt.replace(/^(-S|--split-string=)/, '')), depth + 1);
-      }
-      if (WRAPPER_VALUE_OPTS[b] && WRAPPER_VALUE_OPTS[b].test(opt)) i++;
-    }
-    if (b === 'timeout' && i < toks.length && /^\d/.test(toks[i].t)) i++;
-  }
-  checkGitConfigVars(toks, assigns, i < toks.length ? base(toks[i].t) : '', toks.slice(i + 1).map((x) => x.t), whole);
-  if (i >= toks.length) return;
-  if (!toks[i].q && KEYWORD_LISTS.has(toks[i].t)) {
-    // a for, select or case header is a list or a pattern, its body is a segment of its own, but a redirect after
-    // done, fi or esac still writes
-    checkProtectedRedirects(toks, whole);
-    checkSecretWords(toks, toks[i].t, [], whole);
-    if (MODE === 'reviewer') checkRedirects(toks, whole);
-    return;
-  }
-  const prog = base(toks[i].t);
-  const args = toks.slice(i + 1).map((x) => x.t);
-
-  if (prog === 'find') {
-    const k = toks.findIndex((x, idx) => idx > i && /^-(exec|execdir|ok|okdir)$/.test(x.t));
-    if (k >= 0 && k + 1 < toks.length) analyze(toks.slice(k + 1), depth, whole, false);
-  }
-  checkProtectedInShell(toks, prog, args, whole);
-  checkSecretWords(toks, prog, args, whole);
-  if (MODE === 'reviewer') checkRedirects(toks, whole);
-  if (nestedShell(prog, args, depth)) return;
-  // a plain git command is the whole call, one segment, with no wrapper, keyword, assignment or shell around it
-  if (prog === 'git') checkGit(args, whole, own && depth === 0 && i === 0 && segments(whole).length === 1);
-  else if (prog === 'gh') checkGh(args, whole);
-  else checkOther(prog, args, assigns, whole);
-  if (MODE === 'reviewer') checkReviewerProgram(prog, args, assigns, whole);
-}
-
-// env -S's string, read as more of env's own arguments, its line ends as spaces, so a quoted NAME=value there is an
-// assignment as env reads it (D-062)
-function splitString(s) {
-  return 'env ' + String(s).replace(/[\r\n]+/g, ' ');
-}
-
-function nestedShell(prog, args, depth) {
-  let inner;
-  if (/^(bash|sh|zsh|dash|ksh)$/.test(prog)) {
-    const k = args.findIndex((a) => /^-[a-z]*c[a-z]*$/.test(a));
-    if (k >= 0) inner = args[k + 1];
-  } else if (/^(pwsh|powershell)$/.test(prog)) {
-    if (args.some((a) => /^-(e|ec|enc|encodedcommand)$/i.test(a))) {
-      deny('An encoded command cannot be checked, so it is refused.', prog);
-    }
-    const k = args.findIndex((a) => /^-c(ommand)?$/i.test(a));
-    if (k >= 0) inner = args.slice(k + 1).join(' ');
-  } else if (prog === 'cmd') {
-    const k = args.findIndex((a) => /^\/\/?[ck]$/i.test(a));
-    if (k >= 0) inner = args.slice(k + 1).join(' ');
-  } else if (prog === 'eval' || prog === 'invoke-expression' || prog === 'iex') {
-    inner = args.join(' ');
-  } else {
-    return false;
-  }
-  if (inner !== undefined) check(inner, depth + 1);
-  return true;
-}
-
-// ------------------------------------------------------------ guardrail files
-
 function checkProtectedRedirects(toks, whole) {
-  if (SELF_EDIT_OK) return;
   for (let i = 0; i < toks.length; i++) {
     if (toks[i].q) continue;
     const m = /^(\d*)(>>?|&>>?)(.*)$/.exec(toks[i].t);
@@ -897,7 +2032,6 @@ function checkProtectedRedirects(toks, whole) {
 }
 
 function checkProtectedInShell(toks, prog, args, whole) {
-  if (SELF_EDIT_OK) return;
   checkProtectedRedirects(toks, whole);
   let readOnly = READ_ONLY_PROGRAMS.has(prog);
   if (prog === 'git') {
@@ -928,79 +2062,6 @@ const PUSH_OPTIONS = new Set([
   '-u', '--set-upstream', '-q', '--quiet', '-v', '--verbose', '-n', '--dry-run', '--porcelain', '--progress',
   '--no-progress', '--atomic'
 ]);
-// A variable that hands git settings no word of a call shows, so a push that names origin still goes where the settings
-// say (D-062). Two readings, so neither one's blind spots let one through. The call's text refuses a GIT_CONFIG name
-// written as an assignment in any shell, bash, cmd's set or PowerShell's $env:, ${env:} and SetEnvironmentVariable,
-// spaced or quoted. Quoted text counts too, since cmd /c and env -S unquote what bash would not, so a commit message
-// that writes such an assignment goes in a file, git commit -F. The call's words refuse the forms that set a variable
-// by its name alone, bash's builtins, cmd's setx and PowerShell's item commands on the env drive. Reading one is open.
-const GIT_CONFIG_VAR = /^GIT_CONFIG(_[A-Za-z0-9_]*)?$/i;
-const GIT_CONFIG_WHY = 'A GIT_CONFIG variable hands git settings the guard never sees, such as a push URL for origin. '
-  + 'The owner sets git\'s settings. A commit message that names such an assignment goes in a file, git commit -F.';
-const GIT_CONFIG_TEXT = new RegExp(
-  '(^|[^A-Za-z0-9_])GIT_CONFIG[A-Za-z0-9_]*[\'"}]*([-+*/%&|^]?=|\\s+[-+*/%&|^]?=(?!=))|'
-  + 'SetEnvironmentVariable\\s*\\(\\s*[\'"]?\\s*GIT_CONFIG',
-  'i'
-);
-// the builtins that set a shell variable by its name, which set -a or an export then hands to git, and cmd's two
-// (cmd's set writes NAME=value, which the text check refuses, and bash's set -- only sets positional parameters)
-const NAME_SETTERS = /^(export|declare|typeset|readonly|local|mapfile|readarray|getopts|setx)$/;
-// read's options that take a value that is not a name
-const READ_VALUE_OPTS = /^-[pdtnNui]$/;
-// PowerShell's commands that write an item, an env drive path among them
-const PS_ITEM_WRITE = new RegExp('^(set-item|si|new-item|ni|set-content|sc|add-content|ac|copy-item|copy|cpi|cp|'
-  + 'move-item|move|mi|mv|rename-item|ren|rni)$', 'i');
-// A call that names a GIT_CONFIG variable and the env drive, Env: or Environment:: as a path and not $env: as a read,
-// beside a command that writes an item or moves onto the drive, wherever its words fall, since PowerShell binds
-// parameters by name, position and abbreviation in ways no guess at its words follows. A read, $env:NAME or
-// Get-Item Env:NAME with no such command, stays open.
-// ${env:NAME} is a read, while {Env:NAME} and every other spelling of the drive is a path
-const ENV_DRIVE_TEXT = /(?<![A-Za-z0-9_$])(?<!\$\{)(env:|environment::)/i;
-// a command that makes a drive, whose provider PowerShell may bind from a name, a position or a piped object, so a
-// drive on the Environment provider writes variables under a name no check knows. A drive lives only in its call, so
-// one made in a call that names a GIT_CONFIG variable is refused, however its provider is bound
-const NEW_DRIVE_WORD = /(^|[^A-Za-z0-9_-])(new-psdrive|ndr|mount)(?![A-Za-z0-9_-])|Drive\s*\.\s*['"]?New\b|PSDriveInfo/i;
-// PowerShell's SetEnvironmentVariable naming a GIT_CONFIG variable anywhere, a cast or a parenthesis around it
-// included, since its argument is an expression
-const SET_ENV_CALL = /SetEnvironmentVariable/i;
-const ENV_WRITE_WORD = new RegExp('(^|[^A-Za-z0-9_-])(set-item|si|new-item|ni|set-content|sc|add-content|ac|copy-item|'
-  + 'copy|cpi|cp|move-item|move|mi|mv|rename-item|ren|rni|set-location|cd|sl|chdir|pushd|push-location)'
-  + '(?![A-Za-z0-9_-])', 'i');
-// the env drive by its drive name or its provider's, Env:, Environment:: or Microsoft.PowerShell.Core\Environment::
-const PS_ENV = '(env:|(microsoft\\.powershell\\.core\\\\)?environment::)[\\\\/]?';
-const PS_ENV_ITEM = new RegExp('^(-[a-z]+:)?' + PS_ENV, 'i');
-const PS_ENV_PATH = new RegExp('^(-[a-z]+:)?' + PS_ENV + 'GIT_CONFIG', 'i');
-const PS_NEW_NAME = /^(-newname:)?GIT_CONFIG/i;
-
-function namesGitConfig(word) {
-  return GIT_CONFIG_VAR.test(String(word).split('=')[0].trim());
-}
-
-function checkGitConfigVars(toks, assigns, prog, args, whole) {
-  if (assigns.some(namesGitConfig)) deny(GIT_CONFIG_WHY, whole);
-  if (NAME_SETTERS.test(prog) && args.some(namesGitConfig)) deny(GIT_CONFIG_WHY, whole);
-  if (prog === 'let' && args.some((a) => /GIT_CONFIG/i.test(a))) deny(GIT_CONFIG_WHY, whole);
-  if (prog === 'printf') {
-    const k = args.findIndex((a) => a === '-v' || /^-v./.test(a));
-    if (k >= 0 && namesGitConfig(args[k] === '-v' ? args[k + 1] || '' : args[k].slice(2))) deny(GIT_CONFIG_WHY, whole);
-  }
-  if (prog === 'read') {
-    for (let k = 0; k < args.length; k++) {
-      if (READ_VALUE_OPTS.test(args[k])) k++;
-      else if (args[k] === '-a' ? namesGitConfig(args[++k] || '') : !args[k].startsWith('-') && namesGitConfig(args[k])) {
-        deny(GIT_CONFIG_WHY, whole);
-      }
-    }
-  }
-  // a rename's new name counts only when what it renames is on the env drive, so a file named GIT_CONFIG.md stays open
-  if (!PS_ITEM_WRITE.test(prog)) return;
-  // a rename's new name counts only when what it renames is on the env drive, so a file named GIT_CONFIG.md stays open.
-  // A copy is refused either way, since PowerShell binds its parameters by name, position and abbreviation in ways a
-  // guess at the destination misreads
-  const onEnv = args.some((a) => PS_ENV_ITEM.test(a));
-  if (args.some((a) => PS_ENV_PATH.test(a) || (onEnv && PS_NEW_NAME.test(a)))) deny(GIT_CONFIG_WHY, whole);
-}
-
 // A git setting can run a command, hide a refused one behind an alias, or send code somewhere else.
 const DANGEROUS_GIT_KEY = new RegExp(
   '^(alias\\.|core\\.(hookspath|sshcommand|fsmonitor|editor|pager|askpass|gitproxy)|sequence\\.editor|pager\\.|'
@@ -1091,7 +2152,7 @@ function statusPush(dir) {
   const git = (args) => execFileSync('git', ['-C', dir, ...args], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
-    timeout: 20000,
+    timeout: Math.min(20000, timeLeft()),
     windowsHide: true,
     env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }
   }).trim();
