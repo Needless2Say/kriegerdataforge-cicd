@@ -37,7 +37,8 @@
 # folder changed, its HEAD moved or git could not read it, when Codex failed or wrote no answer, and when its JSON
 # events hold no completed turn or a line that is no event. It warns when the events show Codex doing anything but
 # running commands, reasoning, keeping a plan and answering. The answer, the frame and the events go to the archive,
-# $KDF_CODEX_ARCHIVE or temp/codex in the workspace, the owner's local scratch and never a repo, each run under a name
+# $KDF_CODEX_ARCHIVE or codex-archive in the workspace, kept outside every repo and outside temp, so a session
+# removing temp files never takes it (D-069), each run under a name
 # of its own. The answer's header holds the verdict, passed or why the run failed, settled before the archive is
 # written, so a failed run's answer never passes for a review, then the kind, what was read, the model, the time, and
 # the tokens with the cached input Codex read again apart from the new. --dry-run prints the frame and runs nothing.
@@ -55,7 +56,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 workspace="$(cd "$here/../../.." && pwd)"
 codex_bin="${KDF_CODEX_BIN:-codex}"
 settled_file="${KDF_SETTLED-$workspace/kriegerdataforge-context/context/SETTLED.md}"
-archive="${KDF_CODEX_ARCHIVE:-$workspace/temp/codex}"
+archive="${KDF_CODEX_ARCHIVE:-$workspace/codex-archive}"
 # a token's shape, GitHub's, a private key's, AWS's and OpenAI's, so nothing sent holds one
 token_shapes='gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,}|-----BEGIN [A-Z ]*PRIVATE KEY'
 token_shapes="$token_shapes|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}"

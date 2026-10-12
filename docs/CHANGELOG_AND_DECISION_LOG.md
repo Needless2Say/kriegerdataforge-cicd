@@ -3534,3 +3534,21 @@ the administrator folders, stage 3, after that. VERSION 0.2.150.
 often and which change nothing outside the command, `ENVIRONMENT`'s remote values still refused. Beside
 `MSYS_NO_PATHCONV=1` a path is written with its drive, since Git Bash then leaves `/tmp` unconverted. The launcher's
 example in the README is written without a variable, as the list requires. 1110 cases. VERSION 0.2.151.
+
+## D-069. kdf-ask-codex.sh archives its answers outside temp
+
+- **Date.** 2026-10-12
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Quick · `tools/claude-code/kdf-ask-codex.sh` and its README · D-052's archive moved
+
+**Context.** D-052 archived every Codex answer in the workspace's `temp/codex`, the owner's scratch. Under D-068 a
+session removes a temp file without asking, so a session tidying the temp folder could take every answer, though
+work records cite them as evidence. The owner chose on 2026-10-12 to move the archive out of temp.
+
+**Decision.** The archive is the workspace's `codex-archive`, beside the repos and outside every one of them and
+outside `temp`, so the guard asks the owner before a session removes an answer. `KDF_CODEX_ARCHIVE` still overrides
+it. The answers already archived move there under the same names, so a record that cites `temp/codex/<name>` finds
+it at `codex-archive/<name>`.
+
+**Consequences.** No answer is lost to a tidy of the temp folder. The archive is in the workspace and so in the
+owner's backup of it. VERSION 0.2.151, with D-068's list change.
