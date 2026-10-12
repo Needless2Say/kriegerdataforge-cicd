@@ -6635,5 +6635,59 @@
   "tool": "Bash",
   "command": "awk 'BEGIN { ARGV[1] = \".en\" \"v.kdf\"; ARGC = 2 } { print }'",
   "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "PYTHONUTF8=1 .venv/Scripts/python.exe x.py",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "PYTHONDONTWRITEBYTECODE=1 .venv/Scripts/python.exe -m pytest -q",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "MSYS_NO_PATHCONV=1 git show HEAD:README.md",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "ENVIRONMENT=local make ci",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "ENVIRONMENT=dev make ci",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "ENVIRONMENT=prod .venv/Scripts/python.exe x.py",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "PYTHONUTF8=0 .venv/Scripts/python.exe x.py",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "PYTHONPATH=src .venv/Scripts/python.exe x.py",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "printf '%s ' kriegerdataforge-ee > ${TEMP}/status-md.lock/holder && date '+%F %H:%M' >> ${TEMP}/status-md.lock/holder",
+  "expect": "allow"
  }
 ]

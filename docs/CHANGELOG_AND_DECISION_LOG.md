@@ -3528,3 +3528,8 @@ value, puts a commit message in a file or single quotes, and waits for the owner
 forms and so has fewer to get wrong, and each new form is a line on the list. 1098 cases hold it, refusals, removals
 and the list's forms among them. Codex, stage 2, follows once its hooks are proven on each route, and the install in
 the administrator folders, stage 3, after that. VERSION 0.2.150.
+
+**The list's first change, 2026-10-12.** Before the switch, four more fixed pairs, `PYTHONUTF8=1`,
+`PYTHONDONTWRITEBYTECODE=1`, `MSYS_NO_PATHCONV=1` and `ENVIRONMENT=local`, which the replay showed sessions set
+often and which change nothing outside the command, `ENVIRONMENT`'s remote values still refused. The launcher's
+example in the README is written without a variable, as the list requires. 1107 cases. VERSION 0.2.151.

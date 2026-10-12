@@ -67,7 +67,7 @@ is still refused.
 **Plain** means words, single quotes, double quotes holding no `$`, backtick or backslash, `&&`, `||`, `;`, `|`, a
 newline and a `#` comment, and a redirect that writes only into a temp folder or `/dev/null`. So the guard reads a
 command exactly as bash runs it. A `$`, a backtick, a heredoc, a loop, a function, a subshell, a brace, a background
-`&`, `eval`, `source` and a variable set for a command, but for four fixed pairs such as `PYTHONIOENCODING=utf-8`, are
+`&`, `eval`, `source` and a variable set for a command, but for eight fixed pairs such as `PYTHONUTF8=1`, are
 refused. A commit message goes in a file, `git commit -F`, or in single quotes, and a pull request's body in a file,
 `gh pr create --body-file`. A program is a bare name, or a repo's venv interpreter, `<repo>/.venv/Scripts/python.exe`,
 or a `.sh` script by its path. Inline code, `python -c`, `node -e` and `bash -c`, is refused, while a script file runs
@@ -189,10 +189,11 @@ The role comes from the environment the session was started in, so it works in a
 ```bash
 cd <workspace>/<repo>
 KDF_ROLE=reviewer claude rc --spawn=same-dir      # sessions opened from a phone
-step=docs/reviews/2026-09-28-sdk/s1-foundation/step-2-review
 bash <workspace>/kriegerdataforge-cicd/tools/claude-code/kdf-review.sh --repo . \
-     --brief "$step/SDK_REVIEW_S1_PROMPT.md" --report "$step/SDK_REVIEW_S1_REPORT.md" \
-     --codex-report "$step/SDK_REVIEW_S1_CODEX_REPORT.md" --pin <pin> --model <model> --effort max
+     --brief docs/reviews/2026-09-28-sdk/s1-foundation/step-2-review/SDK_REVIEW_S1_PROMPT.md \
+     --report docs/reviews/2026-09-28-sdk/s1-foundation/step-2-review/SDK_REVIEW_S1_REPORT.md \
+     --codex-report docs/reviews/2026-09-28-sdk/s1-foundation/step-2-review/SDK_REVIEW_S1_CODEX_REPORT.md \
+     --pin <pin> --model <model> --effort max
 ```
 
 Every review is archived in its own dated folder, `docs/reviews/<YYYY-MM-DD>-<scope>/`, with a folder per slice and
