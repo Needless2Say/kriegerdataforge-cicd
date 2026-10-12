@@ -2089,6 +2089,12 @@ function judgeCommand(toks, whole, asks, single, variant) {
   }
   const args = argToks.map((t) => t.t);
   if (!Object.prototype.hasOwnProperty.call(LIST, prog)) deny(notListed(prog), whole);
+  // MSYS_NO_PATHCONV=1 stops Git Bash turning /tmp or /d/x into Windows paths, so a program would open a different
+  // place than the guard reads, and such a path is refused beside it, a drive written out, D:/x, still allowed
+  if (assigns.includes('MSYS_NO_PATHCONV=1') && args.some((a) => /(^|=)\//.test(a))) {
+    deny('With MSYS_NO_PATHCONV=1 a path is written with its drive, D:/x, since /tmp or /d/x would reach the '
+      + 'program unchanged.', whole);
+  }
 
   for (let k = 0; k < toks.length; k++) {
     const t = toks[k];

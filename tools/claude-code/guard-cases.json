@@ -6689,5 +6689,23 @@
   "tool": "Bash",
   "command": "printf '%s ' kriegerdataforge-ee > ${TEMP}/status-md.lock/holder && date '+%F %H:%M' >> ${TEMP}/status-md.lock/holder",
   "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "MSYS_NO_PATHCONV=1 git archive -o /tmp/result.zip HEAD",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "MSYS_NO_PATHCONV=1 git archive --output=/tmp/result.zip HEAD",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "MSYS_NO_PATHCONV=1 git show HEAD:.gitignore",
+  "expect": "allow"
  }
 ]

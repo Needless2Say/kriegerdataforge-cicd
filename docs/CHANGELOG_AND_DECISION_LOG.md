@@ -3531,5 +3531,6 @@ the administrator folders, stage 3, after that. VERSION 0.2.150.
 
 **The list's first change, 2026-10-12.** Before the switch, four more fixed pairs, `PYTHONUTF8=1`,
 `PYTHONDONTWRITEBYTECODE=1`, `MSYS_NO_PATHCONV=1` and `ENVIRONMENT=local`, which the replay showed sessions set
-often and which change nothing outside the command, `ENVIRONMENT`'s remote values still refused. The launcher's
-example in the README is written without a variable, as the list requires. 1107 cases. VERSION 0.2.151.
+often and which change nothing outside the command, `ENVIRONMENT`'s remote values still refused. Beside
+`MSYS_NO_PATHCONV=1` a path is written with its drive, since Git Bash then leaves `/tmp` unconverted. The launcher's
+example in the README is written without a variable, as the list requires. 1110 cases. VERSION 0.2.151.
