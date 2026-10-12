@@ -3513,8 +3513,10 @@ that temporary files may be deleted freely.
 3. A removal, a command that deletes, discards uncommitted work or writes over a file, answers with a permission
    decision of ask, the command and what it removes in the owner's prompt, unless every path it names is a temporary
    file outside any git working tree. A reviewer removes nothing.
-4. The list starts from the programs and flags of the sessions' own recorded commands. `timeout`, `xargs`, `env`,
-   `nohup`, `docker exec` and `run`, `compose exec` and `run` and `curl` wait for a check of their own.
+4. The list starts from the programs and flags of the sessions' own recorded commands, replayed through it, and the
+   owner approved it on 2026-10-12. `curl` reaches this machine alone on the reviewer's curl rules, the owner's
+   choice. `timeout`, `xargs`, `env`, `nohup`, `docker exec` and `run`, and `compose exec` and `run` wait for a check
+   of their own, and `taskkill` stays off.
 5. The guard keeps a deadline of its own inside the hook's timeout. `--log` runs it as a trial that logs every
    decision and refuses nothing, for the week it runs beside the installed guard.
 6. The PowerShell tool is refused, the MCP tools any session calls are held to `MCP_ALLOWED`, and what loads into a
@@ -3523,6 +3525,6 @@ that temporary files may be deleted freely.
 
 **Consequences.** A session writes its commands out plainly, a loop as the commands it runs and a variable as its
 value, puts a commit message in a file or single quotes, and waits for the owner at a removal. The guard reads fewer
-forms and so has fewer to get wrong, and each new form is a line on the list. 1032 cases hold it, refusals, removals
+forms and so has fewer to get wrong, and each new form is a line on the list. 1042 cases hold it, refusals, removals
 and the list's forms among them. Codex, stage 2, follows once its hooks are proven on each route, and the install in
 the administrator folders, stage 3, after that. VERSION 0.2.150.

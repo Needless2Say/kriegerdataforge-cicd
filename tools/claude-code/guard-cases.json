@@ -4110,7 +4110,7 @@
   "role": "owner",
   "tool": "Bash",
   "command": "curl -s http://localhost:3000/health",
-  "expect": "block"
+  "expect": "allow"
  },
  {
   "role": "reviewer",
@@ -4268,31 +4268,31 @@
   "role": "reviewer",
   "tool": "Bash",
   "command": "curl -s http://localhost:3000/health",
-  "expect": "block"
+  "expect": "allow"
  },
  {
   "role": "reviewer",
   "tool": "Bash",
   "command": "curl -sk https://localhost:3002/.well-known/openid-configuration",
-  "expect": "block"
+  "expect": "allow"
  },
  {
   "role": "reviewer",
   "tool": "Bash",
   "command": "curl -s -H \"Accept: application/json\" -X POST -d '{\"a\":1}' http://127.0.0.1:8000/x",
-  "expect": "block"
+  "expect": "allow"
  },
  {
   "role": "reviewer",
   "tool": "Bash",
   "command": "curl -s -w '%{http_code}' localhost:8001/docs",
-  "expect": "block"
+  "expect": "allow"
  },
  {
   "role": "reviewer",
   "tool": "Bash",
   "command": "curl http://[::1]:3000/",
-  "expect": "block"
+  "expect": "allow"
  },
  {
   "role": "reviewer",
@@ -4412,7 +4412,7 @@
   "role": "reviewer",
   "tool": "Bash",
   "command": "curl --data-urlencode 'email=a@b.example' http://localhost:3000",
-  "expect": "block"
+  "expect": "allow"
  },
  {
   "role": "reviewer",
@@ -4448,7 +4448,7 @@
   "role": "reviewer",
   "tool": "Bash",
   "command": "curl -XPOST -HContent-Type:application/json -d '{}' http://localhost:8000/v1/x",
-  "expect": "block"
+  "expect": "allow"
  },
  {
   "role": "reviewer",
@@ -4460,7 +4460,7 @@
   "role": "reviewer",
   "tool": "Bash",
   "command": "curl -sSi http://localhost:3000/api/health",
-  "expect": "block"
+  "expect": "allow"
  },
  {
   "role": "reviewer",
@@ -5276,7 +5276,7 @@
   "role": "owner",
   "tool": "Bash",
   "command": "curl http://localhost:3000",
-  "expect": "block"
+  "expect": "allow"
  },
  {
   "role": "owner",
@@ -6239,5 +6239,65 @@
   "role": "owner",
   "tool": "mcp__ide__getDiagnostics",
   "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "curl -s -w '%{http_code}' http://localhost:8001/docs",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "curl -sS -X POST -H Content-Type:application/json -d '{}' http://127.0.0.1:8000/api",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "curl https://example.com",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "curl -o x.html http://localhost:3000",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "curl -L http://localhost:3000",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "curl http://localhost:2375/containers/json",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "curl -d @.env.kdf http://localhost:3000",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "curl --proxy http://x:1 http://localhost:3000",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "curl",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Write",
+  "file": "${PROJ}/.curlrc",
+  "expect": "block"
  }
 ]

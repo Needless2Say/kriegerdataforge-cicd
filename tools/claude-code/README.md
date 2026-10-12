@@ -80,9 +80,10 @@ without `-delete` or `-exec`, and the like. Making files, `mkdir`, `touch`, `cp`
 git's reading and writing subcommands, gh's reading verbs and `pr create` and `comment`, `make`, the venv python on a
 file or a module, `node` on a file, `bash` on a script, `npx` of the repo's own tools, `npm` install, run, audit and
 ls, docker's reading commands, `build`, `cp`, `start`, `stop` and `compose up`, `down`, `ps`, `logs` and `build` on
-this machine's engine, `terraform fmt`, `validate` and `version`, and `claude --version` and `codex login status`.
-`timeout`, `xargs`, `env`, `nohup`, `docker exec` and `run`, `compose exec` and `run`, and `curl` are not on the first
-list, each to come back with a check of its own.
+this machine's engine, `curl` to this machine alone on the reviewer's curl rules, the owner's choice of 2026-10-12,
+`terraform fmt`, `validate` and `version`, and `claude --version` and `codex login status`. `timeout`, `xargs`, `env`,
+`nohup`, `docker exec` and `run`, and `compose exec` and `run` are not on the first list, each to come back with a
+check of its own. `taskkill` stays off, the owner's choice, since a broad one stops every `node`.
 
 **A removal asks the owner.** A command that deletes a file or a folder, discards uncommitted work or writes over a
 file, `rm`, `git clean`, `git reset --hard`, `git checkout -- <path>`, `git branch -D`, `npm ci`, a `make` target named
@@ -167,8 +168,10 @@ git, no GitHub CLI, no shell command that writes, deletes, installs or downloads
 no connector, artifact, message, schedule, notification, web fetch or web search tool, and file edits only for new
 files under `docs/reviews`, never a tracked brief, plan, log or earlier report there, and no removal of any kind. A
 reviewer reads the running stack and never changes it, docker running only `ps` and `logs`, their compose forms too,
-against this machine's daemon. curl is off the first list for every session, and the reviewer's own curl rules, an
-allow list of options and `localhost`, `127.0.0.1` or `[::1]` alone, stay in the guard for when it comes back.
+against this machine's daemon. curl reaches `localhost`, `127.0.0.1` or `[::1]` over http or https alone, for every
+session since the owner's choice of 2026-10-12. It takes an allow list of options, so nothing writes a file, reads
+one with `@`, follows a redirect, goes through a proxy or a socket, or reaches port 2375, 2376 or 2019, the Docker
+Engine and Caddy admin APIs, and the host is matched as text in one strict shape. `.curlrc` is a guardrail file.
 A reviewer follows
 `.gitignore`, so Read, Grep, Glob and every shell program that prints a file are refused a path git ignores,
 `.env.local` aside, and the reports the launcher holds in

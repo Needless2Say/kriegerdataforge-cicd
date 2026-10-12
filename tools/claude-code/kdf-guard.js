@@ -87,6 +87,7 @@ const PROTECTED = [
   /(^|\/)program files\/(claudecode|kriegerdataforge)(\/|$)/,
   /(^|\/)programdata\/openai(\/|$)/,
   /(^|\/)\.(bashrc|bash_profile|bash_login|profile|inputrc)$/,
+  /(^|\/)[._]curlrc$/,
   /(^|\/)(windows)?powershell\/[^/]*profile[^/]*\.ps1$/
 ];
 const GUARDRAIL_WHY = 'Guardrails are the owner\'s to change. Settings, hooks, the MCP list, git hooks, git\'s own '
@@ -1184,6 +1185,10 @@ const LIST = {
       deny('claude runs only as claude --version. What loads into a session, and starting one, are the owner\'s.',
         whole);
     }
+    return { operands: [] };
+  } },
+  curl: { form: (args, whole) => {
+    checkCurl(args, (why) => deny(why, whole));
     return { operands: [] };
   } },
   codex: { form: (args, whole) => {
@@ -2589,6 +2594,13 @@ function checkReviewerStack(prog, args, assigns, whole) {
     if (sub !== 'ps' && sub !== 'logs') refuse('docker ' + (compose ? 'compose ' : '') + sub + ' is refused, only ps and logs.');
     return;
   }
+  checkCurl(args, refuse);
+}
+
+// curl to this machine alone, every session's since the owner's word of 2026-10-12 and a reviewer's before it. Its
+// options come from an allow list, so nothing writes a file, reads one with @, follows a redirect, goes through a
+// proxy or a socket, or reaches the Docker Engine or Caddy admin API, and the host is matched as text in one shape.
+function checkCurl(args, refuse) {
   const urls  = [];
   const value = (opt, v) => {
     if (CURL_AT_READS.has(opt) && v.startsWith('@')) refuse('A curl value that starts with @ reads a file.');
@@ -2600,12 +2612,12 @@ function checkReviewerStack(prog, args, assigns, whole) {
     if (a.startsWith('--')) {
       const name = a.slice(2);
       if (CURL_LONG_FLAGS.has(name)) continue;
-      if (!CURL_LONG_VALUES.has(name)) refuse('curl ' + a + ' is refused, see the reviewer\'s curl options in the guard.');
+      if (!CURL_LONG_VALUES.has(name)) refuse('curl ' + a + ' is refused, see the curl options in the guard.');
       value(name, args[++i] || '');
     } else if (a.length > 1 && a.startsWith('-')) {
       for (let k = 1; k < a.length; k++) {
         if (CURL_SHORT_FLAGS.has(a[k])) continue;
-        if (!CURL_SHORT_VALUES.has(a[k])) refuse('curl -' + a[k] + ' is refused, see the reviewer\'s curl options in the guard.');
+        if (!CURL_SHORT_VALUES.has(a[k])) refuse('curl -' + a[k] + ' is refused, see the curl options in the guard.');
         value(a[k], k + 1 < a.length ? a.slice(k + 1) : args[++i] || '');
         break;
       }
@@ -2613,6 +2625,7 @@ function checkReviewerStack(prog, args, assigns, whole) {
       urls.push(a);
     }
   }
+  if (!urls.length) refuse('curl needs a URL on this machine.');
   for (const u of urls) {
     const m = LOCAL_URL.exec(u);
     if (!m) refuse('curl reaches this machine alone, http or https to localhost, 127.0.0.1 or [::1], and ' + u + ' is not that.');
