@@ -187,23 +187,35 @@ def _guard_environment(project: Path, case: dict[str, object]) -> dict[str, str]
     """
     env = {key: value for key, value in os.environ.items() if not key.startswith("KDF_")}
     env["CLAUDE_PROJECT_DIR"] = str(project)
+    env["KDF_GUARD_TEMP_ROOTS"] = str(_temp_root(project))
+    env["KDF_GUARD_TRIAL_LOG"] = str(project.parent / "kdf-guard-trial.log")
     if case["role"] == "reviewer" and case.get("via") == "env":
         env["KDF_ROLE"] = "reviewer"
     env.update(case.get("env", {}))  # type: ignore[arg-type]
     return env
 
 
+def _temp_root(project: Path) -> Path:
+    """
+    The temp folder a case's guard is given, beside the project and outside it, made once.
+    """
+    root = project.parent / "kdf-temp"
+    root.mkdir(exist_ok = True)
+    return root
+
+
 def _run_case(project: Path, case: dict[str, object]) -> tuple[int, str]:
     """
-    Feed one tool call to the guard the way Claude Code does, on stdin, and return its exit code and message.
+    Feed one tool call to the guard the way Claude Code does, on stdin, and return its exit code and message, its
+    stderr and then its stdout, where a prompt for the owner is written.
     """
     tool_input: dict[str, str] = {}
     if "file" in case:
         tool_input["file_path"] = str(case["file"]).replace("${PROJ}", project.as_posix())
     elif "command" in case:
-        tool_input["command"] = str(case["command"])
+        tool_input["command"] = str(case["command"]).replace("${TEMP}", _temp_root(project).as_posix())
     for key, value in dict(case.get("input", {})).items():  # type: ignore[call-overload]
-        tool_input[key] = str(value).replace("${PROJ}", project.as_posix())
+        tool_input[key] = str(value).replace("${PROJ}", project.as_posix()).replace("${TEMP}", _temp_root(project).as_posix())
     argv = [str(NODE), str(GUARD)]
     if case["role"] == "reviewer" and case.get("via") != "env":
         argv.append("reviewer")
@@ -216,7 +228,7 @@ def _run_case(project: Path, case: dict[str, object]) -> tuple[int, str]:
         env = _guard_environment(project, case),
         check = False,
     )
-    return done.returncode, done.stderr
+    return done.returncode, done.stderr + done.stdout
 
 
 def _ignored_tree(project: Path) -> None:
@@ -301,7 +313,8 @@ def guard_results(tmp_path_factory: pytest.TempPathFactory) -> list[tuple[int, s
 @pytest.mark.parametrize("index", range(len(CASES)), ids = [_label(case) for case in CASES])
 def test_the_guard_decides_each_case(index: int, guard_results: list[tuple[int, str]]) -> None:
     """
-    A refused call exits 2 with the reason, an allowed call exits 0.
+    A refused call exits 2 with the reason, an allowed call exits 0, and a removal exits 0 with a permission decision
+    of ask that shows the owner what it removes.
     """
     case = CASES[index]
     code, message = guard_results[index]
@@ -309,6 +322,8 @@ def test_the_guard_decides_each_case(index: int, guard_results: list[tuple[int, 
     assert code == want, f"{_label(case)} exited {code}, wanted {want}. {message.strip()}"
     if want == 2:
         assert "refused this call" in message
+    asked = '"permissionDecision":"ask"' in message
+    assert asked == (case["expect"] == "ask"), f"{_label(case)} asked {asked}. {message.strip()}"
 
 
 @pytest.mark.parametrize(
@@ -332,11 +347,12 @@ def test_each_closed_file_is_refused_with_its_own_reason(tmp_path: Path, command
 
 def test_the_cases_cover_both_roles_and_both_outcomes() -> None:
     """
-    The table is a real one, both roles, both outcomes, and every case says what it expects.
+    The table is a real one, both roles, all three outcomes, and every case says what it expects.
     """
     assert len(CASES) > 250
     assert {case["role"] for case in CASES} == {"owner", "reviewer"}
-    assert {case["expect"] for case in CASES} == {"allow", "block"}
+    assert {case["expect"] for case in CASES} == {"allow", "block", "ask"}
+    assert sum(1 for case in CASES if case["expect"] == "ask") >= 20
     for role in ("owner", "reviewer"):
         for expect in ("allow", "block"):
             assert sum(1 for case in CASES if case["role"] == role and case["expect"] == expect) >= 20

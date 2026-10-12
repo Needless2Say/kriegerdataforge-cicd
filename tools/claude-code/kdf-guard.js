@@ -819,6 +819,8 @@ function readPlain(cmd) {
     refuse('The character ' + JSON.stringify(c) + ' is refused outside quotes. Quote it.');
   }
   endCmd('');
+  const last = cmds[cmds.length - 1];
+  if (last && (last.op === '&&' || last.op === '||' || last.op === '|')) refuse('Nothing comes after ' + last.op + '.');
   return cmds;
 
   // A redirect, its file descriptor taken from the word before when that word is digits joined to it, 2> for example.
@@ -1557,8 +1559,16 @@ function gitForm(args, whole) {
     if (o.operands.length > 1) deny('Setting a symbolic ref moves a branch. Ask the owner.', whole);
     return { sub, ...o };
   }
-  if (sub === 'config' && !rest.some((a) => /^(--get|--get-all|--get-regexp|--get-urlmatch|--list|-l|--get-color|--get-colorbool)$/.test(a))) {
-    deny('git config only reads, git config --get, --list and their kin. git\'s settings are the owner\'s.', whole);
+  if (sub === 'config') {
+    // git's newer spelling names the reading verb first, git config get and git config list
+    const verb = rest[0] === 'get' || rest[0] === 'list' ? rest[0] : '';
+    const words = verb ? rest.slice(1) : rest;
+    if (!verb && !words.some((a) => /^(--get|--get-all|--get-regexp|--get-urlmatch|--list|-l|--get-color|--get-colorbool)$/.test(a))) {
+      deny('git config only reads, git config get, list, --get, --list and their kin. git\'s settings are the owner\'s.',
+        whole);
+    }
+    const o = readOpts(GIT_SUBS.config + ' --all --regexp --value= --fixed-value --url=', words, 'git config', whole, why);
+    return { sub, ...o };
   }
   const o = readOpts(GIT_SUBS[sub], rest, 'git ' + sub, whole, why);
   return { sub, ...o };
