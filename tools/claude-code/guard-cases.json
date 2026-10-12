@@ -5834,7 +5834,7 @@
   "role": "owner",
   "tool": "Bash",
   "command": "echo a\\b",
-  "expect": "block"
+  "expect": "allow"
  },
  {
   "role": "owner",
@@ -5852,7 +5852,7 @@
   "role": "owner",
   "tool": "Bash",
   "command": "echo \"a\\b\"",
-  "expect": "block"
+  "expect": "allow"
  },
  {
   "role": "owner",

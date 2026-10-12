@@ -534,8 +534,12 @@ function globVariants(toks) {
 function swapWords(toks, words) {
   const out = [];
   toks.forEach((t, k) => {
-    if (!words.has(k)) out.push(t);
-    else for (const w of words.get(k)) out.push({ t: w, q: false, lq: false, g: false, gm: new Set(), target: t.target });
+    if (!words.has(k)) {
+      out.push(t);
+      return;
+    }
+    // a swapped redirect target stays a target, so the redirect rules still meet it
+    for (const w of words.get(k)) out.push({ t: w, q: false, lq: false, g: false, gm: new Set(), target: t.target });
   });
   return out;
 }
@@ -587,7 +591,9 @@ function gitSaidNo(err) {
   return err.status === 128 && /^fatal: not a git repository/.test(String(err.stderr || '').trimStart());
 }
 // git's answers, each within the guard's own deadline
-const gitQuiet = () => ({ stdio: ['ignore', 'ignore', 'pipe'], timeout: Math.min(10000, timeLeft()), windowsHide: true });
+const gitQuiet = () => ({
+  stdio: ['ignore', 'ignore', 'pipe'], timeout: Math.min(10000, timeLeft()), windowsHide: true
+});
 
 // The nearest folder that exists, the path's own or one above it, since git cannot be started in a folder that does
 // not exist, a new report's or a tracked file's whose folder was deleted.
@@ -693,6 +699,8 @@ const notListed = (name) => name + ' is not on the owner\'s list of approved com
 const ALLOWED_ASSIGNS = new Set(['PYTHONIOENCODING=utf-8', 'NO_COLOR=1', 'FORCE_COLOR=0', 'GIT_PAGER=cat']);
 // Characters a word may hold outside quotes, each one bash reads as itself.
 const PLAIN_CHAR = /[A-Za-z0-9/._\-=:,@+%^~#*?[\]]/;
+// What may follow a $ for bash to expand it, a name, a digit, a brace, a parenthesis, a bracket or a special parameter.
+const EXPANDS = /^[A-Za-z0-9_{(@*#?$!\-[]/;
 // Where a session writes, and removes, freely. The owner's word of 2026-10-12, "All scrath pads, temp files, and other
 // temporary files should be allowed to be deleted as they are temporary".
 const TEMP_ROOTS = (process.env.KDF_GUARD_TEMP_ROOTS || [os.tmpdir(), 'D:/KriegerDataForge/temp'].join(';'))
@@ -758,15 +766,48 @@ function readPlain(cmd) {
       continue;
     }
     if (c === '"') {
-      const end = cmd.indexOf('"', i + 1);
-      if (end < 0) refuse('A quote is never closed.');
-      const body = cmd.slice(i + 1, end);
-      if (/[$`\\]/.test(body)) {
-        refuse('Double quotes hold a $, a backtick or a backslash, which bash would expand. Use single quotes, or put '
-          + 'the text in a file, git commit -F and gh --body-file.');
+      // bash's own reading of double quotes. A backslash escapes only $, a backtick, ", \ and a newline, and stays a
+      // character before anything else. A $ expands only before a name, a digit, a brace, a parenthesis, a bracket or
+      // a special parameter, and a backtick always runs a command.
+      let j = i + 1;
+      let body = '';
+      for (; j < cmd.length && cmd[j] !== '"'; j++) {
+        const ch = cmd[j];
+        if (ch === '\\' && j + 1 < cmd.length && '$`"\\\n'.includes(cmd[j + 1])) {
+          if (cmd[j + 1] !== '\n') body += cmd[j + 1];
+          j++;
+          continue;
+        }
+        if (ch === '`' || (ch === '$' && EXPANDS.test(cmd[j + 1] || ''))) {
+          refuse('Double quotes hold a $ or a backtick that bash would expand. Use single quotes, write the value out, '
+            + 'or put the text in a file, git commit -F and gh --body-file.');
+        }
+        body += ch;
       }
+      if (j >= cmd.length) refuse('A quote is never closed.');
       quoted(body);
-      i = end;
+      i = j;
+      continue;
+    }
+    if (c === '\\') {
+      // outside quotes a backslash makes the next character itself, and before a newline joins the lines
+      if (n === '\n') {
+        i++;
+        continue;
+      }
+      if (n === '\r' && cmd[i + 2] === '\n') {
+        i += 2;
+        continue;
+      }
+      if (n === undefined) refuse('A backslash ends the command.');
+      quoted(n);
+      i++;
+      continue;
+    }
+    if (c === '$' && !EXPANDS.test(n || '') && n !== '\'' && n !== '"') {
+      // a $ before nothing it could expand is the character itself, as in grep 'x' file$ or a word that ends in $
+      start();
+      tok.t += c;
       continue;
     }
     if (c === '&' && n === '&') {
@@ -793,7 +834,7 @@ function readPlain(cmd) {
       i = readRedirect(cmd, i);
       continue;
     }
-    if (c === '&') refuse('A background & is refused. Run it in the foreground, or use the tool\'s own background run.');
+    if (c === '&') refuse('A background & is refused. Run it in the foreground, or use the tool\'s own background.');
     if (c === '~') {
       const prev = tok ? tok.t[tok.t.length - 1] : '';
       if (!tok && !(n === undefined || n === '/' || /[\s;&|<>]/.test(n))) {
@@ -812,7 +853,6 @@ function readPlain(cmd) {
     }
     if (c === '$') refuse('A $ would expand a variable or run a command. Write the value out.');
     if (c === '`') refuse('A backtick runs a command. Run it as a command of its own.');
-    if (c === '\\') refuse('A backslash outside quotes is refused. Use forward slashes, or quotes.');
     if (c === '(' || c === ')') refuse('A parenthesis opens a subshell or a function. Write the commands out.');
     if (c === '{' || c === '}') refuse('A brace is refused. Quote it, or write the words out.');
     if (c === '!') refuse('! is refused outside quotes.');
@@ -1038,7 +1078,8 @@ const LIST = {
   cat: ANY, head: ANY, tail: ANY, wc: ANY, cut: ANY, tr: ANY, nl: ANY, tac: ANY, rev: ANY, paste: ANY, comm: ANY,
   join: ANY, fold: ANY, column: ANY, seq: ANY, basename: ANY, dirname: ANY, realpath: ANY, cygpath: ANY, md5sum: ANY,
   sha1sum: ANY, sha256sum: ANY, cmp: ANY, od: ANY, hexdump: ANY, stat: ANY, du: ANY, df: ANY, ls: ANY, which: ANY,
-  type: ANY, pwd: ANY, true: ANY, false: ANY, sleep: ANY, jq: ANY,
+  type: ANY, pwd: ANY, true: ANY, false: ANY, sleep: ANY, jq: ANY, base64: ANY, hostname: ANY, nproc: ANY, ps: ANY,
+  where: ANY, tasklist: ANY, ipconfig: ANY,
   xxd: { opts: ANY, maxOperands: 1 },
   file: { opts: '-b -i -L -h -z -s -k -r -N -0 -F= -e= -m= --brief --mime --mime-type --mime-encoding --dereference '
     + '--no-dereference --uncompress --special-files --keep-going --raw --separator= --exclude= --magic-file=' },
@@ -1109,18 +1150,15 @@ const LIST = {
   gh: { form: ghForm },
   npm: { form: npmForm },
   npx: { form: npxForm },
-  node: { form: (args, whole) => scriptForm('node', '--test --no-warnings --enable-source-maps --experimental-vm-modules '
-    + '--max-old-space-size= --trace-warnings --version -v', args, whole, { '-e': 'node -e runs code written in the command. '
-    + 'Put it in a file and run node <file>.', '--eval': 'node --eval runs code written in the command. Put it in a file.',
-    '-p': 'node -p runs code written in the command. Put it in a file.', '--print': 'node --print runs code written in '
-    + 'the command. Put it in a file.' }) },
+  node: { form: (args, whole) => scriptForm('node', '-c --check --test --no-warnings --enable-source-maps '
+    + '--experimental-vm-modules --max-old-space-size= --trace-warnings --version -v', args, whole, NODE_WHY) },
   bash: { form: (args, whole) => scriptForm('bash', '-e -x -u -n -v -o= --version', args, whole, BASH_WHY) },
   sh: { form: (args, whole) => scriptForm('sh', '-e -x -u -n -v -o= --version', args, whole, BASH_WHY) },
   python: { form: pythonForm },
   make: { form: (args, whole) => {
-    const o = readOpts('-C= -s -j? -k -n -q -w -f= -r -R --no-print-directory --silent --quiet --dry-run --just-print '
-      + '--keep-going --jobs? --directory= --file= --makefile= --print-directory --warn-undefined-variables '
-      + '--no-builtin-rules --no-builtin-variables', args, 'make', whole);
+    const o = readOpts('-C= -s -j? -k -n -q -w -f= -r -R -p -v --no-print-directory --silent --quiet --dry-run '
+      + '--just-print --keep-going --jobs? --directory= --file= --makefile= --print-directory --print-data-base '
+      + '--warn-undefined-variables --no-builtin-rules --no-builtin-variables --version', args, 'make', whole);
     return { operands: o.operands, targets: o.operands.filter((x) => !x.includes('=')) };
   } },
   docker: { form: dockerForm },
@@ -1156,6 +1194,12 @@ const LIST = {
     }
     return { operands: [] };
   } }
+};
+const NODE_WHY = {
+  '-e': 'node -e runs code written in the command. Put it in a file and run node <file>.',
+  '--eval': 'node --eval runs code written in the command. Put it in a file and run node <file>.',
+  '-p': 'node -p runs code written in the command. Put it in a file and run node <file>.',
+  '--print': 'node --print runs code written in the command. Put it in a file and run node <file>.'
 };
 const BASH_WHY = {
   '-c': 'bash -c runs code written in the command. Put it in a script file and run bash <file>.',
@@ -1232,7 +1276,8 @@ function findForm(args, whole) {
       continue;
     }
     if (!Object.prototype.hasOwnProperty.call(FIND_TESTS, a)) {
-      deny('find ' + a + ' is not on the owner\'s list. find only lists, a removal goes through rm, which asks.', whole);
+      deny('find ' + a + ' is not on the owner\'s list. find only lists, and a removal goes through rm, which asks.',
+        whole);
     }
     tests = true;
     k += FIND_TESTS[a];
@@ -1694,7 +1739,7 @@ const DOCKER_SUBS = {
   cp: '-a -L -q --archive --follow-link --quiet',
   start: '-a --attach', stop: '-t= --time= -s= --signal=', rm: '-f -v --force --volumes',
   rmi: '-f --force --no-prune', version: '-f= --format=', info: '-f= --format=', port: '',
-  network: '', volume: '', compose: ''
+  pull: '-q -a --quiet --all-tags --platform=', network: '', volume: '', image: '', compose: ''
 };
 function dockerForm(args, whole) {
   dockerLocal(whole);
@@ -1710,9 +1755,9 @@ function dockerForm(args, whole) {
     deny('docker ' + sub + ' is not on the owner\'s list of approved commands.' + why, whole);
   }
   if (sub === 'compose') return composeForm(args.slice(1), whole);
-  if (sub === 'network' || sub === 'volume') {
+  if (sub === 'network' || sub === 'volume' || sub === 'image') {
     const verb = args[1] || '';
-    if (!['ls', 'inspect', 'rm'].includes(verb) || (sub === 'network' && verb === 'rm')) {
+    if (!['ls', 'inspect', 'rm'].includes(verb) || (sub !== 'volume' && verb === 'rm')) {
       deny('docker ' + sub + ' ' + verb + ' is not on the owner\'s list.', whole);
     }
     const o = readOpts('-q -f= --format= --quiet --filter=', args.slice(2), 'docker ' + sub, whole);
@@ -1729,7 +1774,8 @@ const COMPOSE_SUBS = {
   ps: '-a -q --all --quiet --services --format= --filter= --status=',
   logs: '-f -t -n= --follow --timestamps --tail= --since= --until= --no-color --no-log-prefix',
   build: '-q --no-cache --pull --progress= --quiet --build-arg=',
-  config: '-q --services --volumes --format= --quiet --images --profiles --hash= --no-interpolate'
+  config: '-q --services --volumes --format= --quiet --images --profiles --hash= --no-interpolate',
+  version: '--short --format='
 };
 function composeForm(args, whole) {
   let k = 0;

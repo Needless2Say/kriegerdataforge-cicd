@@ -215,7 +215,8 @@ def _run_case(project: Path, case: dict[str, object]) -> tuple[int, str]:
     elif "command" in case:
         tool_input["command"] = str(case["command"]).replace("${TEMP}", _temp_root(project).as_posix())
     for key, value in dict(case.get("input", {})).items():  # type: ignore[call-overload]
-        tool_input[key] = str(value).replace("${PROJ}", project.as_posix()).replace("${TEMP}", _temp_root(project).as_posix())
+        text = str(value).replace("${PROJ}", project.as_posix())
+        tool_input[key] = text.replace("${TEMP}", _temp_root(project).as_posix())
     argv = [str(NODE), str(GUARD)]
     if case["role"] == "reviewer" and case.get("via") != "env":
         argv.append("reviewer")
