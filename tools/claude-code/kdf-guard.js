@@ -1079,7 +1079,7 @@ const LIST = {
   join: ANY, fold: ANY, column: ANY, seq: ANY, basename: ANY, dirname: ANY, realpath: ANY, cygpath: ANY, md5sum: ANY,
   sha1sum: ANY, sha256sum: ANY, cmp: ANY, od: ANY, hexdump: ANY, stat: ANY, du: ANY, df: ANY, ls: ANY, which: ANY,
   type: ANY, pwd: ANY, true: ANY, false: ANY, sleep: ANY, jq: ANY, base64: ANY, hostname: ANY, nproc: ANY, ps: ANY,
-  where: ANY, tasklist: ANY, ipconfig: ANY,
+  where: ANY, tasklist: ANY, ipconfig: ANY, readlink: ANY, actionlint: ANY,
   xxd: { opts: ANY, maxOperands: 1 },
   file: { opts: '-b -i -L -h -z -s -k -r -N -0 -F= -e= -m= --brief --mime --mime-type --mime-encoding --dereference '
     + '--no-dereference --uncompress --special-files --keep-going --raw --separator= --exclude= --magic-file=' },
@@ -1100,7 +1100,7 @@ const LIST = {
       + '--pretty --quiet --null --replace= --regexp= --type= --type-not= --glob= --iglob= --after-context= '
       + '--before-context= --context= --max-count= --max-depth= --threads= --max-columns= --sort= --sortr= --files '
       + '--type-list --json --column --vimgrep --stats --trim --color= --colors= --passthru --no-messages --unicode '
-      + '--no-unicode --crlf --encoding= -E= --engine= --pcre2 --auto-hybrid-regex --max-filesize=',
+      + '--no-unicode --crlf --encoding= -E= --engine= --pcre2 --auto-hybrid-regex --max-filesize= --version -V',
     why: RG_WHY
   },
   sort: {
@@ -1739,7 +1739,7 @@ const DOCKER_SUBS = {
   cp: '-a -L -q --archive --follow-link --quiet',
   start: '-a --attach', stop: '-t= --time= -s= --signal=', rm: '-f -v --force --volumes',
   rmi: '-f --force --no-prune', version: '-f= --format=', info: '-f= --format=', port: '',
-  pull: '-q -a --quiet --all-tags --platform=', network: '', volume: '', image: '', compose: ''
+  pull: '-q -a --quiet --all-tags --platform=', tag: '', network: '', volume: '', image: '', compose: ''
 };
 function dockerForm(args, whole) {
   dockerLocal(whole);
