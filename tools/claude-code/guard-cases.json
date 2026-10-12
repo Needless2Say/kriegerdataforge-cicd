@@ -6437,5 +6437,119 @@
   "tool": "Bash",
   "command": "sed -n -e '1,3p' .gitignore",
   "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "printf 'all:\\n' | make -f -",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "make -f /dev/stdin",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "make -f Makefile ci",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "npx tsx -e 'console.log(1)'",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "awk 'BEGIN { print \"{};\" > \".claude/settings.json\" }'",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "awk 'BEGIN { print \"a;b\" }'",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git archive -vo.claude/settings.json HEAD",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git archive -o ${TEMP}/x.zip HEAD",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git format-patch HEAD~1",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git format-patch --stdout HEAD~1",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "npm run --loglevel silent deploy",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "npm run deploy",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "npm run lint --silent",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "mkdir stage && cp -r seed/.claude stage",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "grep -f.env.kdf .gitignore",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "grep -fkeys/id_rsa .gitignore",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git blame -S.env.kdf .gitignore",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git checkout HEAD .gitignore",
+  "expect": "ask"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git checkout feature/elsewhere",
+  "expect": "allow"
  }
 ]

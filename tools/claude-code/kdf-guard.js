@@ -228,7 +228,11 @@ function isProtected(p) {
   if (PROTECTED.some((r) => r.test(n))) return true;
   // the same path from the folder the shell is in, so cd .claude && cp x settings.json names .claude/settings.json
   const abs = String(p).startsWith('-') ? '' : norm(resolvedPath(String(p)));
-  return Boolean(abs) && PROTECTED.some((r) => r.test(abs));
+  if (!abs) return false;
+  if (PROTECTED.some((r) => r.test(abs))) return true;
+  // and where it really leads, so a link into ~/.claude is a guardrail path
+  const real = norm(realOf(abs));
+  return real !== abs && PROTECTED.some((r) => r.test(real));
 }
 
 // A path as the shell would open it from the folder it is in, Git Bash's /d/x and ~ forms read, or '' for nothing.
@@ -319,9 +323,13 @@ function isClosed(p) {
   const s = String(p || '');
   if (!s) return false;
   if (LOCAL_ENV.test(s) ? !localEnvOpen(s) : isSecretFile(s)) return true;
-  // the same path from the folder the shell is in, so cd keys && cat id_rsa names keys/id_rsa (D-068)
-  const abs = s.startsWith('-') ? '' : resolvedPath(s);
-  return Boolean(abs) && abs !== s && !LOCAL_ENV.test(s) && KEY_FILE.test(abs);
+  // the same path from the folder the shell is in, so cd keys && cat id_rsa names keys/id_rsa, and where it really
+  // leads, so a link to a secret file is one (D-068)
+  if (s.startsWith('-')) return false;
+  const abs = resolvedPath(s);
+  if (abs && abs !== s && !LOCAL_ENV.test(s) && KEY_FILE.test(abs)) return true;
+  const real = abs ? realOf(abs) : '';
+  return Boolean(real) && real.toLowerCase() !== abs.toLowerCase() && isSecretFile(real);
 }
 
 function checkClosed(p, detail) {
@@ -596,6 +604,8 @@ function checkSecretWords(toks, prog, args, whole) {
     const redirect = /^\d*(?:<|>>?|&>>?)(.+)$/.exec(t.t);
     if (redirect) words.push(redirect[1]);
     for (const w of words.filter((x) => x.startsWith('@'))) words.push(w.slice(1));
+    // a value joined to a short option, grep -f.env.kdf or a cluster such as -nfkeys/id_rsa, read as each tail
+    if (/^-[^-]/.test(t.t)) for (let k = 2; k < t.t.length; k++) words.push(t.t.slice(k));
     for (const w of words) checkClosed(w, whole);
   }
 }
@@ -930,8 +940,26 @@ function toAbs(p) {
 }
 
 function inTemp(p) {
-  const abs = toAbs(p).toLowerCase();
-  return TEMP_ROOTS.some((root) => abs.startsWith(root + '/'));
+  const inside = (a) => TEMP_ROOTS.some((root) => a.toLowerCase().startsWith(root + '/'));
+  // where the path really leads too, so a link or a junction under a temp folder into a repo is not a temp file
+  return inside(toAbs(p)) && inside(realOf(p));
+}
+
+// A path with every link and junction on it followed, as far as it exists, the rest joined on.
+function realOf(p) {
+  const abs = toAbs(p);
+  let rest = '';
+  for (let dir = abs; ;) {
+    try {
+      return path.join(fs.realpathSync.native(dir), rest).replace(/\\/g, '/');
+    } catch (err) {
+      if (!missingPath(err)) throw err;
+      const up = path.dirname(dir);
+      if (up === dir) return abs;
+      rest = path.join(path.basename(dir), rest);
+      dir = up;
+    }
+  }
 }
 
 // Whether a path lies inside a git working tree under its temp root, a .git between it and the root. A worktree under
@@ -966,7 +994,8 @@ function holdsWorkTree(p) {
     }
     for (const e of entries) {
       if (++seen > 5000) return true;
-      if (e.name === '.git') return true;
+      // a link may lead anywhere, a repo among them, so a folder holding one counts as holding a working tree
+      if (e.name === '.git' || e.isSymbolicLink()) return true;
       if (e.isDirectory() && walk(path.join(dir, e.name), depth + 1)) return true;
     }
     return false;
@@ -1195,6 +1224,8 @@ const LIST = {
     const o = readOpts('-C= -s -j? -k -n -q -w -f= -r -R -p -v --no-print-directory --silent --quiet --dry-run '
       + '--just-print --keep-going --jobs? --directory= --file= --makefile= --print-directory --print-data-base '
       + '--warn-undefined-variables --no-builtin-rules --no-builtin-variables --version', args, 'make', whole);
+    // a makefile is a file on disk, never recipes from make's input
+    for (const v of o.values.filter((x) => /^(-f|--file|--makefile)$/.test(x.name))) checkScriptFile('make -f', v.value, whole);
     return { operands: o.operands, targets: o.operands.filter((x) => !x.includes('=')) };
   } },
   docker: { form: dockerForm },
@@ -1440,8 +1471,10 @@ function awkForm(args, whole) {
   });
   if (!o.operands.length) deny('awk needs a program.', whole);
   const prog = o.operands[0];
+  // a string's text blanked first, so a ; or a brace inside one does not split a print from its > (D-068)
+  const code = prog.replace(/"(?:[^"\\]|\\.)*"/g, '""');
   const bad = /\bsystem\b|\bgetline\b|\||\bENVIRON\b|\bPROCINFO\b|@/.test(prog)
-    || prog.split(/[;{}\n]/).some((stmt) => /\bprintf?\b/.test(stmt) && stmt.includes('>'));
+    || code.split(/[;{}\n]/).some((stmt) => /\bprintf?\b/.test(stmt) && stmt.includes('>'));
   if (bad) {
     deny('An awk program that runs a command, reads the environment or writes a file, system, getline, a pipe, '
       + 'ENVIRON or print >, is refused. Redirect its output into the temp folder instead.', whole);
@@ -1730,7 +1763,9 @@ function ghForm(args, whole) {
   return { group, verb, operands: [] };
 }
 
-const NPX_TOOLS = new Set(['jest', 'tsc', 'eslint', 'next', 'playwright', 'prettier', 'vitest', 'tsx']);
+// The repo's own tools npx runs, none of which evaluates code written in the command. tsx is not one, since tsx -e
+// runs what follows it.
+const NPX_TOOLS = new Set(['jest', 'tsc', 'eslint', 'next', 'playwright', 'prettier', 'vitest']);
 function npmForm(args, whole) {
   // every spelling of a global or elsewhere install, --global=true and --location global among them (D-068)
   if (args.some((a) => /^-[A-Za-z]*g/.test(a) && !a.startsWith('--') || /^--(global|location|prefix)(=|$)/.test(a))) {
@@ -1738,8 +1773,19 @@ function npmForm(args, whole) {
   }
   const subs = ['install', 'i', 'ci', 'run', 'run-script', 'test', 't', 'audit', 'ls', 'list', 'view', 'outdated',
     'uninstall', 'un', 'remove', 'rm', '--version', '-v'];
-  const sub = (args.find((a) => !a.startsWith('-') || a === '--version' || a === '-v') || '').toLowerCase();
-  if (!subs.includes(sub)) deny('npm ' + sub + ' is not on the owner\'s list of approved commands. Ask the owner.', whole);
+  // the subcommand first and a script right after run, so an option's value is never read as either (D-068)
+  const sub = (args[0] || '').toLowerCase();
+  if (!subs.includes(sub)) {
+    deny('npm ' + sub + ' is not on the owner\'s list of approved commands. npm\'s subcommand comes first, before its '
+      + 'options.', whole);
+  }
+  if (sub === 'run' || sub === 'run-script') {
+    const script = (args[1] || '').toLowerCase();
+    if (!script || script.startsWith('-')) deny('npm run takes its script first, npm run <script> [options].', whole);
+    if (script.split(/[-_.:/]/).some((w) => REMOTE_MAKE_WORDS.has(w))) {
+      deny('A package script that deploys, releases or reaches DEV or PROD is the owner\'s. Ask the owner.', whole);
+    }
+  }
   return { sub, operands: [] };
 }
 function npxForm(args, whole) {
@@ -1904,7 +1950,9 @@ function gitRemoval(form, argToks) {
     case 'checkout': {
       if (has('-f', '--force', '-B', '--ours', '--theirs')) return 'git checkout with that option discards work.';
       if (argToks.some((t) => t.t === '--')) return 'git checkout -- discards uncommitted changes.';
-      if (!has('-b', '--orphan') && form.operands.some((p) => p === '.' || exists(p))) {
+      // a path given with a commit, or one git tracks though it is gone, discards a change too (D-068)
+      if (!has('-b', '--orphan') && (form.operands.length > 1
+        || form.operands.some((p) => p === '.' || exists(p) || trackedByGit(p)))) {
         return 'git checkout of a path discards its uncommitted changes.';
       }
       return null;
@@ -2079,12 +2127,11 @@ function checkWrites(prog, form, args, argToks, whole) {
     }
   }
   if (prog === 'git' && (form.sub === 'archive' || form.sub === 'format-patch')) {
-    for (let k = 0; k < args.length; k++) {
-      const m = /^(--output=|--output-directory=)(.+)$/.exec(args[k]);
-      if (m) temp(m[2], 'git ' + form.sub);
-      else if (args[k] === '-o' || args[k] === '--output' || args[k] === '--output-directory') temp(args[k + 1] || '',
-        'git ' + form.sub);
-      else if (/^-o./.test(args[k])) temp(args[k].slice(2), 'git ' + form.sub);
+    // the output git reads, joined to a short option too, -vo<file>, from the option reader's own values
+    const outputs = (form.values || []).filter((v) => /^(-o|--output|--output-directory)$/.test(v.name));
+    for (const v of outputs) temp(v.value, 'git ' + form.sub);
+    if (form.sub === 'format-patch' && !outputs.length && !form.has('--stdout')) {
+      deny('git format-patch writes its patches into the current folder. Use --stdout, or -o into a temp folder.', whole);
     }
   }
   if (prog === 'docker' && form.sub === 'cp' && form.operands.length === 2) {
@@ -2100,16 +2147,19 @@ function checkWrites(prog, form, args, argToks, whole) {
 // A folder too large to look through is refused, since what it holds cannot be known.
 function checkCopyTree(prog, operands, whole) {
   const dest = operands[operands.length - 1];
-  const intoDir = isDir(dest);
   let seen = 0;
   const each = (src, rel) => {
     const from = rel ? path.join(toAbs(src), rel) : toAbs(src);
-    const base = intoDir ? path.join(toAbs(dest), path.basename(toAbs(src))) : toAbs(dest);
-    const to = rel ? path.join(base, rel) : base;
-    if (isClosed(from)) deny(SECRET_WHY, whole);
-    if (isProtected(to) || (prog === 'mv' && isProtected(from))) deny(GUARDRAIL_WHY, whole);
+    // both shapes the destination can take, into it as a folder and as the new name, since a mkdir earlier in the
+    // call can make the folder the guard does not yet see
+    for (const base of [path.join(toAbs(dest), path.basename(toAbs(src))), toAbs(dest)]) {
+      const to = rel ? path.join(base, rel) : base;
+      if (isProtected(to)) deny(GUARDRAIL_WHY, whole);
+    }
+    if (isClosed(from) || (prog === 'mv' && isProtected(from))) deny(isClosed(from) ? SECRET_WHY : GUARDRAIL_WHY, whole);
   };
   for (const src of operands.slice(0, -1)) {
+    if (isLink(src)) deny(prog + ' of a link is refused, since it may lead anywhere. Name the file it leads to.', whole);
     each(src, '');
     if (!isDir(src)) continue;
     const walk = (rel) => {
@@ -2117,12 +2167,24 @@ function checkCopyTree(prog, operands, whole) {
         if (++seen > 2000) {
           deny(prog + ' of a folder this large cannot be checked file by file. Copy what you need by name.', whole);
         }
+        if (e.isSymbolicLink()) {
+          deny(prog + ' of a folder that holds a link is refused, since a link may lead anywhere.', whole);
+        }
         const next = path.join(rel, e.name);
         each(src, next);
         if (e.isDirectory()) walk(next);
       }
     };
     walk('');
+  }
+}
+
+function isLink(p) {
+  try {
+    return fs.lstatSync(toAbs(p)).isSymbolicLink();
+  } catch (err) {
+    if (missingPath(err)) return false;
+    throw err;
   }
 }
 

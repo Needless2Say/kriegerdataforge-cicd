@@ -3525,6 +3525,6 @@ that temporary files may be deleted freely.
 
 **Consequences.** A session writes its commands out plainly, a loop as the commands it runs and a variable as its
 value, puts a commit message in a file or single quotes, and waits for the owner at a removal. The guard reads fewer
-forms and so has fewer to get wrong, and each new form is a line on the list. 1065 cases hold it, refusals, removals
+forms and so has fewer to get wrong, and each new form is a line on the list. 1084 cases hold it, refusals, removals
 and the list's forms among them. Codex, stage 2, follows once its hooks are proven on each route, and the install in
 the administrator folders, stage 3, after that. VERSION 0.2.150.
