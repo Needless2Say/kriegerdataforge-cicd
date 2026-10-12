@@ -225,7 +225,24 @@ function norm(p) {
 // a dot segment, ~/.config/git/./config or a/../.git/config, names the same file, so it is folded first (D-062)
 function isProtected(p) {
   const n = path.posix.normalize(norm(p));
-  return PROTECTED.some((r) => r.test(n));
+  if (PROTECTED.some((r) => r.test(n))) return true;
+  // the same path from the folder the shell is in, so cd .claude && cp x settings.json names .claude/settings.json
+  const abs = String(p).startsWith('-') ? '' : norm(resolvedPath(String(p)));
+  return Boolean(abs) && PROTECTED.some((r) => r.test(abs));
+}
+
+// A path as the shell would open it from the folder it is in, Git Bash's /d/x and ~ forms read, or '' for nothing.
+function resolvedPath(p) {
+  if (!p) return '';
+  try {
+    let s = String(p).replace(/\\/g, '/');
+    if (s === '~' || s.startsWith('~/')) s = os.homedir() + s.slice(1);
+    const drive = /^\/([a-zA-Z])(\/|$)/.exec(s);
+    if (drive) s = drive[1] + ':/' + s.slice(3);
+    return path.resolve(CWD, s).replace(/\\/g, '/');
+  } catch (err) {
+    return '';
+  }
 }
 
 // The review archive, the one folder a reviewer writes in. The separator on the end keeps a look alike such as
@@ -301,7 +318,10 @@ function localEnvOpen(p) {
 function isClosed(p) {
   const s = String(p || '');
   if (!s) return false;
-  return LOCAL_ENV.test(s) ? !localEnvOpen(s) : isSecretFile(s);
+  if (LOCAL_ENV.test(s) ? !localEnvOpen(s) : isSecretFile(s)) return true;
+  // the same path from the folder the shell is in, so cd keys && cat id_rsa names keys/id_rsa (D-068)
+  const abs = s.startsWith('-') ? '' : resolvedPath(s);
+  return Boolean(abs) && abs !== s && !LOCAL_ENV.test(s) && KEY_FILE.test(abs);
 }
 
 function checkClosed(p, detail) {
@@ -930,7 +950,7 @@ function tempFile(p) {
   return inTemp(p) && !insideWorkTree(p);
 }
 
-// Whether a path is, holds or lies inside a git working tree. Holds means a .git within four levels below it, and a
+// Whether a path is, holds or lies inside a git working tree. Holds means a .git at any depth below it, and a
 // folder too large to look through counts as holding one.
 function holdsWorkTree(p) {
   if (insideWorkTree(p)) return true;
@@ -947,7 +967,7 @@ function holdsWorkTree(p) {
     for (const e of entries) {
       if (++seen > 5000) return true;
       if (e.name === '.git') return true;
-      if (e.isDirectory() && depth < 4 && walk(path.join(dir, e.name), depth + 1)) return true;
+      if (e.isDirectory() && walk(path.join(dir, e.name), depth + 1)) return true;
     }
     return false;
   };
@@ -1007,6 +1027,9 @@ function readOpts(list, args, label, whole, why = {}, first = false) {
   const s = spec(list);
   const operands = [];
   const seen = [];
+  // each option's value as the program reads it, joined or the next word, so a check can read a value wherever it
+  // was written, sed -ne'p' among them
+  const values = [];
   let k = 0;
   const refuse = (opt) => deny((why[opt] || (label + ' ' + opt + ' is not on the owner\'s list for ' + label
     + '. Use another form, or ask the owner.')), whole);
@@ -1033,7 +1056,8 @@ function readOpts(list, args, label, whole, why = {}, first = false) {
       const kind = s.get(name);
       if (kind === '' && eq >= 0) refuse(name);
       seen.push(name);
-      if (kind === '=' && eq < 0) k++;
+      if (eq >= 0) values.push({ name, value: a.slice(eq + 1) });
+      else if (kind === '=') values.push({ name, value: args[++k] === undefined ? '' : args[k] });
       continue;
     }
     if (/^-\d+$/.test(a) && s.has('-#')) {
@@ -1046,13 +1070,17 @@ function readOpts(list, args, label, whole, why = {}, first = false) {
       seen.push(name);
       const kind = s.get(name);
       if (kind === '=') {
-        if (j === a.length - 1) k++;
+        if (j === a.length - 1) values.push({ name, value: args[++k] === undefined ? '' : args[k] });
+        else values.push({ name, value: a.slice(j + 1) });
         break;
       }
-      if (kind === '?') break;
+      if (kind === '?') {
+        if (j < a.length - 1) values.push({ name, value: a.slice(j + 1) });
+        break;
+      }
     }
   }
-  return { operands, seen, rest: args.slice(k), has: (o) => seen.includes(o) };
+  return { operands, seen, values, rest: args.slice(k), has: (o) => seen.includes(o) };
 }
 
 // ---- the list itself, by group
@@ -1126,7 +1154,14 @@ const LIST = {
   },
   date: { opts: '-u -d= -r= -I? -R --utc --universal --date= --reference= --iso-8601? --rfc-3339= --rfc-email --debug',
     operands: /^\+/ },
-  echo: TEXT, printf: TEXT, test: TEXT,
+  echo: TEXT, test: TEXT,
+  // printf -v sets a variable, PATH among them, so printf prints and nothing more
+  printf: { form: (args, whole) => {
+    if (/^-v/.test(args[0] || '') || (args[0] === '--' && /^-v/.test(args[1] || ''))) {
+      deny('printf -v sets a variable, which a plain command never does. Print the value instead.', whole);
+    }
+    return { operands: [] };
+  } },
   cd: { opts: '-L -P', maxOperands: 1 },
   mkdir: '-p -v -m= --parents --verbose --mode=',
   touch: '-a -c -m -d= -t= -r= --no-create --date= --reference=',
@@ -1231,8 +1266,16 @@ function scriptForm(name, list, args, whole, why) {
     if (o.has('--version') || o.has('-v')) return { operands: [] };
     deny(name + ' runs a script file, ' + name + ' <file>. Code from its input or the command line is refused.', whole);
   }
-  if (o.rest[0] === '-') deny(name + ' - runs code from its input. Put it in a file.', whole);
+  checkScriptFile(name, o.rest[0], whole);
   return { operands: [o.rest[0]], script: o.rest[0] };
+}
+
+// A script is a file on disk. Its input, - or a device such as /dev/stdin or /dev/fd/0, carries code written in the
+// command, which is refused like -c.
+function checkScriptFile(name, file, whole) {
+  if (file === '-' || /^\/(dev|proc)\//i.test(String(file).replace(/\\/g, '/'))) {
+    deny(name + ' ' + file + ' runs code from its input. Put it in a file and run ' + name + ' <file>.', whole);
+  }
 }
 
 // The repo's own venv interpreter, a script or a module, never code written in the command.
@@ -1247,7 +1290,7 @@ function pythonForm(args, whole) {
     if (o.has('-V') || o.has('--version')) return { operands: [] };
     deny('python runs a file or a module, never code from its input.', whole);
   }
-  if (o.rest[0] === '-') deny('python - runs code from its input. Put it in a file.', whole);
+  checkScriptFile('python', o.rest[0], whole);
   if (o.rest[0] === '-m') {
     if (!o.rest[1]) deny('python -m needs a module.', whole);
     return { operands: [], module: o.rest[1], moduleArgs: o.rest.slice(2) };
@@ -1377,13 +1420,7 @@ function sedForm(args, whole) {
     '-f': 'sed -f runs a script from a file the guard does not read. Write the script in the command.',
     '--file': 'sed --file runs a script from a file the guard does not read. Write the script in the command.'
   });
-  const scripts = [];
-  for (let k = 0; k < args.length; k++) {
-    if (args[k] === '-e' || args[k] === '--expression') scripts.push(args[++k] || '');
-    else if (/^-e./.test(args[k])) scripts.push(args[k].slice(2));
-    else if (/^--expression=/.test(args[k])) scripts.push(args[k].slice(13));
-    else if (/^-[nErsuz]*e$/.test(args[k])) scripts.push(args[++k] || '');
-  }
+  const scripts = o.values.filter((v) => v.name === '-e' || v.name === '--expression').map((v) => v.value);
   let operands = o.operands;
   if (!scripts.length) {
     if (!operands.length) deny('sed needs a script.', whole);
@@ -1639,8 +1676,12 @@ function stashForm(rest, whole) {
 }
 
 function remoteForm(rest, whole) {
+  // git reads -v before a verb as well as alone, git remote -v set-url among them, so it is passed over first
+  let k = 0;
+  while (rest[k] === '-v' || rest[k] === '--verbose') k++;
+  rest = rest.slice(k);
   const first = rest[0] || '';
-  if (first === '-v' || first === '--verbose' || first === '') return { sub: 'remote', operands: [] };
+  if (first === '') return { sub: 'remote', operands: [] };
   if (first === 'show' || first === 'get-url') {
     const o = readOpts('-n --push --all', rest.slice(1), 'git remote ' + first, whole);
     return { sub: 'remote', ...o };
@@ -1691,7 +1732,8 @@ function ghForm(args, whole) {
 
 const NPX_TOOLS = new Set(['jest', 'tsc', 'eslint', 'next', 'playwright', 'prettier', 'vitest', 'tsx']);
 function npmForm(args, whole) {
-  if (args.some((a) => /^(-g|--global|--location=global)$/.test(a))) {
+  // every spelling of a global or elsewhere install, --global=true and --location global among them (D-068)
+  if (args.some((a) => /^-[A-Za-z]*g/.test(a) && !a.startsWith('--') || /^--(global|location|prefix)(=|$)/.test(a))) {
     deny('A global npm install changes the tools of every session. The owner does that.', whole);
   }
   const subs = ['install', 'i', 'ci', 'run', 'run-script', 'test', 't', 'audit', 'ls', 'list', 'view', 'outdated',
@@ -1807,6 +1849,9 @@ function composeForm(args, whole) {
 function removalOf(prog, form, args, argToks, whole) {
   const named = (words) => argToks.filter((t) => words.includes(t.t));
   const all = (toks) => toks.length > 0 && toks.every(freeToRemove);
+  if (prog === 'rmdir' && args.some((a) => a === '-p' || a === '--parents' || /^-[a-z]*p/.test(a))) {
+    return 'rmdir -p removes each empty folder above ' + form.operands.join(', ') + ' too.';
+  }
   if (prog === 'rm' || prog === 'rmdir' || prog === 'unlink') {
     const targets = named(form.operands);
     return all(targets) ? null : prog + ' removes ' + form.operands.join(', ') + '.';
@@ -2026,6 +2071,7 @@ function checkWrites(prog, form, args, argToks, whole) {
       deny(what + ' writes only into a temp folder, ' + TEMP_ROOTS.join(' or ') + ', outside any worktree.', whole);
     }
   };
+  if ((prog === 'cp' || prog === 'mv') && form.operands.length >= 2) checkCopyTree(prog, form.operands, whole);
   if (prog === 'tee') {
     for (const t of argToks.filter((x) => form.operands.includes(x.t))) {
       if (t.g) deny('tee writes to a pattern. Write the path out.', whole);
@@ -2046,6 +2092,37 @@ function checkWrites(prog, form, args, argToks, whole) {
     if (!/^[^/\\:]{2,}:/.test(dest) && exists(dest) && !tempFile(dest)) {
       deny('docker cp writes over ' + dest + '. Copy into the temp folder.', whole);
     }
+  }
+}
+
+// A copy or a move checked file by file, so a folder copied out carries no secret file, and nothing copied or moved in
+// lands on a guardrail file, a folder named .claude among them. A move takes its source's guardrail files with it.
+// A folder too large to look through is refused, since what it holds cannot be known.
+function checkCopyTree(prog, operands, whole) {
+  const dest = operands[operands.length - 1];
+  const intoDir = isDir(dest);
+  let seen = 0;
+  const each = (src, rel) => {
+    const from = rel ? path.join(toAbs(src), rel) : toAbs(src);
+    const base = intoDir ? path.join(toAbs(dest), path.basename(toAbs(src))) : toAbs(dest);
+    const to = rel ? path.join(base, rel) : base;
+    if (isClosed(from)) deny(SECRET_WHY, whole);
+    if (isProtected(to) || (prog === 'mv' && isProtected(from))) deny(GUARDRAIL_WHY, whole);
+  };
+  for (const src of operands.slice(0, -1)) {
+    each(src, '');
+    if (!isDir(src)) continue;
+    const walk = (rel) => {
+      for (const e of fs.readdirSync(path.join(toAbs(src), rel), { withFileTypes: true })) {
+        if (++seen > 2000) {
+          deny(prog + ' of a folder this large cannot be checked file by file. Copy what you need by name.', whole);
+        }
+        const next = path.join(rel, e.name);
+        each(src, next);
+        if (e.isDirectory()) walk(next);
+      }
+    };
+    walk('');
   }
 }
 
@@ -2344,7 +2421,7 @@ function checkConfig(rest, whole) {
 }
 
 function checkRemote(rest, whole) {
-  const first = (rest[0] || '').toLowerCase();
+  const first = (rest.find((a) => a !== '-v' && a !== '--verbose') || '').toLowerCase();
   if (['add', 'set-url', 'rename', 'remove', 'rm', 'set-head'].includes(first)) {
     deny('Changing a git remote can send code somewhere else. The owner does that.', whole);
   }
@@ -2418,7 +2495,9 @@ function checkGh(args, whole) {
   }
   if (group === 'alias' || group === 'extension') deny('gh aliases and extensions can hide a refused command.', whole);
   if (group === 'api') {
-    const mutating = lower.some((a) => /^(-x|-f|--method|--field|--raw-field|--input)(=.*)?$/.test(a));
+    // a method or a field in any spelling, -XPOST and -iXPOST joined to their option among them (D-068)
+    const mutating = args.some((a) => /^-[A-Za-z]*[XFf]/.test(a) && !a.startsWith('--'))
+      || lower.some((a) => /^--(method|field|raw-field|input)(=.*)?$/.test(a));
     const endpoint = words[1] || '';
     if (mutating) deny('gh api with a method, fields or input can merge, release or change settings. Use a gh subcommand.', whole);
     if (endpoint.includes('graphql')) deny('GraphQL through gh api can merge or change settings. Use a gh subcommand.', whole);
@@ -2604,6 +2683,8 @@ function checkCurl(args, refuse) {
   const urls  = [];
   const value = (opt, v) => {
     if (CURL_AT_READS.has(opt) && v.startsWith('@')) refuse('A curl value that starts with @ reads a file.');
+    // curl 8.3's %output{file} in a write-out format writes a file
+    if ((opt === 'w' || opt === 'write-out') && /%output\{/i.test(v)) refuse('curl -w with %output writes a file.');
     if (opt === 'data-urlencode' && /^[^=]*@/.test(v)) refuse('curl --data-urlencode name@file reads a file.');
     if (opt === 'url') urls.push(v);
   };
@@ -2629,7 +2710,11 @@ function checkCurl(args, refuse) {
   for (const u of urls) {
     const m = LOCAL_URL.exec(u);
     if (!m) refuse('curl reaches this machine alone, http or https to localhost, 127.0.0.1 or [::1], and ' + u + ' is not that.');
-    if (m[1] && CONTROL_PORTS.has(m[1])) refuse('Port ' + m[1] + ' is the Docker Engine or Caddy admin API, which changes the stack.');
+    // curl reads a port as a number, so 02019 is 2019
+    const port = m[1] ? String(Number(m[1])) : '';
+    if (port && CONTROL_PORTS.has(port)) {
+      refuse('Port ' + port + ' is the Docker Engine or Caddy admin API, which changes the stack.');
+    }
   }
 }
 const INSTALLERS = new Set(['install', 'uninstall', 'download', 'wheel', 'add', 'remove', 'sync', 'lock']);

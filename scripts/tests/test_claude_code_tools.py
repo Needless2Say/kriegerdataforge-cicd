@@ -200,7 +200,9 @@ def _temp_root(project: Path) -> Path:
     The temp folder a case's guard is given, beside the project and outside it, made once.
     """
     root = project.parent / "kdf-temp"
-    root.mkdir(exist_ok = True)
+    # a repo four folders down, which a removal of the folder above it must not take without asking (D-068)
+    (root / "deep" / "a" / "b" / "c" / "repo" / ".git").mkdir(parents = True, exist_ok = True)
+    (root / "empty" / "child").mkdir(parents = True, exist_ok = True)
     return root
 
 
@@ -272,6 +274,8 @@ def _ignored_tree(project: Path) -> None:
         # a key and a settings file a glob run from inside their folder reaches by a bare name
         "keys/id_rsa": "a key\n",
         ".claude/settings.json": "{}\n",
+        # a folder whose copy would lay a settings file down in the project (D-068)
+        "seed/.claude/settings.json": "{}\n",
         # brackets that are literal in a folder's name, git and the words a git glob can turn into, a subcommand, a
         # branch and a flag, and a folder with no git beside one that has it
         "work[1]/private.pem": "a key\n",

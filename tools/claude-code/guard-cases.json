@@ -6299,5 +6299,143 @@
   "tool": "Write",
   "file": "${PROJ}/.curlrc",
   "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "curl -q http://localhost --write-out '%output{.claude/settings.json}{}'",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "sed -ne'e printf PROBE' -e p .gitignore",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "sed -ne'r .env.kdf' -e p .gitignore",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "printf -v PATH /tmp/bin",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "printf 'x' | bash /dev/stdin",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "bash /dev/fd/0",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git remote -v set-url origin https://example.invalid/repo",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git remote --verbose remove origin",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh api repos/o/r/actions/runs/1/rerun -XPOST",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh api repos/o/r/actions/runs/1 -XDELETE",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "cd keys && cat id_rsa",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "cd .claude && cp ../.gitignore settings.json",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "cp -r keys backup",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "cp -r seed/.claude .",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "curl -q http://localhost:02019/stop -X POST",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "npm --global=true install example",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "npm install --location global example",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "rm -rf ${TEMP}/deep",
+  "expect": "ask"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "rmdir -p ${TEMP}/empty/child",
+  "expect": "ask"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "git remote -v",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "printf '%s' x",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "sed -n p .gitignore",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "sed -n -e '1,3p' .gitignore",
+  "expect": "allow"
  }
 ]
