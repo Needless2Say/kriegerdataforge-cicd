@@ -31,6 +31,10 @@ PUSH    = "git push origin main"
 SHAPE_LINE = "  if (MODE !== 'reviewer' && dir && rest.length === 2 && rest[0] === 'origin' && rest[1] === 'main') {"
 VERDICT_FN = "function statusPush(dir) {"
 
+# The refusals the approved list makes before the push exception is reached, a flag, a wrapper, a setting or a shell
+# it does not hold (D-068).
+LIST_FIRST = {"force", "force with lease", "an env prefix", "a git setting", "a nested shell", "find execdir"}
+
 # Each push the guard refuses, by name, the test ids. _refusal builds the repo and the call for each.
 REFUSALS = (
     "another file in a commit",
@@ -382,7 +386,7 @@ def open_guard(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return copy
 
 
-@pytest.mark.parametrize("name", REFUSALS)
+@pytest.mark.parametrize("name", [name for name in REFUSALS if name not in LIST_FIRST])
 def test_each_refusal_fails_against_a_guard_that_allows_it(tmp_path: Path, name: str, open_guard: Path) -> None:
     """
     A reviewer is left out on purpose, reviewer git refuses every push before the exception is reached.
@@ -390,3 +394,15 @@ def test_each_refusal_fails_against_a_guard_that_allows_it(tmp_path: Path, name:
     work, command, env = _refusal(name, tmp_path)
     code, message = _guard(work, command, env = env, guard = open_guard)
     assert code == 0, f"{name} is refused by something other than the exception. {message.strip()}"
+
+
+@pytest.mark.parametrize("name", sorted(LIST_FIRST))
+def test_the_approved_list_refuses_these_before_the_exception(tmp_path: Path, name: str, open_guard: Path) -> None:
+    """
+    A push spelled with a flag, a wrapper, a setting or a shell the approved list does not hold is refused by the list
+    itself, so even a guard whose exception allows every push refuses it (D-068).
+    """
+    work, command, env = _refusal(name, tmp_path)
+    code, message = _guard(work, command, env = env, guard = open_guard)
+    assert code == 2, f"{name} is allowed by a guard whose exception allows every push. {message.strip()}"
+    assert "refused this call" in message

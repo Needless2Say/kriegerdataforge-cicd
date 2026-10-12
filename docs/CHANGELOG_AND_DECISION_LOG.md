@@ -3487,3 +3487,44 @@ The owner asked for the change on 2026-10-09.
 reaches the journey by a hand edit of its digest, and a base image's patch arrives by its tag as before. A local
 `make docker-up` pulls its base images from ECR Public too. The local compose files, which pull on the developer's
 own address, keep their Docker Hub images. VERSION 0.2.149.
+
+## D-068. The guard lets through only the commands on the owner's approved list, and asks before a removal
+
+- **Date.** 2026-10-12
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Standard · `tools/claude-code/kdf-guard.js`, its cases, its tests and its README · stage 1 of
+  three, Claude Code, with Codex and the managed install to follow
+
+**Context.** The guard let every command through and refused the ones it knew the owner reserves. That holds only
+while it understands every way bash can build a command, and work to make it read bash the way bash does kept finding
+more ways without an end. On 2026-10-12 the owner chose to turn it around, every command refused but those on a list
+the owner approves, a removal shown and explained for the owner's approval, and only the owner changing the list
+after its first load. Later the same day the owner added that scripts run unread, since the owner reviews them, and
+that temporary files may be deleted freely.
+
+**Decision.**
+
+1. A Bash command runs only when it is plain and every program in it is on `LIST` in `kdf-guard.js`, with the
+   subcommands and flags written there. Plain is words, quotes with nothing bash would expand, `&&`, `||`, `;`, `|`,
+   a newline and a redirect into a temp folder, so the guard reads a command as bash runs it. Anything else is refused
+   with a reason that tells the session to write it another way or ask the owner.
+2. The owner's rules stay on top of the list, pushes, merges, releases, deploys, git settings, secret files, guardrail
+   files and the reviewer role.
+3. A removal, a command that deletes, discards uncommitted work or writes over a file, answers with a permission
+   decision of ask, the command and what it removes in the owner's prompt, unless every path it names is a temporary
+   file outside any git working tree. A reviewer removes nothing.
+4. The list starts from the programs and flags of the sessions' own recorded commands, replayed through it, and the
+   owner approved it on 2026-10-12. `curl` reaches this machine alone on the reviewer's curl rules, the owner's
+   choice. `timeout`, `xargs`, `env`, `nohup`, `docker exec` and `run`, and `compose exec` and `run` wait for a check
+   of their own, and `taskkill` stays off.
+5. The guard keeps a deadline of its own inside the hook's timeout. `--log` runs it as a trial that logs every
+   decision and refuses nothing, for the week it runs beside the installed guard.
+6. The PowerShell tool is refused, the MCP tools any session calls are held to `MCP_ALLOWED`, and what loads into a
+   session, its skills, agents, commands and plugins, Codex's config and rules, the managed folders and the shell's
+   profile files, are guardrail files. `KDF_GUARD_ALLOW_SELF_EDIT` is removed, since the owner installs by hand.
+
+**Consequences.** A session writes its commands out plainly, a loop as the commands it runs and a variable as its
+value, puts a commit message in a file or single quotes, and waits for the owner at a removal. The guard reads fewer
+forms and so has fewer to get wrong, and each new form is a line on the list. 1098 cases hold it, refusals, removals
+and the list's forms among them. Codex, stage 2, follows once its hooks are proven on each route, and the install in
+the administrator folders, stage 3, after that. VERSION 0.2.150.

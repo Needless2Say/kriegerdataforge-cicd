@@ -7,8 +7,8 @@ repos, the kit ships Markdown only (ADR D-028), so each machine installs them fr
 
 | File | What it is |
 | --- | --- |
-| `kdf-guard.js` | A Claude Code PreToolUse hook. It reads each Bash and PowerShell command the way a shell does, each Read, Grep and Glob, and each file edit and outward facing tool call, and exits 2 to refuse with the reason. No dependencies, one file |
-| `guard-cases.json` | The table the guard is held to, one case per tool call with its role and whether it is allowed or refused. Every rule change adds cases |
+| `kdf-guard.js` | A Claude Code PreToolUse hook. It lets a Bash command through only when it is plain and on the owner's approved list (D-068), asks the owner before a removal, and checks each Read, Grep and Glob, each file edit and each outward facing tool call. It exits 2 to refuse with the reason. No dependencies, one file, the list inside it |
+| `guard-cases.json` | The table the guard is held to, one case per tool call with its role and whether it is allowed, refused or asked. Every rule change adds cases |
 | `kdf-review.sh` | Starts one fresh Claude reviewer with the reviewer role in the repo folder itself, for at most four hours by default, or opens and closes the folder for Codex, checking first that the pin is pushed, the folder is at it and the brief's counts match it. Compares git before and after and fails the review if the reviewer changed anything but a new file under `docs/reviews`, the review archive. A Claude run's log is claude's stream, one JSON event a line as the run goes, so a detached run is watched by its log, and after a clean run the launcher writes Claude Code's own count of it beside the report, `<report stem>.usage.json`, from the stream's last result event. Brings a report Codex wrote in the cloud in from its branch, and warns when a report it did not start lacks its time or usage line |
 | `kdf-brief.js` | Read only. The facts a brief states, measured at the pin, the commit line and the scope table's line counts, a check of a written brief's table, and every `file:line` cite of the living docs beside the lines it names |
 | `kdf-retro.js` | Read only. The numbers a slice's retrospective starts from, counted from its answer key, the launcher's counts beside its reports or else their headers, and its Sol rounds, the escapes first |
@@ -50,18 +50,63 @@ this machine's path. Repeat the steps on every machine, the settings file is not
 
 The installer never edits `settings.json`, and the guard will not let a session do it either, settings, hooks, the MCP
 list, git hooks and git's own config, a repo's `.git/config`, `~/.gitconfig`, `~/.config/git/config` and the system's
-`etc/gitconfig`, are protected files, each path folded first so a `./` or `../` in it names the file it leads to.
-When the owner wants a session to edit one, the owner starts that session with `KDF_GUARD_ALLOW_SELF_EDIT=1`, a
-session cannot set it for itself.
+`etc/gitconfig`, are protected files, each path folded first so a `./` or `../` in it names the file it leads to. So
+is what loads into a session, `~/.claude/skills`, `agents`, `commands` and `plugins`, Codex's `config.toml`, `rules`,
+`hooks.json` and `AGENTS.md`, Claude Code's and Codex's managed folders and the owner's administrator folder (D-066),
+and the shell's and PowerShell's profile files, which set the PATH, aliases and functions a command meets (D-068).
+Only the owner edits them, by hand. `KDF_GUARD_ALLOW_SELF_EDIT` is gone (D-068).
+
+## The approved list
+
+The guard lets a Bash command through only when it is plain and every program in it is on the owner's list, `LIST`
+in `kdf-guard.js`, with the subcommands and flags written there (D-068, the owner's word of 2026-10-12). Everything
+else is refused, and the reason says to write the command another way or ask the owner, who runs it or adds it to the
+list by pull request. The owner's rules below still hold for a listed program, so `git` is listed and a push to `main`
+is still refused.
+
+**Plain** means words, single quotes, double quotes holding no `$`, backtick or backslash, `&&`, `||`, `;`, `|`, a
+newline and a `#` comment, and a redirect that writes only into a temp folder or `/dev/null`. So the guard reads a
+command exactly as bash runs it. A `$`, a backtick, a heredoc, a loop, a function, a subshell, a brace, a background
+`&`, `eval`, `source` and a variable set for a command, but for four fixed pairs such as `PYTHONIOENCODING=utf-8`, are
+refused. A commit message goes in a file, `git commit -F`, or in single quotes, and a pull request's body in a file,
+`gh pr create --body-file`. A program is a bare name, or a repo's venv interpreter, `<repo>/.venv/Scripts/python.exe`,
+or a `.sh` script by its path. Inline code, `python -c`, `node -e` and `bash -c`, is refused, while a script file runs
+as it is, the owner's word that scripts run unread. A `cd` is followed, down both outcomes of `&&` and `||`, so a
+path after it is judged from every folder the shell could be in.
+
+**The groups on the list.** Reading and searching, `cat`, `head`, `tail`, `grep` without `-r`, `rg` without
+`--hidden`, `-u` or `--no-ignore`, `sed` and `awk` with scripts that neither write, read nor run anything, `find`
+without `-delete` or `-exec`, and the like. Making files, `mkdir`, `touch`, `cp`, `mv`, and `tee` into a temp folder.
+git's reading and writing subcommands, gh's reading verbs and `pr create` and `comment`, `make`, the venv python on a
+file or a module, `node` on a file, `bash` on a script, `npx` of the repo's own tools, `npm` install, run, audit and
+ls, docker's reading commands, `build`, `cp`, `start`, `stop` and `compose up`, `down`, `ps`, `logs` and `build` on
+this machine's engine, `curl` to this machine alone on the reviewer's curl rules, the owner's choice of 2026-10-12,
+`terraform fmt`, `validate` and `version`, and `claude --version` and `codex login status`. `timeout`, `xargs`, `env`,
+`nohup`, `docker exec` and `run`, and `compose exec` and `run` are not on the first list, each to come back with a
+check of its own. `taskkill` stays off, the owner's choice, since a broad one stops every `node`.
+
+**A removal asks the owner.** A command that deletes a file or a folder, discards uncommitted work or writes over a
+file, `rm`, `git clean`, `git reset --hard`, `git checkout -- <path>`, `git branch -D`, `npm ci`, a `make` target named
+for cleaning, `docker volume rm`, and `cp` or `mv` onto a file that exists among them, answers with a permission
+decision of ask, the command and what it removes in the prompt. Before one, a session says what each removal deletes
+and why. A removal runs without asking when every path it names is written out and lies in a temp folder, the
+session's scratchpad, the system's temp folder or `D:/KriegerDataForge/temp`, outside every git working tree, the
+owner's word that temporary files may be deleted. A plain `git worktree remove` of a worktree there runs, since git
+refuses one with work never committed. A reviewer removes nothing. In `claude -p`, where no one can answer, Claude Code
+denies the call.
+
+**The trial.** `node kdf-guard.js --log` decides every call as the guard would and lets it through, writing each
+decision to `~/.claude/kdf-guard-trial.log`, so the owner runs it beside the installed guard for a week before it
+refuses anything, and counts what it would refuse and ask. `KDF_GUARD_MODE=enforce`, set when the owner starts a
+session, makes that session's trial copy enforce.
 
 ## The two roles
 
 **Owner rules** apply to every session in every repo. Nothing merges, approves, marks ready, tags, releases,
 dispatches a workflow, re-runs, cancels or deletes a workflow run, publishes a package, runs `terraform apply` or
-`destroy`, runs `vercel`, or pushes to `main`. The guard reads every spelling of those, including `git -C`, a nested
-`bash -c`, an `env` prefix quoted or not, a command after a shell keyword such as `do`, `then` or `!`, `cmd //c`,
-`env -S` and PowerShell, and `env` and `sudo` read `NAME=value` among their arguments quoted or not, so a quoted one
-never hides the program after it (D-062). A push names its branch and goes to `origin`, spelled exactly, and carries
+`destroy`, runs `vercel`, or pushes to `main`. Since the approved list refuses every command it cannot read plainly,
+a nested shell, a wrapper such as `env` or `timeout`, a variable and PowerShell among them, these rules meet each
+command as bash runs it (D-068). A push names its branch and goes to `origin`, spelled exactly, and carries
 only `-u` or `--set-upstream`, `-q` or `--quiet`, `-v` or `--verbose`, `-n` or `--dry-run`, `--porcelain`,
 `--progress`, `--no-progress` or `--atomic`, each in full, since another option can take the next word as its value
 and leave a URL where the remote should be, and git reads an abbreviation as the option it shortens. Force, delete,
@@ -74,23 +119,13 @@ commands or change
 where code goes, aliases, hooks paths, credential helpers, protocols and remote URLs, are refused whether they are
 written with `git config`, in its older options or its subcommands, or passed with `git -c`, every word of a `git
 config` judged as a key, and a read of a protected config file through `git config --get` or `get` stays open. So
-are `git config edit` and a moved or removed section, an abbreviation of either option included, and a `GIT_CONFIG`
-variable set anywhere in a call, which hands git settings no command shows. Its name written as an assignment is
-refused wherever it appears in the call's text, spaced or quoted, in bash, in cmd's `set`, in PowerShell's `$env:`
-and `${env:}`, or inside `env -S`, since `cmd /c` and `env -S` unquote what bash would not, so a commit message that
-writes such an assignment goes in a file, `git commit -F`. Its name alone is refused after `export`, `declare`,
-`read`, `printf -v` and the other builtins that set one by name, and cmd's `setx`. A PowerShell call that names one
-on the env drive, `Env:` or `Environment::`, beside a command that writes an item or moves onto the drive, wherever
-its words fall, is refused, since PowerShell binds parameters in ways no guess at its words follows, and so a copy
-from one is refused too, and so is a search for such a call's own text. A call that names one beside
-`SetEnvironmentVariable`, or beside a command that makes a drive, `New-PSDrive`, `ndr` or `mount`, is refused, a
-search or a message naming both among them. Reading one, `$env:NAME` or `Get-Item Env:NAME`, or comparing it, stays
-open (D-062).
-And so are `gh gist`, deploy keys and account keys.
+are `git config edit` and a moved or removed section, an abbreviation of either option included. The list then lets
+`git config` only read, and refuses `git -c` and a variable set for a command, so no setting reaches git through a
+call (D-068). And so are `gh gist`, deploy keys and account keys.
 
 **Secret files are closed to every session**, by the owner's decision of 2026-09-29. No session reads, writes,
-copies, sources or passes one to a command, in the shell or to Read, Grep, Edit and Write. `test`, `[`, `ls`, `stat`
-and `git check-ignore` may name one, since they only show that it exists. A secret file is every `.env` file but an
+copies, sources or passes one to a command, in the shell or to Read, Grep, Edit and Write. `test`, `ls`, `stat` and
+`git check-ignore` may name one, since they only show that it exists. A secret file is every `.env` file but an
 example and `.env.local`, backups such as `.env.local.bak` included, a `*.tfvars` git does not track, `*.pem` and
 `keys/`. Terraform's committed `common.auto.tfvars` stays readable. The words
 checked are the program, its arguments, the value after an `=`, a curl style `@file`, and a redirect's target, whatever
@@ -131,13 +166,13 @@ mode. The owner runs the rest through the ops issue forms.
 **Reviewer rules** apply on top when `KDF_ROLE=reviewer` is set, or the guard is started with `reviewer`. Read only
 git, no GitHub CLI, no shell command that writes, deletes, installs or downloads, no redirect into a file,
 no connector, artifact, message, schedule, notification, web fetch or web search tool, and file edits only for new
-files under `docs/reviews`, never a tracked brief, plan, log or earlier report there. A reviewer reads the running
-stack and never changes it. docker runs only `ps` and `logs`, their compose forms too, against this machine's daemon,
-and curl reaches `localhost`, `127.0.0.1` or `[::1]` over http or https alone. curl takes an allow list of options,
-so nothing writes a file, reads one with `@`, follows a redirect, goes through a proxy or a socket, or reaches port
-2375, 2376 or 2019, the Docker Engine and Caddy admin APIs. The host is matched as text in one strict shape, so no
-URL parser has to agree with curl's own, and a URL in any other shape is refused. Neither takes an environment
-assignment such as `https_proxy=`. A reviewer follows
+files under `docs/reviews`, never a tracked brief, plan, log or earlier report there, and no removal of any kind. A
+reviewer reads the running stack and never changes it, docker running only `ps` and `logs`, their compose forms too,
+against this machine's daemon. curl reaches `localhost`, `127.0.0.1` or `[::1]` over http or https alone, for every
+session since the owner's choice of 2026-10-12. It takes an allow list of options, so nothing writes a file, reads
+one with `@`, follows a redirect, goes through a proxy or a socket, or reaches port 2375, 2376 or 2019, the Docker
+Engine and Caddy admin APIs, and the host is matched as text in one strict shape. `.curlrc` is a guardrail file.
+A reviewer follows
 `.gitignore`, so Read, Grep, Glob and every shell program that prints a file are refused a path git ignores,
 `.env.local` aside, and the reports the launcher holds in
 `.git/kdf-review`. A recursive `grep`, `rg -u` or `--no-ignore`, and `git grep` or `git diff` with `--no-index` are
@@ -404,32 +439,23 @@ transcript, so how often a summary named its record is counted from the transcri
 
 ## What the guard cannot stop
 
-A one line Python or Node script can still write anywhere, and no command reader sees inside it. That is why the
-launcher checks git afterward. The guard is a fence against a session's mistakes and against text that leads it
-astray, it is not a sandbox against a determined program. The permission deny rules in `settings.json` stay as a
-second fence, and the rulesets on GitHub, with the admin bypass set to pull requests only, are the last.
+The guard holds the commands a session types. A file a session runs runs what it says, a script, a test, a Python or
+Node file and every `make` target, and no command reader sees inside it, the owner's word of 2026-10-12 that scripts
+run unread, reviewed by the owner and by in depth reviews. That is why the launcher checks git afterward. The guard
+is a fence against a session's mistakes, it is not a sandbox against a determined program. The permission deny rules
+in `settings.json` stay as a second fence, and the rulesets on GitHub, with the admin bypass set to pull requests
+only, are the last.
 
-What it cannot read, by design. A program named through a variable (`c=gh; $c pr merge`) or built by a command
-substitution, a letter escaped with a backslash, what a script it runs does inside itself (`bash script.sh`,
-`python -c`), and a direct call to a repo's seed or migration code with the environment pointed at DEV or PROD by
-hand. Each of those is a deliberate way around a rule, and a session that writes one has stopped following the
-process. Braces are not expanded (`.e{nv,x}.kdf`), and a program that walks folders on its own, `grep -r` or
-`find -exec`, reads what it finds there, so the Read deny rules and `.gitignore` stay part of the fence. A `cd`
-earlier in the same call is not followed, every relative path is judged from the folder the call starts in, so
-`cd .git/kdf-review/held && cat r.md` is not seen as a held report and a `.env.local` is judged by the wrong
-folder's example. Rules that match a name, `.env.kdf` or a dot glob, hold wherever the call runs. For an owner's
-session `mcp__ide__executeCode` is a code runner like `python -c`, a reviewer's is refused. And `origin` is a name the
-guard checks, not a place. It is whatever URL the clone was made from, so a push to the `origin` of a clone a session
-made from some other URL goes there. And a `GIT_CONFIG` variable the session was started with is in no call's words,
-so only one set inside a call is refused. What the guard refuses is a change to where an `origin` leads.
+By design, `origin` is a name the guard checks, not a place. It is whatever URL the clone was made from, so a push to
+the `origin` of a clone a session made from some other URL goes there. What the guard refuses is a change to where an
+`origin` leads. A program's bare name is read as the program the PATH finds, and the profile files that set the PATH
+are guardrail files. For an owner's session `mcp__ide__getDiagnostics` is the one MCP tool on the list. A hook that
+times out lets the call through, by Claude Code's design, so the guard keeps a deadline of its own and refuses when it
+runs out. Codex runs in its own sandbox and is not held by this guard yet.
 
-A glob's extra judgments (D-060) only add refusals, and what they still miss is what the guard missed before them.
-A bracket counts as any one character, so two bracket globs that bash narrows, `git [p]ush origin [m]ain` beside
-files named `hush` and `gain`, can be judged as other words. `**` under `globstar` is one folder level, not many. `~`
-is Node's home folder, which on Windows is `USERPROFILE`, so a glob under bash's `HOME`, where the two differ, is not
-followed, and a quoted `~` counts as home. A call that names `dotglob` at all, even to turn it off, lets globs match
-dot names, refusing more. And a nested shell's globs count against the 200 matches once for each extra judgment,
-which can refuse a call bash would run.
+A glob's extra judgments (D-060) only add refusals. A bracket counts as any one character, so two bracket globs that
+bash narrows can be judged as other words, refusing more. `~` is Node's home folder, which on Windows is
+`USERPROFILE`. And the globs of a call count against 200 matches, which can refuse a call bash would run.
 
 Running a file in a protected folder counts as touching it, so `node ~/.claude/hooks/kdf-guard.js` is refused inside a
 session. To try the installed guard, feed the same input to this folder's copy, which `check-wiring.js` confirms is
@@ -437,10 +463,30 @@ byte identical.
 
 ## Changing a rule
 
-1. Add the cases to `guard-cases.json` first, one that must be refused and one that must still be allowed.
-2. Change `kdf-guard.js`.
+1. Add the cases to `guard-cases.json` first, one that must be refused and one that must still be allowed, and one
+   that asks for a removal rule.
+2. Change `kdf-guard.js`. A new program or form goes on `LIST` with its options written out, and an entry's comment
+   never names a gap that is still open, since this repo is public.
 3. `make test` runs every case, in parallel, and the launcher, checker and installer tests.
-4. Run `bash tools/claude-code/install.sh` on each machine, then `install.sh --check`.
+4. The owner merges, then installs by hand on each machine, as below.
+
+**Installing the approved list (D-068), by the owner, one machine at a time.**
+
+1. Drain. No Claude Code session runs on the machine.
+2. Keep the whole previous state, a copy of `~/.claude/settings.json` and of the installed `kdf-guard.js`.
+3. The trial. Copy this commit's `kdf-guard.js` to `~/.claude/hooks/kdf-guard-trial.js`, and add a second
+   PreToolUse line beside the guard's, the same matcher, running `node "<home>/.claude/hooks/kdf-guard-trial.js"
+   --log`, with no `|| exit 2`, since the trial refuses nothing. Restart the sessions and work for a week. Each
+   decision lands in `~/.claude/kdf-guard-trial.log`, so the owner counts what it would refuse and ask.
+4. The enforcement trial. Start a session with `KDF_GUARD_MODE=enforce`, and in it run a command the list allows, one
+   it refuses, a removal that asks, in default, acceptEdits, auto and bypassPermissions mode and from the phone, a
+   subagent's command, a full Round Table sitting and a review canary. A route where a refused command runs, or a
+   failure lets a call through, stops the switch there.
+5. The switch. `bash tools/claude-code/install.sh` puts the new guard in place and keeps the old one as
+   `kdf-guard.prev.js`. Remove the trial's line, restart every session and `claude rc` server, and run
+   `install.sh --check`.
+6. Undo, for any failure or the owner's word. Put `kdf-guard.prev.js` back as `kdf-guard.js` and the kept
+   `settings.json` back, restart, and run `install.sh --check` to see the previous wiring in place.
 
 Input the guard cannot read, a call that names no tool, or an error while it checks refuses the call, every tool,
 reads included, since an error before the secret checks once let a secret read through (D-059, the owner's choice of
