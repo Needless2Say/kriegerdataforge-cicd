@@ -919,6 +919,11 @@ function readPlain(cmd) {
     if (op === '>&' || op === '<&') {
       const m = /^(\d+|-)/.exec(text.slice(j));
       if (!m || m[1] === '-') refuse('Only a copy of one numbered output to another, such as 2>&1, is allowed.');
+      // bash reads >&1x as a file named 1x, so the number must end the word (D-068)
+      const after = text[j + m[1].length];
+      if (after !== undefined && !/[\s;&|<>()]/.test(after)) {
+        refuse('A redirect that joins & to a file name is refused. Write 2>&1, or a redirect into the temp folder.');
+      }
       cur.push({ t: fd + op + m[1], q: false, lq: false, g: false, gm: new Set(), redir: true, dup: true });
       return j + m[1].length - 1;
     }
@@ -965,10 +970,12 @@ function realOf(p) {
 // Whether a path lies inside a git working tree under its temp root, a .git between it and the root. A worktree under
 // the temp folder holds a repo's files and work never committed, so it is never a temporary file.
 function insideWorkTree(p) {
-  const abs = toAbs(p);
-  const root = TEMP_ROOTS.find((r) => abs.toLowerCase().startsWith(r + '/'));
-  for (let dir = abs; root && dir.length > root.length; dir = path.posix.dirname(dir)) {
-    if (fs.existsSync(path.join(dir, '.git'))) return true;
+  // the path as written and where it really leads, so a link in a temp folder into a repo there is inside it (D-068)
+  for (const abs of [toAbs(p), realOf(p)]) {
+    const root = TEMP_ROOTS.find((r) => abs.toLowerCase().startsWith(r + '/'));
+    for (let dir = abs; root && dir.length > root.length; dir = path.posix.dirname(dir)) {
+      if (fs.existsSync(path.join(dir, '.git'))) return true;
+    }
   }
   return false;
 }
@@ -1159,7 +1166,20 @@ const LIST = {
       + '--before-context= --context= --max-count= --max-depth= --threads= --max-columns= --sort= --sortr= --files '
       + '--type-list --json --column --vimgrep --stats --trim --color= --colors= --passthru --no-messages --unicode '
       + '--no-unicode --crlf --encoding= -E= --engine= --pcre2 --auto-hybrid-regex --max-filesize= --version -V',
-    why: RG_WHY
+    why: RG_WHY,
+    // a glob that includes overrides rg's skipping of hidden and ignored files, so one that could match a secret
+    // file's name is refused, while one that excludes, !<glob>, only narrows (D-068)
+    check: (o, whole) => {
+      const secrets = [...DOT_SECRET_NAMES, '.env.local', 'id.pem', 'x.tfvars', 'x.tfvars.json'];
+      for (const v of o.values.filter((x) => /^(-g|--glob|--iglob)$/.test(x.name))) {
+        if (v.value.startsWith('!')) continue;
+        const parts = v.value.replace(/\\/g, '/').split('/');
+        const last = globSteps(parts[parts.length - 1], ALL_WILD);
+        if (secrets.some((name) => globMatch(last, name)) || parts.some((p) => /^keys$/i.test(p))) {
+          deny('An rg glob that could include a secret file overrides rg\'s skipping of them. Narrow the glob.', whole);
+        }
+      }
+    }
   },
   sort: {
     opts: '-b -d -f -g -h -i -M -n -R -r -V -c -C -m -s -u -z -k= -t= -S= --ignore-leading-blanks --dictionary-order '
@@ -1472,8 +1492,10 @@ function awkForm(args, whole) {
   if (!o.operands.length) deny('awk needs a program.', whole);
   const prog = o.operands[0];
   // a string's text blanked first, so a ; or a brace inside one does not split a print from its > (D-068)
-  const code = prog.replace(/"(?:[^"\\]|\\.)*"/g, '""');
-  const bad = /\bsystem\b|\bgetline\b|\||\bENVIRON\b|\bPROCINFO\b|@/.test(prog)
+  // continued lines joined, as awk joins them, then a string's text blanked
+  const code = prog.replace(/\\\r?\n/g, ' ').replace(/"(?:[^"\\]|\\.)*"/g, '""');
+  // ARGV and ARGC let a program name the files it reads, a secret file built from pieces among them (D-068)
+  const bad = /\bsystem\b|\bgetline\b|\||\bENVIRON\b|\bPROCINFO\b|\bARGV\b|\bARGC\b|@/.test(prog)
     || code.split(/[;{}\n]/).some((stmt) => /\bprintf?\b/.test(stmt) && stmt.includes('>'));
   if (bad) {
     deny('An awk program that runs a command, reads the environment or writes a file, system, getline, a pipe, '
@@ -2087,6 +2109,7 @@ function judgeCommand(toks, whole, asks, single, variant) {
   else if (e.text) form = { operands: args };
   else if (e.form) form = e.form(args, whole);
   else form = readOpts(e.opts, args, prog, whole, e.why || {});
+  if (e.check) e.check(form, whole);
   if (e.maxOperands !== undefined && form.operands.length > e.maxOperands) {
     deny(prog + ' with ' + form.operands.length + ' paths writes the last one. Redirect into the temp folder instead.',
       whole);
@@ -2630,7 +2653,8 @@ function checkMake(args, assigns, whole) {
       continue;
     }
     if (MAKE_VALUE_OPTS.test(a)) {
-      i++;
+      // -j and --jobs take a number only when one follows, so make -j deploy names the target deploy (D-068)
+      if (!/^(-j|--jobs)$/.test(a) || /^\d+$/.test(String(args[i + 1] || ''))) i++;
       continue;
     }
     if (a.startsWith('-')) continue;
