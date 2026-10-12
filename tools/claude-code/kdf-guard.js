@@ -726,8 +726,13 @@ const NOT_PLAIN = 'The guard reads only plain commands, words, quotes, &&, ||, ;
   + 'folder, so it refuses this one. ';
 const notListed = (name) => name + ' is not on the owner\'s list of approved commands. Write it with listed commands, '
   + 'or ask the owner, who runs it or adds it to the list by pull request.';
-// The variables a command may set for itself, each an exact name and value.
-const ALLOWED_ASSIGNS = new Set(['PYTHONIOENCODING=utf-8', 'NO_COLOR=1', 'FORCE_COLOR=0', 'GIT_PAGER=cat']);
+// The variables a command may set for itself, each an exact name and value. PYTHONUTF8, PYTHONDONTWRITEBYTECODE,
+// MSYS_NO_PATHCONV and ENVIRONMENT=local came from the replay of the sessions' commands, the owner's choice of
+// 2026-10-12. ENVIRONMENT names this machine alone, its remote values stay refused.
+const ALLOWED_ASSIGNS = new Set([
+  'PYTHONIOENCODING=utf-8', 'NO_COLOR=1', 'FORCE_COLOR=0', 'GIT_PAGER=cat', 'PYTHONUTF8=1',
+  'PYTHONDONTWRITEBYTECODE=1', 'MSYS_NO_PATHCONV=1', 'ENVIRONMENT=local'
+]);
 // Characters a word may hold outside quotes, each one bash reads as itself.
 const PLAIN_CHAR = /[A-Za-z0-9/._\-=:,@+%^~#*?[\]]/;
 // What may follow a $ for bash to expand it, a name, a digit, a brace, a parenthesis, a bracket or a special parameter.
@@ -2084,6 +2089,12 @@ function judgeCommand(toks, whole, asks, single, variant) {
   }
   const args = argToks.map((t) => t.t);
   if (!Object.prototype.hasOwnProperty.call(LIST, prog)) deny(notListed(prog), whole);
+  // MSYS_NO_PATHCONV=1 stops Git Bash turning /tmp or /d/x into Windows paths, so a program would open a different
+  // place than the guard reads, and such a path is refused beside it, a drive written out, D:/x, still allowed
+  if (assigns.includes('MSYS_NO_PATHCONV=1') && args.some((a) => /(^|=)\//.test(a))) {
+    deny('With MSYS_NO_PATHCONV=1 a path is written with its drive, D:/x, since /tmp or /d/x would reach the '
+      + 'program unchanged.', whole);
+  }
 
   for (let k = 0; k < toks.length; k++) {
     const t = toks[k];

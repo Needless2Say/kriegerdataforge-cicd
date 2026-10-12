@@ -12,7 +12,7 @@ repos, the kit ships Markdown only (ADR D-028), so each machine installs them fr
 | `kdf-review.sh` | Starts one fresh Claude reviewer with the reviewer role in the repo folder itself, for at most four hours by default, or opens and closes the folder for Codex, checking first that the pin is pushed, the folder is at it and the brief's counts match it. Compares git before and after and fails the review if the reviewer changed anything but a new file under `docs/reviews`, the review archive. A Claude run's log is claude's stream, one JSON event a line as the run goes, so a detached run is watched by its log, and after a clean run the launcher writes Claude Code's own count of it beside the report, `<report stem>.usage.json`, from the stream's last result event. Brings a report Codex wrote in the cloud in from its branch, and warns when a report it did not start lacks its time or usage line |
 | `kdf-brief.js` | Read only. The facts a brief states, measured at the pin, the commit line and the scope table's line counts, a check of a written brief's table, and every `file:line` cite of the living docs beside the lines it names |
 | `kdf-retro.js` | Read only. The numbers a slice's retrospective starts from, counted from its answer key, the launcher's counts beside its reports or else their headers, and its Sol rounds, the escapes first |
-| `kdf-ask-codex.sh` | Asks Codex for a read only review of a change, a plan or a decision, the one way every session does (D-052, D-053). Gives Codex a detached worktree of a commit, or a throwaway repo of a folder of patches with no secret file, link or token in it, sets the session's question in the standard frame, runs Codex with the verified flags and archives its answer in the workspace's `temp/codex`, never in a repo. Refuses a reviewer, and fails when Codex changed its folder or wrote no answer |
+| `kdf-ask-codex.sh` | Asks Codex for a read only review of a change, a plan or a decision, the one way every session does (D-052, D-053). Gives Codex a detached worktree of a commit, or a throwaway repo of a folder of patches with no secret file, link or token in it, sets the session's question in the standard frame, runs Codex with the verified flags and archives its answer in the workspace's `codex-archive`, never in a repo or in `temp` (D-069). Refuses a reviewer, and fails when Codex changed its folder or wrote no answer |
 | `check-wiring.js` | Read only. Says whether this machine's settings wire the guard as the process needs, and prints the block to add when they do not |
 | `kdf-compact.js` | A Claude Code SessionStart hook for the work records (D-058). After a compaction or a resume it prints the paths of the open records the session wrote, read from its own transcript, and nothing for a reviewer or a subagent. It never blocks |
 | `install.sh` | Stages the guard in `~/.claude/hooks/`, smoke tests the staged copy, then puts it in place and keeps the previous one, copies `kdf-compact.js`, and prints the settings block. It edits no settings and refuses to run inside a Claude Code session |
@@ -67,7 +67,7 @@ is still refused.
 **Plain** means words, single quotes, double quotes holding no `$`, backtick or backslash, `&&`, `||`, `;`, `|`, a
 newline and a `#` comment, and a redirect that writes only into a temp folder or `/dev/null`. So the guard reads a
 command exactly as bash runs it. A `$`, a backtick, a heredoc, a loop, a function, a subshell, a brace, a background
-`&`, `eval`, `source` and a variable set for a command, but for four fixed pairs such as `PYTHONIOENCODING=utf-8`, are
+`&`, `eval`, `source` and a variable set for a command, but for eight fixed pairs such as `PYTHONUTF8=1`, are
 refused. A commit message goes in a file, `git commit -F`, or in single quotes, and a pull request's body in a file,
 `gh pr create --body-file`. A program is a bare name, or a repo's venv interpreter, `<repo>/.venv/Scripts/python.exe`,
 or a `.sh` script by its path. Inline code, `python -c`, `node -e` and `bash -c`, is refused, while a script file runs
@@ -189,10 +189,11 @@ The role comes from the environment the session was started in, so it works in a
 ```bash
 cd <workspace>/<repo>
 KDF_ROLE=reviewer claude rc --spawn=same-dir      # sessions opened from a phone
-step=docs/reviews/2026-09-28-sdk/s1-foundation/step-2-review
 bash <workspace>/kriegerdataforge-cicd/tools/claude-code/kdf-review.sh --repo . \
-     --brief "$step/SDK_REVIEW_S1_PROMPT.md" --report "$step/SDK_REVIEW_S1_REPORT.md" \
-     --codex-report "$step/SDK_REVIEW_S1_CODEX_REPORT.md" --pin <pin> --model <model> --effort max
+     --brief docs/reviews/2026-09-28-sdk/s1-foundation/step-2-review/SDK_REVIEW_S1_PROMPT.md \
+     --report docs/reviews/2026-09-28-sdk/s1-foundation/step-2-review/SDK_REVIEW_S1_REPORT.md \
+     --codex-report docs/reviews/2026-09-28-sdk/s1-foundation/step-2-review/SDK_REVIEW_S1_CODEX_REPORT.md \
+     --pin <pin> --model <model> --effort max
 ```
 
 Every review is archived in its own dated folder, `docs/reviews/<YYYY-MM-DD>-<scope>/`, with a folder per slice and
@@ -389,8 +390,9 @@ a clean status, or when git cannot read the folder at all. It fails too when Cod
 answer of Unicode white space and invisible format characters alone counting as none, judged once for the verdict,
 the archive and the exit alike, and when its events hold no completed turn or a line that is no event, since then
 nothing shows what Codex did. It warns when the events show Codex doing anything but running commands, reasoning,
-keeping a plan and answering. Each run's answer lands in the workspace's `temp/codex`, the owner's scratch, under a
-name no other run has, beside the frame it read and its JSON events. When the archive cannot be written the tool
+keeping a plan and answering. Each run's answer lands in the workspace's `codex-archive`, kept outside every repo and
+outside `temp`, so the guard asks the owner before a session removes one (D-069), under a name no other run has,
+beside the frame it read and its JSON events. When the archive cannot be written the tool
 prints the answer before it fails.
 
 The answer's header leads with the verdict, `passed` or why the run failed, settled before the archive is written, so
