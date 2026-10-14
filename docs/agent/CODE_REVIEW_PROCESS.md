@@ -8,7 +8,8 @@
 > changes, three standing look for questions, the last Sol round's Blocks fixes read by the final reviews, a run's
 > time and tokens counted by the launcher, and Codex in the cloud on trial, and since v1.15.0 that trial on Codex's
 > rebuilt cloud, with no token and no pull request, and since v1.20.0 the second retrospective's changes, a cite check
-> before every pin, two more standing look for questions and a pair of mutants for every number a rule reads. Kept
+> before every pin, two more standing look for questions and a pair of mutants for every number a rule reads, and
+> since v1.21.0 a pin's freeze that gives way where rule 15 lets one family go ahead. Kept
 > byte identical across every KDF repo by the kit sync engine,
 > canonical source `kriegerdataforge-cicd/kit/common/docs/agent/CODE_REVIEW_PROCESS.md`. Never edit a synced copy,
 > change the canonical one. The tooling that keeps the process safe, the guard, the reviewer

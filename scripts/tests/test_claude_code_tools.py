@@ -830,8 +830,9 @@ def test_a_feature_s_plan_and_log_come_from_synced_templates_a_build_session_can
     templates = KIT / "docs" / "agent" / "templates"
     registry  = json.loads((TOOLS.parents[1] / "scripts" / "kit_registry.json").read_text(encoding = "utf-8"))
     plan_file = templates / "implementation-plan.template.md"
+    synced    = "docs/agent/templates/implementation-plan.template.md"
     assert plan_file.is_file(), "the plan template is missing"
-    assert "docs/agent/templates/implementation-plan.template.md" in registry["files"], "the plan template is not synced"
+    assert synced in registry["files"], "the plan template is not synced"
     plan   = plan_file.read_text(encoding = "utf-8")
     fields = [line.split("**")[1] for line in plan.splitlines() if line.startswith("- **") and line.count("**") >= 2]
     assert fields[:6] == ["Status.", "Kind.", "Follows.", "Repos.", "Approved.", "Tracks."]
@@ -856,7 +857,7 @@ def test_a_feature_s_plan_and_log_come_from_synced_templates_a_build_session_can
         "The close rides the last pull request.",
     ):
         assert words in flat, f"the plan template lost {words!r}"
-    log = (templates / "work-log.template.md").read_text(encoding = "utf-8")
+    log  = (templates / "work-log.template.md").read_text(encoding = "utf-8")
     head = [line.split("**")[1] for line in log.splitlines() if line.startswith("- **") and line.count("**") >= 2]
     assert head[:5] == ["Status.", "Kind.", "Follows.", "Repos.", "Tracks."]
     log_flat = " ".join(log.split())

@@ -12,8 +12,7 @@
 > and built in another", and the records' rules are
 > [`../DOCUMENTATION_STANDARD.md`](../DOCUMENTATION_STANDARD.md), "Work records".
 
-- **Status.** {WAITING ON THE OWNER until the owner approves, then OPEN, then DONE or DROPPED}, {YYYY-MM-DD}, {a few
-  words at most}.
+- **Status.** {WAITING ON THE OWNER until approved, then OPEN, then DONE or DROPPED}, {YYYY-MM-DD}, {a few words}.
 - **Kind.** feature.
 - **Follows.** `{docs/design/YYYY-MM-DD-slug/}`.
 - **Repos.** {The repos the feature changes.}

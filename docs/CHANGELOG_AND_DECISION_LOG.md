@@ -3589,6 +3589,72 @@ explain.
 **Consequences.** A session or a replay can ask question 18 with `--also 18`, and nothing else changes. Callers that
 keep their own copy of the bound 1 to 14 refuse 18 until they widen it. VERSION 0.2.152.
 
+## D-071. A feature is designed in one session and built in another, from a plan the owner approved
+
+- **Date.** 2026-10-14
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Standard · kit v1.21.0, `WORKFLOW.md`, `DOCUMENTATION_STANDARD.md`, `DESIGN_AND_EPICS.md`,
+  `AGENT_OPERATING_STANDARD.md`, `DEFINITION_OF_DONE.md`, `CODE_REVIEW_PROCESS.md`, the kit's README, the templates
+  `implementation-plan` (new), `work-log`, `design-spec` and `contributor-onboarding`, `scripts/kit_registry.json`,
+  `tools/claude-code/kdf-compact.js` and its README · the kit synced to every repo, the hook copied per machine
+
+**Context.** D-057 gave every Standard or Epic change one design folder with its log, and D-058 a hook that names it
+after a compaction. Sessions still ran for days across many items, each compacting many times, plans were written
+after the work began or lived only in scratch files, and the kit's design template held no ordered steps, files,
+tests, checks or pull requests. On 2026-10-14 the owner asked for a plan written before every feature, in its own
+folder, and a new session for each feature's build, so each window holds one item and every compaction and every new
+session reads the same map. The design and its review are kept in the ecosystem's private context.
+
+**Decision.**
+
+- **Two sessions per feature.** A design session writes `DESIGN.md` and its `LOG.md` in
+  `docs/design/<YYYY-MM-DD>-<slug>/`, Kind architect, and every feature has a design, a small one too. Once the owner
+  says it is settled, it writes `IMPLEMENTATION_PLAN.md` and `LOG.md` in `docs/features/<YYYY-MM-DD>-<slug>/`, Kind
+  feature, its Follows the design folder, dated the day the plan is written. A design that yields several features
+  opens a folder for each, every slug starting with the design's slug. A new session builds one feature folder.
+- **The design pull request is the approval.** It holds both folders. The owner approves in words, the design session
+  writes the plan's Approved line, the owner's words and the date, and the owner's merge puts the approved plan on
+  `main`, recorded in git by the owner's hand. A build session makes its worktree from `origin/main`, writes a
+  takeover line first, and builds only when the plan is there and its Approved line holds words and a date.
+- **The plan template**, `implementation-plan.template.md`. Its header is the four fields every record shares,
+  Status, Kind, Follows and Repos, then Approved and Tracks. Its sections, in order, are the goal and done when with
+  the owner's steps after the merge, out of scope, the steps, the pull requests, stop and ask, changes to the plan,
+  and the build session's start prompt. Its steps table is the feature's one record of progress, and the feature's
+  log keeps no status grid.
+- **A design change during the build** comes only after a Round Table on it, the owner's panel of models, and the
+  change agreed there is made at once, in the design, the plan and the code. A change to the plan's scope, a contract,
+  a security property or its pull requests needs the owner's yes in the plan.
+- **The close rides the last pull request.** `FEATURE.md`, its index line and DONE in the plan and the log, so nothing
+  follows the merge. A pull request that depends on another opens only after that one merges.
+- **Features alone.** A bug beyond a Quick fix keeps `docs/bugs/`, a Standard change that builds no feature keeps
+  its one folder in `docs/design/`, and the Quick lane keeps no record. A repo follows the shape its own
+  `docs/agent/KIT_VERSION` gives, this one from v1.21.0 on.
+- **A public repo** keeps its plans in the ecosystem's private context with its logs, and its finished feature's doc,
+  written fit for the public, goes flat into its `docs/features/<slug>.md`.
+- **The compaction hook names a feature's log**, `docs/features/<folder>/LOG.md`, and never the plan or `FEATURE.md`
+  beside it.
+- **Three wordings held outside the kit until this release join it.** The Compacted line names the session by its
+  transcript's id, a Pending line is written for an action planned or started, and a pin's freeze gives way where
+  the review process's rule 15 lets one model family go ahead while the other reads a later pin.
+
+**Alternatives considered.**
+
+- *One session per feature, design and build together.* The way before. Rejected, the session runs long, compacts
+  often and holds more than one item.
+- *An Approved line alone, with no design pull request.* Rejected by the owner, since a merge puts the approved plan
+  where every session on either machine finds it.
+- *A small feature with no design.* Declined by the owner, every feature has a design.
+- *A start prompt template of its own.* Rejected, the prompt is written once, as the plan's last section.
+- *Moving the flat feature docs eight repos hold.* Churn with no gain, they keep their names.
+
+**Trade-offs.** One more pull request per feature, docs alone, and a build whose pull requests depend on each other
+waits for the owner's merge between them. Each repo's own `docs/prompts/FEATURE_DOCUMENTATION_PROMPT.md` and
+`docs/features/README.md` are tailored and never synced, so they describe flat docs until each repo changes them.
+
+**Consequences.** Every repo gets the rule and the templates with this kit's sync, and a repo whose sync has not
+merged keeps a feature's plan and log in `docs/design/`. The hook names a feature's log on a machine once its copy is
+replaced. VERSION 0.2.153.
+
 ## D-072. A Linux pre-flight in a container, run by one wrapper inside `docker build` alone
 
 - **Date.** 2026-10-14

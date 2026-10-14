@@ -17,8 +17,7 @@
 
 - **Status.** {OPEN, WAITING ON THE OWNER, DONE or DROPPED}, {YYYY-MM-DD}, {a few words at most}.
 - **Kind.** {feature, bug, brainstorm, architect, review or retro}.
-- **Follows.** {The path of the record before it, such as a feature's design folder `docs/design/YYYY-MM-DD-slug/`,
-  or none}.
+- **Follows.** {The record before it, for a feature its design folder `docs/design/YYYY-MM-DD-slug/`, or none}.
 - **Repos.** {The repos the item changes, this one included}.
 - **Tracks.** [{DESIGN.md, IMPLEMENTATION_PLAN.md or REPORT.md}]({DESIGN.md, IMPLEMENTATION_PLAN.md or REPORT.md}),
   ADR {D-NNN, or none yet}, branch `{name}`, pull requests {full links, or none yet}.
