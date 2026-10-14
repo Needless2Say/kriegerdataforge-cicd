@@ -60,5 +60,5 @@ RUN id -u \
 ARG RUN_ID
 ARG LANE_TIMEOUT
 ARG LANES
-RUN echo "kdf-preflight run $RUN_ID" && bash kdf/lanes.sh kdf/results "$LANE_TIMEOUT" $LANES
+RUN echo "kdf-preflight run $RUN_ID" && bash kdf/lanes.sh work kdf/results "$LANE_TIMEOUT" $LANES
 RUN sed "s/^/KDF-PREFLIGHT-RESULT $RUN_ID /" kdf/results && echo "KDF-PREFLIGHT-END $RUN_ID"

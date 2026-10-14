@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # lanes.sh, the Linux pre-flight's lane runner (D-072), run by the image's lanes stage alone, never by hand.
 #
-#   bash lanes.sh <results file> <seconds a lane may take> <lane>...
+#   bash lanes.sh <work folder> <results file> <seconds a lane may take> <lane>...
 #
-# Runs each lane named in the commit's tree at /home/runner/work, in the order given, each under timeout, and appends
+# Runs each lane named in the commit's tree in the work folder, in the order given, each under timeout, and appends
 # "<lane> <status>" to the results file, 124 for a lane that ran out of time. A lane is a make target, or actionlint,
 # the image's actionlint over the repo's workflows, which is red, 127, when no shellcheck is on the PATH, since
 # actionlint then skips every run: script. It always exits 0, so a red lane never stops the ones after it and
@@ -11,11 +11,13 @@
 # dropped before a lane starts, so no lane can print a result line with this run's id.
 set -u
 
-results="$1" limit="$2"
-shift 2
+work="$1" results="$2" limit="$3"
+shift 3
 unset RUN_ID LANE_TIMEOUT LANES
+# the results file is named from where the script starts, so it is made whole before the lanes change folder
+case "$results" in /*) ;; *) results="$PWD/$results" ;; esac
 : > "$results"
-cd /home/runner/work || exit 0
+cd "$work" || exit 0
 
 for lane in "$@"; do
 	printf '\n==== kdf-preflight lane %s ====\n' "$lane"

@@ -186,6 +186,31 @@ def test_the_lane_script_records_each_lane_under_timeout_and_exits_0() -> None:
     assert "set -e" not in text
 
 
+def test_the_lane_script_records_every_lanes_status_in_order_from_its_work_folder(tmp_path: Path) -> None:
+    # step 3's first real run found the results file named from where the script started and written after it changed
+    # folder, so no lane's status was recorded, which a reading of the text alone missed
+    make = shutil.which("make")
+    if (BASH is None or make is None) and not os.environ.get("CI"):
+        pytest.skip("the lane script needs bash and make")
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "Makefile").write_text(
+        "ci-red:\n\t@exit 2\nci-green:\n\t@echo green\nci-hang:\n\t@sleep 30\n",
+        encoding = "utf-8",
+        newline = "\n",
+    )
+    done = subprocess.run(
+        [str(BASH), LANES.as_posix(), work.as_posix(), "results.txt", "3", "ci-red", "ci-green", "ci-hang"],
+        capture_output = True,
+        text = True,
+        cwd = tmp_path,
+        timeout = 60,
+    )
+    assert done.returncode == 0, "a red or a hung lane never stops the script"
+    recorded = (tmp_path / "results.txt").read_text(encoding = "utf-8").splitlines()
+    assert recorded == ["ci-red 2", "ci-green 0", "ci-hang 124"], done.stdout + done.stderr
+
+
 def test_the_base_installs_shellcheck_and_fails_without_it() -> None:
     # actionlint runs ShellCheck over every run: script only when it is on the PATH, as on GitHub's runner, and skips
     # that check without a word when it is not (Round Table 29)
