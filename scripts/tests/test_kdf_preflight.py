@@ -19,6 +19,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tarfile
 import time
 from dataclasses import dataclass
@@ -317,6 +318,57 @@ def test_the_lane_script_records_every_lanes_status_in_order_from_its_work_folde
     assert (outputs / "ci-green.log").read_text(encoding = "utf-8") == "green\n"
     assert "ci-red" in (outputs / "ci-red.log").read_text(encoding = "utf-8"), "make's error, from stderr"
     assert "green\n==== kdf-preflight lane ci-green exited 0" in done.stdout
+
+
+def test_a_later_lanes_longer_notice_still_fits_the_budget(tmp_path: Path) -> None:
+    # the room kept for the notice is the longest failed lane's, so a lane with a longer name after the budget is
+    # nearly spent still leaves every excerpt within 64 KiB (D-072, the second Codex read)
+    if BASH is None and not os.environ.get("CI"):
+        pytest.skip("the lane script needs bash")
+    outputs = tmp_path / "lanes"
+    outputs.mkdir()
+    # with the run id r, four lanes of 50 full lines leave 136 bytes and ci-5's one short line 99, under the 109 bytes
+    # the long lane's notice needs, which a room kept for each lane's own notice alone would overshoot by 11
+    lanes = [f"ci-{number}" for number in range(1, 6)] + ["ci-this-is-a-slightly-longer-lane-name"]
+    (tmp_path / "results.txt").write_text("".join(f"{lane} 2\n" for lane in lanes), encoding = "utf-8")
+    for lane in lanes:
+        lines = "".join(f"{index:03d}{'p' * 400}\n" for index in range(80))
+        if lane == "ci-5":
+            lines = "x" * 10 + "\n"
+        (outputs / f"{lane}.log").write_text(lines, encoding = "utf-8", newline = "\n")
+    done = subprocess.run(
+        [str(BASH), LANES.as_posix(), "--tails", "results.txt", "r"],
+        capture_output = True,
+        text = True,
+        cwd = tmp_path,
+        timeout = 60,
+    )
+    assert done.returncode == 0 and len(done.stderr.encode("utf-8")) <= 65536, len(done.stderr.encode("utf-8"))
+    assert done.stderr.splitlines()[-1].endswith("[the excerpts stop here, their 65536 bytes spent]")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason = "a file's and a folder's modes lock them on Linux alone")
+def test_a_lane_that_locks_a_forged_status_in_place_never_keeps_it(tmp_path: Path) -> None:
+    # a lane runs as the same user as the lane script, so it may write green statuses and lock the file and its folder,
+    # which the script makes its own again before it writes the true ones (D-072, the second Codex read)
+    if (BASH is None or shutil.which("make") is None) and not os.environ.get("CI"):
+        pytest.skip("the lane script needs bash and make")
+    work = tmp_path / "work"
+    work.mkdir()
+    makefile = "ci-red:\n\t@exit 2\n"
+    makefile += "ci-lock:\n\t@printf 'ci-red 0\\nci-lock 0\\n' > ../results.txt\n"
+    makefile += "\t@chmod 444 ../results.txt\n\t@chmod 555 ..\n"
+    (work / "Makefile").write_text(makefile, encoding = "utf-8", newline = "\n")
+    done = subprocess.run(
+        [str(BASH), LANES.as_posix(), work.as_posix(), "results.txt", "30", "ci-red", "ci-lock"],
+        capture_output = True,
+        text = True,
+        cwd = tmp_path,
+        timeout = 60,
+    )
+    tmp_path.chmod(0o755)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert (tmp_path / "results.txt").read_text(encoding = "utf-8").splitlines() == ["ci-red 2", "ci-lock 0"]
 
 
 def test_the_lane_script_prints_a_bounded_excerpt_of_each_failed_lane_after_its_run(tmp_path: Path) -> None:
