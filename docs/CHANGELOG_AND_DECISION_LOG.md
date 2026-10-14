@@ -3552,3 +3552,39 @@ it at `codex-archive/<name>`.
 
 **Consequences.** No answer is lost to a tidy of the temp folder. The archive is in the workspace and so in the
 owner's backup of it. VERSION 0.2.151, with D-068's list change.
+
+## D-070. Question 18, proportion, joins the bank on trial, asked only by `--also 18`
+
+- **Date.** 2026-10-14
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Quick · `tools/claude-code/kdf-ask-codex.sh`, its README and `scripts/tests/test_kdf_ask_codex.py`
+  · D-056's bank grows by one question
+
+**Context.** D-056's fourteen questions ask what is wrong, missing or risky, and none asks the opposite, which part
+of a change is heavier than the risk it guards. The owner's work on the Round Table chose five candidate questions
+numbered 15 to 19 and kept one, 18, proportion, to be tried before it is kept. A trial replays past readings with and
+without it, and that needs the question's words where every reader's words live.
+
+**Decision.**
+
+- **Question 18 is in the bank**, worded once in the array `questions` like the rest, which part is heavier than the
+  risk it guards, and what could go without losing what it protects.
+- **No kind asks it by default.** It is asked only when a session passes `--also 18`, so every read made today asks
+  exactly what it asked before.
+- **It keeps the number 18**, the one it had among the candidates, so a record of the trial and the bank agree.
+  `--also` takes 1 to 14 or 18, and 15, 16, 17, 19 and every other value are refused as before.
+- **On trial.** If the trial finds it worth nothing, a later pull request takes it out again, the words and the
+  number together.
+
+**Alternatives considered.**
+
+- *Renumber it 15.* Rejected, every record of the trial names 18, and a renumbered bank would read as a different
+  question.
+- *Add it to a kind's five.* Rejected until the trial shows it earns a place, since every read of that kind would
+  change at once.
+
+**Trade-offs.** A gap in the numbers, 15 to 17, that a reader may wonder at, which the script's comment and the README
+explain.
+
+**Consequences.** A session or a replay can ask question 18 with `--also 18`, and nothing else changes. Callers that
+keep their own copy of the bound 1 to 14 refuse 18 until they widen it. VERSION 0.2.152.

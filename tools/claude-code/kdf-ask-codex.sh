@@ -5,7 +5,8 @@
 #   bash kdf-ask-codex.sh --files <folder> --brief <file>
 #   either takes [--kind review|plan|decision|rules] [--effort high|xhigh|max] [--model <model>] [--no-settled]
 #   [--dry-run]
-#   and [--fix] [--security] [--also <n>]..., the questions the session declares on top of its kind's five (D-056)
+#   and [--fix] [--security] [--also <n>]..., the questions the session declares on top of its kind's five (D-056),
+#   any of 1 to 14, or 18, proportion, which is on trial and asked only this way (D-070)
 #
 # --kind says what the brief asks for, and only the frame's closing instruction changes with it (D-053). review, the
 # default, asks for real problems in the change. plan asks Codex to judge a plan in the brief against the code it reads,
@@ -97,8 +98,12 @@ while [ $# -gt 0 ]; do
 		--fix) fix=1; shift ;;
 		--security) security=1; shift ;;
 		--also)
-			# each value whole, one number, so an empty, spaced or wildcard value is refused rather than split
-			case "${2:-}" in [1-9]|1[0-4]) also+=("$2") ;; *) die 2 "--also takes a question's number, 1 to 14" ;; esac
+			# each value whole, one number, so an empty, spaced or wildcard value is refused rather than split. The bank
+			# holds 1 to 14 and 18, so 15 to 17 and anything past 18 are refused (D-070)
+			case "${2:-}" in
+				[1-9]|1[0-4]|18) also+=("$2") ;;
+				*) die 2 "--also takes a question's number, 1 to 14 or 18" ;;
+			esac
 			shift 2 ;;
 		--files) files="${2:-}"; shift 2 || die 2 "--files needs a value" ;;
 		--brief) brief="${2:-}"; shift 2 || die 2 "--brief needs a value" ;;
@@ -217,7 +222,9 @@ fi
 
 # ---- 3. the frame, the session's question in the standard words
 # The review panel's fourteen questions, worded here alone so they cannot drift (D-056). Each kind asks its own five,
-# and a reader may answer any other that applies. A question in no kind's five stays in the bank.
+# and a reader may answer any other that applies. A question in no kind's five stays in the bank. Question 18 is on
+# trial and in no kind's five, asked only by --also 18, and keeps the number it had among the candidates it was
+# chosen from, so 15 to 17 are no questions (D-070).
 questions[1]="1. Outcome. What exact result must hold, for whom, in which states?"
 questions[2]="2. Assumptions. What could overturn the answer, and what evidence supports it, a test, a probe, or a"
 questions[2]+=" platform's or dependency's documented behaviour quoted from the folder?"
@@ -240,6 +247,8 @@ questions[12]+=" make a second copy that can drift?"
 questions[13]="13. The doer and the cost. Walk each step as whoever does it, with only what they have. What does it"
 questions[13]+=" cost the owner in time, merges, quota and money?"
 questions[14]="14. Pre mortem. If it is reverted in a month, what is the likeliest reason?"
+questions[18]="18. Proportion. Which part is heavier than the risk it guards, and what could go without losing what it"
+questions[18]+=" protects?"
 # the questions a kind asks, each answered briefly and apart from the findings
 ask() {
 	local number
