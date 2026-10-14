@@ -3594,9 +3594,10 @@ keep their own copy of the bound 1 to 14 refuse 18 until they widen it. VERSION 
 - **Date.** 2026-10-14
 - **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
 - **Tier / scope:** Standard · kit v1.21.0, `WORKFLOW.md`, `DOCUMENTATION_STANDARD.md`, `DESIGN_AND_EPICS.md`,
-  `AGENT_OPERATING_STANDARD.md`, `DEFINITION_OF_DONE.md`, `CODE_REVIEW_PROCESS.md`, the kit's README, the templates
-  `implementation-plan` (new), `work-log`, `design-spec` and `contributor-onboarding`, `scripts/kit_registry.json`,
-  `tools/claude-code/kdf-compact.js` and its README · the kit synced to every repo, the hook copied per machine
+  `AGENT_OPERATING_STANDARD.md`, `DEFINITION_OF_DONE.md`, `CODE_REVIEW_PROCESS.md`, `AGENT_ROLES.md`, the kit's
+  README, the templates `implementation-plan` (new), `work-log`, `design-spec` and `contributor-onboarding`,
+  `scripts/kit_registry.json`, `tools/claude-code/kdf-compact.js` and its README · the kit synced to every repo, the
+  hook copied per machine
 
 **Context.** D-057 gave every Standard or Epic change one design folder with its log, and D-058 a hook that names it
 after a compaction. Sessions still ran for days across many items, each compacting many times, plans were written
@@ -3645,7 +3646,7 @@ session reads the same map. The design and its review are kept in the ecosystem'
   where every session on either machine finds it.
 - *A small feature with no design.* Declined by the owner, every feature has a design.
 - *A start prompt template of its own.* Rejected, the prompt is written once, as the plan's last section.
-- *Moving the flat feature docs eight repos hold.* Churn with no gain, they keep their names.
+- *Moving the flat feature docs repos already hold.* Churn with no gain, they keep their names.
 
 **Trade-offs.** One more pull request per feature, docs alone, and a build whose pull requests depend on each other
 waits for the owner's merge between them. Each repo's own `docs/prompts/FEATURE_DOCUMENTATION_PROMPT.md` and

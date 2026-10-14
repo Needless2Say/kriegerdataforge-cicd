@@ -818,6 +818,11 @@ def test_a_feature_is_designed_in_one_session_and_built_from_an_approved_plan_in
     for page in ("DESIGN_AND_EPICS.md", "AGENT_OPERATING_STANDARD.md", "README.md"):
         text = " ".join((agent / page).read_text(encoding = "utf-8").split())
         assert "designed in one session and built in another" in text, f"{page} does not point at the feature rule"
+    gate = (agent / "DESIGN_AND_EPICS.md").read_text(encoding = "utf-8")
+    assert "| A feature within existing patterns, one repo | A short design, then its plan, the ADR optional |" in gate
+    assert "A plan is enough, design gate optional" not in gate, "a feature may skip its design again"
+    roles = " ".join((agent / "AGENT_ROLES.md").read_text(encoding = "utf-8").split())
+    assert "rule 15 lets it go on with the one report, and the missing review reads a later pin" in roles
 
 
 def test_a_feature_s_plan_and_log_come_from_synced_templates_a_build_session_can_start_from() -> None:
