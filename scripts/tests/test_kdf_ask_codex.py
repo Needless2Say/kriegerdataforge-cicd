@@ -25,7 +25,7 @@ TOOL = Path(__file__).resolve().parents[2] / "tools" / "claude-code" / "kdf-ask-
 NODE = shutil.which("node")
 BASH = os.environ.get("KDF_TEST_BASH") or shutil.which("bash")
 
-# the review panel's fourteen questions by the words each opens with in a frame (D-056)
+# the review panel's fourteen questions by the words each opens with in a frame (D-056), and 18 on trial (D-070)
 QUESTION_WORDS = {
     1: "1. Outcome.",
     2: "2. Assumptions.",
@@ -41,6 +41,7 @@ QUESTION_WORDS = {
     12: "12. Contradiction and drift.",
     13: "13. The doer and the cost.",
     14: "14. Pre mortem.",
+    18: "18. Proportion.",
 }
 
 # the flags verified on 2026-10-05, each as the tool must pass it
@@ -356,6 +357,10 @@ def test_a_review_asks_no_worth_taking_question(rig: Rig) -> None:
     (["--kind", "plan", "--also", "8", "--also", "8"], {1, 2, 3, 6, 14, 8}, "plan, 1 2 3 6 14 8"),
     (["--kind", "plan", "--security", "--also", "5"], {1, 2, 3, 6, 14, 5}, "plan, 1 2 3 6 14 5"),
     (["--fix", "--also", "10"], {2, 10, 4, 6, 9}, "review, 2 10 4 6 9"),
+    # 18 is in no kind's five, so it is asked only when declared (D-070)
+    (["--kind", "plan", "--also", "18"], {1, 2, 3, 6, 14, 18}, "plan, 1 2 3 6 14 18"),
+    (["--kind", "decision", "--also", "18", "--also", "8"], {1, 2, 9, 13, 14, 18, 8}, "decision, 1 2 9 13 14 18 8"),
+    (["--also", "18"], {2, 3, 4, 6, 9, 18}, "review, 2 3 4 6 9 18"),
 ])
 def test_each_kind_asks_exactly_its_five_and_the_answer_names_them(
     rig: Rig,
@@ -380,11 +385,12 @@ def test_each_kind_asks_exactly_its_five_and_the_answer_names_them(
     assert f"**Questions.** {header}." in answer
 
 
-def test_the_bank_holds_all_fourteen_questions_once() -> None:
-    # the words live in the script alone, every question of the bank once, those in no kind's five included
+def test_the_bank_holds_the_fourteen_questions_and_eighteen_once() -> None:
+    # the words live in the script alone, every question of the bank once, those in no kind's five included, 18 on
+    # trial among them and 15 to 17 none (D-070)
     text    = TOOL.read_text(encoding = "utf-8")
     numbers = [int(match) for match in re.findall(r"^questions\[(\d+)\]=", text, re.MULTILINE)]
-    assert sorted(numbers) == list(range(1, 15))
+    assert sorted(numbers) == [*range(1, 15), 18]
     # each whole, its number first and a question at its end, a part added with += included
     bank = {number: "" for number in numbers}
     for number, part in re.findall(r'^questions\[(\d+)\]\+?="(.*)"$', text, re.MULTILINE):
@@ -483,11 +489,16 @@ def test_a_session_in_the_reviewer_role_is_refused(rig: Rig) -> None:
     (["--repo", "REPO", "--brief", "BRIEF", "--effort", "low"], "high, xhigh or max"),
     (["--repo", "REPO", "--brief", "BRIEF", "--effort", "ultra"], "high, xhigh or max"),
     (["--repo", "REPO", "--brief", "BRIEF", "--kind", "essay"], "review, plan, decision or rules"),
-    (["--repo", "REPO", "--brief", "BRIEF", "--also", "15"], "--also takes a question's number, 1 to 14"),
-    (["--repo", "REPO", "--brief", "BRIEF", "--also", "load"], "--also takes a question's number, 1 to 14"),
-    (["--repo", "REPO", "--brief", "BRIEF", "--also", ""], "--also takes a question's number, 1 to 14"),
-    (["--repo", "REPO", "--brief", "BRIEF", "--also", "8 11"], "--also takes a question's number, 1 to 14"),
-    (["--repo", "REPO", "--brief", "BRIEF", "--also", "*"], "--also takes a question's number, 1 to 14"),
+    (["--repo", "REPO", "--brief", "BRIEF", "--also", "15"], "--also takes a question's number, 1 to 14 or 18"),
+    (["--repo", "REPO", "--brief", "BRIEF", "--also", "16"], "--also takes a question's number, 1 to 14 or 18"),
+    (["--repo", "REPO", "--brief", "BRIEF", "--also", "17"], "--also takes a question's number, 1 to 14 or 18"),
+    (["--repo", "REPO", "--brief", "BRIEF", "--also", "19"], "--also takes a question's number, 1 to 14 or 18"),
+    (["--repo", "REPO", "--brief", "BRIEF", "--also", "180"], "--also takes a question's number, 1 to 14 or 18"),
+    (["--repo", "REPO", "--brief", "BRIEF", "--also", "0"], "--also takes a question's number, 1 to 14 or 18"),
+    (["--repo", "REPO", "--brief", "BRIEF", "--also", "load"], "--also takes a question's number, 1 to 14 or 18"),
+    (["--repo", "REPO", "--brief", "BRIEF", "--also", ""], "--also takes a question's number, 1 to 14 or 18"),
+    (["--repo", "REPO", "--brief", "BRIEF", "--also", "8 11"], "--also takes a question's number, 1 to 14 or 18"),
+    (["--repo", "REPO", "--brief", "BRIEF", "--also", "*"], "--also takes a question's number, 1 to 14 or 18"),
     (["--repo", "REPO", "--brief", "BRIEF", "--surprise"], "unknown argument"),
 ])
 def test_a_wrong_call_is_refused_before_codex_starts(rig: Rig, args: list[str], says: str) -> None:
