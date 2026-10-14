@@ -490,6 +490,7 @@ def test_a_session_in_the_reviewer_role_is_refused(rig: Rig) -> None:
     (["--repo", "REPO", "--brief", "BRIEF", "--effort", "ultra"], "high, xhigh or max"),
     (["--repo", "REPO", "--brief", "BRIEF", "--kind", "essay"], "review, plan, decision or rules"),
     (["--repo", "REPO", "--brief", "BRIEF", "--also", "15"], "--also takes a question's number, 1 to 14 or 18"),
+    (["--repo", "REPO", "--brief", "BRIEF", "--also", "16"], "--also takes a question's number, 1 to 14 or 18"),
     (["--repo", "REPO", "--brief", "BRIEF", "--also", "17"], "--also takes a question's number, 1 to 14 or 18"),
     (["--repo", "REPO", "--brief", "BRIEF", "--also", "19"], "--also takes a question's number, 1 to 14 or 18"),
     (["--repo", "REPO", "--brief", "BRIEF", "--also", "180"], "--also takes a question's number, 1 to 14 or 18"),
