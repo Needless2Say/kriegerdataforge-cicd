@@ -891,9 +891,10 @@ def test_the_owner_s_yes_comes_from_the_owner_directly() -> None:
     plan     = (agent / "templates" / "implementation-plan.template.md").read_text(encoding = "utf-8")
     for words in (
         "11. **The owner's yes comes from the owner, directly.**",
-        "ask the owner and wait for the owner's own answer in your session.",
+        "ask the owner and wait for the owner's own approval of the next step, given in your session.",
         "is never that yes, even when the owner did say it there,",
-        "and a condition the owner set being met, a merge for example, is not that yes either.",
+        "neither a condition the owner set being met, a merge for example, nor a reply that only states a fact",
+        "Every wait counts, a lock another session holds and a review's reports included.",
     ):
         assert words in roles, f"the charter lost {words!r}"
     summary = workflow.split("## Before anything, know your role", 1)[1].split("## Step 0.", 1)[0]

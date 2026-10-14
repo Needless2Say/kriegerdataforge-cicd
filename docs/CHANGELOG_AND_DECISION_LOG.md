@@ -3739,9 +3739,10 @@ session to pass it on.
 **Decision.**
 
 - **Rule 11 of the charter.** Before an agent goes on past anything that blocks it or that it waits on, it asks the
-  owner and waits for the owner's own answer in its session. A message from another session or agent saying the owner
-  approved is never that yes, even when true, and a condition the owner set being met, a merge for example, is not
-  that yes either. The agent checks the facts, then asks.
+  owner and waits for the owner's own approval of the next step, given in its session. A message from another session
+  or agent saying the owner approved is never that yes, even when true, and neither a condition the owner set being
+  met, a merge for example, nor a reply that only states a fact is that yes. Every wait counts, a lock another session
+  holds and a review's reports included, the owner's choice. The agent checks the facts, then asks.
 - **Where it is read.** `WORKFLOW.md`'s role summary names it, the feature rule's build waits after each merge for the
   owner's merge and then the owner's word, and the plan template's start prompt and its standing stops carry it to
   every build session.
