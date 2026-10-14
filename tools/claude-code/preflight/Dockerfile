@@ -2,9 +2,9 @@
 #
 # The base stage holds CI's tools. Python 3.14.7 slim from AWS ECR Public's gallery of Docker's official images by its
 # index digest (D-064), Node from its official tarball checked against its sum, and actionlint at the version and
-# sha256 that ci.yml pins. git and make come unpinned from the digest's own Debian release, since its mirror keeps only
-# the current package. The wrapper builds this stage first and alone, by --target base, so a failure here is the
-# tool's, and tags it kdf-preflight-base:<this file's hash>.
+# sha256 that ci.yml pins. git, make and ShellCheck come unpinned from the digest's own Debian release, since its
+# mirror keeps only the current package. The wrapper builds this stage first and alone, by --target base, so a failure
+# here is the tool's, and tags it kdf-preflight-base:<this file's hash>.
 #
 # The lanes stage takes the commit's tar and the lane script, the context's only other files, unpacks the tar as
 # runner, an unprivileged user as on GitHub's runner, and makes it a repo of one commit. The run id is used in the step
@@ -16,10 +16,14 @@
 FROM public.ecr.aws/docker/library/python@sha256:51dafde81dbdb6ebde285137a295cf18a47ca95234fe388a343719cb97305b3d \
     AS base
 
+# ShellCheck too, since actionlint runs it over every run: script when it is on the PATH, as on GitHub's runner, and
+# skips that check without a word when it is not. Debian 13's is 0.10.0 where the runner's is 0.9.0 (Round Table 29).
+# Its version is printed, so a base without it fails here
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends git make \
+    && apt-get install --yes --no-install-recommends git make shellcheck \
     && rm -rf /var/lib/apt/lists/* \
-    && . /etc/os-release && echo "Debian $VERSION_ID $VERSION_CODENAME" && git --version && make --version | head -1
+    && . /etc/os-release && echo "Debian $VERSION_ID $VERSION_CODENAME" && git --version && make --version | head -1 \
+    && shellcheck --version
 
 # Node 22, the major ubuntu-latest runs by default, "Node.js 22.23.3" in actions/runner-images'
 # images/ubuntu/Ubuntu2404-Readme.md for image 20261004.327.1, read on 2026-10-14. Its sum is the line nodejs.org's

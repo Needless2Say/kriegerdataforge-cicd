@@ -168,3 +168,19 @@ def test_the_lane_script_records_each_lane_under_timeout_and_exits_0() -> None:
     assert re.search(r"timeout\b[^\n]*\bmake\b", text) and re.search(r"timeout\b[^\n]*\bactionlint\b", text)
     assert text.rstrip().endswith("exit 0"), "a red lane never stops the ones after it"
     assert "set -e" not in text
+
+
+def test_the_base_installs_shellcheck_and_fails_without_it() -> None:
+    # actionlint runs ShellCheck over every run: script only when it is on the PATH, as on GitHub's runner, and skips
+    # that check without a word when it is not (Round Table 29)
+    apt = [rest for keyword, rest in _stages()[0] if keyword == "RUN" and "apt-get install" in rest]
+    assert len(apt) == 1 and "shellcheck" in apt[0].split(), "ShellCheck beside git and make, from Debian"
+    assert "&& shellcheck --version" in apt[0], "its version printed, so a base without it fails to build"
+
+
+def test_the_actionlint_lane_is_red_when_no_shellcheck_is_on_the_path() -> None:
+    text  = LANES.read_text(encoding = "utf-8")
+    guard = text.find("command -v shellcheck")
+    run   = text.find('"$limit" actionlint')
+    assert -1 < guard < run, "the guard comes before actionlint runs"
+    assert re.search(r"\(exit 127\)", text[guard:run]), "the lane's status is 127, red"
