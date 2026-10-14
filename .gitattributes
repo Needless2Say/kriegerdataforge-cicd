@@ -4,3 +4,5 @@ tools/claude-code/*.sh   text eol=lf
 tools/claude-code/*.js   text eol=lf
 tools/claude-code/*.json text eol=lf
 tools/codex-cloud/*.sh   text eol=lf
+# The Linux pre-flight's Dockerfile and lane script, which bash in the container reads (D-072)
+tools/claude-code/preflight/* text eol=lf
