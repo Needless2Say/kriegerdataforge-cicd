@@ -3654,7 +3654,7 @@ waits for the owner's merge between them. Each repo's own `docs/prompts/FEATURE_
 
 **Consequences.** Every repo gets the rule and the templates with this kit's sync, and a repo whose sync has not
 merged keeps a feature's plan and log in `docs/design/`. The hook names a feature's log on a machine once its copy is
-replaced. VERSION 0.2.153.
+replaced. VERSION 0.2.154, after D-072's 0.2.153.
 
 ## D-072. A Linux pre-flight in a container, run by one wrapper inside `docker build` alone
 
