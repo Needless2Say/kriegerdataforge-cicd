@@ -5,17 +5,20 @@
 #   bash lanes.sh --tails <results file> <run id>
 #
 # Runs each lane named in the commit's tree in the work folder, in the order given, each under timeout, and writes
-# "<lane> <status>" for each to the results file once every lane has run, so no lane can rewrite another's status, 124
-# for a lane that ran out of time. The image keeps this script and the commit's tar as root's, so no lane can change
-# the script its last step runs either. A lane is a make target, or actionlint,
+# "<lane> <status>" for each to the results file once every lane has run, 124 for a lane that ran out of time, so a
+# lane's stray write there never changes a status. The image keeps this script and the commit's tar as root's, so no
+# lane changes the script its last step runs. It reads the lanes of the owner's own repos truly, and does not isolate
+# one lane from another, since every lane runs in the same work tree as the same user, so a lane written to deceive
+# could change what a later lane runs, and CI on GitHub stays the gate. A lane is a make target, or actionlint,
 # the image's actionlint over the repo's workflows, which is red, 127, when no shellcheck is on the PATH, since
 # actionlint then skips every run: script. Each lane's output, stdout and stderr in order, goes to a file of its own in
 # lanes/ beside the results file and is printed when the lane ends, so a process a lane leaves running never holds the
 # step open past the lane's timeout, and the status read is the lane's own. It exits 0 whatever the lanes did, so a red
 # lane never stops the ones after it and the build goes on to the step that prints the results, which kdf-preflight.sh
-# reads, and 1 only when it cannot write the statuses whole, which stops the build before that step. The
-# build's arguments are dropped before a lane starts, so no lane can print a line with this run's id, and so are the
-# base image's own Python variables, which GitHub's runner does not have.
+# reads, and 1 only when it cannot write the statuses whole, which stops the build before that step. The build's
+# arguments are dropped before a lane starts, so a lane does not meet the run id in its own environment, though one
+# that reads its parent's from /proc could, which the wrapper's reading does not rely on, and so are the base image's
+# own Python variables, which GitHub's runner does not have.
 #
 # --tails prints to stderr, for each lane the results file records as failed, the last 50 lines of its own output,
 # each cut to 300 bytes and all of them to 64 KiB, with a notice where the budget runs out, each line after
@@ -85,10 +88,10 @@ for lane in "$@"; do
 	printf '==== kdf-preflight lane %s exited %s ====\n' "$lane" "$status"
 	recorded+=("$lane $status")
 done
-# a lane runs as the same user, so it may have written a status there and locked the file or its folder. Both are made
-# the script's own again, the old file removed, the statuses written and read back, and when they cannot be written
-# whole the script fails, the build stops before the step that prints the results, and the run reads as one that could
-# not complete, never as a status a lane left
+# a lane runs as the same user, so it may have written there or locked the file or its folder. Both are made the
+# script's own again, the old file removed, the statuses written and read back, and when they cannot be written whole
+# the script fails, the build stops before the step that prints the results, and the run reads as one that could not
+# complete, never as a status a lane left
 written="$(printf '%s\n' "${recorded[@]}")"
 folder="$(dirname "$results")"
 chmod u+rwx "$folder" 2>/dev/null

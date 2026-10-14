@@ -477,14 +477,16 @@ lines alone, never the build's status, so a broken build never reads as a red la
 lane's log never hides a result. It finds that step by the line BuildKit itself opens it with, which no lane can
 print, and counts only that step's lines that open with a marker, so neither a lane's output nor an excerpt passes for
 a result even from a lane that learns the run id. The lane script writes the statuses only after every lane has run,
-and the image keeps it and the tar as root's, so no lane rewrites a status or the script the last step runs. BuildKit
-drops the rest of a step's stdout once it clips, measured at 200 KiB a
-second and at 2 MiB a step, so a later lane's reason can be missing from the lanes step. Each lane's output goes to a
-file of its own and is printed when the lane ends, with no pipe, so a process a lane leaves running never holds the
-step open, and the last step prints, after the results and the end marker and on stderr, an excerpt of each failed
-lane's own output, its last 50 lines of 300 bytes each, 64 KiB in all with a notice where it stops. The tool shows
-that excerpt beside the failed lane. `--timeout`, 1800 seconds unless given, bounds the whole run, each build running
-under what remains of it.
+so a lane's stray write never changes one, and the image keeps the script and the tar as root's. The pre-flight reads
+the lanes of the owner's own repos truly. It does not isolate one lane from another, since every lane runs in the same
+work tree as the same user, so a lane written to deceive could change what a later lane runs, and CI on GitHub stays
+the gate. Running each lane as a user of its own from a fresh tree is a later item. BuildKit drops the rest of a
+step's stdout once it clips, measured at 200 KiB a second and at 2 MiB a step, so a later lane's reason can be missing
+from the lanes step. Each lane's output goes to a file of its own and is printed when the lane ends, with no pipe, so
+a process a lane leaves running never holds the step open, and the last step prints, after the results and the end
+marker and on stderr, an excerpt of each failed lane's own output, its last 50 lines of 300 bytes each, 64 KiB in all
+with a notice where it stops. The tool shows that excerpt beside the failed lane. `--timeout`, 1800 seconds unless
+given, bounds the whole run, each build running under what remains of it.
 
 | Exit | Meaning |
 | --- | --- |

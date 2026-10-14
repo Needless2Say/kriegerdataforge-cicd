@@ -3629,8 +3629,9 @@ two readers and revised by its seventeen adopted findings was approved, its reco
    lane's output goes to a file of its own, and the last step prints, after the results, a bounded excerpt of each
    failed lane's output on stderr, which the wrapper shows beside it. A third panel on the build chose this, and a
    real run with a failing lane after a 3.4 MB flood showed its reason. The wrapper counts only lines of that last
-   step, found by the line BuildKit opens it with, that open with a marker, and the lane script writes the statuses
-   once every lane has run from a copy root keeps, so no lane's output passes for a result or rewrites one.
+   step, found by the line BuildKit opens it with, that open with a marker, so no lane's output passes for a result,
+   and the lane script, which root keeps, writes the statuses once every lane has run, so a lane's stray write never
+   changes one.
 6. **Nothing left behind but what explains a failure.** The run's image is removed every time, its folder kept on 1
    and 3 and removed on 0 and 2, and nothing is pushed to a registry.
 
@@ -3643,10 +3644,13 @@ two readers and revised by its seventeen adopted findings was approved, its reco
 - *Pin ShellCheck to the runner's 0.9.0 from its release.* Rejected, the runner's version moves with `ubuntu-latest`,
   and the match would need a hand bump no tool raises.
 
-**Trade-offs.** A lane that needs a private package fails at setup, since no token enters, and is reported as a
-skipped pre-flight until wheels built on the host can be passed in. Debian's ShellCheck can differ from the runner's
-on a script. `ci-version-check` stays on the host. The image misses the runner's other preinstalled tools.
+**Trade-offs.** The pre-flight reads the lanes of the owner's own repos truly and does not isolate one lane from
+another, since every lane runs in one work tree as one user, so a lane written to deceive could change what a later
+lane runs, as a real run showed, and CI on GitHub stays the gate. A lane that needs a private package fails at setup,
+since no token enters, and is reported as a skipped pre-flight until wheels built on the host can be passed in.
+Debian's ShellCheck can differ from the runner's on a script. `ci-version-check` stays on the host. The image misses
+the runner's other preinstalled tools.
 
 **Consequences.** A session runs its lanes on Linux before a push with one command, and the first run on a machine
-builds the base in a few minutes. Two real red runs and cicd's own unit suite, 2691 tests in Linux, held before the
+builds the base in a few minutes. Real red runs and cicd's own unit suite, over 2,700 tests in Linux, held before the
 pull request. VERSION 0.2.153.
