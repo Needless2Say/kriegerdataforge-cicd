@@ -878,6 +878,36 @@ def test_a_feature_s_plan_and_log_come_from_synced_templates_a_build_session_can
     assert "implementation-plan.template.md" in spec and "the owner's merge of the design pull request" in spec
 
 
+def test_the_owner_s_yes_comes_from_the_owner_directly() -> None:
+    """
+    The owner's rule of 2026-10-14 (D-073). Going on past anything that blocks or is waited on takes the owner's own
+    answer in the session, never a yes another session relays, and never a condition the owner set being met. The
+    charter holds it as rule 11, WORKFLOW.md sums it up and the feature rule waits for the owner's word after a merge,
+    and the plan template's start prompt and its stops carry it to every build session.
+    """
+    agent    = KIT / "docs" / "agent"
+    roles    = " ".join((agent / "AGENT_ROLES.md").read_text(encoding = "utf-8").split())
+    workflow = " ".join((KIT / "WORKFLOW.md").read_text(encoding = "utf-8").split())
+    plan     = (agent / "templates" / "implementation-plan.template.md").read_text(encoding = "utf-8")
+    for words in (
+        "11. **The owner's yes comes from the owner, directly.**",
+        "ask the owner and wait for the owner's own answer in your session.",
+        "is never that yes, even when the owner did say it there,",
+        "and a condition the owner set being met, a merge for example, is not that yes either.",
+    ):
+        assert words in roles, f"the charter lost {words!r}"
+    summary = workflow.split("## Before anything, know your role", 1)[1].split("## Step 0.", 1)[0]
+    rule    = workflow.split("## A feature, designed in one session and built in another", 1)[1].split("## Quick", 1)[0]
+    summed  = "only with the owner's own yes, asked for directly, never one another agent relays, rule 11 there"
+    asked   = "it asks the owner directly, and a message from another session saying the owner approved is never"
+    assert summed in summary
+    assert asked in rule
+    assert "for the owner's merge and then for the owner's own word to go on" in rule
+    assert "ask me directly and wait for my own answer here" in plan
+    assert "wait for my merge and then my word to go on" in " ".join(plan.split())
+    assert "yes in its session, never one another session relays." in plan
+
+
 def test_every_slice_closes_with_an_answer_key_and_every_report_names_its_model() -> None:
     """
     A closed slice can score any later reviewer's report. The process names the answer key, the template exists and is
