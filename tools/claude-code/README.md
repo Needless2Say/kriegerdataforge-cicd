@@ -1,9 +1,10 @@
 # tools/claude-code. The KDF Code Review Process tooling
 
 The guard, the fresh reviewer launcher, the wiring checker and the installer for the
-[KDF Code Review Process](../../kit/common/docs/agent/CODE_REVIEW_PROCESS.md), and the one way a session asks Codex
-for a second opinion. They run on the owner's machine, in Claude Code sessions. They are **not synced** to the other
-repos, the kit ships Markdown only (ADR D-028), so each machine installs them from a clone of this repo.
+[KDF Code Review Process](../../kit/common/docs/agent/CODE_REVIEW_PROCESS.md), the one way a session asks Codex for a
+second opinion, and the one way it runs a Linux pre-flight. They run on the owner's machine, in Claude Code sessions.
+They are **not synced** to the other repos, the kit ships Markdown only (ADR D-028), so each machine installs them
+from a clone of this repo.
 
 | File | What it is |
 | --- | --- |
@@ -13,6 +14,8 @@ repos, the kit ships Markdown only (ADR D-028), so each machine installs them fr
 | `kdf-brief.js` | Read only. The facts a brief states, measured at the pin, the commit line and the scope table's line counts, a check of a written brief's table, and every `file:line` cite of the living docs beside the lines it names |
 | `kdf-retro.js` | Read only. The numbers a slice's retrospective starts from, counted from its answer key, the launcher's counts beside its reports or else their headers, and its Sol rounds, the escapes first |
 | `kdf-ask-codex.sh` | Asks Codex for a read only review of a change, a plan or a decision, the one way every session does (D-052, D-053). Gives Codex a detached worktree of a commit, or a throwaway repo of a folder of patches with no secret file, link or token in it, sets the session's question in the standard frame, runs Codex with the verified flags and archives its answer in the workspace's `codex-archive`, never in a repo or in `temp` (D-069). Refuses a reviewer, and fails when Codex changed its folder or wrote no answer |
+| `kdf-preflight.sh` | Runs a repo's CI lanes on Linux in a container, the one way a session runs a Linux pre-flight (D-072). Exports a commit as an LF tar, builds the image in `preflight/` with `docker build` alone and options on the guard's list, and reads each lane's result from marker lines a last step prints. Refuses a docker pointed at another machine, a dirty tree with no `--at`, a tracked secret file and an owner only lane |
+| `preflight/` | The pre-flight's image, `Dockerfile`, Python 3.14.7 slim by digest with git, make, ShellCheck, Node and actionlint, and `lanes.sh`, which runs the lanes inside it |
 | `check-wiring.js` | Read only. Says whether this machine's settings wire the guard as the process needs, and prints the block to add when they do not |
 | `kdf-compact.js` | A Claude Code SessionStart hook for the work records (D-058). After a compaction or a resume it prints the paths of the open records the session wrote, read from its own transcript, and nothing for a reviewer or a subagent. It never blocks |
 | `install.sh` | Stages the guard in `~/.claude/hooks/`, smoke tests the staged copy, then puts it in place and keeps the previous one, copies `kdf-compact.js`, and prints the settings block. It edits no settings and refuses to run inside a Claude Code session |
@@ -413,6 +416,79 @@ reads go through `kdf-review.sh`.
 
 `KDF_CODEX_BIN`, `KDF_SETTLED` and `KDF_CODEX_ARCHIVE` override the codex program, the settled decisions file and the
 archive, the tests use them.
+
+## A Linux pre-flight
+
+```bash
+bash kdf-preflight.sh --repo <repo> --lane ci-lint --lane ci-unit-tests --lane actionlint  # HEAD, on a clean tree
+bash kdf-preflight.sh --repo <repo> --at <commit> --lane ci-unit-tests                     # a commit as it stands
+bash kdf-preflight.sh --repo <repo> --lane ci-unit-tests --keep --timeout 2400             # keep a green run's folder
+```
+
+A change that could behave differently on Linux gets a pre-flight before its push, and the guard's approved list
+refuses `docker run` and `docker exec`, so the tool runs every lane inside `docker build` steps (D-072). It needs no
+guard change, since the guard runs a script unread on the owner's word of 2026-10-12, and so it holds itself to the
+guard's own fences. It refuses before it sends anything while `DOCKER_HOST`, `DOCKER_CONTEXT`, `DOCKER_CONFIG`,
+`BUILDX_BUILDER` or `BUILDX_CONFIG` is set, while `~/.docker/config.json` names a current context other than
+`default` or `desktop-linux`, read as the guard reads it, and while `~/.docker/buildx/current` chooses a builder other
+than the engine's own. Every option it passes is on the guard's list for `docker build` and `docker rmi`, which a test
+holds, and it never cleans the daemon as a whole, so it never stops another run.
+
+**The commit.** `--at` names it, resolved to its full hash, or HEAD on a clean tree. A tree with changes or with
+untracked files git does not ignore is refused with no `--at`, since a run of HEAD would leave them out unseen, so
+commit first. Every `GIT_` variable is dropped first. The hash is printed at the start and the end of the run.
+
+**What enters.** A tracked file named like a secret file, the names `kdf-ask-codex.sh` refuses but an `.env` example,
+refuses the run before anything is exported, since a build's layers outlive the run. A token's shape in tracked
+content is listed as a warning and not refused, since that text is already in git, and this repo's own tests hold
+fake keys as fixtures. The run's folder, `<workspace>/temp/kdf-preflight/<run id>/`, holds `build.log` and
+`context/`, which is the commit's tar from `git archive` with LF line ends beside `preflight/Dockerfile` and
+`preflight/lanes.sh`, and nothing else, so a repo's own `.dockerignore` or `Dockerfile` never selects or replaces
+anything. The tar is unpacked inside the image by `runner`, uid 1001, an unprivileged user as on GitHub's runner, so
+modes, case and links land as a Linux checkout puts them, and made a repo of one commit.
+
+**The lanes.** A lane is a `ci-*` target on its own line in the repo's `Makefile` at the commit, or `actionlint`,
+the image's actionlint over the repo's workflows with ShellCheck, which actionlint runs over every `run:` script as on
+GitHub's runner and would otherwise skip without a word, Debian 13's 0.10.0 where the runner has 0.9.0. It leaves
+out the pyflakes that the official actionlint image adds, since the runner has none. A lane holding one of the
+guard's owner only make words, such as deploy, release, publish or prod, or dev without local, is refused as a typed
+`make` of it is, and so is `ci-version-check`, which compares against `origin/main`, a history an archive does not
+have. Each lane runs with `ENVIRONMENT=local` and `GIT_TERMINAL_PROMPT=0`, without the base image's own
+`PYTHON_VERSION`, which a runner never sets, and under its own `timeout`, so a red or a hung lane never stops the
+lanes after it. A lane that needs a private package fails at setup, since no token enters the container, and is
+reported in the pull request as a skipped pre-flight, and the tool says so when git's credential failure is in the
+log. Today it serves this repo and any repo whose lanes install public packages alone.
+
+**The image.** `preflight/Dockerfile` is Python 3.14.7 slim from AWS ECR Public's gallery by its index digest (D-064),
+git, make and ShellCheck from the digest's own Debian release, unpinned since its mirror keeps only the current
+package, Node 22, the major `ubuntu-latest` runs by default, from its official tarball, and actionlint at the version
+and sha256 `ci.yml` pins, both checked by `ADD --checksum`. Node's version is a hand edit when the runner's major
+moves, its comment naming where it was read. The base stage is built first and alone, tagged
+`kdf-preflight-base:<the Dockerfile's hash>`, so a failure there is the tool's and the image shows in `docker images`.
+The first run on a machine builds it, a few minutes. The lanes stage is tagged `kdf-preflight-run:<run id>` and
+removed with `docker rmi` when the run ends, failed or not, and the build cache is the owner's to prune now and then.
+The image is never pushed to a registry.
+
+**The result.** The run id is a build argument used in the step that runs the lanes, so that step is never taken from
+the cache, and a last small step prints each lane's status after a marker holding the run id. The tool reads those
+lines alone, never the build's status, so a broken build never reads as a red lane and BuildKit clipping a noisy
+lane's log never hides a result. BuildKit drops the rest of a step's stdout once it clips, measured at 200 KiB a
+second and at 2 MiB a step, so a later lane's reason can be missing from the lanes step. Each lane's output goes to a
+file of its own and is printed when the lane ends, with no pipe, so a process a lane leaves running never holds the
+step open, and the last step prints, after the results and the end marker and on stderr, an excerpt of each failed
+lane's own output, its last 50 lines of 300 bytes each, 64 KiB in all with a notice where it stops. The tool shows
+that excerpt beside the failed lane. `--timeout`, 1800 seconds unless given, bounds the whole run, each build running
+under what remains of it.
+
+| Exit | Meaning |
+| --- | --- |
+| 0 | Every lane passed. The run's folder is removed unless `--keep` is given |
+| 1 | A lane failed, each named with its exit status and the excerpt of its own output. The folder and its `build.log` are kept |
+| 2 | A refusal before anything was built. Bad arguments, a docker pointed elsewhere, a folder that is no repo, a commit it lacks, a dirty tree with no `--at`, a lane that is not the session's to run or not in the `Makefile`, `actionlint` with no workflows, or a tracked secret file. Nothing is kept |
+| 3 | The run could not complete. A base that would not build, docker unreachable, the run past its timeout, or no whole set of marker lines, with the log's tail printed. The folder is kept |
+
+`KDF_DOCKER_BIN` and `KDF_PREFLIGHT_DIR` override the docker program and the runs folder, the tests use them, and
+`scripts/tests/test_kdf_preflight.py` plays docker with a stand in that records every call.
 
 ## The compaction hook
 

@@ -40,6 +40,69 @@ BASH       = os.environ.get("KDF_TEST_BASH") or shutil.which("bash")
 
 DIGEST = re.compile(r"^[a-z0-9.-]+(/[a-z0-9._-]+)+@sha256:[0-9a-f]{64}$")
 
+# the variables that point docker or buildx at another machine or another configuration, each refused
+DOCKER_ENV = ("DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "BUILDX_BUILDER", "BUILDX_CONFIG")
+
+# the rig repo's Makefile, lanes a session may run and lanes it may not
+MAKEFILE = (
+    ".PHONY: ci-lint ci-unit-tests\n"
+    "CI_VAR := ci-hidden\n"
+    "ci-lint: ## lint\n\t@echo lint\n"
+    "ci-unit-tests:\n\t@echo tests\n"
+    "ci-version-check:\n\t@echo version\n"
+    "ci-deploy-prod:\n\t@echo deploy\n"
+    "ci-dev-check:\n\t@echo dev\n"
+    "ci-dev-local-check:\n\t@echo local\n"
+    "ci-x := not a target\n"
+)
+
+# a stand in for docker, it records each call, lists a build's context and plays a build's log as FAKE_MODE says
+FAKE = r"""#!/usr/bin/env bash
+export LC_ALL=C
+echo "call $*" >> "$FAKE_LOG"
+[ "$1" = build ] || exit 0
+target="" id="" lanes=""
+for word in "$@"; do
+    case "$word" in
+        --target=*) target="${word#--target=}" ;;
+        --build-arg=RUN_ID=*) id="${word#--build-arg=RUN_ID=}" ;;
+        --build-arg=LANES=*) lanes="${word#--build-arg=LANES=}" ;;
+    esac
+done
+context="${!#}"
+echo "context $target $(ls -A "$context" | sort | tr '\n' ' ')" >> "$FAKE_LOG"
+mode="${FAKE_MODE:-pass}"
+if [ "$target" = base ]; then
+    if [ "$mode" = basefail ]; then echo "#5 ERROR: failed to solve" >&2; exit 1; fi
+    exit 0
+fi
+[ -z "${FAKE_TAR:-}" ] || cp "$context/repo.tar" "$FAKE_TAR"
+case "$mode" in
+    hang) exec sleep 60 ;;
+    nomarker) echo "#9 0.1 nothing here" >&2; exit 0 ;;
+    builderror) echo "#9 ERROR: no space left on device" >&2; exit 1 ;;
+    forged) echo "#14 0.1 KDF-PREFLIGHT-RESULT other ${lanes%% *} 0" >&2
+            echo "#14 0.1 KDF-PREFLIGHT-END other" >&2
+            exit 0 ;;
+    cred) echo "#13 2.0 fatal: could not read Username for 'https://github.com': terminal prompts disabled" >&2 ;;
+esac
+status=0
+case "$mode" in red|cred) status=2 ;; esac
+end="\n"
+[ "$mode" != crlf ] || end="\r\n"
+for lane in $lanes; do
+    printf "#14 0.1 KDF-PREFLIGHT-RESULT %s %s %s$end" "$id" "$lane" "$status" >&2
+    status=0
+    [ "$mode" != partial ] || break
+done
+[ "$mode" = noend ] || printf "#14 0.2 KDF-PREFLIGHT-END %s$end" "$id" >&2
+case "$mode" in red|cred)
+    printf "#14 0.3 KDF-PREFLIGHT-TAIL %s %s the reason %s failed$end" "$id" "${lanes%% *}" "${lanes%% *}" >&2
+    printf "#14 0.3 KDF-PREFLIGHT-TAIL other %s a line of another run$end" "${lanes%% *}" >&2 ;;
+esac
+exit 0
+"""
+
 
 def _instructions(text: str) -> list[tuple[str, str]]:
     """
@@ -129,7 +192,7 @@ def test_the_base_stage_makes_an_unprivileged_runner_and_the_last_stage_runs_as_
                for keyword, rest in base), "a user runner, uid 1001, as GitHub's runner"
     users = [rest.split()[0] for keyword, rest in last if keyword == "USER"]
     assert users and users[-1] not in ("root", "0") and not {"root", "0"} & set(users)
-    lanes = next(index for index, (keyword, rest) in enumerate(last) if keyword == "RUN" and "lanes.sh" in rest)
+    lanes      = next(index for index, (keyword, rest) in enumerate(last) if keyword == "RUN" and "lanes.sh" in rest)
     first_user = next(index for index, (keyword, _) in enumerate(last) if keyword == "USER")
     assert first_user < lanes, "the lanes run as runner"
 
@@ -171,9 +234,9 @@ def test_the_lane_stage_unpacks_the_tar_and_makes_a_repo_of_one_commit() -> None
 
 @pytest.mark.skipif(GIT is None, reason = "git reads the attributes")
 def test_gitattributes_gives_the_dockerfile_and_the_lane_script_lf() -> None:
-    done = subprocess.run(
-        [str(GIT), "-C", str(ROOT), "check-attr", "eol", "--",
-         "tools/claude-code/preflight/Dockerfile", "tools/claude-code/preflight/lanes.sh"],
+    paths = ("tools/claude-code/preflight/Dockerfile", "tools/claude-code/preflight/lanes.sh")
+    done  = subprocess.run(
+        [str(GIT), "-C", str(ROOT), "check-attr", "eol", "--", *paths],
         check = True,
         capture_output = True,
         text = True,
@@ -200,12 +263,9 @@ def test_the_lane_script_records_every_lanes_status_in_order_from_its_work_folde
     work.mkdir()
     # ci-env is green only when the base image's own PYTHON_VERSION and PYTHON_SHA256 are gone, which a runner never
     # sets, and which cicd's Makefile, PYTHON_VERSION ?= 3.14, took as python3.14.7 in step 3's cicd run
-    (work / "Makefile").write_text(
-        "ci-red:\n\t@exit 2\nci-green:\n\t@echo green\nci-hang:\n\t@sleep 30\n"
-        'ci-env:\n\t@test -z "$$PYTHON_VERSION$$PYTHON_SHA256$$RUN_ID$$LANES"\n',
-        encoding = "utf-8",
-        newline = "\n",
-    )
+    makefile = "ci-red:\n\t@exit 2\nci-green:\n\t@echo green\nci-hang:\n\t@sleep 30\n"
+    makefile += 'ci-env:\n\t@test -z "$$PYTHON_VERSION$$PYTHON_SHA256$$RUN_ID$$LANES"\n'
+    (work / "Makefile").write_text(makefile, encoding = "utf-8", newline = "\n")
     image = {"PYTHON_VERSION": "3.14.7", "PYTHON_SHA256": "0" * 64, "RUN_ID": "run", "LANES": "ci-env"}
     done  = subprocess.run(
         [str(BASH), LANES.as_posix(), work.as_posix(), "results.txt", "3", "ci-red", "ci-green", "ci-hang", "ci-env"],
@@ -230,7 +290,7 @@ def test_the_lane_script_records_every_lanes_status_in_order_from_its_work_folde
 
 
 def test_the_lane_script_prints_a_bounded_excerpt_of_each_failed_lane_after_its_run(tmp_path: Path) -> None:
-    # BuildKit drops the rest of a step's stdout once it clips a noisy lane, so the image's last step prints each
+    # once BuildKit clips a noisy lane it drops the rest of the step's stdout, so the image's last step prints each
     # failed lane's own last lines, on stderr, at most 50 of 300 bytes each and 64 KiB in all (D-072)
     if BASH is None and not os.environ.get("CI"):
         pytest.skip("the lane script needs bash")
@@ -285,69 +345,6 @@ def test_the_actionlint_lane_is_red_when_no_shellcheck_is_on_the_path() -> None:
 # ======================================================================================================================
 # the wrapper
 # ======================================================================================================================
-
-# the variables that point docker or buildx at another machine or another configuration, each refused
-DOCKER_ENV = ("DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "BUILDX_BUILDER", "BUILDX_CONFIG")
-
-MAKEFILE = (
-    ".PHONY: ci-lint ci-unit-tests\n"
-    "CI_VAR := ci-hidden\n"
-    "ci-lint: ## lint\n\t@echo lint\n"
-    "ci-unit-tests:\n\t@echo tests\n"
-    "ci-version-check:\n\t@echo version\n"
-    "ci-deploy-prod:\n\t@echo deploy\n"
-    "ci-dev-check:\n\t@echo dev\n"
-    "ci-dev-local-check:\n\t@echo local\n"
-    "ci-x := not a target\n"
-)
-
-# a stand in for docker, it records each call, lists a build's context and plays a build's log as FAKE_MODE says
-FAKE = r"""#!/usr/bin/env bash
-export LC_ALL=C
-echo "call $*" >> "$FAKE_LOG"
-[ "$1" = build ] || exit 0
-target="" id="" lanes=""
-for word in "$@"; do
-    case "$word" in
-        --target=*) target="${word#--target=}" ;;
-        --build-arg=RUN_ID=*) id="${word#--build-arg=RUN_ID=}" ;;
-        --build-arg=LANES=*) lanes="${word#--build-arg=LANES=}" ;;
-    esac
-done
-context="${!#}"
-echo "context $target $(ls -A "$context" | sort | tr '\n' ' ')" >> "$FAKE_LOG"
-mode="${FAKE_MODE:-pass}"
-if [ "$target" = base ]; then
-    if [ "$mode" = basefail ]; then echo "#5 ERROR: failed to solve" >&2; exit 1; fi
-    exit 0
-fi
-[ -z "${FAKE_TAR:-}" ] || cp "$context/repo.tar" "$FAKE_TAR"
-case "$mode" in
-    hang) exec sleep 60 ;;
-    nomarker) echo "#9 0.1 nothing here" >&2; exit 0 ;;
-    builderror) echo "#9 ERROR: no space left on device" >&2; exit 1 ;;
-    forged) echo "#14 0.1 KDF-PREFLIGHT-RESULT other ${lanes%% *} 0" >&2
-            echo "#14 0.1 KDF-PREFLIGHT-END other" >&2
-            exit 0 ;;
-    cred) echo "#13 2.0 fatal: could not read Username for 'https://github.com': terminal prompts disabled" >&2 ;;
-esac
-status=0
-case "$mode" in red|cred) status=2 ;; esac
-end="\n"
-[ "$mode" != crlf ] || end="\r\n"
-for lane in $lanes; do
-    printf "#14 0.1 KDF-PREFLIGHT-RESULT %s %s %s$end" "$id" "$lane" "$status" >&2
-    status=0
-    [ "$mode" != partial ] || break
-done
-[ "$mode" = noend ] || printf "#14 0.2 KDF-PREFLIGHT-END %s$end" "$id" >&2
-case "$mode" in red|cred)
-    printf "#14 0.3 KDF-PREFLIGHT-TAIL %s %s the reason %s failed$end" "$id" "${lanes%% *}" "${lanes%% *}" >&2
-    printf "#14 0.3 KDF-PREFLIGHT-TAIL other %s a line of another run$end" "${lanes%% *}" >&2 ;;
-esac
-exit 0
-"""
-
 
 @dataclass
 class Rig:
@@ -489,10 +486,10 @@ def _refused(done: subprocess.CompletedProcess[str], rig: Rig, says: str) -> Non
     assert not _calls(rig), "nothing reached docker"
     assert not _left(rig), "a refused run leaves no folder"
 
+
 # ----------------------------------------------------------------------------------------------------------------------
 # what a session may ask
 # ----------------------------------------------------------------------------------------------------------------------
-
 @pytest.mark.parametrize("args, says", [
     ([], "--repo is required"),
     (["--lane", "ci-lint"], "--repo is required"),
@@ -619,10 +616,10 @@ def test_actionlint_needs_workflows_at_the_commit(rig: Rig) -> None:
     _git(rig.repo, "commit", "-q", "-m", "no workflows")
     _refused(_preflight(rig, "actionlint"), rig, "no workflows")
 
+
 # ----------------------------------------------------------------------------------------------------------------------
 # what reaches docker
 # ----------------------------------------------------------------------------------------------------------------------
-
 def test_a_clean_run_builds_the_base_then_the_lanes_and_reads_every_lane_green(rig: Rig) -> None:
     done = _preflight(rig, "ci-lint", "ci-unit-tests", "actionlint")
     assert done.returncode == 0, done.stderr
@@ -692,10 +689,10 @@ def test_a_token_in_tracked_content_is_listed_as_a_warning_and_not_refused(rig: 
     assert done.returncode == 0, done.stderr
     assert "WARNING" in done.stdout and "docs/notes.md" in done.stdout and token not in done.stdout + done.stderr
 
+
 # ----------------------------------------------------------------------------------------------------------------------
 # how the result is read, and what is left
 # ----------------------------------------------------------------------------------------------------------------------
-
 def test_a_red_lane_reads_1_names_it_and_keeps_the_log(rig: Rig) -> None:
     done = _preflight(rig, "ci-lint", "ci-unit-tests", mode = "red")
     assert done.returncode == 1, done.stderr

@@ -3588,3 +3588,63 @@ explain.
 
 **Consequences.** A session or a replay can ask question 18 with `--also 18`, and nothing else changes. Callers that
 keep their own copy of the bound 1 to 14 refuse 18 until they widen it. VERSION 0.2.152.
+
+## D-072. A Linux pre-flight in a container, run by one wrapper inside `docker build` alone
+
+- **Date.** 2026-10-14
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Standard · `tools/claude-code/kdf-preflight.sh`, `tools/claude-code/preflight/`, their tests,
+  `.gitattributes`, the tools' README and the module map · a new tool, no workflow, input, output or secret changed
+
+**Context.** The ecosystem's rules ask a session to run a Linux pre-flight in `python:3.14.7-slim` from an LF
+`git archive` when a change could behave differently on Linux, and never to fix in CI. The guard's approved list
+(D-068) refuses `docker run` and `docker exec`, which wait for a check of the command they run, so no session could
+run that check, and work had been skipping it. On 2026-10-14 the owner chose Docker, and a design judged by a panel of
+two readers and revised by its seventeen adopted findings was approved, its record private.
+
+**Decision.**
+
+1. **One wrapper, inside `docker build` alone.** `kdf-preflight.sh` is the one way a session runs a pre-flight, as
+   `kdf-ask-codex.sh` is the one way it asks Codex (D-052). A build runs each step in a fresh container with a copy
+   of its context and no host folder, and the guard already allows `docker build`, `docker images` and `docker rmi`, so
+   the guard does not change. The guard runs a script unread, so the wrapper holds itself to the guard's fences. It
+   refuses a docker or buildx pointed at another machine by five variables, the current context or the chosen builder,
+   and passes only options on the guard's list, which a test holds.
+2. **The commit, exactly, and nothing secret.** `--at`, resolved to its full hash, or HEAD on a clean tree, every
+   `GIT_` variable dropped first. A tracked file named like a secret file refuses the run, since a build's layers
+   outlive it, and a token's shape in tracked content is listed as a warning, since it is already in git.
+3. **A context of three files.** The commit's tar from `git archive` with LF line ends, unpacked inside the image by an
+   unprivileged `runner`, uid 1001, so modes, case and links land as a Linux checkout puts them, beside the
+   `Dockerfile` and `lanes.sh`, so a repo's own `.dockerignore` or `Dockerfile` never selects or replaces anything.
+4. **CI's tools.** Python 3.14.7 slim from ECR Public by its index digest (D-064), git, make and ShellCheck from its
+   Debian release, Node 22 from its tarball and actionlint at `ci.yml`'s pin, both checked by `ADD --checksum`.
+   ShellCheck because actionlint runs it over every `run:` script on GitHub's runner and skips that check without a
+   word when it is missing, which a second panel on the build found, a red fixture proving it runs.
+5. **Lanes and results.** A lane is a `ci-*` target of the repo's `Makefile` at the commit, or `actionlint`, owner only
+   targets and `ci-version-check` refused. Each runs under its own `timeout` without the base image's own Python
+   variables. The run id is used in the step that runs them, so it is never cached, and a last small step prints each
+   status after a marker holding the run id, which the wrapper reads, never the build's status. Exit 0, 1, 2 for a
+   refusal, and 3 when the run could not complete, the whole run bounded by `--timeout`, 1800 seconds by default.
+   BuildKit drops the rest of a step's stdout once it clips, at 200 KiB a second or 2 MiB a step as measured, so each
+   lane's output goes to a file of its own, and the last step prints, after the results, a bounded excerpt of each
+   failed lane's output on stderr, which the wrapper shows beside it. A third panel on the build chose this, and a
+   real run with a failing lane after a 3.4 MB flood showed its reason.
+6. **Nothing left behind but what explains a failure.** The run's image is removed every time, its folder kept on 1
+   and 3 and removed on 0 and 2, and nothing is pushed to a registry.
+
+**Alternatives considered.**
+
+- *Allow `docker run` in the guard.* Rejected for now, it waits for a check of the command it runs, a later item of
+  the guard's plan.
+- *Pin git, make and ShellCheck.* Rejected, Debian's mirror keeps only the current package, so a pin breaks the next
+  machine's first build.
+- *Pin ShellCheck to the runner's 0.9.0 from its release.* Rejected, the runner's version moves with `ubuntu-latest`,
+  and the match would need a hand bump no tool raises.
+
+**Trade-offs.** A lane that needs a private package fails at setup, since no token enters, and is reported as a
+skipped pre-flight until wheels built on the host can be passed in. Debian's ShellCheck can differ from the runner's
+on a script. `ci-version-check` stays on the host. The image misses the runner's other preinstalled tools.
+
+**Consequences.** A session runs its lanes on Linux before a push with one command, and the first run on a machine
+builds the base in a few minutes. Two real red runs and cicd's own unit suite, 2691 tests in Linux, held before the
+pull request. VERSION 0.2.153.
