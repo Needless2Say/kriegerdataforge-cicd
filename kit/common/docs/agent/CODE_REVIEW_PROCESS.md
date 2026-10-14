@@ -8,7 +8,8 @@
 > changes, three standing look for questions, the last Sol round's Blocks fixes read by the final reviews, a run's
 > time and tokens counted by the launcher, and Codex in the cloud on trial, and since v1.15.0 that trial on Codex's
 > rebuilt cloud, with no token and no pull request, and since v1.20.0 the second retrospective's changes, a cite check
-> before every pin, two more standing look for questions and a pair of mutants for every number a rule reads. Kept
+> before every pin, two more standing look for questions and a pair of mutants for every number a rule reads, and
+> since v1.21.0 a pin's freeze that gives way where rule 15 lets one family go ahead. Kept
 > byte identical across every KDF repo by the kit sync engine,
 > canonical source `kriegerdataforge-cicd/kit/common/docs/agent/CODE_REVIEW_PROCESS.md`. Never edit a synced copy,
 > change the canonical one. The tooling that keeps the process safe, the guard, the reviewer
@@ -667,9 +668,10 @@ and goes on. Every step ends by updating them. The review is a work record
   will start, the reviewer, the planned command and the report's path, the pin being the commit its brief names, and
   how each is checked, a Claude run by its report and the report's `.usage.json`, a Codex run by its report in the
   folder or on its collect branch. From the pin until both of its reports are in, the folder is frozen, so the
-  orchestrator only reads, and the launcher's refusal of a second open review of the folder stops a duplicate. Once
-  both reports are in, the Now block takes the results. Outside a freeze, a Codex run, a Sol dispatch or a pull
-  request is named Pending before it starts and comes out once its result is checked.
+  orchestrator only reads, and the launcher's refusal of a second open review of the folder stops a duplicate. The
+  freeze gives way where rule 15 lets one model family go ahead while the other reads a later pin. Once both reports
+  are in, or the one rule 15 goes on with, the Now block takes the results. Outside a freeze, a Codex run, a Sol
+  dispatch or a pull request is named Pending before it starts and comes out once its result is checked.
 
 ## 12. Starting a review
 

@@ -14,7 +14,7 @@ PRs, never one mega-PR.**
 | Situation | Design gate? |
 | --- | --- |
 | Typo / copy / comment / log line / isolated bug fix | No (Quick lane) |
-| A feature within existing patterns, one repo | A plan is enough, design gate optional |
+| A feature within existing patterns, one repo | A short design, then its plan, the ADR optional |
 | A **new** pattern, subsystem, or data model | **Yes** |
 | Anything touching **auth / OIDC / tokens / sessions** | **Yes** + a protocol design note |
 | Anything that **changes an API contract or DB schema** other code depends on | **Yes** |
@@ -22,9 +22,11 @@ PRs, never one mega-PR.**
 
 When in doubt, write the design doc. It's cheaper than rebuilding.
 
-Gate or no gate, Standard and Epic work keeps a record from its first step, a dated design folder whose `DESIGN.md` is
-the full design or, where the gate is optional, the short approved plan, with `LOG.md` beside it
-([`DOCUMENTATION_STANDARD.md`](DOCUMENTATION_STANDARD.md), "Work records").
+Gate or no gate, Standard and Epic work keeps a record from its first step
+([`DOCUMENTATION_STANDARD.md`](DOCUMENTATION_STANDARD.md), "Work records"). A feature has its design folder, then its
+feature folder with the plan, and is built by a new session, as [`../../WORKFLOW.md`](../../WORKFLOW.md), "A feature,
+designed in one session and built in another", says. Work that builds no feature keeps a dated design folder whose
+`DESIGN.md` is the full design or, where the gate is optional, the short approved plan, with `LOG.md` beside it.
 
 ---
 
@@ -66,7 +68,9 @@ is hard and no longer. Store it as `DESIGN.md` in a folder of its own, `docs/des
 day the work began, with `LOG.md` beside it from
 [`templates/work-log.template.md`](templates/work-log.template.md), opened with the design and written as each step
 lands. Cross repo work keeps the epic's state in its tracker and a design folder in each repo it changes. Designs
-stored before 2026-10-06 as `docs/design/<feature>.md` keep their names.
+stored before 2026-10-06 as `docs/design/<feature>.md` keep their names. A feature's plan then goes in a folder of its
+own, `docs/features/<YYYY-MM-DD>-<slug>/`, from
+[`templates/implementation-plan.template.md`](templates/implementation-plan.template.md), with its `LOG.md`.
 
 ### 2.3 ADR, record the decision
 
@@ -82,7 +86,9 @@ immutable. Supersede with a new one rather than editing.
 
 **The owner approves the design + ADR before implementation begins.** No code until then. For
 OIDC/auth-protocol changes, the design note must spell out the token/claim/flow impact and how it
-stays backward compatible during the transition.
+stays backward compatible during the transition. For a feature, the approval is the owner's merge of the design pull
+request, which holds the design and the plan with its Approved line, the owner's words and the date, and the build
+is a new session.
 
 ---
 
@@ -154,7 +160,8 @@ truth for "where is this epic."
 ### 3.5 Execute & integrate
 
 Run each slice through the Standard lane (plan → `make ci` → PR → green CI). Keep the tracker
-current. When all slices are merged, the **agent** verifies on the local stack with the flag
+current. A feature's slices are the ordered pull requests of its feature folders' plans, each folder built by a
+session of its own. When all slices are merged, the **agent** verifies on the local stack with the flag
 forced on (some repos, e.g. `kriegerdataforge-auth-ui`, aren't in the local compose. Verify those
 standalone) and does a final review (consider **`/code-review ultra`** on the integrated
 result). The **owner** merges the infra slice that enables the production flag and authorizes the

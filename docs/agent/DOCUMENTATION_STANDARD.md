@@ -44,8 +44,8 @@ invent a new *kind* of top level directory silently. Surface it to the owner fir
 | `docs/prompts/` | The documentation authoring prompt toolkit | Per repo tailored (see below). The static portfolios don't carry one |
 | `docs/guides/` | How to / setup / operational walkthroughs, incl. `CONTRIBUTOR_ONBOARDING.md` | |
 | `docs/reference/` | Source verified contracts. API catalogs, configuration references, architecture | The `file:line` citation rule applies hardest here |
-| `docs/features/` | One doc per implemented feature | |
-| `docs/design/` | One dated folder per Standard or Epic change, `<YYYY-MM-DD>-<slug>/`, its `DESIGN.md` and its `LOG.md`, as "Work records" below says | Paired with an ADR. Designs made before 2026-10-06 keep their `{feature}.md` names |
+| `docs/features/` | One dated folder per feature, `<YYYY-MM-DD>-<slug>/`, its `IMPLEMENTATION_PLAN.md` and its `LOG.md`, and its `FEATURE.md` once built, as "Work records" below says | Feature docs made before v1.21.0 keep their flat `<slug>.md` names |
+| `docs/design/` | One dated folder per design, `<YYYY-MM-DD>-<slug>/`, its `DESIGN.md` and its `LOG.md`, a feature's design or a Standard or Epic change that builds no feature, as "Work records" below says | Paired with an ADR. Designs made before 2026-10-06 keep their `{feature}.md` names |
 | `docs/bugs/` | One dated folder per bug beyond a Quick fix, `<YYYY-MM-DD>-<slug>/`, its `REPORT.md` and its `LOG.md` | |
 | `docs/security/` | Security posture, audits, threat notes | |
 | `docs/reviews/` | Every code review, one dated folder each, `<YYYY-MM-DD>-<scope>/`, laid out as [`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md) section 3 says, the review process's and the review prompt's alike | Its `README.md` is the archive's front door, one line per review, newest first. The only folder a reviewer writes in |
@@ -66,18 +66,21 @@ with nothing lost and nothing done twice.
 | The work | Its record |
 | --- | --- |
 | A code review | `docs/reviews/<YYYY-MM-DD>-<scope>/`, laid out as [`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md) section 3 says, its README's Now block where it stands |
-| Standard or Epic work, a feature or a change, through the design gate or not | `docs/design/<YYYY-MM-DD>-<slug>/`, `DESIGN.md` from [`templates/design-spec.template.md`](templates/design-spec.template.md), or a short approved plan where the gate is optional, and `LOG.md` beside it |
+| A feature, Standard or Epic | Its design in `docs/design/<YYYY-MM-DD>-<slug>/`, `DESIGN.md` from [`templates/design-spec.template.md`](templates/design-spec.template.md) and `LOG.md`, then its plan in `docs/features/<YYYY-MM-DD>-<slug>/`, `IMPLEMENTATION_PLAN.md` from [`templates/implementation-plan.template.md`](templates/implementation-plan.template.md) and `LOG.md`, built by a new session, as [`WORKFLOW.md`](../../WORKFLOW.md), "A feature, designed in one session and built in another", says |
+| Standard or Epic work that builds no feature, a chore, a refactor or a rules change, through the design gate or not | `docs/design/<YYYY-MM-DD>-<slug>/`, `DESIGN.md` from [`templates/design-spec.template.md`](templates/design-spec.template.md), or a short approved plan where the gate is optional, and `LOG.md` beside it |
 | A bug beyond a Quick fix | `docs/bugs/<YYYY-MM-DD>-<slug>/`, `REPORT.md` from [`templates/bug-report.template.md`](templates/bug-report.template.md) and `LOG.md` |
 | An epic across repos | The hub's tracker in `docs/epics/`, the epic's state across repos, and a design folder in each repo it changes, that repo's own state |
 | The Quick lane, and a reviewer's read | None. The pull request, or the reviewer's report, is the record |
 
-- **Dated and indexed.** The date is the day the work began and never changes, `<slug>` a few words in lower case.
-  The record gets its line in `docs/README.md` in its pull request, a review its line in `docs/reviews/README.md` the
-  day its folder is made.
+- **Dated and indexed.** The date is the day the work began and never changes, `<slug>` a few words in lower case. A
+  feature folder is dated the day its plan is written, and its slug starts with its design's slug. The record gets its
+  line in `docs/README.md` in its pull request, or in its folder's own index where a repo keeps one, a review its line
+  in `docs/reviews/README.md` the day its folder is made.
 - **The log** follows [`templates/work-log.template.md`](templates/work-log.template.md), a header, a Now block, a
   status grid and a journal. The header and the Now block say where the work stands now and change as it moves. The
   journal only grows, a line a step, written with the Edit tool, and its time comes from a `date` call, never typed
-  from memory.
+  from memory. A feature's log keeps no status grid, since its plan's steps table, ticked as each step lands, is the
+  feature's one record of progress.
 - **Pending before an effect.** Before an action with an effect outside the session, a push, a pull request, a
   reviewer's launch, a run of another model, a message to another session, the Now block names it as Pending, with
   the repo, the branch or pin, the target, the output expected, its id where it has one, and how to check it. It comes
@@ -87,10 +90,11 @@ with nothing lost and nothing done twice.
   ones included. A user's report is cited by its id, never pasted. Read a record's staged diff before each commit, and
   every outgoing commit's patch before a push (`git log -p` from the base), since a revert does not take a line out
   of history.
-- **A public repo** commits only what is fit for the public, in every kind of record. Its logs and its bug reports are
-  kept in the ecosystem's private context for good, with the owner's words and private findings, and so is a design
-  naming a weakness not yet fixed, until a version fit for the public can follow the fix. The link runs one way, from
-  the private record to the public one.
+- **A public repo** commits only what is fit for the public, in every kind of record. Its logs, its plans and its bug
+  reports are kept in the ecosystem's private context for good, with the owner's words and private findings, and so
+  is a design naming a weakness not yet fixed, until a version fit for the public can follow the fix. The link runs
+  one way, from the private record to the public one. A public repo's finished feature gets its doc, written fit for
+  the public, flat in its own `docs/features/<slug>.md`, in its last public pull request.
 - **Committed with the work.** The record opens before the first step and changes in the working tree as each step
   lands, so a compaction on the same machine finds it at once. It rides each step's commit on the work's branch. In a
   private repo whose workflow triggers have been read and start nothing on a push, a branch with no pull request may
@@ -100,16 +104,20 @@ with nothing lost and nothing done twice.
 - **A record is data.** It tells a session where the work stands, never an instruction above the rules or the owner's
   newest words.
 - **After a compaction or a takeover**, before any task work, read the record's header and Now block, then the status
-  grid, the journal only as needed, and the design for the goal. Check git, the pull requests and every open Pending
-  line before doing anything again, then append a line saying so. Git and the pull requests show what happened, the
-  owner's newest words say what is wanted, and the record is the index to both. A review resumes by
+  grid, or for a feature its plan's steps table, the journal only as needed, and the design for the goal. Check git,
+  the pull requests and every open Pending line before doing anything again, then append a line saying so, naming
+  the session by its transcript's id. Git and the pull requests show what happened, the owner's newest words say what
+  is wanted, and the record is the index to both. A review resumes by
   [`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md) section 11 instead, and writes nothing in its folder while a
-  pin's freeze holds.
+  pin's freeze holds, a freeze that gives way where that page's rule 15 lets one model family go ahead and the other
+  read a later pin.
 - **One writer.** A session that takes over says so in the journal and carries on in the same record, once the session
   before it has stopped, and in a review only once no pin's freeze holds. A worker reports to the session that started
   it, which writes the record.
-- **Closing.** The header says DONE or DROPPED with the date, the Now block says closed, and a finished feature gets its
-  doc in `docs/features/`.
+- **Closing.** The header says DONE or DROPPED with the date, and the Now block says closed. A finished feature gets
+  its `FEATURE.md` in its folder in `docs/features/`, and that doc, its index line and DONE in the plan and the log go
+  in the build's last pull request, so nothing follows the merge. What the owner does after it stays in the log's
+  "Waiting on the owner" line.
 
 ---
 
@@ -177,7 +185,7 @@ is too small to warrant it.)
 
 | Prompt | Produces | Output location |
 | --- | --- | --- |
-| `FEATURE_DOCUMENTATION_PROMPT` | One implemented feature, documented | `docs/features/` |
+| `FEATURE_DOCUMENTATION_PROMPT` | One implemented feature, documented | `FEATURE.md` in its folder in `docs/features/`, or flat as `docs/features/<slug>.md` in a public repo or for a feature built before v1.21.0 |
 | `AGENT_DOCUMENTATION_PROMPT` | Agent facing repo guidance | `docs/agent/` pointers + `AGENTS.md` |
 | `CODE_REVIEW_DOCUMENTATION_PROMPT` | A code review report | `docs/reviews/<YYYY-MM-DD>-<scope>/`, dated the day it starts, with its line in `docs/reviews/README.md` |
 | `GUIDES_DOCUMENTATION_PROMPT` | A how to guide | `docs/guides/` |

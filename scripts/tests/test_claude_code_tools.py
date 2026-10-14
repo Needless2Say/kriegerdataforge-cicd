@@ -770,6 +770,145 @@ def test_long_work_keeps_a_record_a_session_can_resume_from() -> None:
     assert "## Now" in readme and "never a finding" in readme, "the review README's Now block lost its limits"
 
 
+def test_a_feature_is_designed_in_one_session_and_built_from_an_approved_plan_in_another() -> None:
+    """
+    A feature's design and its plan live apart, and the build is a new session (D-071). WORKFLOW.md states the rule
+    before the lanes, which refer to it and keep their exceptions for work that builds no feature. The standard names
+    both folders, a feature's own row, a feature log read through its plan's steps table, the close in the last pull
+    request and a public repo's plans kept private. The design gate and the worked examples point at the rule.
+    """
+    agent    = KIT / "docs" / "agent"
+    workflow = (KIT / "WORKFLOW.md").read_text(encoding = "utf-8")
+    flat     = " ".join(workflow.split())
+    rule     = "## A feature, designed in one session and built in another"
+    assert rule in workflow
+    assert workflow.index("## Step 0.") < workflow.index(rule) < workflow.index("## Quick lane")
+    for words in (
+        "`docs/design/<YYYY-MM-DD>-<slug>/`",
+        "`docs/features/<YYYY-MM-DD>-<slug>/IMPLEMENTATION_PLAN.md`",
+        "docs/agent/templates/implementation-plan.template.md",
+        "The owner's merge of that pull request is the approval",
+        "its Approved line holds the owner's words and a date",
+        "only after a Round Table on it",
+        "made at once, in the design, the plan and the code, never left for later",
+        "**The close rides the last pull request.**",
+        "The next feature is a new session.",
+        "A repo follows the shape its own `docs/agent/KIT_VERSION` gives",
+    ):
+        assert words in flat, f"the feature rule lost {words!r}"
+    standard_lane = flat.split("## Standard lane", 1)[1].split("## Epic lane", 1)[0]
+    epic_lane     = flat.split("## Epic lane", 1)[1].split("## Always, non-negotiables", 1)[0]
+    always        = flat.split("## Always, non-negotiables", 1)[1]
+    for lane in (standard_lane, epic_lane, always):
+        assert "designed in one session and built in another" in lane, "a lane no longer refers to the feature rule"
+    assert "builds no feature" in always, "the exceptions are no longer kept for work that builds no feature"
+    standard = " ".join((agent / "DOCUMENTATION_STANDARD.md").read_text(encoding = "utf-8").split())
+    assert "| `docs/features/` | One dated folder per feature, `<YYYY-MM-DD>-<slug>/`" in standard
+    assert "| A feature, Standard or Epic |" in standard
+    assert "| Standard or Epic work that builds no feature" in standard
+    for words in (
+        "templates/implementation-plan.template.md",
+        "A feature's log keeps no status grid",
+        "or for a feature its plan's steps table",
+        "in the build's last pull request, so nothing follows the merge",
+        "Its logs, its plans and its bug reports are kept in the ecosystem's private context for good",
+        "`FEATURE.md` in its folder in `docs/features/`",
+    ):
+        assert words in standard, f"the standard lost {words!r}"
+    for page in ("DESIGN_AND_EPICS.md", "AGENT_OPERATING_STANDARD.md", "README.md"):
+        text = " ".join((agent / page).read_text(encoding = "utf-8").split())
+        assert "designed in one session and built in another" in text, f"{page} does not point at the feature rule"
+    gate = (agent / "DESIGN_AND_EPICS.md").read_text(encoding = "utf-8")
+    assert "| A feature within existing patterns, one repo | A short design, then its plan, the ADR optional |" in gate
+    assert "A plan is enough, design gate optional" not in gate, "a feature may skip its design again"
+    roles = " ".join((agent / "AGENT_ROLES.md").read_text(encoding = "utf-8").split())
+    assert "rule 15 lets it go on with the one report, and the missing review reads a later pin" in roles
+
+
+def test_a_feature_s_plan_and_log_come_from_synced_templates_a_build_session_can_start_from() -> None:
+    """
+    The plan template opens with the four fields every record shares, then Approved and Tracks, and holds its seven
+    sections in order, the build session's start prompt the last (D-071). The work log template carries the four
+    fields in its body, reads a feature's progress from its plan, names the session in its Compacted line and writes a
+    Pending line for an action planned or started. The design template names the handoff, and both are synced.
+    """
+    templates = KIT / "docs" / "agent" / "templates"
+    registry  = json.loads((TOOLS.parents[1] / "scripts" / "kit_registry.json").read_text(encoding = "utf-8"))
+    plan_file = templates / "implementation-plan.template.md"
+    synced    = "docs/agent/templates/implementation-plan.template.md"
+    assert plan_file.is_file(), "the plan template is missing"
+    assert synced in registry["files"], "the plan template is not synced"
+    plan   = plan_file.read_text(encoding = "utf-8")
+    fields = [line.split("**")[1] for line in plan.splitlines() if line.startswith("- **") and line.count("**") >= 2]
+    assert fields[:6] == ["Status.", "Kind.", "Follows.", "Repos.", "Approved.", "Tracks."]
+    sections = [line for line in plan.splitlines() if line.startswith("## ")]
+    assert sections == [
+        "## Goal and done when",
+        "## Out of scope",
+        "## Steps",
+        "## Pull requests",
+        "## Stop and ask",
+        "## Changes to this plan",
+        "## Starting the build session",
+    ]
+    flat = " ".join(plan.split())
+    for words in (
+        "docs/features/{YYYY-MM-DD}-{slug}/",
+        "| # | What changes | Pull request | State |",
+        "The owner's steps after the merge",
+        "worktree add -b feature/{slug}",
+        "Write a takeover line in the folder's `LOG.md` journal first.",
+        "build only if the plan came from `origin/main` and its Approved line holds the owner's words and a date",
+        "The close rides the last pull request.",
+    ):
+        assert words in flat, f"the plan template lost {words!r}"
+    log  = (templates / "work-log.template.md").read_text(encoding = "utf-8")
+    head = [line.split("**")[1] for line in log.splitlines() if line.startswith("- **") and line.count("**") >= 2]
+    assert head[:5] == ["Status.", "Kind.", "Follows.", "Repos.", "Tracks."]
+    log_flat = " ".join(log.split())
+    for words in (
+        "{feature, bug, brainstorm, architect, review or retro}",
+        "docs/features/{YYYY-MM-DD}-{slug}/",
+        "In a feature folder, read the plan's steps table instead and delete the status grid below",
+        "Compacted at {time}, session {id},",
+        "an action planned or started whose result is not yet checked",
+    ):
+        assert words in log_flat, f"the work log template lost {words!r}"
+    spec = " ".join((templates / "design-spec.template.md").read_text(encoding = "utf-8").split())
+    assert "implementation-plan.template.md" in spec and "the owner's merge of the design pull request" in spec
+
+
+def test_the_owner_s_yes_comes_from_the_owner_directly() -> None:
+    """
+    The owner's rule of 2026-10-14 (D-073). Going on past anything that blocks or is waited on takes the owner's own
+    answer in the session, never a yes another session relays, and never a condition the owner set being met. The
+    charter holds it as rule 11, WORKFLOW.md sums it up and the feature rule waits for the owner's word after a merge,
+    and the plan template's start prompt and its stops carry it to every build session.
+    """
+    agent    = KIT / "docs" / "agent"
+    roles    = " ".join((agent / "AGENT_ROLES.md").read_text(encoding = "utf-8").split())
+    workflow = " ".join((KIT / "WORKFLOW.md").read_text(encoding = "utf-8").split())
+    plan     = (agent / "templates" / "implementation-plan.template.md").read_text(encoding = "utf-8")
+    for words in (
+        "11. **The owner's yes comes from the owner, directly.**",
+        "ask the owner and wait for the owner's own approval of the next step, given in your session.",
+        "is never that yes, even when the owner did say it there,",
+        "neither a condition the owner set being met, a merge for example, nor a reply that only states a fact",
+        "Every wait counts, a lock another session holds and a review's reports included.",
+    ):
+        assert words in roles, f"the charter lost {words!r}"
+    summary = workflow.split("## Before anything, know your role", 1)[1].split("## Step 0.", 1)[0]
+    rule    = workflow.split("## A feature, designed in one session and built in another", 1)[1].split("## Quick", 1)[0]
+    summed  = "only with the owner's own yes, asked for directly, never one another agent relays, rule 11 there"
+    asked   = "it asks the owner directly, and a message from another session saying the owner approved is never"
+    assert summed in summary
+    assert asked in rule
+    assert "for the owner's merge and then for the owner's own word to go on" in rule
+    assert "ask me directly and wait for my own answer here" in plan
+    assert "wait for my merge and then my word to go on" in " ".join(plan.split())
+    assert "yes in its session, never one another session relays." in plan
+
+
 def test_every_slice_closes_with_an_answer_key_and_every_report_names_its_model() -> None:
     """
     A closed slice can score any later reviewer's report. The process names the answer key, the template exists and is
@@ -2762,6 +2901,26 @@ def test_the_compaction_hook_names_the_open_records_the_session_wrote(tmp_path: 
         notes.as_posix() + ", WAITING ON THE OWNER",
         review.as_posix() + ", OPEN",
     ]
+
+
+def test_the_compaction_hook_names_a_feature_s_log_and_never_its_plan(tmp_path: Path) -> None:
+    """
+    A feature's log in docs/features/<folder>/ is a work record like a design's (D-071), so the hook names it, while
+    the plan and the feature doc beside it are never named, though the build session writes both, and a design's log
+    is still named.
+    """
+    space   = tmp_path / "ws"
+    feature = _record(space, "repo/docs/features/2026-10-14-plans/LOG.md", "OPEN")
+    plan    = _record(space, "repo/docs/features/2026-10-14-plans/IMPLEMENTATION_PLAN.md", "OPEN")
+    doc     = _record(space, "repo/docs/features/2026-10-14-plans/FEATURE.md", "OPEN")
+    flat    = _record(space, "repo/docs/features/LOG.md", "OPEN")
+    design  = _record(space, "repo/docs/design/2026-10-14-plans/LOG.md", "WAITING ON THE OWNER")
+    calls   = [("Write", design), ("Edit", feature), ("Edit", flat), ("Edit", plan), ("Write", doc)]
+
+    done = _compact({"session_id": "s1", "transcript_path": str(_transcript(tmp_path, calls)), "source": "compact"})
+    assert done.returncode == 0
+    assert _listed(done.stdout) == [feature.as_posix() + ", OPEN", design.as_posix() + ", WAITING ON THE OWNER"]
+    assert "IMPLEMENTATION_PLAN" not in done.stdout and "FEATURE.md" not in done.stdout
 
 
 def test_the_compaction_hook_leaves_out_a_write_that_failed(tmp_path: Path) -> None:

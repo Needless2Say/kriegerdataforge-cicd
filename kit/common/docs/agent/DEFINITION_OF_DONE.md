@@ -39,6 +39,10 @@ Skip those sections rather than inventing the ceremony.
       the CICD `run-e2e` engine, dormant until the `RUN_E2E_GATE`/`RUN_E2E_CD` repo vars are set) and the
       change touches its covered flow, update the journey. See
       `kriegerdataforge-cicd/docs/guides/E2E_TESTING.md`.
+- [ ] **A feature's plan and its close.** Built from the plan in `docs/features/` that the owner approved by merging
+      its design pull request, each step ticked in its steps table, and in the build's last pull request its
+      `FEATURE.md`, its index line and DONE in the plan and the log ([`WORKFLOW.md`](../../WORKFLOW.md), "A feature,
+      designed in one session and built in another").
 
 ## If it's architectural or introduces a new pattern
 
