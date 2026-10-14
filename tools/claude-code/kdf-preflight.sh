@@ -14,6 +14,7 @@
 # refuses but an .env example, refuses the run before anything is exported, since a build's layers outlive the run, and
 # a token's shape in tracked content is listed as a warning and not refused, since that text is already in git.
 #
+# A session in the reviewer role is refused first, since the guard refuses its docker build and runs this unread.
 # Docker must reach this machine alone. The tool refuses, before it sends anything, while DOCKER_HOST, DOCKER_CONTEXT,
 # DOCKER_CONFIG, BUILDX_BUILDER or BUILDX_CONFIG is set, while ~/.docker/config.json names a current context other than
 # default or desktop-linux, read as the guard reads it, and while ~/.docker/buildx/current chooses a builder other than
@@ -25,7 +26,8 @@
 # built first and alone, tagged kdf-preflight-base:<the Dockerfile's hash>, then the lanes stage, tagged
 # kdf-preflight-run:<run id> and removed with docker rmi when the run ends, failed or not. Each build runs under timeout
 # with what remains of --timeout, 1800 seconds unless given, and each lane under its own inside the container. The
-# result is read from the marker lines holding the run id that the image's last step prints, never from the build's
+# result is read from the marker lines holding the run id that the image's last step prints, that step found by the
+# line BuildKit opens it with and its lines counted only when they open with a marker, never from the build's
 # status, and each failed lane is shown with the excerpt of its own output that step prints after them, which BuildKit
 # clipping a noisy lane cannot take. A lane that fails on a private package is reported in the pull request as a
 # skipped pre-flight, and the tool says so when git's credential failure is in the log.
@@ -96,7 +98,8 @@ while [ $# -gt 0 ]; do
 	esac
 done
 
-# ---- 1. what may run at all
+# ---- 1. what may run at all. A reviewer builds nothing, as the guard refuses its docker build
+[ "${KDF_ROLE:-}" != reviewer ] || die 2 "a session in the reviewer role never runs a pre-flight, it reads alone"
 [ -n "$repo" ] || die 2 "--repo is required. See --help."
 [ "${#lanes[@]}" -gt 0 ] || die 2 "name at least one --lane. See --help."
 [[ "$timeout_s" =~ ^[1-9][0-9]{0,5}$ ]] || die 2 "--timeout is a whole number of seconds from 1 to 999999"
@@ -214,8 +217,19 @@ lanes_built=0
 finish() {
 	local code=$?
 	trap - EXIT
-	# this run's image alone, never a prune, so another run's image or cache is never touched
-	if [ "$lanes_built" -eq 1 ]; then "$docker_bin" rmi "kdf-preflight-run:$id" >/dev/null 2>&1; fi
+	# this run's image alone, never a prune, so another run's image or cache is never touched, bounded so a stalled
+	# daemon never holds the run, and said when it fails, the result unchanged since the lanes' result stands
+	local left_behind=""
+	if [ "$lanes_built" -eq 1 ] && ! timeout --kill-after=5 60 "$docker_bin" rmi "kdf-preflight-run:$id" >/dev/null 2>&1
+	then
+		# a build that never tagged its image leaves nothing to remove, and an answer that cannot be had is a warning
+		left_behind="$(timeout --kill-after=5 30 "$docker_bin" images -q "kdf-preflight-run:$id" 2>/dev/null)" \
+			|| left_behind="unknown"
+	fi
+	if [ -n "$left_behind" ]; then
+		printf 'kdf-preflight: WARNING the image kdf-preflight-run:%s may be left behind, docker rmi it by hand\n' \
+			"$id" >&2
+	fi
 	if [ "$code" -eq 2 ] || { [ "$code" -eq 0 ] && [ "$keep" -eq 0 ]; }; then rm -rf "$run"; fi
 	exit "$code"
 }
@@ -271,13 +285,21 @@ timeout --kill-after=10 "$left" "$docker_bin" build --target=lanes --tag="kdf-pr
 status=$?
 case "$status" in 124|137) expired "while the lanes ran" ;; esac
 
-# ---- 9. the result, from the marker lines of this run alone, never from the build's status
-marks="$(tr -d '\r' < "$log" | grep -E " KDF-PREFLIGHT-(RESULT|END) $id( |$)")"
-printf '%s\n' "$marks" | grep -q -E " KDF-PREFLIGHT-END $id$" \
+# ---- 9. the result, from the marker lines of this run alone, never from the build's status. BuildKit opens each
+# step's output with a line of its own, "#<n> [lanes i/j] RUN <the step>", which no lane can print, since every line a
+# step prints follows "#<n> <seconds> ". The marker step is found by that line, its run id written out or as the
+# Dockerfile names it, and only lines of that step that open with a marker count, so neither a lane's output nor an
+# excerpt can pass for a result
+plain="$(tr -d '\r' < "$log")"
+step="$(printf '%s\n' "$plain" \
+	| sed -n -E "s/^#([0-9]+) \[[^]]*\] RUN .*KDF-PREFLIGHT-END ($id|\\\$RUN_ID)\".*/\1/p" | tail -n 1)"
+[ -n "$step" ] || incomplete "the step that prints run $id's results is not in its log, docker exited $status"
+marks="$(printf '%s\n' "$plain" | grep -E "^#$step [0-9.]+ KDF-PREFLIGHT-(RESULT|END|TAIL) $id( |$)")"
+printf '%s\n' "$marks" | grep -q -E "^#$step [0-9.]+ KDF-PREFLIGHT-END $id$" \
 	|| incomplete "no marker line of run $id ended its log, docker exited $status"
 results=()
 for lane in "${lanes[@]}"; do
-	result="$(printf '%s\n' "$marks" | sed -n -E "s/.* KDF-PREFLIGHT-RESULT $id $lane ([0-9]+)$/\1/p")"
+	result="$(printf '%s\n' "$marks" | sed -n -E "s/^#$step [0-9.]+ KDF-PREFLIGHT-RESULT $id $lane ([0-9]+)$/\1/p")"
 	case "$result" in ''|*[!0-9]*) incomplete "run $id printed no single result for $lane" ;; esac
 	results+=("$result")
 done
@@ -295,7 +317,7 @@ for index in "${!lanes[@]}"; do
 	esac
 	# the excerpt the last step printed of this lane's own output, this run's lines alone, which a clip of the lanes
 	# step cannot take
-	excerpt="$(tr -d '\r' < "$log" | sed -n -E "s/^.* KDF-PREFLIGHT-TAIL $id $lane //p")"
+	excerpt="$(printf '%s\n' "$marks" | sed -n -E "s/^#$step [0-9.]+ KDF-PREFLIGHT-TAIL $id $lane //p")"
 	if [ -n "$excerpt" ]; then
 		say "the last lines of $lane, an excerpt of its own output"
 		printf '%s\n' "$excerpt" | sed 's/^/    /'

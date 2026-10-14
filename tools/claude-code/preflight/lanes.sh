@@ -4,8 +4,10 @@
 #   bash lanes.sh <work folder> <results file> <seconds a lane may take> <lane>...
 #   bash lanes.sh --tails <results file> <run id>
 #
-# Runs each lane named in the commit's tree in the work folder, in the order given, each under timeout, and appends
-# "<lane> <status>" to the results file, 124 for a lane that ran out of time. A lane is a make target, or actionlint,
+# Runs each lane named in the commit's tree in the work folder, in the order given, each under timeout, and writes
+# "<lane> <status>" for each to the results file once every lane has run, so no lane can rewrite another's status, 124
+# for a lane that ran out of time. The image keeps this script and the commit's tar as root's, so no lane can change
+# the script its last step runs either. A lane is a make target, or actionlint,
 # the image's actionlint over the repo's workflows, which is red, 127, when no shellcheck is on the PATH, since
 # actionlint then skips every run: script. Each lane's output, stdout and stderr in order, goes to a file of its own in
 # lanes/ beside the results file and is printed when the lane ends, so a process a lane leaves running never holds the
@@ -27,13 +29,15 @@ if [ "${1:-}" = --tails ]; then
 	outputs="$(dirname "$results")/lanes"
 	while read -r lane status; do
 		[ "$status" != 0 ] && [ -f "$outputs/$lane.log" ] || continue
+		notice="KDF-PREFLIGHT-TAIL $id $lane [the excerpts stop here, their 65536 bytes spent]"
 		while IFS= read -r line; do
-			if [ "$budget" -le 0 ]; then
-				printf 'KDF-PREFLIGHT-TAIL %s %s [the excerpts stop here, their 65536 bytes spent]\n' "$id" "$lane" >&2
+			# the whole line counts, its marker too, since BuildKit's limit counts what reaches the log, and the notice
+			# always keeps its room, so all of it stays within the budget
+			line="KDF-PREFLIGHT-TAIL $id $lane $line"
+			if [ $(( ${#line} + 1 + ${#notice} + 1 )) -gt "$budget" ]; then
+				printf '%s\n' "$notice" >&2
 				exit 0
 			fi
-			# the whole line counts, its marker too, since BuildKit's limit counts what reaches the log
-			line="KDF-PREFLIGHT-TAIL $id $lane $line"
 			printf '%s\n' "$line" >&2
 			budget=$((budget - ${#line} - 1))
 		done < <(tail -n 50 "$outputs/$lane.log" | cut -b 1-300)
@@ -50,10 +54,11 @@ unset RUN_ID LANE_TIMEOUT LANES PYTHON_VERSION PYTHON_SHA256
 # lanes change folder
 case "$results" in /*) ;; *) results="$PWD/$results" ;; esac
 outputs="$(dirname "$results")/lanes"
-: > "$results"
 mkdir -p "$outputs" || exit 0
 cd "$work" || exit 0
 
+# each status kept here and written only after every lane has run, so no lane can rewrite another's
+recorded=()
 for lane in "$@"; do
 	output="$outputs/$lane.log"
 	printf '\n==== kdf-preflight lane %s ====\n' "$lane"
@@ -71,6 +76,8 @@ for lane in "$@"; do
 	fi
 	cat "$output"
 	printf '==== kdf-preflight lane %s exited %s ====\n' "$lane" "$status"
-	printf '%s %s\n' "$lane" "$status" >> "$results"
+	recorded+=("$lane $status")
 done
+rm -f "$results"
+printf '%s\n' "${recorded[@]}" > "$results"
 exit 0

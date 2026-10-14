@@ -6,11 +6,11 @@
 # mirror keeps only the current package. The wrapper builds this stage first and alone, by --target base, so a failure
 # here is the tool's, and tags it kdf-preflight-base:<this file's hash>.
 #
-# The lanes stage takes the commit's tar and the lane script, the context's only other files, unpacks the tar as
-# runner, an unprivileged user as on GitHub's runner, and makes it a repo of one commit. The run id is used in the step
-# that runs the lanes, so that step is never taken from the cache. The last step prints each lane's status after a
-# marker that holds the run id and the end marker, small enough that BuildKit never clips them, and only then, on
-# stderr and within a byte budget, an excerpt of each failed lane's own output, since BuildKit drops the rest of a
+# The lanes stage takes the commit's tar and the lane script, the context's only other files, as root's, unpacks the
+# tar as runner, an unprivileged user as on GitHub's runner, and makes it a repo of one commit. The run id is used in
+# the step that runs the lanes, so that step is never taken from the cache. The last step prints each lane's status
+# after a marker that holds the run id and the end marker, small enough that BuildKit never clips them, and only then,
+# on stderr and within a byte budget, an excerpt of each failed lane's own output, since BuildKit drops the rest of a
 # step's stdout once it clips a noisy lane. No syntax line, so BuildKit's own frontend reads this file and nothing is
 # fetched from Docker Hub (D-065).
 
@@ -51,10 +51,11 @@ FROM base AS lanes
 ENV ENVIRONMENT=local GIT_TERMINAL_PROMPT=0
 USER runner
 WORKDIR /home/runner
-COPY --chown=runner:runner repo.tar lanes.sh /home/runner/kdf/
+# root's, so no lane can change the script the last step runs
+COPY repo.tar lanes.sh /opt/kdf/
 RUN id -u \
     && mkdir work \
-    && tar -xf kdf/repo.tar -C work \
+    && tar -xf /opt/kdf/repo.tar -C work \
     && git -C work init -q -b main \
     && git -C work add -A \
     && git -C work -c user.name=kdf-preflight -c user.email=kdf-preflight@localhost commit -q -m preflight
@@ -62,6 +63,6 @@ RUN id -u \
 ARG RUN_ID
 ARG LANE_TIMEOUT
 ARG LANES
-RUN echo "kdf-preflight run $RUN_ID" && bash kdf/lanes.sh work kdf/results "$LANE_TIMEOUT" $LANES
-RUN sed "s/^/KDF-PREFLIGHT-RESULT $RUN_ID /" kdf/results && echo "KDF-PREFLIGHT-END $RUN_ID" \
-    && bash kdf/lanes.sh --tails kdf/results "$RUN_ID"
+RUN echo "kdf-preflight run $RUN_ID" && bash /opt/kdf/lanes.sh work out/results "$LANE_TIMEOUT" $LANES
+RUN sed "s/^/KDF-PREFLIGHT-RESULT $RUN_ID /" out/results && echo "KDF-PREFLIGHT-END $RUN_ID" \
+    && bash /opt/kdf/lanes.sh --tails out/results "$RUN_ID"

@@ -428,7 +428,8 @@ bash kdf-preflight.sh --repo <repo> --lane ci-unit-tests --keep --timeout 2400  
 A change that could behave differently on Linux gets a pre-flight before its push, and the guard's approved list
 refuses `docker run` and `docker exec`, so the tool runs every lane inside `docker build` steps (D-072). It needs no
 guard change, since the guard runs a script unread on the owner's word of 2026-10-12, and so it holds itself to the
-guard's own fences. It refuses before it sends anything while `DOCKER_HOST`, `DOCKER_CONTEXT`, `DOCKER_CONFIG`,
+guard's own fences. It refuses a session in the reviewer role (`KDF_ROLE=reviewer`), whose docker build the guard
+refuses, and it refuses before it sends anything while `DOCKER_HOST`, `DOCKER_CONTEXT`, `DOCKER_CONFIG`,
 `BUILDX_BUILDER` or `BUILDX_CONFIG` is set, while `~/.docker/config.json` names a current context other than
 `default` or `desktop-linux`, read as the guard reads it, and while `~/.docker/buildx/current` chooses a builder other
 than the engine's own. Every option it passes is on the guard's list for `docker build` and `docker rmi`, which a test
@@ -466,13 +467,18 @@ and sha256 `ci.yml` pins, both checked by `ADD --checksum`. Node's version is a 
 moves, its comment naming where it was read. The base stage is built first and alone, tagged
 `kdf-preflight-base:<the Dockerfile's hash>`, so a failure there is the tool's and the image shows in `docker images`.
 The first run on a machine builds it, a few minutes. The lanes stage is tagged `kdf-preflight-run:<run id>` and
-removed with `docker rmi` when the run ends, failed or not, and the build cache is the owner's to prune now and then.
-The image is never pushed to a registry.
+removed with `docker rmi` when the run ends, failed or not, under a timeout so a stalled daemon never holds the run,
+and the tool warns when the image may be left behind, the lanes' result standing. The build cache is the owner's to
+prune now and then. The image is never pushed to a registry.
 
 **The result.** The run id is a build argument used in the step that runs the lanes, so that step is never taken from
 the cache, and a last small step prints each lane's status after a marker holding the run id. The tool reads those
 lines alone, never the build's status, so a broken build never reads as a red lane and BuildKit clipping a noisy
-lane's log never hides a result. BuildKit drops the rest of a step's stdout once it clips, measured at 200 KiB a
+lane's log never hides a result. It finds that step by the line BuildKit itself opens it with, which no lane can
+print, and counts only that step's lines that open with a marker, so neither a lane's output nor an excerpt passes for
+a result even from a lane that learns the run id. The lane script writes the statuses only after every lane has run,
+and the image keeps it and the tar as root's, so no lane rewrites a status or the script the last step runs. BuildKit
+drops the rest of a step's stdout once it clips, measured at 200 KiB a
 second and at 2 MiB a step, so a later lane's reason can be missing from the lanes step. Each lane's output goes to a
 file of its own and is printed when the lane ends, with no pipe, so a process a lane leaves running never holds the
 step open, and the last step prints, after the results and the end marker and on stderr, an excerpt of each failed
@@ -484,7 +490,7 @@ under what remains of it.
 | --- | --- |
 | 0 | Every lane passed. The run's folder is removed unless `--keep` is given |
 | 1 | A lane failed, each named with its exit status and the excerpt of its own output. The folder and its `build.log` are kept |
-| 2 | A refusal before anything was built. Bad arguments, a docker pointed elsewhere, a folder that is no repo, a commit it lacks, a dirty tree with no `--at`, a lane that is not the session's to run or not in the `Makefile`, `actionlint` with no workflows, or a tracked secret file. Nothing is kept |
+| 2 | A refusal before anything was built. Bad arguments, the reviewer role, a docker pointed elsewhere, a folder that is no repo, a commit it lacks, a dirty tree with no `--at`, a lane that is not the session's to run or not in the `Makefile`, `actionlint` with no workflows, or a tracked secret file. Nothing is kept |
 | 3 | The run could not complete. A base that would not build, docker unreachable, the run past its timeout, or no whole set of marker lines, with the log's tail printed. The folder is kept |
 
 `KDF_DOCKER_BIN` and `KDF_PREFLIGHT_DIR` override the docker program and the runs folder, the tests use them, and

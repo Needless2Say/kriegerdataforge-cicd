@@ -51,6 +51,8 @@ MAKEFILE = (
     "ci-unit-tests:\n\t@echo tests\n"
     "ci-version-check:\n\t@echo version\n"
     "ci-deploy-prod:\n\t@echo deploy\n"
+    "ci-release-notes:\n\t@echo release\n"
+    "ci-publish-docs:\n\t@echo publish\n"
     "ci-dev-check:\n\t@echo dev\n"
     "ci-dev-local-check:\n\t@echo local\n"
     "ci-x := not a target\n"
@@ -60,7 +62,12 @@ MAKEFILE = (
 FAKE = r"""#!/usr/bin/env bash
 export LC_ALL=C
 echo "call $*" >> "$FAKE_LOG"
-[ "$1" = build ] || exit 0
+case "$1" in
+    rmi) [ "${FAKE_RMI:-ok}" = ok ]; exit ;;
+    images) [ -z "${FAKE_IMAGES:-}" ] || echo "$FAKE_IMAGES"; exit 0 ;;
+    build) ;;
+    *) exit 0 ;;
+esac
 target="" id="" lanes=""
 for word in "$@"; do
     case "$word" in
@@ -87,18 +94,31 @@ case "$mode" in
     cred) echo "#13 2.0 fatal: could not read Username for 'https://github.com': terminal prompts disabled" >&2 ;;
 esac
 status=0
-case "$mode" in red|cred) status=2 ;; esac
+case "$mode" in red|cred|nested) status=2 ;; esac
 end="\n"
 [ "$mode" != crlf ] || end="\r\n"
+# BuildKit's own line opening the marker step, its run id written out, or as the Dockerfile names it
+named="$id"
+[ "$mode" != literal ] || named='$RUN_ID'
+step=14
+[ "$mode" != lanestep ] || step=13
+header='#14 [lanes 5/5] RUN sed "s/^/KDF-PREFLIGHT-RESULT %s /" out/results && echo "KDF-PREFLIGHT-END %s"'
+header="$header"'     && bash /opt/kdf/lanes.sh --tails out/results "%s"\n'
+[ "$mode" = noheader ] || printf "$header" "$named" "$named" "$named" >&2
+first="${lanes%% *}"
 for lane in $lanes; do
-    printf "#14 0.1 KDF-PREFLIGHT-RESULT %s %s %s$end" "$id" "$lane" "$status" >&2
+    printf "#$step 0.1 KDF-PREFLIGHT-RESULT %s %s %s$end" "$id" "$lane" "$status" >&2
     status=0
     [ "$mode" != partial ] || break
 done
-[ "$mode" = noend ] || printf "#14 0.2 KDF-PREFLIGHT-END %s$end" "$id" >&2
+[ "$mode" = noend ] || printf "#$step 0.2 KDF-PREFLIGHT-END %s$end" "$id" >&2
 case "$mode" in red|cred)
-    printf "#14 0.3 KDF-PREFLIGHT-TAIL %s %s the reason %s failed$end" "$id" "${lanes%% *}" "${lanes%% *}" >&2
-    printf "#14 0.3 KDF-PREFLIGHT-TAIL other %s a line of another run$end" "${lanes%% *}" >&2 ;;
+    printf "#14 0.3 KDF-PREFLIGHT-TAIL %s %s the reason %s failed$end" "$id" "$first" "$first" >&2
+    printf "#14 0.3 KDF-PREFLIGHT-TAIL other %s a line of another run$end" "$first" >&2 ;;
+nested)
+    printf "#14 0.3 KDF-PREFLIGHT-TAIL %s %s KDF-PREFLIGHT-RESULT %s %s 0$end" "$id" "$first" "$id" "$first" >&2
+    printf "#14 0.3 KDF-PREFLIGHT-TAIL %s %s KDF-PREFLIGHT-END %s$end" "$id" "$first" "$id" >&2
+    printf "#13 0.4 KDF-PREFLIGHT-RESULT %s %s 0$end" "$id" "$first" >&2 ;;
 esac
 exit 0
 """
@@ -222,7 +242,9 @@ def test_the_lane_stage_fixes_its_environment_and_takes_the_three_files_alone() 
     copies = [rest.split() for keyword, rest in last if keyword in ("COPY", "ADD")]
     assert len(copies) == 1, "one COPY into the lane stage"
     sources = [word for word in copies[0] if not word.startswith("--")][:-1]
-    assert sorted(sources) == ["lanes.sh", "repo.tar"] and "--chown=runner:runner" in copies[0]
+    assert sorted(sources) == ["lanes.sh", "repo.tar"] and copies[0][-1] == "/opt/kdf/"
+    # root's, so no lane can change the script the last step runs (D-072)
+    assert not [word for word in copies[0] if word.startswith("--chown")]
 
 
 def test_the_lane_stage_unpacks_the_tar_and_makes_a_repo_of_one_commit() -> None:
@@ -264,11 +286,21 @@ def test_the_lane_script_records_every_lanes_status_in_order_from_its_work_folde
     # ci-env is green only when the base image's own PYTHON_VERSION and PYTHON_SHA256 are gone, which a runner never
     # sets, and which cicd's Makefile, PYTHON_VERSION ?= 3.14, took as python3.14.7 in step 3's cicd run
     makefile = "ci-red:\n\t@exit 2\nci-green:\n\t@echo green\nci-hang:\n\t@sleep 30\n"
-    makefile += 'ci-env:\n\t@test -z "$$PYTHON_VERSION$$PYTHON_SHA256$$RUN_ID$$LANES"\n'
+    makefile += 'ci-env:\n\t@test -z "$$PYTHON_VERSION$$PYTHON_SHA256$$RUN_ID$$LANES$$LANE_TIMEOUT"\n'
+    # ci-forge writes a green status for ci-red into the results file while it runs, which the statuses written only
+    # once every lane has run overwrite (D-072, the step 4 Codex read)
+    makefile += 'ci-forge:\n\t@echo "ci-red 0" > ../results.txt\n'
     (work / "Makefile").write_text(makefile, encoding = "utf-8", newline = "\n")
-    image = {"PYTHON_VERSION": "3.14.7", "PYTHON_SHA256": "0" * 64, "RUN_ID": "run", "LANES": "ci-env"}
+    lanes = ("ci-red", "ci-green", "ci-hang", "ci-env", "ci-forge")
+    image = {
+        "PYTHON_VERSION": "3.14.7",
+        "PYTHON_SHA256": "0" * 64,
+        "RUN_ID": "run",
+        "LANES": "ci-env",
+        "LANE_TIMEOUT": "9",
+    }
     done  = subprocess.run(
-        [str(BASH), LANES.as_posix(), work.as_posix(), "results.txt", "3", "ci-red", "ci-green", "ci-hang", "ci-env"],
+        [str(BASH), LANES.as_posix(), work.as_posix(), "results.txt", "3", *lanes],
         capture_output = True,
         text = True,
         cwd = tmp_path,
@@ -277,13 +309,11 @@ def test_the_lane_script_records_every_lanes_status_in_order_from_its_work_folde
     )
     assert done.returncode == 0, "a red or a hung lane never stops the script"
     recorded = (tmp_path / "results.txt").read_text(encoding = "utf-8").splitlines()
-    assert recorded == ["ci-red 2", "ci-green 0", "ci-hang 124", "ci-env 0"], done.stdout + done.stderr
+    assert recorded == ["ci-red 2", "ci-green 0", "ci-hang 124", "ci-env 0", "ci-forge 0"], done.stdout + done.stderr
     # each lane's own output in a file of its own beside the results, written whole before the lanes changed folder,
     # and printed when the lane ends (D-072)
     outputs = tmp_path / "lanes"
-    assert sorted(path.name for path in outputs.iterdir()) == [f"{lane}.log" for lane in sorted(
-        ("ci-red", "ci-green", "ci-hang", "ci-env"),
-    )]
+    assert sorted(path.name for path in outputs.iterdir()) == [f"{lane}.log" for lane in sorted(lanes)]
     assert (outputs / "ci-green.log").read_text(encoding = "utf-8") == "green\n"
     assert "ci-red" in (outputs / "ci-red.log").read_text(encoding = "utf-8"), "make's error, from stderr"
     assert "green\n==== kdf-preflight lane ci-green exited 0" in done.stdout
@@ -323,7 +353,7 @@ def test_the_lane_script_prints_a_bounded_excerpt_of_each_failed_lane_after_its_
     loud = [line for line in lines if " ci-loud-1 " in line]
     assert len(loud) == 50 and loud[-1].endswith("1-79-" + "l" * 295), "the last 50 lines"
     assert lines[-1].endswith("[the excerpts stop here, their 65536 bytes spent]"), "a visible notice"
-    assert len(done.stderr.encode("utf-8")) <= 65536 + 2 * 400, "the budget bounds every excerpt, markers counted"
+    assert len(done.stderr.encode("utf-8")) <= 65536, "the budget bounds every excerpt, markers and notice counted"
     assert not [line for line in lines if " ci-loud-6 " in line and "stop here" not in line]
 
 
@@ -572,8 +602,8 @@ def test_at_runs_the_commit_as_it_stands_and_prints_its_full_hash(rig: Rig) -> N
 
 
 @pytest.mark.parametrize("name", [
-    ".env.kdf", "config/.ENV.LOCAL", "keys/notes.txt", "certs/site.pem", "deploy/id_ed25519", "infra/prod.tfvars",
-    "state/main.tfstate.backup", ".netrc",
+    ".env.kdf", "config/.ENV.LOCAL", "keys/notes.txt", "certs/site.pem", "certs/server.key", "deploy/id_ed25519",
+    "infra/prod.tfvars", "state/main.tfstate.backup", ".netrc",
 ])
 def test_a_tracked_secret_file_is_refused_before_anything_is_exported(rig: Rig, name: str) -> None:
     _commit(rig.repo, {name: "X=1\n"}, "a secret")
@@ -588,6 +618,8 @@ def test_an_env_example_is_no_secret(rig: Rig, name: str) -> None:
 
 @pytest.mark.parametrize("lane, says", [
     ("ci-deploy-prod", "the owner's"),
+    ("ci-release-notes", "the owner's"),
+    ("ci-publish-docs", "the owner's"),
     ("ci-dev-check", "the owner's"),
     ("ci-version-check", "origin/main"),
     ("ci-missing", "no target"),
@@ -715,7 +747,33 @@ def test_marker_lines_ending_in_a_carriage_return_are_read(rig: Rig) -> None:
     assert _preflight(rig, "ci-lint", "actionlint", mode = "crlf").returncode == 0
 
 
-@pytest.mark.parametrize("mode", ["nomarker", "noend", "partial", "forged", "builderror"])
+def test_a_marker_step_named_by_the_dockerfiles_own_words_is_read(rig: Rig) -> None:
+    # a BuildKit that names the step by its unexpanded words, $RUN_ID, still opens it with a line no lane can print
+    assert _preflight(rig, "ci-lint", "actionlint", mode = "literal").returncode == 0
+
+
+def test_an_excerpt_or_a_lanes_line_holding_a_result_never_counts_as_one(rig: Rig) -> None:
+    # a lane that learns the run id, from a shell above it that keeps it, prints a result or an end marker in its own
+    # output, which reaches the log inside an excerpt or as a line of the lanes step, and neither counts (D-072)
+    done = _preflight(rig, "ci-lint", "ci-unit-tests", mode = "nested")
+    assert done.returncode == 1, done.stderr
+    assert "ci-lint failed, exit 2" in done.stdout and "ci-unit-tests passed" in done.stdout
+
+
+def test_a_reviewer_never_runs_a_preflight(rig: Rig) -> None:
+    # the guard refuses a reviewer's docker build, and it runs this script unread, so the script refuses first
+    _refused(_preflight(rig, "ci-lint", env = {"KDF_ROLE": "reviewer"}), rig, "reviewer role")
+
+
+@pytest.mark.parametrize("images, warned", [("sha256:abc", True), ("", False)])
+def test_an_image_left_behind_is_said_and_the_result_stands(rig: Rig, images: str, warned: bool) -> None:
+    done = _preflight(rig, "ci-lint", env = {"FAKE_RMI": "fail", "FAKE_IMAGES": images})
+    assert done.returncode == 0, "the lanes' result stands"
+    assert ("may be left behind, docker rmi it by hand" in done.stderr) == warned, done.stderr
+    assert not _left(rig)
+
+
+@pytest.mark.parametrize("mode", ["nomarker", "noend", "partial", "forged", "builderror", "noheader", "lanestep"])
 def test_a_run_with_no_whole_result_reads_3_and_keeps_its_folder(rig: Rig, mode: str) -> None:
     done = _preflight(rig, "ci-lint", "ci-unit-tests", mode = mode)
     assert done.returncode == 3 and "could not complete" in done.stderr, done.stderr

@@ -3608,8 +3608,8 @@ two readers and revised by its seventeen adopted findings was approved, its reco
    `kdf-ask-codex.sh` is the one way it asks Codex (D-052). A build runs each step in a fresh container with a copy
    of its context and no host folder, and the guard already allows `docker build`, `docker images` and `docker rmi`, so
    the guard does not change. The guard runs a script unread, so the wrapper holds itself to the guard's fences. It
-   refuses a docker or buildx pointed at another machine by five variables, the current context or the chosen builder,
-   and passes only options on the guard's list, which a test holds.
+   refuses a session in the reviewer role and a docker or buildx pointed at another machine by five variables, the
+   current context or the chosen builder, and passes only options on the guard's list, which a test holds.
 2. **The commit, exactly, and nothing secret.** `--at`, resolved to its full hash, or HEAD on a clean tree, every
    `GIT_` variable dropped first. A tracked file named like a secret file refuses the run, since a build's layers
    outlive it, and a token's shape in tracked content is listed as a warning, since it is already in git.
@@ -3628,7 +3628,9 @@ two readers and revised by its seventeen adopted findings was approved, its reco
    BuildKit drops the rest of a step's stdout once it clips, at 200 KiB a second or 2 MiB a step as measured, so each
    lane's output goes to a file of its own, and the last step prints, after the results, a bounded excerpt of each
    failed lane's output on stderr, which the wrapper shows beside it. A third panel on the build chose this, and a
-   real run with a failing lane after a 3.4 MB flood showed its reason.
+   real run with a failing lane after a 3.4 MB flood showed its reason. The wrapper counts only lines of that last
+   step, found by the line BuildKit opens it with, that open with a marker, and the lane script writes the statuses
+   once every lane has run from a copy root keeps, so no lane's output passes for a result or rewrites one.
 6. **Nothing left behind but what explains a failure.** The run's image is removed every time, its folder kept on 1
    and 3 and removed on 0 and 2, and nothing is pushed to a registry.
 
