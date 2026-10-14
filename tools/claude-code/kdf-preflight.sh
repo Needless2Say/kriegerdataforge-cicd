@@ -26,8 +26,9 @@
 # kdf-preflight-run:<run id> and removed with docker rmi when the run ends, failed or not. Each build runs under timeout
 # with what remains of --timeout, 1800 seconds unless given, and each lane under its own inside the container. The
 # result is read from the marker lines holding the run id that the image's last step prints, never from the build's
-# status. A lane that fails on a private package is reported in the pull request as a skipped pre-flight, and the tool
-# says so when git's credential failure is in the log.
+# status, and each failed lane is shown with the excerpt of its own output that step prints after them, which BuildKit
+# clipping a noisy lane cannot take. A lane that fails on a private package is reported in the pull request as a
+# skipped pre-flight, and the tool says so when git's credential failure is in the log.
 #
 # Exit 0 when every lane passed, 1 when a lane failed, 2 on a refusal before anything was built, 3 when the run could
 # not complete, a base that would not build, docker unreachable, the run past its timeout, or no whole set of marker
@@ -292,6 +293,13 @@ for index in "${!lanes[@]}"; do
 		124) say "$lane failed, it ran out of its time inside the container" ;;
 		*) say "$lane failed, exit $result" ;;
 	esac
+	# the excerpt the last step printed of this lane's own output, this run's lines alone, which a clip of the lanes
+	# step cannot take
+	excerpt="$(tr -d '\r' < "$log" | sed -n -E "s/^.* KDF-PREFLIGHT-TAIL $id $lane //p")"
+	if [ -n "$excerpt" ]; then
+		say "the last lines of $lane, an excerpt of its own output"
+		printf '%s\n' "$excerpt" | sed 's/^/    /'
+	fi
 done
 if [ "$failed" -gt 0 ] && grep -q -E "could not read (Username|Password)|terminal prompts disabled" "$log"; then
 	say "a lane could not fetch from a private git URL. No token enters the container, so a lane that needs a" \

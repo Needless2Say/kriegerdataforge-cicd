@@ -8,16 +8,18 @@
 #
 # The lanes stage takes the commit's tar and the lane script, the context's only other files, unpacks the tar as
 # runner, an unprivileged user as on GitHub's runner, and makes it a repo of one commit. The run id is used in the step
-# that runs the lanes, so that step is never taken from the cache, and the last step prints each lane's status after a
-# marker that holds the run id, small enough that BuildKit never clips it. No syntax line, so BuildKit's own frontend
-# reads this file and nothing is fetched from Docker Hub (D-065).
+# that runs the lanes, so that step is never taken from the cache. The last step prints each lane's status after a
+# marker that holds the run id and the end marker, small enough that BuildKit never clips them, and only then, on
+# stderr and within a byte budget, an excerpt of each failed lane's own output, since BuildKit drops the rest of a
+# step's stdout once it clips a noisy lane. No syntax line, so BuildKit's own frontend reads this file and nothing is
+# fetched from Docker Hub (D-065).
 
 # python 3.14.7-slim, the index digest the tag held on 2026-10-14
 FROM public.ecr.aws/docker/library/python@sha256:51dafde81dbdb6ebde285137a295cf18a47ca95234fe388a343719cb97305b3d \
     AS base
 
 # ShellCheck too, since actionlint runs it over every run: script when it is on the PATH, as on GitHub's runner, and
-# skips that check without a word when it is not. Debian 13's is 0.10.0 where the runner's is 0.9.0 (Round Table 29).
+# skips that check without a word when it is not. Debian 13's is 0.10.0 where the runner's is 0.9.0 (D-072).
 # Its version is printed, so a base without it fails here
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends git make shellcheck \
@@ -61,4 +63,5 @@ ARG RUN_ID
 ARG LANE_TIMEOUT
 ARG LANES
 RUN echo "kdf-preflight run $RUN_ID" && bash kdf/lanes.sh work kdf/results "$LANE_TIMEOUT" $LANES
-RUN sed "s/^/KDF-PREFLIGHT-RESULT $RUN_ID /" kdf/results && echo "KDF-PREFLIGHT-END $RUN_ID"
+RUN sed "s/^/KDF-PREFLIGHT-RESULT $RUN_ID /" kdf/results && echo "KDF-PREFLIGHT-END $RUN_ID" \
+    && bash kdf/lanes.sh --tails kdf/results "$RUN_ID"

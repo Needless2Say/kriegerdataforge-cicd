@@ -139,13 +139,17 @@ def test_the_run_id_is_used_in_the_step_that_runs_the_lanes_and_in_the_marker_st
     args = [rest.split("=")[0] for keyword, rest in last if keyword == "ARG"]
     assert "RUN_ID" in args, "the run id is a build argument of the last stage"
     runs   = [rest for keyword, rest in last if keyword == "RUN"]
-    lanes  = [rest for rest in runs if "lanes.sh" in rest]
+    lanes  = [rest for rest in runs if "lanes.sh" in rest and "--tails" not in rest]
     marker = [rest for rest in runs if "KDF-PREFLIGHT-RESULT" in rest]
     used   = re.compile(r"\$\{?RUN_ID\b")
     assert len(lanes) == 1 and used.search(lanes[0]), "so the step that runs the lanes is never taken from the cache"
     assert len(marker) == 1 and used.search(marker[0]) and "KDF-PREFLIGHT-END" in marker[0]
     assert runs[-1] == marker[0], "the marker step is the last"
     assert runs.index(lanes[0]) < runs.index(marker[0])
+    # the results and the end marker first, and only then a failed lane's excerpt, so a clipped excerpt never takes a
+    # result (D-072)
+    order = [marker[0].find(words) for words in ("KDF-PREFLIGHT-RESULT", "KDF-PREFLIGHT-END", "lanes.sh --tails")]
+    assert -1 not in order and order == sorted(order) and used.search(marker[0][order[2]:])
 
 
 def test_the_lane_stage_fixes_its_environment_and_takes_the_three_files_alone() -> None:
@@ -214,11 +218,58 @@ def test_the_lane_script_records_every_lanes_status_in_order_from_its_work_folde
     assert done.returncode == 0, "a red or a hung lane never stops the script"
     recorded = (tmp_path / "results.txt").read_text(encoding = "utf-8").splitlines()
     assert recorded == ["ci-red 2", "ci-green 0", "ci-hang 124", "ci-env 0"], done.stdout + done.stderr
+    # each lane's own output in a file of its own beside the results, written whole before the lanes changed folder,
+    # and printed when the lane ends (D-072)
+    outputs = tmp_path / "lanes"
+    assert sorted(path.name for path in outputs.iterdir()) == [f"{lane}.log" for lane in sorted(
+        ("ci-red", "ci-green", "ci-hang", "ci-env"),
+    )]
+    assert (outputs / "ci-green.log").read_text(encoding = "utf-8") == "green\n"
+    assert "ci-red" in (outputs / "ci-red.log").read_text(encoding = "utf-8"), "make's error, from stderr"
+    assert "green\n==== kdf-preflight lane ci-green exited 0" in done.stdout
+
+
+def test_the_lane_script_prints_a_bounded_excerpt_of_each_failed_lane_after_its_run(tmp_path: Path) -> None:
+    # BuildKit drops the rest of a step's stdout once it clips a noisy lane, so the image's last step prints each
+    # failed lane's own last lines, on stderr, at most 50 of 300 bytes each and 64 KiB in all (D-072)
+    if BASH is None and not os.environ.get("CI"):
+        pytest.skip("the lane script needs bash")
+    outputs = tmp_path / "lanes"
+    outputs.mkdir()
+    lanes = {"ci-green": 0, "ci-wide": 2, **{f"ci-loud-{number}": 3 for number in range(1, 7)}}
+    (tmp_path / "results.txt").write_text(
+        "".join(f"{lane} {status}\n" for lane, status in lanes.items()),
+        encoding = "utf-8",
+        newline = "\n",
+    )
+    (outputs / "ci-green.log").write_text("green\n", encoding = "utf-8", newline = "\n")
+    (outputs / "ci-wide.log").write_text("start\n" + "w" * 1000 + "\nthe reason\n", encoding = "utf-8", newline = "\n")
+    for number in range(1, 7):
+        lines = "".join(f"{number}-{index}-{'l' * 400}\n" for index in range(80))
+        (outputs / f"ci-loud-{number}.log").write_text(lines, encoding = "utf-8", newline = "\n")
+    done = subprocess.run(
+        [str(BASH), LANES.as_posix(), "--tails", "results.txt", "run-1"],
+        capture_output = True,
+        text = True,
+        cwd = tmp_path,
+        timeout = 60,
+    )
+    assert done.returncode == 0 and not done.stdout, "the excerpts go to stderr alone"
+    lines = done.stderr.splitlines()
+    assert all(line.startswith("KDF-PREFLIGHT-TAIL run-1 ") for line in lines)
+    assert not [line for line in lines if " ci-green " in line], "a green lane has no excerpt"
+    wide = [line.removeprefix("KDF-PREFLIGHT-TAIL run-1 ci-wide ") for line in lines if " ci-wide " in line]
+    assert wide == ["start", "w" * 300, "the reason"], "each line cut to 300 bytes"
+    loud = [line for line in lines if " ci-loud-1 " in line]
+    assert len(loud) == 50 and loud[-1].endswith("1-79-" + "l" * 295), "the last 50 lines"
+    assert lines[-1].endswith("[the excerpts stop here, their 65536 bytes spent]"), "a visible notice"
+    assert len(done.stderr.encode("utf-8")) <= 65536 + 2 * 400, "the budget bounds every excerpt, markers counted"
+    assert not [line for line in lines if " ci-loud-6 " in line and "stop here" not in line]
 
 
 def test_the_base_installs_shellcheck_and_fails_without_it() -> None:
     # actionlint runs ShellCheck over every run: script only when it is on the PATH, as on GitHub's runner, and skips
-    # that check without a word when it is not (Round Table 29)
+    # that check without a word when it is not (D-072)
     apt = [rest for keyword, rest in _stages()[0] if keyword == "RUN" and "apt-get install" in rest]
     assert len(apt) == 1 and "shellcheck" in apt[0].split(), "ShellCheck beside git and make, from Debian"
     assert "&& shellcheck --version" in apt[0], "its version printed, so a base without it fails to build"
@@ -229,7 +280,7 @@ def test_the_actionlint_lane_is_red_when_no_shellcheck_is_on_the_path() -> None:
     guard = text.find("command -v shellcheck")
     run   = text.find('"$limit" actionlint')
     assert -1 < guard < run, "the guard comes before actionlint runs"
-    assert re.search(r"\(exit 127\)", text[guard:run]), "the lane's status is 127, red"
+    assert re.search(r"\bstatus=127\b", text[guard:run]), "the lane's status is 127, red"
 
 # ======================================================================================================================
 # the wrapper
@@ -290,6 +341,10 @@ for lane in $lanes; do
     [ "$mode" != partial ] || break
 done
 [ "$mode" = noend ] || printf "#14 0.2 KDF-PREFLIGHT-END %s$end" "$id" >&2
+case "$mode" in red|cred)
+    printf "#14 0.3 KDF-PREFLIGHT-TAIL %s %s the reason %s failed$end" "$id" "${lanes%% *}" "${lanes%% *}" >&2
+    printf "#14 0.3 KDF-PREFLIGHT-TAIL other %s a line of another run$end" "${lanes%% *}" >&2 ;;
+esac
 exit 0
 """
 
@@ -645,6 +700,10 @@ def test_a_red_lane_reads_1_names_it_and_keeps_the_log(rig: Rig) -> None:
     done = _preflight(rig, "ci-lint", "ci-unit-tests", mode = "red")
     assert done.returncode == 1, done.stderr
     assert "ci-lint failed, exit 2" in done.stdout and "ci-unit-tests passed" in done.stdout
+    # the failed lane's excerpt from this run's last step, beside its name, and never a line of another run's
+    excerpt = done.stdout.split("ci-lint failed, exit 2", 1)[1]
+    assert "the last lines of ci-lint" in excerpt and "    the reason ci-lint failed" in excerpt
+    assert "another run" not in done.stdout and "the last lines of ci-unit-tests" not in done.stdout
     run, = _left(rig)
     assert (run / "build.log").is_file() and (run / "context" / "repo.tar").is_file()
     assert _calls(rig)[-1][0] == "rmi"
