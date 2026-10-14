@@ -770,6 +770,56 @@ def test_long_work_keeps_a_record_a_session_can_resume_from() -> None:
     assert "## Now" in readme and "never a finding" in readme, "the review README's Now block lost its limits"
 
 
+def test_a_feature_is_designed_in_one_session_and_built_from_an_approved_plan_in_another() -> None:
+    """
+    A feature's design and its plan live apart, and the build is a new session (D-071). WORKFLOW.md states the rule
+    before the lanes, which refer to it and keep their exceptions for work that builds no feature. The standard names
+    both folders, a feature's own row, a feature log read through its plan's steps table, the close in the last pull
+    request and a public repo's plans kept private. The design gate and the worked examples point at the rule.
+    """
+    agent    = KIT / "docs" / "agent"
+    workflow = (KIT / "WORKFLOW.md").read_text(encoding = "utf-8")
+    flat     = " ".join(workflow.split())
+    rule     = "## A feature, designed in one session and built in another"
+    assert rule in workflow
+    assert workflow.index("## Step 0.") < workflow.index(rule) < workflow.index("## Quick lane")
+    for words in (
+        "`docs/design/<YYYY-MM-DD>-<slug>/`",
+        "`docs/features/<YYYY-MM-DD>-<slug>/IMPLEMENTATION_PLAN.md`",
+        "docs/agent/templates/implementation-plan.template.md",
+        "The owner's merge of that pull request is the approval",
+        "its Approved line holds the owner's words and a date",
+        "only after a Round Table on it",
+        "made at once, in the design, the plan and the code, never left for later",
+        "**The close rides the last pull request.**",
+        "The next feature is a new session.",
+        "A repo follows the shape its own `docs/agent/KIT_VERSION` gives",
+    ):
+        assert words in flat, f"the feature rule lost {words!r}"
+    standard_lane = flat.split("## Standard lane", 1)[1].split("## Epic lane", 1)[0]
+    epic_lane     = flat.split("## Epic lane", 1)[1].split("## Always, non-negotiables", 1)[0]
+    always        = flat.split("## Always, non-negotiables", 1)[1]
+    for lane in (standard_lane, epic_lane, always):
+        assert "designed in one session and built in another" in lane, "a lane no longer refers to the feature rule"
+    assert "builds no feature" in always, "the exceptions are no longer kept for work that builds no feature"
+    standard = " ".join((agent / "DOCUMENTATION_STANDARD.md").read_text(encoding = "utf-8").split())
+    assert "| `docs/features/` | One dated folder per feature, `<YYYY-MM-DD>-<slug>/`" in standard
+    assert "| A feature, Standard or Epic |" in standard
+    assert "| Standard or Epic work that builds no feature" in standard
+    for words in (
+        "templates/implementation-plan.template.md",
+        "A feature's log keeps no status grid",
+        "or for a feature its plan's steps table",
+        "in the build's last pull request, so nothing follows the merge",
+        "Its logs, its plans and its bug reports are kept in the ecosystem's private context for good",
+        "`FEATURE.md` in its folder in `docs/features/`",
+    ):
+        assert words in standard, f"the standard lost {words!r}"
+    for page in ("DESIGN_AND_EPICS.md", "AGENT_OPERATING_STANDARD.md", "README.md"):
+        text = " ".join((agent / page).read_text(encoding = "utf-8").split())
+        assert "designed in one session and built in another" in text, f"{page} does not point at the feature rule"
+
+
 def test_every_slice_closes_with_an_answer_key_and_every_report_names_its_model() -> None:
     """
     A closed slice can score any later reviewer's report. The process names the answer key, the template exists and is

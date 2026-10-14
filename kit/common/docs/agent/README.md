@@ -13,7 +13,8 @@ deep dives (`<slug>.md`) may live alongside these files and are repo-owned.
 1. **`AGENTS.md`** (repo root, per repo). What this repo is, its vision, module map, critical rules.
 2. [**`WORKFLOW.md`**](../../WORKFLOW.md) (repo root, kit). The three lane loop every task follows:
    Quick / Standard (plan → owner approves → implement → `make ci` → PR) / Epic. It opens with your role,
-   [`AGENT_ROLES.md`](AGENT_ROLES.md), what any agent of any model may do, read before you act.
+   [`AGENT_ROLES.md`](AGENT_ROLES.md), what any agent of any model may do, read before you act. A feature is designed
+   in one session and built in another, from a plan the owner approved.
 3. [**`skills.md`**](../../skills.md) (repo root, kit). The scenario organized security playbook.
    Read the matching scenario before any security sensitive work.
 4. This directory. The deeper standards below, consulted when their topic comes up.
@@ -29,8 +30,9 @@ deep dives (`<slug>.md`) may live alongside these files and are repo-owned.
 | [`REPORTS_STANDARD.md`](REPORTS_STANDARD.md) | The reports standard. The six Projects boards + the AI bug reporter. Certified packages, adoption recipes, security posture, per repo type applicability | Touching reports/boards/triage, or adopting the feature in an app |
 | [`AGENT_ROLES.md`](AGENT_ROLES.md) | Agent roles and limits. What any agent, of any model or tool, may do. Implementer, orchestrator, reviewer and chat reader, the rules every role keeps, and what holds each tool to them | **Before you act**, and whenever your role is unclear |
 | [`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md) | The KDF Code Review Process. Any scope, from one function to every repo, reviewed by fresh Claude and Codex sessions at a pinned commit and Sol rounds. The scales, the roles, the cycle, the rules, severity, the artifacts and the security model | An independent review by more than one model, of any size |
-| [`templates/design-spec.template.md`](templates/design-spec.template.md) | Copy me 10-section design spec → `docs/design/{YYYY-MM-DD}-{slug}/DESIGN.md` | The design gate applies |
-| [`templates/work-log.template.md`](templates/work-log.template.md) | Copy me work log → `LOG.md` beside a design or a bug report, its Now block, status grid and journal, so a session that compacts or takes over finds where the work stands | Standard or Epic work, and a bug beyond a Quick fix, from the first step |
+| [`templates/design-spec.template.md`](templates/design-spec.template.md) | Copy me 10-section design spec → `docs/design/{YYYY-MM-DD}-{slug}/DESIGN.md` | The design gate applies, and every feature |
+| [`templates/implementation-plan.template.md`](templates/implementation-plan.template.md) | Copy me feature plan → `docs/features/{YYYY-MM-DD}-{slug}/IMPLEMENTATION_PLAN.md`, its steps, pull requests, stops and the build session's start prompt | A feature's design is settled |
+| [`templates/work-log.template.md`](templates/work-log.template.md) | Copy me work log → `LOG.md` beside a design, a feature's plan or a bug report, its Now block, status grid and journal, so a session that compacts or takes over finds where the work stands | Standard or Epic work, and a bug beyond a Quick fix, from the first step |
 | [`templates/bug-report.template.md`](templates/bug-report.template.md) | Copy me bug report → `docs/bugs/{YYYY-MM-DD}-{slug}/REPORT.md`, symptom, reproduction, root cause and fix | A bug beyond a Quick fix |
 | [`templates/adr-entry.template.md`](templates/adr-entry.template.md) | Copy me ADR block → `docs/CHANGELOG_AND_DECISION_LOG.md` | Recording an architectural decision (`D-NNN`) |
 | [`templates/epic-tracker.template.md`](templates/epic-tracker.template.md) | Copy me tracker → `kriegerdataforge/docs/epics/{name}.md` (the hub) | Coordinating a cross repo Epic |
@@ -47,7 +49,8 @@ deep dives (`<slug>.md`) may live alongside these files and are repo-owned.
 ## How to use the kit to work well here
 
 - **Every task**. Pick a lane in `WORKFLOW.md` and follow its loop. Plan first, owner approves,
-  `make ci` green locally before any PR, never self-merge.
+  `make ci` green locally before any PR, never self-merge. A feature is designed in one session and built in another,
+  `WORKFLOW.md`'s rule before the lanes.
 - **Before a PR**. Walk `DEFINITION_OF_DONE.md` for your change type. The PR template is its
   checkbox form.
 - **Security sensitive work** (auth, tokens, secrets, CSP, payments, infra, CI). Open `skills.md`
