@@ -194,21 +194,26 @@ def test_the_lane_script_records_every_lanes_status_in_order_from_its_work_folde
         pytest.skip("the lane script needs bash and make")
     work = tmp_path / "work"
     work.mkdir()
+    # ci-env is green only when the base image's own PYTHON_VERSION and PYTHON_SHA256 are gone, which a runner never
+    # sets, and which cicd's Makefile, PYTHON_VERSION ?= 3.14, took as python3.14.7 in step 3's cicd run
     (work / "Makefile").write_text(
-        "ci-red:\n\t@exit 2\nci-green:\n\t@echo green\nci-hang:\n\t@sleep 30\n",
+        "ci-red:\n\t@exit 2\nci-green:\n\t@echo green\nci-hang:\n\t@sleep 30\n"
+        'ci-env:\n\t@test -z "$$PYTHON_VERSION$$PYTHON_SHA256$$RUN_ID$$LANES"\n',
         encoding = "utf-8",
         newline = "\n",
     )
-    done = subprocess.run(
-        [str(BASH), LANES.as_posix(), work.as_posix(), "results.txt", "3", "ci-red", "ci-green", "ci-hang"],
+    image = {"PYTHON_VERSION": "3.14.7", "PYTHON_SHA256": "0" * 64, "RUN_ID": "run", "LANES": "ci-env"}
+    done  = subprocess.run(
+        [str(BASH), LANES.as_posix(), work.as_posix(), "results.txt", "3", "ci-red", "ci-green", "ci-hang", "ci-env"],
         capture_output = True,
         text = True,
         cwd = tmp_path,
+        env = {**os.environ, **image},
         timeout = 60,
     )
     assert done.returncode == 0, "a red or a hung lane never stops the script"
     recorded = (tmp_path / "results.txt").read_text(encoding = "utf-8").splitlines()
-    assert recorded == ["ci-red 2", "ci-green 0", "ci-hang 124"], done.stdout + done.stderr
+    assert recorded == ["ci-red 2", "ci-green 0", "ci-hang 124", "ci-env 0"], done.stdout + done.stderr
 
 
 def test_the_base_installs_shellcheck_and_fails_without_it() -> None:
