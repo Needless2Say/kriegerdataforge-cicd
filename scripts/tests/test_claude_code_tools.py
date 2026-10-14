@@ -2866,6 +2866,26 @@ def test_the_compaction_hook_names_the_open_records_the_session_wrote(tmp_path: 
     ]
 
 
+def test_the_compaction_hook_names_a_feature_s_log_and_never_its_plan(tmp_path: Path) -> None:
+    """
+    A feature's log in docs/features/<folder>/ is a work record like a design's (D-071), so the hook names it, while
+    the plan and the feature doc beside it are never named, though the build session writes both, and a design's log
+    is still named.
+    """
+    space   = tmp_path / "ws"
+    feature = _record(space, "repo/docs/features/2026-10-14-plans/LOG.md", "OPEN")
+    plan    = _record(space, "repo/docs/features/2026-10-14-plans/IMPLEMENTATION_PLAN.md", "OPEN")
+    doc     = _record(space, "repo/docs/features/2026-10-14-plans/FEATURE.md", "OPEN")
+    flat    = _record(space, "repo/docs/features/LOG.md", "OPEN")
+    design  = _record(space, "repo/docs/design/2026-10-14-plans/LOG.md", "WAITING ON THE OWNER")
+    calls   = [("Write", design), ("Edit", feature), ("Edit", flat), ("Edit", plan), ("Write", doc)]
+
+    done = _compact({"session_id": "s1", "transcript_path": str(_transcript(tmp_path, calls)), "source": "compact"})
+    assert done.returncode == 0
+    assert _listed(done.stdout) == [feature.as_posix() + ", OPEN", design.as_posix() + ", WAITING ON THE OWNER"]
+    assert "IMPLEMENTATION_PLAN" not in done.stdout and "FEATURE.md" not in done.stdout
+
+
 def test_the_compaction_hook_leaves_out_a_write_that_failed(tmp_path: Path) -> None:
     """
     An Edit whose result came back as an error wrote nothing, so another session's open record it touched is not named,

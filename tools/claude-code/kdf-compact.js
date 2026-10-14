@@ -6,11 +6,11 @@
  *   node kdf-compact.js session-start   read the hook's JSON on stdin and print the session's open work records
  *
  * After a compaction or a resume the summary may have lost where the work stands. This hook reads the session's own
- * transcript for the work record files that session wrote with a file tool, a design or bug log, a review's README or
- * a brainstorm's notes, and prints each open one's path and status word, the newest first, so the session reads its
- * record before any task work. It prints paths, never a record's text. Claude Code adds a SessionStart hook's output
- * to the context as its own, and a record's words should reach the session through a Read, as data (the kit's
- * DOCUMENTATION_STANDARD.md, "Work records"). With no record it points at the status page that names each one.
+ * transcript for the work record files that session wrote with a file tool, a design, feature or bug log, a review's
+ * README or a brainstorm's notes, and prints each open one's path and status word, the newest first, so the session
+ * reads its record before any task work. It prints paths, never a record's text. Claude Code adds a SessionStart
+ * hook's output to the context as its own, and a record's words should reach the session through a Read, as data (the
+ * kit's DOCUMENTATION_STANDARD.md, "Work records"). With no record it points at the status page that names each one.
  *
  * It says nothing to a reviewer (KDF_ROLE=reviewer), who keeps no record, or inside a subagent. It never blocks and
  * never fails a session. Any error exits 0 with nothing on stdout and one line on stderr, and a transcript that takes
@@ -30,9 +30,10 @@ const TOTAL_MS = 10000;
 const MAX_RECORDS = 10;
 const MAX_CHARS = 1900;
 const FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
-// The work records the kit's "Work records" names, by where they live.
+// The work records the kit's "Work records" names, by where they live. A feature folder's log is one, and the plan and
+// the feature doc beside it are not (D-071).
 const RECORD = new RegExp(
-  '/docs/(?:(?:design|bugs)/[^/]+/LOG\\.md|reviews/[^/]+/README\\.md|brainstorming/[^/]+/NOTES\\.md)$'
+  '/docs/(?:(?:design|features|bugs)/[^/]+/LOG\\.md|reviews/[^/]+/README\\.md|brainstorming/[^/]+/NOTES\\.md)$'
 );
 // What reaches the context unquoted, a path made of these characters only, and one of the log template's four status
 // words, never other text from a record.

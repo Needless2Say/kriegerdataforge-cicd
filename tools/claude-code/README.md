@@ -500,13 +500,14 @@ given, bounds the whole run, each build running under what remains of it.
 
 ## The compaction hook
 
-`kdf-compact.js` serves the work records of the kit's `DOCUMENTATION_STANDARD.md` (D-057, D-058). After a compaction
-or a resume it reads the session's own transcript for the record files the session wrote with a file tool, a design
-or bug `LOG.md`, a review's `README.md` and a brainstorm's `NOTES.md`, and prints each open one's path and status
-word, the newest first, so the session reads its record before any task work. It prints paths, never a record's
-words, since a hook's output reaches the context as Claude Code's own. With no record it points at the status page,
-`KDF_STATUS_FILE` or the first `kriegerdataforge-context/STATUS.md` above the session's folder. It says nothing to a
-reviewer the launcher started (`KDF_ROLE=reviewer`) or inside a subagent, and it never blocks or fails a session.
+`kdf-compact.js` serves the work records of the kit's `DOCUMENTATION_STANDARD.md` (D-057, D-058, D-071). After a
+compaction or a resume it reads the session's own transcript for the record files the session wrote with a file tool,
+a design, feature or bug `LOG.md`, a review's `README.md` and a brainstorm's `NOTES.md`, never a feature's plan or its
+`FEATURE.md`, and prints each open one's path and status word, the newest first, so the session reads its record
+before any task work. It prints paths, never a record's words, since a hook's output reaches the context as Claude
+Code's own. With no record it points at the status page, `KDF_STATUS_FILE` or the first
+`kriegerdataforge-context/STATUS.md` above the session's folder. It says nothing to a reviewer the launcher started
+(`KDF_ROLE=reviewer`) or inside a subagent, and it never blocks or fails a session.
 
 To wire it, once per machine, after any review campaign running there has closed, copy it beside the guard and add a
 SessionStart entry to `~/.claude/settings.json`, then restart every session and `claude rc` server.
