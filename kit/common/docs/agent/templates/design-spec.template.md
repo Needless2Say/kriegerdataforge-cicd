@@ -4,7 +4,11 @@
 > with `LOG.md` beside it from [`work-log.template.md`](work-log.template.md). Cross repo work keeps a design folder in
 > each repo it changes, and the epic's tracker links them. Fill every section. Delete one only if you can say why it
 > doesn't apply. See [`../DESIGN_AND_EPICS.md`](../DESIGN_AND_EPICS.md) for when this is required and how it's
-> approved.
+> approved. A feature's design hands off to its plan. When the owner says it is settled, write the plan in
+> `docs/features/{YYYY-MM-DD}-{slug}/` from [`implementation-plan.template.md`](implementation-plan.template.md) and
+> open the design pull request holding both folders. The owner's approval in words goes in the plan's Approved line,
+> the owner's merge of the design pull request approves the plan, and a new session builds it
+> ([`../../../WORKFLOW.md`](../../../WORKFLOW.md), "A feature, designed in one session and built in another").
 >
 > Status: Draft | In review | Approved (date) | Superseded · Tier: Standard plus | Epic ·
 > Repos touched: {list} · Decision log: D-NNN · Epic tracker: {link if cross repo}

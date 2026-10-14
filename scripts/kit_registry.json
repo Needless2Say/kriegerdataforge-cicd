@@ -14,6 +14,7 @@
 		"docs/agent/README.md",
 		"docs/agent/KIT_VERSION",
 		"docs/agent/templates/design-spec.template.md",
+		"docs/agent/templates/implementation-plan.template.md",
 		"docs/agent/templates/adr-entry.template.md",
 		"docs/agent/templates/epic-tracker.template.md",
 		"docs/agent/templates/contributor-onboarding.template.md",

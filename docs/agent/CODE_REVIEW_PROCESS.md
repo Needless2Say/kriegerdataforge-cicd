@@ -667,9 +667,10 @@ and goes on. Every step ends by updating them. The review is a work record
   will start, the reviewer, the planned command and the report's path, the pin being the commit its brief names, and
   how each is checked, a Claude run by its report and the report's `.usage.json`, a Codex run by its report in the
   folder or on its collect branch. From the pin until both of its reports are in, the folder is frozen, so the
-  orchestrator only reads, and the launcher's refusal of a second open review of the folder stops a duplicate. Once
-  both reports are in, the Now block takes the results. Outside a freeze, a Codex run, a Sol dispatch or a pull
-  request is named Pending before it starts and comes out once its result is checked.
+  orchestrator only reads, and the launcher's refusal of a second open review of the folder stops a duplicate. The
+  freeze gives way where rule 15 lets one model family go ahead while the other reads a later pin. Once both reports
+  are in, or the one rule 15 goes on with, the Now block takes the results. Outside a freeze, a Codex run, a Sol
+  dispatch or a pull request is named Pending before it starts and comes out once its result is checked.
 
 ## 12. Starting a review
 

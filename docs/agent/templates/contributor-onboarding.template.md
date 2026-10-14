@@ -131,7 +131,8 @@ Every task follows the tiered loop in [`WORKFLOW.md`](../../WORKFLOW.md). **Quic
 no behavior) · **Standard** (plan → **owner approves** → implement → `make ci` green → PR →
 GitHub CI green → **owner merges**) · **Epic** (novel/cross repo → the design gate in
 [`DESIGN_AND_EPICS.md`](../agent/DESIGN_AND_EPICS.md)). Don't skip the plan approval gate. Don't
-self-merge. When unsure, size **up**.
+self-merge. When unsure, size **up**. A feature is designed in one session and built in another, from a plan the owner
+approves by merging its design pull request, `WORKFLOW.md`'s rule before the lanes.
 
 Before opening a PR, meet [`DEFINITION_OF_DONE.md`](../agent/DEFINITION_OF_DONE.md) for your change
 type. For anything security sensitive, follow the matching scenario in

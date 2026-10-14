@@ -71,7 +71,7 @@ writing code.
 | Lane | Use when | Shape |
 | --- | --- | --- |
 | **Quick** | ≤ ~1 file, no API contract / schema / security change. A typo, copy, comment, log line, or a bug fix with one obviously correct outcome (if the intended behavior is itself a judgment call, size up to Standard) | implement → `make ci` → PR |
-| **Standard** | A feature or fix contained in **one** repo | plan (sized to the change) → approve → implement → `make ci` → PR → CI green → handback |
+| **Standard** | A feature or fix contained in **one** repo | plan (sized to the change) → approve → implement → `make ci` → PR → CI green → handback. A feature is designed in one session and built in another, its design and plan approved by the merge of their pull request |
 | **Epic** | Complex/novel design, **or** anything spanning **more than one repo** | the Epic track. Discovery → design + ADR → decompose → contract first → hub tracker → slices → integrate |
 
 The full step by step lives in [`WORKFLOW.md`](../../WORKFLOW.md), the design gate and Epic playbook
@@ -94,12 +94,15 @@ being a one file no behavior change, it switches to Standard.
 
 > *"Add a 'last active' timestamp to the user settings page in the fitness app frontend."*
 
-Contained in `fitness-app-frontend`, no new cross repo contract → **Standard**. The agent **orients**
-(reads `AGENTS.md` vision + the relevant `docs/`), writes a **plan sized to the change** and shares
-it (a small in pattern change needs only a 2–3 line plan. Anything behavior/contract/schema/auth
-waits for explicit approval), **implements** exactly the approved plan, gets **`make ci` green**,
-bumps the version, opens a PR against the [Definition of Done](DEFINITION_OF_DONE.md), waits for
-**GitHub CI green**, and hands the PR to the owner to merge.
+Contained in `fitness-app-frontend`, no new cross repo contract → **Standard**, and a feature, so it is
+designed in one session and built in another ([`WORKFLOW.md`](../../WORKFLOW.md)). The design session **orients**
+(reads `AGENTS.md` vision + the relevant `docs/`), writes a short design in `docs/design/`, then a **plan** in
+`docs/features/` from the plan template, gets the one second opinion the repo's rules size, and opens the design pull
+request. The owner approves in words and merges it. A **new session** makes its worktree, **implements** exactly the
+approved plan, gets **`make ci` green**, bumps the version, opens a PR against the
+[Definition of Done](DEFINITION_OF_DONE.md) carrying the feature's `FEATURE.md` and its close, waits for
+**GitHub CI green**, and hands the PR to the owner to merge. A small in pattern change that builds no feature still
+needs only a plan of two or three lines, and anything behavior/contract/schema/auth waits for explicit approval.
 
 ### C. Extreme. A system across several repos (Epic lane)
 
@@ -125,7 +128,9 @@ mega PR:
    ([`templates/design-spec.template.md`](templates/design-spec.template.md)), including the
    **per repo vision table** (each repo, its vision, its rules, how the design honors them), and
    records the decision as an ADR (`D-NNN`) in the repo's `docs/CHANGELOG_AND_DECISION_LOG.md`. **The
-   owner approves the design before a line of code is written.**
+   owner approves the design before a line of code is written.** Each feature it builds gets its plan in a folder of
+   `docs/features/`, approved with the design by the merge of the design pull request, and a build session of its
+   own.
 3. **Decompose into flag gated vertical slices.** Each slice is a thin end to end path, independently
    shippable and reviewable, shipped **dark behind a feature flag** (off by default) so `main` stays
    releasable throughout.
@@ -220,7 +225,8 @@ The standard does a lot, but a good prompt makes it sing:
   their visions.
 - **Expect a plan before code** on anything non-trivial. Review the plan. That's where you steer the
   ambition and catch a wrong direction cheaply. Approving the plan is the highest leverage thing you
-  do.
+  do. For a feature, you approve the design and the plan in words, merge their pull request, and start a new session
+  with the plan's start prompt.
 - **You merge.** Every PR comes back to you green. Nothing self-merges. Review against the
   [Definition of Done](DEFINITION_OF_DONE.md).
 - **"No restrictions" means on ambition, not on safety.** Tell the agent to aim high. It will still

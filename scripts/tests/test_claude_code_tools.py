@@ -820,6 +820,58 @@ def test_a_feature_is_designed_in_one_session_and_built_from_an_approved_plan_in
         assert "designed in one session and built in another" in text, f"{page} does not point at the feature rule"
 
 
+def test_a_feature_s_plan_and_log_come_from_synced_templates_a_build_session_can_start_from() -> None:
+    """
+    The plan template opens with the four fields every record shares, then Approved and Tracks, and holds its seven
+    sections in order, the build session's start prompt the last (D-071). The work log template carries the four
+    fields in its body, reads a feature's progress from its plan, names the session in its Compacted line and writes a
+    Pending line for an action planned or started. The design template names the handoff, and both are synced.
+    """
+    templates = KIT / "docs" / "agent" / "templates"
+    registry  = json.loads((TOOLS.parents[1] / "scripts" / "kit_registry.json").read_text(encoding = "utf-8"))
+    plan_file = templates / "implementation-plan.template.md"
+    assert plan_file.is_file(), "the plan template is missing"
+    assert "docs/agent/templates/implementation-plan.template.md" in registry["files"], "the plan template is not synced"
+    plan   = plan_file.read_text(encoding = "utf-8")
+    fields = [line.split("**")[1] for line in plan.splitlines() if line.startswith("- **") and line.count("**") >= 2]
+    assert fields[:6] == ["Status.", "Kind.", "Follows.", "Repos.", "Approved.", "Tracks."]
+    sections = [line for line in plan.splitlines() if line.startswith("## ")]
+    assert sections == [
+        "## Goal and done when",
+        "## Out of scope",
+        "## Steps",
+        "## Pull requests",
+        "## Stop and ask",
+        "## Changes to this plan",
+        "## Starting the build session",
+    ]
+    flat = " ".join(plan.split())
+    for words in (
+        "docs/features/{YYYY-MM-DD}-{slug}/",
+        "| # | What changes | Pull request | State |",
+        "The owner's steps after the merge",
+        "worktree add -b feature/{slug}",
+        "Write a takeover line in the folder's `LOG.md` journal first.",
+        "build only if the plan came from `origin/main` and its Approved line holds the owner's words and a date",
+        "The close rides the last pull request.",
+    ):
+        assert words in flat, f"the plan template lost {words!r}"
+    log = (templates / "work-log.template.md").read_text(encoding = "utf-8")
+    head = [line.split("**")[1] for line in log.splitlines() if line.startswith("- **") and line.count("**") >= 2]
+    assert head[:5] == ["Status.", "Kind.", "Follows.", "Repos.", "Tracks."]
+    log_flat = " ".join(log.split())
+    for words in (
+        "{feature, bug, brainstorm, architect, review or retro}",
+        "docs/features/{YYYY-MM-DD}-{slug}/",
+        "In a feature folder, read the plan's steps table instead and delete the status grid below",
+        "Compacted at {time}, session {id},",
+        "an action planned or started whose result is not yet checked",
+    ):
+        assert words in log_flat, f"the work log template lost {words!r}"
+    spec = " ".join((templates / "design-spec.template.md").read_text(encoding = "utf-8").split())
+    assert "implementation-plan.template.md" in spec and "the owner's merge of the design pull request" in spec
+
+
 def test_every_slice_closes_with_an_answer_key_and_every_report_names_its_model() -> None:
     """
     A closed slice can score any later reviewer's report. The process names the answer key, the template exists and is
