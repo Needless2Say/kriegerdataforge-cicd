@@ -79,6 +79,16 @@ HAND_GUARD_STEP = (
     "          exit 1\n"
 )
 
+# the one skip expression a consumer's ci.yml hands its lanes, and the probes of this repo's own ci.yml with it
+SKIP_EXPRESSION = "needs.secret-scan.result == 'success' && needs.secret-scan.outputs.docs_only == 'true'"
+
+# each skip probe of ci.yml and the lane it calls with skip true
+SKIP_PROBES = {
+    "skip-probe": "ci-nextjs-tests.yml",
+    "skip-probe-split": "ci-python-lint.yml",
+    "skip-probe-security": "ci-python-security.yml",
+}
+
 
 def _lane(name: str) -> str:
     """
@@ -437,3 +447,56 @@ def test_the_scan_codeql_and_the_standalone_fetch_take_no_skip(name):
     """
     assert "\n      skip:\n" not in _lane(name)
     assert "inputs.skip" not in _lane(name)
+
+# ======================================================================================================================
+# This repo's probes
+# ======================================================================================================================
+
+@pytest.mark.parametrize("probe", sorted(SKIP_PROBES))
+def test_each_skip_probe_calls_its_lane_with_skip_and_no_secret(probe):
+    """
+    The probes show on GitHub what a skipped lane reports, each job "<probe> / <job>" skipped with no runner, a one job
+    lane, a split lane with package access asked for and the security lane. They pass no secret and wait for nothing.
+    """
+    job = _jobs(_lane("ci.yml"))[probe]
+    assert f"    uses: ./.github/workflows/{SKIP_PROBES[probe]}\n" in job
+    assert "      skip: true\n" in job
+    assert "secrets" not in job and "    needs:" not in job and "    if:" not in job
+    assert ("      needs_sdk_auth: true\n" in job) == (probe == "skip-probe-split")
+
+
+def test_the_nested_probe_runs_a_scan_beside_a_skipped_lane_three_levels_down():
+    """
+    The kdf-sdk's merge gate calls its own ci.yml, so its lanes sit a level deeper than any other repo's. The nested
+    probe is called by ci.yml alone and runs the scan beside a lane called with skip true.
+    """
+    nested = _lane("probe-nested.yml")
+    assert "\non:\n  workflow_call:\n\n" in nested
+    jobs = _jobs(nested)
+    assert list(jobs) == ["secret-scan", "unit-tests"]
+    assert jobs["secret-scan"] == "    uses: ./.github/workflows/secret-scan.yml\n\n"
+    assert jobs["unit-tests"] == "    uses: ./.github/workflows/ci-nextjs-tests.yml\n    with:\n      skip: true\n"
+    assert "    uses: ./.github/workflows/probe-nested.yml\n" in _jobs(_lane("ci.yml"))["skip-probe-nested"]
+
+
+@pytest.mark.parametrize("probe, condition", [
+    ("cancel-probe-lane", "${{ always() }}"),
+    ("cancel-probe-security", "${{ cancelled() }}"),
+])
+def test_the_lane_cancel_probes_wait_for_the_scan_with_the_one_skip_expression(probe, condition):
+    """
+    Wired as a consumer's lane callers are, each waits for the scan and hands its lane the skip expression. The
+    security lane's runs on a cancelled run alone, since its tools read a tree laid out as a consumer's.
+    """
+    job = _jobs(_lane("ci.yml"))[probe]
+    assert job.startswith(f"    needs: [secret-scan]\n    if: {condition}\n    uses: ./.github/workflows/")
+    assert f"      skip: ${{{{ {SKIP_EXPRESSION} }}}}\n" in job
+    assert "secrets" not in job
+
+
+def test_the_local_cancel_probe_is_a_consumers_local_job_with_the_guard_first():
+    job = _jobs(_lane("ci.yml"))["cancel-probe-local"]
+    assert f"    needs: [secret-scan]\n    if: ${{{{ always() && !({SKIP_EXPRESSION}) }}}}\n" in job
+    first = job.split("    steps:\n", 1)[1].split("\n\n", 1)[0] + "\n"
+    assert first == HAND_GUARD_STEP
+    assert '} >> "$GITHUB_STEP_SUMMARY"' in job, "the scan's answer reaches the run summary"

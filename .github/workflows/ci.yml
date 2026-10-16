@@ -9,9 +9,14 @@
 #   secret-scan     gitleaks over the pull request's commits
 #   secretless-proof, secretless-control
 #                   D-035's proof that the unit lane's install job holds no secret, and its positive control
+#   skip-probe, skip-probe-split, skip-probe-security, skip-probe-nested
+#                   D-075's proof that a lane called with skip reports each of its jobs skipped under its own name
+#   cancel-probe-lane, cancel-probe-security, cancel-probe-local
+#                   D-075's proof that a job wired to the scan runs on this repo's code and fails a cancelled run
 #
 # Every job must pass before a PR can be merged. The owner sets them as required status checks in the repo's
-# ruleset for main. The two D-035 jobs run only where the secrets exist and are not required checks.
+# ruleset for main. The two D-035 jobs run only where the secrets exist and are not required checks, and no ruleset
+# requires a D-075 probe.
 
 name: CI
 
@@ -132,6 +137,81 @@ jobs:
   # repo has no .gitleaks.toml, and its full history held no finding on gitleaks 8.30.1 on 2026-09-29.
   secret-scan:
     uses: ./.github/workflows/secret-scan.yml
+
+  # D-075. The docs only fast path's standing proof. A required check is "<caller job> / <called job>", and a caller
+  #   job skipped by its own if reports its own name alone, so the skip sits on every job inside a lane. Each probe
+  #   calls a lane with skip true and no secret, and each of its jobs must report "<probe> / <job>" skipped with no
+  #   runner, a one job lane, a split lane with package access asked for, and the security lane's two jobs
+  skip-probe:
+    uses: ./.github/workflows/ci-nextjs-tests.yml
+    with:
+      skip: true
+
+  skip-probe-split:
+    uses: ./.github/workflows/ci-python-lint.yml
+    with:
+      needs_sdk_auth: true
+      skip: true
+
+  skip-probe-security:
+    uses: ./.github/workflows/ci-python-security.yml
+    with:
+      skip: true
+
+  # three levels down, as a caller whose ci.yml another workflow calls, a running scan beside a skipped lane
+  skip-probe-nested:
+    uses: ./.github/workflows/probe-nested.yml
+
+  # D-075. The cancel probes, wired as a consumer's ci.yml wires its lanes and local jobs, each waiting for the scan
+  #   with the one skip expression. On this repo's own code change the scan says not docs only and each runs, and a
+  #   run cancelled during the scan must end each failed and none skipped. The unit test lane runs one test file
+  cancel-probe-lane:
+    needs: [secret-scan]
+    if: ${{ always() }}
+    uses: ./.github/workflows/ci-python-tests.yml
+    with:
+      install_command: pip install -r scripts/requirements-test.txt
+      test_command: cd scripts && python -m pytest tests/test_ci_paths.py -q
+      skip: ${{ needs.secret-scan.result == 'success' && needs.secret-scan.outputs.docs_only == 'true' }}
+
+  # the security lane runs only on a cancelled run, the case it proves. Its pip-audit reads a root requirements.txt
+  #   this repo does not have, and bandit at -ll reports findings in this repo's scripts, so a normal run of it would
+  #   fail for reasons that are not the skip's. Its jobs' guards are the ones every one job lane holds byte for byte
+  cancel-probe-security:
+    needs: [secret-scan]
+    if: ${{ cancelled() }}
+    uses: ./.github/workflows/ci-python-security.yml
+    with:
+      bandit_paths: scripts/
+      skip: ${{ needs.secret-scan.result == 'success' && needs.secret-scan.outputs.docs_only == 'true' }}
+
+  cancel-probe-local:
+    name: Cancel probe, a local job
+    needs: [secret-scan]
+    if: ${{ always() && !(needs.secret-scan.result == 'success' && needs.secret-scan.outputs.docs_only == 'true') }}
+    runs-on: ubuntu-slim
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Fail a cancelled run
+        if: ${{ cancelled() }}
+        run: |
+          echo "::error::the run was cancelled, so this job ends failed rather than skipped and checks nothing"
+          exit 1
+
+      - name: Read the scan's answer into the summary
+        env:
+          SCAN_RESULT: ${{ needs.secret-scan.result }}
+          DOCS_ONLY: ${{ needs.secret-scan.outputs.docs_only }}
+        run: |
+          echo "the scan ended $SCAN_RESULT and answered docs_only='$DOCS_ONLY'"
+          {
+            echo "### The scan's docs only answer (D-075)"
+            echo ""
+            echo "The scan ended $SCAN_RESULT and answered docs_only='$DOCS_ONLY', so this job ran."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # D-035's proof, on the pull request itself, before any repo depends on the change. The unit test lane, by a local
   # reference so the pull request's own version runs, with package access on. Its fetch job mirrors this public repo,

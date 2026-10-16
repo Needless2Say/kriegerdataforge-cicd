@@ -19,6 +19,14 @@ Skip those sections rather than inventing the ceremony.
 - [ ] **Version bumped** with the repo's script. Level by impact (no behavior/contract → patch,
       additive feature/contract → minor, breaking change → major). Any required post-build sync run
       (e.g. `make vercel-compact`). The CI check enforces consistency + strictly-ahead, not the level.
+- [ ] **Docs only, no bump and no `make ci`.** A pull request whose every change is docs, the root `docs/` folder
+      and every `*.md`, less code under `docs/` and the repo's `not_docs`, in a repo whose `ci.yml` passes `skip`
+      to its lanes, bumps no version and runs no `make ci`, the two items above. Its check is the repo's records
+      check where it has one and a read of its own diff, and CI runs the secret scan alone (D-075,
+      [`WORKFLOW.md`](../../WORKFLOW.md), the Docs only lane).
+- [ ] **`not_docs` current.** A change that makes code, a test, a build or a package read a `.md` file or a file
+      under `docs/` adds it to the repo's `not_docs` in the same pull request. A file the kit syncs is never named
+      there, since Distribute reads no repo's list.
 - [ ] **Scoped.** The diff does only what the *approved plan* said, no unrelated drive by changes.
       Ambition belongs in the **plan** (proposed to the owner). Restraint belongs in the **diff**.
       Never smuggle a bigger idea silently into the code.
