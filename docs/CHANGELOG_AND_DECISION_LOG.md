@@ -3758,3 +3758,73 @@ owner chose over a session that goes on unseen.
 
 **Consequences.** Every agent in every synced repo asks the owner directly before going on past a blocker, from this
 kit's sync. VERSION 0.2.154, with D-071.
+
+## D-074. A review's handoff is talked through with the owner, then designed and built from a backlog by new sessions
+
+- **Date.** 2026-10-16
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Supersedes.** In part D-034, its supporting session that builds each handoff as one pull request, and its
+  rejection of handing each fix to a fresh session. In part D-032, its fix "as it is found" where the review has a
+  supporting session. In part D-071, its "Features alone" for a code review's handoff.
+- **Tier / scope:** Standard · kit v1.22.0, `CODE_REVIEW_PROCESS.md` section 2 and its table, step 1, step 6, the
+  Blocks rule, the verdicts, section 14's close and its retrospective list, and its status line, `AGENT_ROLES.md`
+  sections 1 and 4, and `WORKFLOW.md`'s feature rule · cicd's own copies · `scripts/tests/test_claude_code_tools.py`,
+  D-034's handoff test held to five parts and a test of the route · synced to every repo with the next Distribute
+
+**Context.** Since D-034 the supporting session built each handoff as it came, one pull request from a worktree, and
+D-034 rejected handing each fix to a fresh session, since "a fix outside the repo often needs the history of earlier
+fixes, and a long running session keeps it". D-032 and D-034 rejected deferral, since "a defect in a shared lane or
+in the review's own tooling reaches every repo in the meantime". Since D-071 a feature is designed in one session and
+built in another, from a plan the owner approved, and a handoff never took that route. The owner, 2026-10-16,
+"whenver the orchestrator hands you a task it decides to load off to you, I want you to discuss it with me and then
+once we have a rough idea of it, depending on what repo it goes into, add it to that repo's general backlog markdown
+file. If the feature is an ecosystem feature, add it to the kdf context repo's backlog. I will start a new opus
+session to go over the feature and go through the design workflow to create an implementation prompt", and "The
+point of handing off certain items is to follow the design process so the implementation process is quick and simple
+without a lot of deviation like that has happened before. THis process is to remove all of the complex issues that
+arrise when no clear brainstorming and implementation plan has been made". The same day the owner chose that every
+handoff takes the route with the talk deciding each, that a bug or a rules change takes it as a feature does, and
+that the owner marks each approved retrospective item, by its size, to be built at once or to go to a backlog. The
+design and its review are kept in the ecosystem's private context.
+
+**Decision.**
+
+- **The orchestrator keeps the small items.** Outside the reviewed repo it keeps only what it can finish within its
+  own window and hands the rest to the supporting session, each handoff carrying five things, D-034's four and whether
+  a step of the review waits on it.
+- **Every handoff is talked through with the owner first.** By default the supporting session then writes the item
+  into the general backlog of the repo that owns it, or into `kriegerdataforge-context`'s `context/BACKLOG.md`, named
+  by that repo, when the repo keeps none or is public, by pull request. The item carries the five things itself and
+  names the review and its slice, since the slice's log may not be on `main` yet.
+- **A design session and a build session, whatever the kind.** The owner starts a new session that designs the item
+  and writes its plan, and a new session that builds it, by `WORKFLOW.md`'s feature rule, a bug or a rules change
+  included. While the review runs both keep the supporting session's limits, never touching the reviewed repo's
+  folder and nothing taking effect under an open pin, and the plan's "Stop and ask" names the open review.
+- **A build here on the owner's word alone.** Only when the owner says so in the talk does the supporting session
+  build a handoff itself, as D-034 says.
+- **The loop closes.** The supporting session tells the orchestrator the item's link and, once it merges, the build's
+  pull request. The slice's log names the backlog item, then the pull request, where a register row would have stood,
+  the slice's close lists every handoff by its route and state, a Deferred verdict may name a backlog item, and a
+  review closes with every deferred item a register row or a backlog item named by its link.
+- **Retrospective items by size.** The owner marks each approved proposal to be built at once or to go to a backlog
+  the same way.
+- **A review without a supporting session** runs as before, its orchestrator building what it finds outside the repo,
+  and talking each item larger than its window through with the owner the same way.
+
+**Alternatives considered.**
+
+- *The supporting session builds each handoff as it comes*, D-034 as it stood. Rejected by the owner, 2026-10-16.
+- *Always the backlog, never a build here.* Declined by the owner, the talk decides.
+- *Features alone take the split*, a bug or a rules handoff keeping one record and one session. Declined by the owner,
+  every kind takes it.
+- *A general backlog file in every repo.* Declined by the owner, the private context's backlog named by repo, which
+  keeps a public repo's item private.
+- *A slice's backlog items batched in one pull request.* Rejected, a design session starts only once its item is on
+  `main`, so batching delays every design.
+
+**Trade-offs.** A review step that waits on a handoff may wait days for its design and its build, which the owner
+weighs in the talk from the step the handoff names. One more pull request per handoff for its backlog line, before
+its design and its build.
+
+**Consequences.** Every repo gets the route with this kit's sync, the kit and cicd's own copies at v1.22.0. Until a
+repo's sync merges, its supporting session follows the owner's word and the ecosystem's context. VERSION 0.2.155.

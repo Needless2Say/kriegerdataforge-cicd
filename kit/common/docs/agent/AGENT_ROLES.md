@@ -21,7 +21,7 @@ stricter one holds. A rule here is not weaker because nothing stops you from bre
   `KDF_ROLE=reviewer`.
 - **Orchestrator**, when the owner started you to run a review under
   [`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md) and said so.
-- **Supporting session**, when the owner started you beside a review's orchestrator to build what the review finds
+- **Supporting session**, when the owner started you beside a review's orchestrator to take what the review finds
   outside the reviewed repo, and said so. Section 4 says what that allows.
 - **Implementer**, in every other case. A feature, a fix, docs, a chore. This is the default.
 - **Chat reader**, when you answer in a chat and have no access to the repo, a Sol dispatch for example.
@@ -113,13 +113,17 @@ missing review reads a later pin. It never reviews its own work in place of a fr
 report, and never skips a model family's review, it waits for it or has it read at that later pin.
 
 **The supporting session** is an implementer started beside the orchestrator. It works from the orchestrator's
-handoffs, each carrying the finding, the evidence that proves it, what is already done and what would prove the fix,
-and builds each fix as one pull request from a worktree of the repo that owns it, cicd, this kit, the reviewer tooling
-or another repo, and it reports the pull request back so the orchestrator reads it before the reviewed repo relies on
-it. A merged fix reaches a review only when the machine's clone of the repo that owns it is brought forward and the
-reviewer tooling is installed again. The orchestrator does both, between pins and never under an open one, and the
-supporting session does neither. It never reviews, and never edits, commits, checks out or stashes anything in the
-reviewed repo's folder, which is the orchestrator's for the whole review.
+handoffs, each carrying the finding, the evidence that proves it, what is already done, what would prove the fix and
+whether a step of the review waits on it, and takes each as [`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md)
+section 2 says. It talks each through with the owner first, then writes it into a backlog for a design session and a
+build session, or, only when the owner says so in that talk, builds the fix as one pull request from a worktree of the
+repo that owns it, cicd, this kit, the reviewer tooling or another repo, and it reports the pull request back so the
+orchestrator reads it before the reviewed repo relies on it. A merged fix reaches a review only when the machine's
+clone of the repo that owns it is brought forward and the reviewer tooling is installed again. The orchestrator does
+both, between pins and never under an open one, and the supporting session does neither. It never reviews, and never
+edits, commits, checks out or stashes anything in the reviewed repo's folder, which is the orchestrator's for the
+whole review. A design or build session the owner starts for one of the review's handoffs keeps these same limits
+while the review runs.
 
 ## 5. Reviewer
 
