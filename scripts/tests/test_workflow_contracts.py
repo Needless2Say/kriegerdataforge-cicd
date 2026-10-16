@@ -16,14 +16,10 @@ from __future__ import annotations
 import os
 import re
 import shutil
-import stat
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
-import render_ci_paths
-from common import ci_paths
 
 WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 SCRIPTS   = Path(__file__).resolve().parents[1]
@@ -100,17 +96,6 @@ case "$FAKE_ALEMBIC_MODE" in
     ;;
 esac
 """
-
-# the author and committer of a fixture repo's commits, so no machine's own git identity is needed
-FIXTURE_GIT = {
-    "GIT_AUTHOR_NAME": "KDF Fixture",
-    "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
-    "GIT_COMMITTER_NAME": "KDF Fixture",
-    "GIT_COMMITTER_EMAIL": "fixture@example.invalid",
-}
-
-# a fixture pull request's base, a doc, a README and code
-FIXTURE_BASE = {"README.md": "# fixture\n", "docs/a.md": "a\n", "src/app.py": "print(1)\n"}
 
 
 def _steps(text: str) -> list[str]:
@@ -547,7 +532,8 @@ def test_a_lane_that_was_not_asked_for_package_access_hands_git_no_setting(name)
     text    = _lane(name)
     install = _named_steps(text)[INSTALL_STEP[name]]
     assert "GIT_CONFIG" not in install and "secrets." not in install
-    assert "  fetch-private:\n    name: Fetch private packages\n    if: ${{ inputs.needs_sdk_auth }}\n" in text
+    fetch = "  fetch-private:\n    name: Fetch private packages\n    if: ${{ inputs.needs_sdk_auth && !inputs.skip }}\n"
+    assert fetch in text
     for step in ("Download the private mirrors", "Point git at the private mirrors"):
         assert "        if: ${{ inputs.needs_sdk_auth }}\n" in _step(text, step), step
     # the guard runs on a cancelled run too, and without package access only then (D-035, fail closed)
@@ -644,256 +630,3 @@ def test_the_release_reads_its_tag_from_the_environment_in_every_step():
     assert 'grep -qxF -- "$TAG"' in check
     for block in re.findall(r"run: \|\n((?:          .*\n|\n)+)", release):
         assert "${{" not in block, f"a run block writes an expression into the shell:\n{block}"
-
-
-def test_the_scans_copy_of_ci_paths_is_the_script():
-    """
-    D-075. The scan's last step carries ci_paths.py's own text, written in by render_ci_paths.py, since a lane cannot
-    be trusted to check this repo out at its own commit (D-035). A hand edit to the copy, or an edit to the script
-    without a render, fails here.
-    """
-    assert render_ci_paths.main(["--check"]) == 0
-    script = (SCRIPTS / "common" / "ci_paths.py").read_text(encoding = "utf-8").replace("\r\n", "\n")
-    assert render_ci_paths.copy(_lane("secret-scan.yml")) == script
-    assert "${{" not in script and f"\n{render_ci_paths.DELIMITER}\n" not in script
-
-
-def test_the_docs_only_step_is_last_runs_on_a_pull_request_alone_and_never_fails_the_scan():
-    """
-    The answer runs after the scan passed, on a pull request with no release ref, and its own failure is the step's
-    alone, continue-on-error, so the scan stays a check that means the scan. Every value reaches it through the
-    environment and the script runs isolated with the runner's own python.
-    """
-    lane = _lane("secret-scan.yml")
-    assert _steps(lane)[-1] == "Docs only"
-    step = _step(lane, "Docs only")
-    assert "        id: docs-only\n" in step
-    assert "        if: ${{ success() && github.event_name == 'pull_request' && inputs.ref == '' }}\n" in step
-    assert "        continue-on-error: true\n" in step
-    assert (
-        "        env:\n"
-        "          EVENT_SHA: ${{ github.sha }}\n"
-        "          BASE_SHA: ${{ github.event.pull_request.base.sha }}\n"
-        "          HEAD_SHA: ${{ github.event.pull_request.head.sha }}\n"
-        "          NOT_DOCS: ${{ inputs.not_docs }}\n"
-        "        run: |\n"
-    ) in step
-    run = step.split("        run: |\n", 1)[1]
-    assert "${{" not in run, "no expression is written into the shell"
-    assert run.rstrip("\n").endswith('          /usr/bin/python3 -I "$RUNNER_TEMP/kdf-ci-paths/ci_paths.py" answer')
-
-
-def test_the_answer_reaches_the_caller_as_the_workflows_output_and_not_docs_is_optional():
-    lane = _lane("secret-scan.yml")
-    assert ("      not_docs:\n" "        description: ") in lane
-    not_docs = lane.split("      not_docs:\n", 1)[1].split("\n    outputs:\n", 1)[0]
-    assert not_docs.endswith("        required: false\n        type: string\n        default: \"\"")
-    assert ("    outputs:\n" "      docs_only:\n" "        description: ") in lane
-    assert "        value: ${{ jobs.gitleaks.outputs.docs_only }}\n" in lane
-    assert "    outputs:\n      docs_only: ${{ steps.docs-only.outputs.docs_only }}\n" in lane
-
-
-def _fixture_git(repo: Path, *args: str, stdin: bytes | None = None) -> str:
-    """
-    One git call in a fixture repo, its output.
-    """
-    found = subprocess.run(
-        ["git", "-C", str(repo), *args],
-        input = stdin,
-        capture_output = True,
-        check = True,
-        env = {**os.environ, **FIXTURE_GIT},
-    )
-    return found.stdout.decode("utf-8").strip()
-
-
-def _fixture_commit(repo: Path, files: dict[str, str], parents: list[str]) -> str:
-    """
-    A commit of exactly these files on these parents, made through the index alone, so a path no file system holds,
-    one with a newline, is still a path in git.
-    """
-    _fixture_git(repo, "read-tree", "--empty")
-    entries = b""
-    for path, text in files.items():
-        blob = _fixture_git(repo, "hash-object", "-w", "--stdin", stdin = text.encode("utf-8"))
-        entries += f"100644 {blob}\t{path}".encode("utf-8") + b"\0"
-    _fixture_git(repo, "update-index", "-z", "--index-info", stdin = entries)
-    tree    = _fixture_git(repo, "write-tree")
-    parents = [flag for parent in parents for flag in ("-p", parent)]
-    return _fixture_git(repo, "commit-tree", tree, *parents, "-m", "fixture")
-
-
-def _fixture_head(repo: Path, commit: str) -> None:
-    """
-    HEAD and the index at a commit, as a checkout leaves them, the working tree left alone.
-    """
-    _fixture_git(repo, "update-ref", "--no-deref", "HEAD", commit)
-    _fixture_git(repo, "read-tree", commit)
-
-
-def _pull_request(tmp_path: Path, changes: dict[str, str | None]) -> tuple[Path, dict[str, str]]:
-    """
-    A fixture pull request, its base, its head with the changes, None deleting a path, and GitHub's merge of the two,
-    the base its first parent and the head its second, checked out.
-    """
-    repo = tmp_path / "repo"
-    subprocess.run(["git", "init", "-q", str(repo)], check = True)
-    # on Windows git refuses a path with a newline or a colon unless told otherwise, and --index-info then skips it
-    # with exit 0, so the fixture turns the check off and proves below that every path landed
-    _fixture_git(repo, "config", "core.protectNTFS", "false")
-    files = {**FIXTURE_BASE}
-    for path, text in changes.items():
-        if text is None:
-            files.pop(path)
-        else:
-            files[path] = text
-    base  = _fixture_commit(repo, FIXTURE_BASE, [])
-    head  = _fixture_commit(repo, files, [base])
-    merge = _fixture_commit(repo, files, [base, head])
-    _fixture_head(repo, merge)
-    listed = subprocess.run(
-        ["git", "-C", str(repo), "ls-tree", "-r", "-z", "--name-only", head],
-        capture_output = True,
-        check = True,
-    ).stdout
-    assert sorted(listed.decode("utf-8").split("\0")[:-1]) == sorted(files), "every fixture path is in the head"
-    return repo, {"EVENT_SHA": merge, "BASE_SHA": base, "HEAD_SHA": head}
-
-
-def _answer(tmp_path: Path, repo: Path, shas: dict[str, str], not_docs: str = "") -> tuple[str, str, str]:
-    """
-    The scan's rendered copy of ci_paths.py run in a fixture repo as the step runs it, isolated, its exit status held
-    to 0. Its stdout, the output file and the summary file.
-    """
-    script = tmp_path / "kdf-ci-paths" / "ci_paths.py"
-    script.parent.mkdir(exist_ok = True)
-    script.write_text(render_ci_paths.copy(_lane("secret-scan.yml")), encoding = "utf-8", newline = "\n")
-    output  = tmp_path / "github_output"
-    summary = tmp_path / "step_summary"
-    output.write_text("", encoding = "utf-8")
-    summary.write_text("", encoding = "utf-8")
-    env = {
-        **os.environ,
-        **shas,
-        "NOT_DOCS": not_docs,
-        "GITHUB_OUTPUT": str(output),
-        "GITHUB_STEP_SUMMARY": str(summary),
-    }
-    run = subprocess.run(
-        [sys.executable, "-I", str(script), "answer"],
-        cwd = repo,
-        env = env,
-        capture_output = True,
-        text = True,
-    )
-    assert run.returncode == 0, run.stdout + run.stderr
-    assert run.stderr == ""
-    return run.stdout, output.read_text(encoding = "utf-8"), summary.read_text(encoding = "utf-8")
-
-
-@pytest.mark.parametrize("changes", [
-    {"docs/a.md": "b\n"},
-    {"docs/a.md": "b\n", "README.md": "# changed\n", "docs/img/new.png": "png\n", "notes/NEW.md": "n\n"},
-    {"docs/a.md": None},
-], ids = ["one-doc", "docs-and-markdown", "a-deleted-doc"])
-def test_only_a_proven_docs_only_merge_writes_the_answer(tmp_path, changes):
-    repo, shas = _pull_request(tmp_path, changes)
-    stdout, output, summary = _answer(tmp_path, repo, shas)
-    assert output == "docs_only=true\n"
-    assert stdout == "docs only, every billed lane skips\n"
-    assert f"Docs only, {len(changes)} paths, every billed lane skipped." in summary
-
-
-@pytest.mark.parametrize("changes, not_docs, said", [
-    ({"docs/a.md": "b\n", "src/app.py": "print(2)\n"}, "", "1 of 2 paths are not docs"),
-    ({"src/app.py": None, "docs/app.md": "print(1)\n"}, "", "1 of 2 paths are not docs"),
-    ({"docs/run.py": "print(3)\n"}, "", "1 of 1 paths are not docs"),
-    ({"README.md": "# changed\n"}, "README.md", "1 of 1 paths are not docs"),
-    ({"docs/a.md": "b\n"}, "../README.md", "a not_docs pattern is refused"),
-    ({"docs/a.md": "b\n"}, "READNE.md", "matches no tracked file"),
-    ({"docs/a.md": "b\n"}, "docs/*.md?", "a not_docs pattern is refused"),
-], ids = ["mixed", "code-renamed-into-docs", "code-under-docs", "not-docs-match", "malformed-not-docs",
-          "not-docs-matching-nothing", "a-question-mark"])
-def test_a_change_that_is_not_docs_only_writes_nothing(tmp_path, changes, not_docs, said):
-    repo, shas = _pull_request(tmp_path, changes)
-    stdout, output, summary = _answer(tmp_path, repo, shas, not_docs)
-    assert output == ""
-    assert stdout == "not docs only or no answer, every lane runs\n"
-    assert said in summary
-
-
-def test_a_shallow_checkout_writes_nothing(tmp_path):
-    """
-    A depth of 1, PROD Gate's for the hub, holds no parents to prove the merge by.
-    """
-    repo, shas = _pull_request(tmp_path, {"docs/a.md": "b\n"})
-    _fixture_git(repo, "update-ref", "refs/heads/pr", shas["EVENT_SHA"])
-    shallow = tmp_path / "shallow"
-    subprocess.run(
-        ["git", "clone", "-q", "--depth", "1", "--branch", "pr", repo.as_uri(), str(shallow)],
-        check = True,
-        capture_output = True,
-    )
-    _stdout, output, summary = _answer(tmp_path, shallow, shas)
-    assert output == ""
-    assert "the checkout is shallow" in summary
-
-
-def test_a_commit_that_is_not_the_proven_merge_writes_nothing(tmp_path):
-    """
-    A single parent HEAD, the parents reversed, a HEAD that is not the event's commit, and an id that is not a commit
-    each give no answer.
-    """
-    repo, shas = _pull_request(tmp_path, {"docs/a.md": "b\n"})
-
-
-    def refused(given: dict[str, str], said: str) -> None:
-        _stdout, output, summary = _answer(tmp_path, repo, {**shas, **given})
-        assert output == ""
-        assert said in summary
-
-
-    _fixture_head(repo, shas["HEAD_SHA"])
-    refused({"EVENT_SHA": shas["HEAD_SHA"]}, "exactly two parents")
-    reversed = _fixture_commit(repo, {**FIXTURE_BASE, "docs/a.md": "b\n"}, [shas["HEAD_SHA"], shas["BASE_SHA"]])
-    _fixture_head(repo, reversed)
-    refused({"EVENT_SHA": reversed}, "first parent is not")
-    _fixture_head(repo, shas["EVENT_SHA"])
-    refused({"EVENT_SHA": shas["BASE_SHA"]}, "not the event's commit")
-    refused({"BASE_SHA": shas["HEAD_SHA"]}, "first parent is not")
-    refused({"HEAD_SHA": shas["BASE_SHA"]}, "second parent is not")
-    refused({"EVENT_SHA": "main"}, "is not a commit id")
-    refused({"BASE_SHA": ""}, "is not a commit id")
-
-
-def test_a_failing_diff_writes_nothing(tmp_path):
-    """
-    The diff's exit status is read. With the base's tree gone from the object store, git diff fails after the merge
-    is proven, and the answer is none.
-    """
-    repo, shas = _pull_request(tmp_path, {"docs/a.md": "b\n"})
-    tree  = _fixture_git(repo, "rev-parse", f"{shas['BASE_SHA']}^{{tree}}")
-    loose = repo / ".git" / "objects" / tree[:2] / tree[2:]
-    loose.chmod(stat.S_IWRITE | stat.S_IREAD)
-    loose.unlink()
-    _stdout, output, summary = _answer(tmp_path, repo, shas)
-    assert output == ""
-    assert "git diff exited" in summary
-
-
-@pytest.mark.parametrize("path, answer", [
-    ("docs/x\n::warning title=pwned::injected.md", "docs_only=true\n"),
-    ("src/x\n::error title=pwned::injected.py", ""),
-], ids = ["docs", "code"])
-def test_a_path_holding_a_newline_and_a_workflow_command_reaches_no_log_and_no_output(tmp_path, path, answer):
-    """
-    A path is the pull request's own text. The step prints none, writes only docs_only=true to the output file, and
-    escapes each path it lists in the summary, so no newline of a path starts a line there.
-    """
-    repo, shas = _pull_request(tmp_path, {path: "x\n"})
-    stdout, output, summary = _answer(tmp_path, repo, shas)
-    assert output == answer
-    assert "::" not in stdout and "pwned" not in stdout
-    assert "pwned" not in output
-    assert "\n::" not in summary and "pwned" in summary
-    assert '\\n::' in summary

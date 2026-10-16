@@ -762,14 +762,15 @@ def test_the_install_job_fails_closed_when_the_run_was_cancelled_or_the_fetch_di
     A skipped required job counts as passing. On !cancelled() a cancel while the fetch ran skipped the install job and
     passed the check (the kdf-sdk's S1-49 again), so the job runs on always() and its first step, the template's, ends
     it failed when the run was cancelled or, with package access, when the fetch did not succeed. GitHub reads
-    cancelled() only in an if, so the check is that step's if, and every later step keeps the default success().
+    cancelled() only in an if, so the check is that step's if, and every later step keeps the default success(). Only
+    the skip input, the caller's docs only answer (D-075), skips the job whole.
     """
     job_id, _title = JOB_B[name]
     job  = _jobs(_text(name))[job_id]
     head = job.split("    steps:\n", 1)[0]
     assert "    needs: [fetch-private]\n" in job
     assert render.section("install-guard", render.LANE_FILLS) in head and head.count("    if: ") == 1
-    assert "    if: ${{ always() }}\n" in head and "!cancelled()" not in job
+    assert "    if: ${{ always() && !inputs.skip }}\n" in head and "!cancelled()" not in job
     first = job.split("    steps:\n", 1)[1].split("\n\n", 1)[0] + "\n"
     assert first == render.section("install-require", render.LANE_FILLS)
     assert "        if: ${{ cancelled() || (inputs.needs_sdk_auth && needs.fetch-private.result != 'success') }}\n" \
@@ -780,7 +781,7 @@ def test_the_install_job_fails_closed_when_the_run_was_cancelled_or_the_fetch_di
 @pytest.mark.parametrize("name", JOB_B)
 def test_without_package_access_the_lane_runs_as_one_job(name):
     jobs = _jobs(_text(name))
-    assert "    if: ${{ inputs.needs_sdk_auth }}\n" in jobs["fetch-private"]
+    assert "    if: ${{ inputs.needs_sdk_auth && !inputs.skip }}\n" in jobs["fetch-private"]
     job     = jobs[JOB_B[name][0]]
     private = [step for step in job.split("\n      - ")[1:] if "fetch-private" in step or "kdf-private" in step]
     assert len(private) == 3
@@ -831,7 +832,8 @@ def test_the_style_lane_checks_in_a_job_that_names_no_secret():
     assert "secrets." not in style and "pkg-token" not in style and "GH_PACKAGES_PAT" not in style
     assert "    permissions:\n      contents: read\n" in style
     head = style.split("    steps:\n", 1)[0]
-    assert render.section("install-guard", render.STYLE_FILLS) in head and "    if: ${{ always() }}\n" in head
+    assert render.section("install-guard", render.STYLE_FILLS) in head
+    assert "    if: ${{ always() && !inputs.skip }}\n" in head
     first = style.split("    steps:\n", 1)[1].split("\n\n", 1)[0] + "\n"
     assert first == render.section("install-require", render.STYLE_FILLS)
     assert "        if: ${{ cancelled() || (true && needs.fetch-private.result != 'success') }}\n" in first
@@ -845,13 +847,16 @@ def test_the_style_lane_checks_in_a_job_that_names_no_secret():
 
 def test_the_style_lanes_fetch_always_runs_and_mirrors_the_formatter_alone():
     """
-    The style lane always needs the private formatter, so its fetch job carries no if, and its token is minted for
-    kriegerdataforge-fmt alone. With no kdf_fmt_ref it reads the caller's requirements-dev.in, where every repo names
-    kdf-fmt at main and nothing else private (D-054), and with one, the override, it reads no requirement file.
+    The style lane always needs the private formatter, so its fetch job's if reads the skip input alone, the caller's
+    docs only answer (D-075), and its token is minted for kriegerdataforge-fmt alone. With no kdf_fmt_ref it reads the
+    caller's requirements-dev.in, where every repo names kdf-fmt at main and nothing else private (D-054), and with
+    one, the override, it reads no requirement file.
     """
     text  = _text("ci-python-kdf-fmt.yml")
     fetch = _jobs(text)["fetch-private"]
-    assert "  fetch-private:\n    name: Fetch private packages\n    runs-on: ubuntu-latest\n" in text
+    assert "  fetch-private:\n    name: Fetch private packages\n    if: ${{ !inputs.skip }}\n" \
+           "    runs-on: ubuntu-latest\n" in text
+    assert render.STYLE_CONDITION == "    if: ${{ !inputs.skip }}\n"
     assert "          REQUIREMENT_FILES: ${{ inputs.kdf_fmt_ref == '' && 'requirements-dev.in' || '' }}\n" in fetch
     assert "          SCAN_FILES: \"\"\n" in fetch
     assert "          EXTRA_REPOS: ${{ inputs.kdf_fmt_ref != '' && format('kriegerdataforge-fmt@{0}', " \
