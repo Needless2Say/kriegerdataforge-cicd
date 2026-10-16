@@ -962,7 +962,7 @@ def test_a_supporting_session_builds_what_a_review_finds_outside_the_reviewed_re
         assert who_brings_a_fix in page
         assert "the supporting session does neither." in page
         assert "never edits, commits, checks out or stashes anything in the reviewed repo's folder" in page
-    assert "the orchestrator hands it there, and that session takes it the way section 2 says" in process
+    assert "keeps it if it is small enough to finish within its own window, and otherwise hands it there" in process
     assert "since v1.10.0" in process
     assert "- **Supporting session**, when the owner started you beside a review's orchestrator" in roles
     assert "**The supporting session** is an implementer started beside the orchestrator." in roles
@@ -978,6 +978,7 @@ def test_a_review_s_handoff_is_talked_through_then_designed_and_built_from_a_bac
     process  = " ".join((KIT / "docs" / "agent" / "CODE_REVIEW_PROCESS.md").read_text(encoding = "utf-8").split())
     roles    = " ".join((KIT / "docs" / "agent" / "AGENT_ROLES.md").read_text(encoding = "utf-8").split())
     workflow = " ".join((KIT / "WORKFLOW.md").read_text(encoding = "utf-8").split())
+    records  = " ".join((KIT / "docs" / "agent" / "DOCUMENTATION_STANDARD.md").read_text(encoding = "utf-8").split())
     for words in (
         "The supporting session talks each handoff through with the owner first.",
         "when the repo keeps none or is public",
@@ -992,6 +993,8 @@ def test_a_review_s_handoff_is_talked_through_then_designed_and_built_from_a_bac
     assert "takes each as [`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md) section 2 says" in roles
     assert "keeps these same limits while the review runs" in roles
     assert "for every handoff a code review sends to a backlog, whatever its kind" in workflow
+    assert "is the one exception, built by that session in the lane it fits" in workflow
+    assert "| Every handoff a code review sends to a backlog, whatever its kind, a bug or a rules change" in records
 
 
 def test_sol_bundles_go_to_the_workspace_temp_folder_and_never_into_a_repo() -> None:

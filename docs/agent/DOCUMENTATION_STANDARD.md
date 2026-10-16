@@ -67,8 +67,9 @@ with nothing lost and nothing done twice.
 | --- | --- |
 | A code review | `docs/reviews/<YYYY-MM-DD>-<scope>/`, laid out as [`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md) section 3 says, its README's Now block where it stands |
 | A feature, Standard or Epic | Its design in `docs/design/<YYYY-MM-DD>-<slug>/`, `DESIGN.md` from [`templates/design-spec.template.md`](templates/design-spec.template.md) and `LOG.md`, then its plan in `docs/features/<YYYY-MM-DD>-<slug>/`, `IMPLEMENTATION_PLAN.md` from [`templates/implementation-plan.template.md`](templates/implementation-plan.template.md) and `LOG.md`, built by a new session, as [`WORKFLOW.md`](../../WORKFLOW.md), "A feature, designed in one session and built in another", says |
-| Standard or Epic work that builds no feature, a chore, a refactor or a rules change, through the design gate or not | `docs/design/<YYYY-MM-DD>-<slug>/`, `DESIGN.md` from [`templates/design-spec.template.md`](templates/design-spec.template.md), or a short approved plan where the gate is optional, and `LOG.md` beside it |
-| A bug beyond a Quick fix | `docs/bugs/<YYYY-MM-DD>-<slug>/`, `REPORT.md` from [`templates/bug-report.template.md`](templates/bug-report.template.md) and `LOG.md` |
+| Every handoff a code review sends to a backlog, whatever its kind, a bug or a rules change included | A feature's two folders and its build by a new session, as the row above says ([`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md) section 2) |
+| Standard or Epic work that builds no feature, a chore, a refactor or a rules change, through the design gate or not, a review's handoff aside | `docs/design/<YYYY-MM-DD>-<slug>/`, `DESIGN.md` from [`templates/design-spec.template.md`](templates/design-spec.template.md), or a short approved plan where the gate is optional, and `LOG.md` beside it |
+| A bug beyond a Quick fix, a review's handoff aside | `docs/bugs/<YYYY-MM-DD>-<slug>/`, `REPORT.md` from [`templates/bug-report.template.md`](templates/bug-report.template.md) and `LOG.md` |
 | An epic across repos | The hub's tracker in `docs/epics/`, the epic's state across repos, and a design folder in each repo it changes, that repo's own state |
 | The Quick lane, and a reviewer's read | None. The pull request, or the reviewer's report, is the record |
 

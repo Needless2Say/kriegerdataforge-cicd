@@ -89,7 +89,8 @@ as a handoff, a message that carries five things, the finding, the evidence that
 what would prove the fix, and whether a step of the review waits on it. The supporting session talks each handoff
 through with the owner first. Once they have its rough shape, by default it writes the item into the general backlog
 of the repo that owns it, or into `kriegerdataforge-context`'s `context/BACKLOG.md`, named by that repo, when the
-repo keeps none or is public, by that repo's pull request. The item carries the five things itself and names the
+repo keeps none or is public, by a pull request in the repo that holds that backlog. The item carries the five things
+itself and names the
 review and its slice, since the slice's log may not be on `main` yet, and the supporting session tells the
 orchestrator its link. The owner then starts a new session that designs it and writes its plan and a new session that
 builds it, as [`WORKFLOW.md`](../../WORKFLOW.md), "A feature, designed in one session and built in another", says,
@@ -266,7 +267,8 @@ once before the pull request, in a container on a clean export of the tree.
 
 What a finding shows about something `kriegerdataforge-cicd` owns, this kit, the reviewer tooling, a distributed
 script or a reusable workflow, is not deferred to a register row. When the review has a supporting session, the
-orchestrator hands it there, and that session takes it the way section 2 says. When it has none, the orchestrator
+orchestrator keeps it if it is small enough to finish within its own window, and otherwise hands it there, and that
+session takes it the way section 2 says. When it has none, the orchestrator
 builds it itself as it is found, or talks it through with the owner as section 2 says when it is larger than its
 window. Either way the fix lands there by a pull request from a worktree and, once built, reaches the review between
 pins, the slice's log names the backlog item, then the pull request, where a register row would have stood, and the
@@ -737,7 +739,8 @@ and goes on. Every step ends by updating them. The review is a work record
 
 A review is closed when every slice's pull request is merged, Phase B has run where the scale has one and its findings
 are adjudicated, every review of both model families is adjudicated, and every deferred item is a register row with
-an owner or a backlog item named by its link. The decision log holds an ADR for every rule or contract the review changed. The plan's progress table shows
+an owner or a backlog item named by its link. The decision log holds an ADR for every rule or contract the review
+changed. The plan's progress table shows
 every row closed, and its status line says so with the date. The review folder holds every prompt the review sent and
 every report and answer it received, and an answer key and a retrospective for every slice and for Phase B, each
 written before its pull request opened, sections 8 and 14, and the campaign's own retrospective. Its README carries
@@ -760,8 +763,9 @@ review closes with `<PFX>_REVIEW_CAMPAIGN_RETRO.md`.
 proposals into a short list in the chat, each with the problem, the change, the number it should move and its cost,
 and the owner says yes or no to each, and marks each yes, by its size, to be built at once or to go to a backlog for
 a design session and a build session, as section 2 says of a handoff. Nothing changes without the owner's yes. An
-approved change lands between
-slices, a larger one at the end of the review, and is recorded in the improvement ledger of the bench repo,
+approved change built at once lands between slices, a larger one at the end of the review, and one sent to a backlog
+lands when its build merges, named meanwhile by its state there. Each is recorded in the improvement ledger of the
+bench repo,
 `kriegerdataforge-review-bench`, with its date, its reason and the number it should move. Every approved change is an
 experiment, and the next retrospectives say whether it moved its number, and a change that did not is reverted.
 

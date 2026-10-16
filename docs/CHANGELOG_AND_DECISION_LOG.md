@@ -3768,7 +3768,8 @@ kit's sync. VERSION 0.2.154, with D-071.
   supporting session. In part D-071, its "Features alone" for a code review's handoff.
 - **Tier / scope:** Standard · kit v1.22.0, `CODE_REVIEW_PROCESS.md` section 2 and its table, step 1, step 6, the
   Blocks rule, the verdicts, section 14's close and its retrospective list, and its status line, `AGENT_ROLES.md`
-  sections 1 and 4, and `WORKFLOW.md`'s feature rule · cicd's own copies · `scripts/tests/test_claude_code_tools.py`,
+  sections 1 and 4, `WORKFLOW.md`'s feature rule, `DOCUMENTATION_STANDARD.md`'s record table and
+  `DESIGN_AND_EPICS.md`'s records paragraph · cicd's own copies · `scripts/tests/test_claude_code_tools.py`,
   D-034's handoff test held to five parts and a test of the route · synced to every repo with the next Distribute
 
 **Context.** Since D-034 the supporting session built each handoff as it came, one pull request from a worktree, and
@@ -3789,9 +3790,9 @@ design and its review are kept in the ecosystem's private context.
 
 **Decision.**
 
-- **The orchestrator keeps the small items.** Outside the reviewed repo it keeps only what it can finish within its
-  own window and hands the rest to the supporting session, each handoff carrying five things, D-034's four and whether
-  a step of the review waits on it.
+- **The orchestrator keeps the small items.** Outside the reviewed repo, a finding in cicd included, it keeps only
+  what it can finish within its own window and hands the rest to the supporting session, each handoff carrying five
+  things, D-034's four and whether a step of the review waits on it.
 - **Every handoff is talked through with the owner first.** By default the supporting session then writes the item
   into the general backlog of the repo that owns it, or into `kriegerdataforge-context`'s `context/BACKLOG.md`, named
   by that repo, when the repo keeps none or is public, by pull request. The item carries the five things itself and
@@ -3801,13 +3802,15 @@ design and its review are kept in the ecosystem's private context.
   included. While the review runs both keep the supporting session's limits, never touching the reviewed repo's
   folder and nothing taking effect under an open pin, and the plan's "Stop and ask" names the open review.
 - **A build here on the owner's word alone.** Only when the owner says so in the talk does the supporting session
-  build a handoff itself, as D-034 says.
+  build a handoff itself, as D-034 says, in the lane it fits with the plan and approval that lane asks for, the one
+  exception to `WORKFLOW.md`'s feature rule. The record table of `DOCUMENTATION_STANDARD.md` and the records
+  paragraph of `DESIGN_AND_EPICS.md` say the same.
 - **The loop closes.** The supporting session tells the orchestrator the item's link and, once it merges, the build's
   pull request. The slice's log names the backlog item, then the pull request, where a register row would have stood,
   the slice's close lists every handoff by its route and state, a Deferred verdict may name a backlog item, and a
   review closes with every deferred item a register row or a backlog item named by its link.
 - **Retrospective items by size.** The owner marks each approved proposal to be built at once or to go to a backlog
-  the same way.
+  the same way, the one built at once landing between slices and the one in a backlog when its build merges.
 - **A review without a supporting session** runs as before, its orchestrator building what it finds outside the repo,
   and talking each item larger than its window through with the owner the same way.
 
