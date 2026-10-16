@@ -18,9 +18,9 @@ body:
         - **check** — read-only drift report across both; opens nothing.
         - **distribute** — opens **one review-gated PR per drifted repo** (never auto-merges).
 
-        A PR whose every change is a copy cicd tested, or config no CI job reads, carries `[skip ci]` and
-        runs no CI, merge it with the bypass where a ruleset requires checks. The issue closes itself after
-        the result is posted.
+        A PR whose every change is a copy cicd tested, config no CI job reads, or docs no lane reads (ADR D-075),
+        carries `[skip ci]` and runs no CI, merge it with the bypass where a ruleset requires checks. The issue
+        closes itself after the result is posted.
 
   - type: dropdown
     id: mode
