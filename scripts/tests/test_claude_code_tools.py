@@ -945,7 +945,14 @@ def test_a_supporting_session_builds_what_a_review_finds_outside_the_reviewed_re
     roles   = " ".join((KIT / "docs" / "agent" / "AGENT_ROLES.md").read_text(encoding = "utf-8").split())
     assert "| Supporting session |" in process
     assert "**The supporting session.**" in process
-    for part in ("the finding,", "the evidence that proves it,", "what is already done,", "what would prove the fix."):
+    parts = (
+        "the finding,",
+        "the evidence that proves it,",
+        "what is already done,",
+        "what would prove the fix,",
+        "and whether a step of the review waits on it.",
+    )
+    for part in parts:
         assert part in process, f"the handoff lost its part {part!r}"
     who_brings_a_fix = (
         "A merged fix reaches a review only when the machine's clone of the repo that owns it is brought forward and "
@@ -955,10 +962,39 @@ def test_a_supporting_session_builds_what_a_review_finds_outside_the_reviewed_re
         assert who_brings_a_fix in page
         assert "the supporting session does neither." in page
         assert "never edits, commits, checks out or stashes anything in the reviewed repo's folder" in page
-    assert "The orchestrator hands it to the supporting session when the review has one, section 2" in process
+    assert "keeps it if it is small enough to finish within its own window, and otherwise hands it there" in process
     assert "since v1.10.0" in process
     assert "- **Supporting session**, when the owner started you beside a review's orchestrator" in roles
     assert "**The supporting session** is an implementer started beside the orchestrator." in roles
+
+
+def test_a_review_s_handoff_is_talked_through_then_designed_and_built_from_a_backlog() -> None:
+    """
+    The owner's route for a review's handoff (D-074). The supporting session talks each one through with the owner,
+    keeps it in a backlog a public repo never holds, and builds it only on the owner's word, while a design session
+    and a build session take it whatever its kind and keep the supporting session's limits under a running review.
+    The roles page and the feature rule say the same.
+    """
+    process  = " ".join((KIT / "docs" / "agent" / "CODE_REVIEW_PROCESS.md").read_text(encoding = "utf-8").split())
+    roles    = " ".join((KIT / "docs" / "agent" / "AGENT_ROLES.md").read_text(encoding = "utf-8").split())
+    workflow = " ".join((KIT / "WORKFLOW.md").read_text(encoding = "utf-8").split())
+    records  = " ".join((KIT / "docs" / "agent" / "DOCUMENTATION_STANDARD.md").read_text(encoding = "utf-8").split())
+    for words in (
+        "The supporting session talks each handoff through with the owner first.",
+        "when the repo keeps none or is public",
+        "The item carries the five things itself and names the review and its slice",
+        "whatever the handoff's kind",
+        "Only when the owner says so in that talk does the supporting session build it itself",
+        "a design or build session started for one of its handoffs keeps the same limits",
+        "builds each approved one the owner marks to build here",
+        "since v1.22.0",
+    ):
+        assert words in process, f"the process lost {words!r}"
+    assert "takes each as [`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md) section 2 says" in roles
+    assert "keeps these same limits while the review runs" in roles
+    assert "for every handoff a code review sends to a backlog, whatever its kind" in workflow
+    assert "is the one exception, built by that session in the lane it fits" in workflow
+    assert "| Every handoff a code review sends to a backlog, whatever its kind, a bug or a rules change" in records
 
 
 def test_sol_bundles_go_to_the_workspace_temp_folder_and_never_into_a_repo() -> None:

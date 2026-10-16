@@ -23,10 +23,12 @@ PRs, never one mega-PR.**
 When in doubt, write the design doc. It's cheaper than rebuilding.
 
 Gate or no gate, Standard and Epic work keeps a record from its first step
-([`DOCUMENTATION_STANDARD.md`](DOCUMENTATION_STANDARD.md), "Work records"). A feature has its design folder, then its
-feature folder with the plan, and is built by a new session, as [`../../WORKFLOW.md`](../../WORKFLOW.md), "A feature,
-designed in one session and built in another", says. Work that builds no feature keeps a dated design folder whose
-`DESIGN.md` is the full design or, where the gate is optional, the short approved plan, with `LOG.md` beside it.
+([`DOCUMENTATION_STANDARD.md`](DOCUMENTATION_STANDARD.md), "Work records"). A feature, and every handoff a code review
+sends to a backlog whatever its kind ([`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md) section 2), has its design
+folder, then its feature folder with the plan, and is built by a new session, as
+[`../../WORKFLOW.md`](../../WORKFLOW.md), "A feature, designed in one session and built in another", says. Other work
+that builds no feature keeps a dated design folder whose `DESIGN.md` is the full design or, where the gate is
+optional, the short approved plan, with `LOG.md` beside it.
 
 ---
 

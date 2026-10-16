@@ -9,7 +9,9 @@
 > time and tokens counted by the launcher, and Codex in the cloud on trial, and since v1.15.0 that trial on Codex's
 > rebuilt cloud, with no token and no pull request, and since v1.20.0 the second retrospective's changes, a cite check
 > before every pin, two more standing look for questions and a pair of mutants for every number a rule reads, and
-> since v1.21.0 a pin's freeze that gives way where rule 15 lets one family go ahead. Kept
+> since v1.21.0 a pin's freeze that gives way where rule 15 lets one family go ahead, and since v1.22.0 a handoff
+> talked through with the owner and kept in a backlog for a design session and a build session, built by the
+> supporting session only on the owner's word. Kept
 > byte identical across every KDF repo by the kit sync engine,
 > canonical source `kriegerdataforge-cicd/kit/common/docs/agent/CODE_REVIEW_PROCESS.md`. Never edit a synced copy,
 > change the canonical one. The tooling that keeps the process safe, the guard, the reviewer
@@ -70,7 +72,7 @@ pull request that the owner merges, when it changed anything.
 | --- | --- | --- | --- |
 | Owner | The person | Asks the question or approves the plan, answers decisions, runs Codex, pastes the Sol dispatches, reviews and merges every pull request, deploys | |
 | Orchestrator | One long running session of the strongest model the owner can spend, at high effort, started in the folder that holds the repos | Runs steps 0, 1, 1b, 1c, 3 and 6, writes and pins the briefs, launches the fresh reviewers, adjudicates, commits, opens the pull request, watches CI, notifies the owner | Merges, approves, pushes to `main` but a `STATUS.md` commit to `kriegerdataforge-context`, tags, releases, deploys |
-| Supporting session | A second long running session the owner starts beside the orchestrator, in the same folder, of a model the owner chooses | Builds what a review finds outside the reviewed repo, in cicd, this kit, the reviewer tooling or another repo, from the orchestrator's handoff, each fix one pull request from a worktree, and reports the pull request back. Turns a closed slice's retrospective into the owner's list of proposals and builds the ones the owner approves, section 14 | Reviews, edits or checks out anything in the reviewed repo's folder, lets a fix take effect under an open pin, merges, approves, pushes to `main` but a `STATUS.md` commit to `kriegerdataforge-context`, tags, releases, deploys |
+| Supporting session | A second long running session the owner starts beside the orchestrator, in the same folder, of a model the owner chooses | Takes the orchestrator's handoffs for what a review finds outside the reviewed repo, in cicd, this kit, the reviewer tooling or another repo, talks each through with the owner, then writes it into a backlog for a design session and a build session, or builds it as one pull request from a worktree when the owner says so, and reports back, section 2. Turns a closed slice's retrospective into the owner's list of proposals, and builds each approved one the owner marks to build here, section 14 | Reviews, edits or checks out anything in the reviewed repo's folder, lets a fix take effect under an open pin, merges, approves, pushes to `main` but a `STATUS.md` commit to `kriegerdataforge-context`, tags, releases, deploys |
 | Fresh Claude reviewer | A new session per review, in the repo folder at the pinned commit, with an empty memory | Reads the brief, reads and probes the code, writes one report | Edits anything but its report, commits, uses GitHub |
 | Codex reviewer | ChatGPT through Codex, in the same folder on the owner's machine, or in the cloud | Reads the same brief at the same pinned commit, writes its own report | The same |
 | Sol | ChatGPT Sol dispatches, pasted by the owner | Reads the scope in rounds against a settled list | |
@@ -81,18 +83,31 @@ fresh session with an empty memory, briefed only by the brief, reading the pinne
 other reviewer's report of the scope is kept out of it. And two model families read everything reviewed, Claude and
 ChatGPT, because different models catch different things.
 
-**The supporting session.** The orchestrator stays on the review. What a review finds outside the reviewed repo goes
-to the supporting session as a handoff, a message that carries four things, the finding, the evidence that proves it,
-what is already done, and what would prove the fix. The supporting session builds the fix in a worktree of the repo
-that owns it, with its tests and an ADR where a rule changes, opens one pull request for it and reports the number
-back. A merged fix reaches a review only when the machine's clone of the repo that owns it is brought forward and the
-reviewer tooling is installed again. The orchestrator does both, between pins and never under an open one, so every
-reviewer of a pin reads one tree, and the supporting session does neither. The orchestrator reads what the supporting
-session built before the reviewed repo relies on it, and the slice's log names that pull request where a register row
-would have stood. The supporting session never reviews, and never edits, commits, checks out or stashes anything in
-the reviewed repo's folder. A review without one runs as before, the orchestrator does that work itself, between pins
-the same way. When a slice closes, the supporting session also reads the slice's retrospective, turns its proposals
-into the owner's list and builds what the owner approves, section 14.
+**The supporting session.** The orchestrator stays on the review. Outside the reviewed repo it keeps only the small
+items it can finish within its own window, and the rest of what a review finds there goes to the supporting session
+as a handoff, a message that carries five things, the finding, the evidence that proves it, what is already done,
+what would prove the fix, and whether a step of the review waits on it. The supporting session talks each handoff
+through with the owner first. Once they have its rough shape, by default it writes the item into the general backlog
+of the repo that owns it, or into `kriegerdataforge-context`'s `context/BACKLOG.md`, named by that repo, when the
+repo keeps none or is public, by a pull request in the repo that holds that backlog. The item carries the five things
+itself and names the
+review and its slice, since the slice's log may not be on `main` yet, and the supporting session tells the
+orchestrator its link. The owner then starts a new session that designs it and writes its plan and a new session that
+builds it, as [`WORKFLOW.md`](../../WORKFLOW.md), "A feature, designed in one session and built in another", says,
+whatever the handoff's kind, so the build is quick and simple and keeps to the plan. Only when the owner says so in
+that talk does the supporting session build it itself, in a worktree of the repo that owns it, with its tests and an
+ADR where a rule changes, as one pull request whose number it reports back. A merged fix reaches a review only when
+the machine's clone of the repo that owns it is brought forward and the reviewer tooling is installed again. The
+orchestrator does both, between pins and never under an open one, so every reviewer of a pin reads one tree, and the
+supporting session does neither. The orchestrator reads what was built from a handoff before the reviewed repo relies
+on it, the supporting session telling it the build's pull request once it merges, and the slice's log names the
+backlog item, then the pull request, where a register row would have stood. The supporting session never reviews, and
+never edits, commits, checks out or stashes anything in the reviewed repo's folder, and while the review runs, a
+design or build session started for one of its handoffs keeps the same limits, its plan's "Stop and ask" naming the
+open review. A review without one runs as before, the orchestrator does that work itself, between pins the same way,
+and talks each item larger than its window through with the owner as this paragraph says. When a slice closes, the
+supporting session also reads the slice's retrospective, turns its proposals into the owner's list, and builds each
+approved one the owner marks to build here, the rest going to a backlog the same way, section 14.
 
 Each role's limits are written for every model and tool in [`AGENT_ROLES.md`](AGENT_ROLES.md). Every brief states the
 reviewer's role in its own text, word for word from the template, so Codex, Sol or any other model is told the same
@@ -251,11 +266,14 @@ of refusing by one. A lane that will first run on another platform than the mach
 once before the pull request, in a container on a clean export of the tree.
 
 What a finding shows about something `kriegerdataforge-cicd` owns, this kit, the reviewer tooling, a distributed
-script or a reusable workflow, is not deferred. The orchestrator hands it to the supporting session when the review
-has one, section 2, or builds it itself when it has none. Either way the fix lands there by a pull request from a
-worktree as it is found and reaches the review between pins, the slice's log names that pull request where a register
-row would have stood, and the owner runs the distribution once the review is done. What only another repo owns stays
-a register row for that repo, or becomes a follow up the supporting session opens there when the owner asks for it.
+script or a reusable workflow, is not deferred to a register row. When the review has a supporting session, the
+orchestrator keeps it if it is small enough to finish within its own window, and otherwise hands it there, and that
+session takes it the way section 2 says. When it has none, the orchestrator
+builds it itself as it is found, or talks it through with the owner as section 2 says when it is larger than its
+window. Either way the fix lands there by a pull request from a worktree and, once built, reaches the review between
+pins, the slice's log names the backlog item, then the pull request, where a register row would have stood, and the
+owner runs the distribution once the review is done. What only another repo owns goes to the supporting session the
+same way when the review has one, and otherwise stays a register row for that repo.
 
 **Step 1b. The common code**, for a shared library or platform repo. From the plan's survey of what consumers write
 for themselves, decide for each piece and say why whether it belongs in the shared repo. When it does, add the API
@@ -307,7 +325,8 @@ own. The kdf-sdk's first slice read its `SDK-S1-D3-R1-2` fix that way, and the f
 in it.
 
 **Step 6. Close the slice.** Every gate green, the mutation table all killed, the consumer check green, the docs
-current, the ADRs, register rows and adjudication log complete, every review of steps 2 and 5 adjudicated, every
+current, the ADRs, register rows and adjudication log complete, every handoff of the slice listed in the log by its
+route and its state, an open backlog item by its link, every review of steps 2 and 5 adjudicated, every
 prompt and answer of the slice in its folder, the answer key and the retrospective written, section 14, and the
 review's README current. On the
 slice's branch the orchestrator bumps the version with the repo's make target, commits, pushes and opens the pull
@@ -378,7 +397,8 @@ where it can travel, or hands a token to someone other than the owner.
 **Blocks.** Every finding carries Blocks, yes or no. Yes is a P, or an M that reaches an account, a token, a
 credential, a privilege or someone else's data. Only yes is fixed first and earns a narrow second read of its fix, or
 for a fix of the last Sol round the first place in the final brief, section 4 step 5.
-Nothing marked no reopens a closed slice, it is fixed if small or becomes a register row. Mark Blocks honestly in
+Nothing marked no reopens a closed slice, it is fixed if small or becomes a register row, or a backlog item when
+another repo owns it, section 2. Mark Blocks honestly in
 both directions, a reviewer that inflates it wastes the slice and one that deflates it hides a defect.
 
 ## 7. The brief
@@ -446,7 +466,8 @@ reproduced, the fix, the test and the mutant. At spot scale the log keeps the ba
 what is left open, one section per reviewer and the closing.
 
 The verdict is one of **Agreed**, **Agreed in part** with what was and was not taken, **Declined** with the
-measurement that shows why, **Measured false**, or **Deferred** with the register row it became.
+measurement that shows why, **Measured false**, or **Deferred** with the register row or the backlog item it
+became.
 
 **The answer key** is written once, when the slice closes and its log is complete, from
 [`templates/review-answer-key.template.md`](templates/review-answer-key.template.md), beside the log. It restates the
@@ -718,7 +739,8 @@ and goes on. Every step ends by updating them. The review is a work record
 
 A review is closed when every slice's pull request is merged, Phase B has run where the scale has one and its findings
 are adjudicated, every review of both model families is adjudicated, and every deferred item is a register row with
-an owner. The decision log holds an ADR for every rule or contract the review changed. The plan's progress table shows
+an owner or a backlog item named by its link. The decision log holds an ADR for every rule or contract the review
+changed. The plan's progress table shows
 every row closed, and its status line says so with the date. The review folder holds every prompt the review sent and
 every report and answer it received, and an answer key and a retrospective for every slice and for Phase B, each
 written before its pull request opened, sections 8 and 14, and the campaign's own retrospective. Its README carries
@@ -739,8 +761,11 @@ review closes with `<PFX>_REVIEW_CAMPAIGN_RETRO.md`.
 
 **The owner decides every change.** The supporting session, or the orchestrator in a review without one, turns the
 proposals into a short list in the chat, each with the problem, the change, the number it should move and its cost,
-and the owner says yes or no to each. Nothing changes without the owner's yes. An approved change lands between
-slices, a larger one at the end of the review, and is recorded in the improvement ledger of the bench repo,
+and the owner says yes or no to each, and marks each yes, by its size, to be built at once or to go to a backlog for
+a design session and a build session, as section 2 says of a handoff. Nothing changes without the owner's yes. An
+approved change built at once lands between slices, a larger one at the end of the review, and one sent to a backlog
+lands when its build merges, named meanwhile by its state there. Each is recorded in the improvement ledger of the
+bench repo,
 `kriegerdataforge-review-bench`, with its date, its reason and the number it should move. Every approved change is an
 experiment, and the next retrospectives say whether it moved its number, and a change that did not is reverted.
 

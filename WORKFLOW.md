@@ -98,10 +98,15 @@ records", names.
    "Waiting on the owner" line. The session ends once its last pull request is open and green and handed back. The
    next feature is a new session.
 
-This rule is for features alone. A bug beyond a Quick fix keeps its folder in `docs/bugs/`. A Standard change that
-builds no feature, a chore, a refactor or a rules change, keeps one folder in `docs/design/` with its plan and its
-`LOG.md`. The Quick lane keeps no record. A repo follows the shape its own `docs/agent/KIT_VERSION` gives, this rule
-from v1.21.0 on, and a repo whose kit is older keeps a feature's plan and log in `docs/design/`.
+This rule is for features, and for every handoff a code review sends to a backlog, whatever its kind, a bug or a
+rules change included, which takes these two sessions and these records
+([`docs/agent/CODE_REVIEW_PROCESS.md`](docs/agent/CODE_REVIEW_PROCESS.md) section 2). A handoff the owner tells the
+review's supporting session to build itself, a feature among them, is the one exception, built by that session in
+the lane it fits, with the plan and the owner's approval that lane asks for. Any other bug beyond a Quick fix keeps
+its folder in `docs/bugs/`. Any other Standard change that builds no feature, a chore, a refactor or a rules change,
+keeps one folder in `docs/design/` with its plan and its `LOG.md`. The Quick lane keeps no record. A repo follows the
+shape its own `docs/agent/KIT_VERSION` gives, this rule from v1.21.0 on, and a repo whose kit is older keeps a
+feature's plan and log in `docs/design/`.
 
 ---
 
