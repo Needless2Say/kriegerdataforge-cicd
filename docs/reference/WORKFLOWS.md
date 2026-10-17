@@ -407,8 +407,8 @@ the mirrors as one artifact kept for a day. A plain https link to a repo's page,
 git@ or ssh:// URLs, archive or wheel links, a pip option line) fails the plan. The **install job**
 keeps its id and its name, so every ruleset's required check is unchanged, names no secret, runs on
 `always()` unless the caller's `skip` says docs only (D-075), and its first step ends it failed when the run was
-cancelled or, with `needs_sdk_auth`, unless the fetch succeeded (a skipped required job counts as passing). It checks the caller out
-with no credential kept, then downloads the mirrors and hands git one
+cancelled or, with `needs_sdk_auth`, unless the fetch succeeded (a skipped required job counts as passing). It
+checks the caller out with no credential kept, then downloads the mirrors and hands git one
 `url.file://<mirror>.insteadOf https://github.com/Needless2Say/<repo>.git` rewrite per repo
 through `GIT_CONFIG_COUNT`, `KEY_n` and `VALUE_n` in the job's environment. Without
 `needs_sdk_auth` the lane is one job as before. The token is **App token first** (reports ecosystem
@@ -429,8 +429,9 @@ and resolved to its commit), `scan_files` (`repo:path` items read inside an extr
 lane splits the same way since D-038, because `python -m` put the checkout first on the import path,
 so a pull request's `pip.py` or `kdf_fmt/` ran where the secret was, and `check_command` is the
 caller's own text. Its fetch job runs on every call that `skip` does not skip, mirrors only
-`kriegerdataforge-fmt` and mints for that repo alone. With no `kdf_fmt_ref` it reads the caller's `requirements-dev.in`, where every repo
-declares kdf-fmt at `main`, the one branch a requirement file may name (D-054), and its check job
+`kriegerdataforge-fmt` and mints for that repo alone. With no `kdf_fmt_ref` it reads the caller's
+`requirements-dev.in`, where every repo declares kdf-fmt at `main`, the one branch a requirement file may name
+(D-054), and its check job
 reads the ref from the same line, the URL fixed, failing by name when the line is missing. A caller
 that passes `kdf_fmt_ref`, an override, gets that ref alone. The check job keeps the
 name `Style (kdf-fmt)`, names no secret and installs in isolated mode (`python -I`). Isolated mode
@@ -594,9 +595,9 @@ a Markdown file a test asserts. Patterns over the whole path in GitHub's path fi
 reads another way, or `{` and `}`, which a matcher may read as alternation, is refused, as is an empty or absolute
 one, one with an empty, `.` or `..` part or a backslash, and one that matches no tracked file. A refusal gives no
 answer, every lane runs, and the step's log and summary say why. A path whose name holds one of those characters is
-named with `*` in its place, `app/*/x.md` for `app/[slug]/x.md`, a superset that still matches it. The pull request that makes code
-read a `.md` or a file under `docs/` adds it to `not_docs` in the same pull request, and a file the kit syncs is never
-named there, since Distribute reads no repo's `not_docs`.
+named with `*` in its place, `app/*/x.md` for `app/[slug]/x.md`, a superset that still matches it. The pull request
+that makes code read a `.md` or a file under `docs/` adds it to `not_docs` in the same pull request, and a file the
+kit syncs is never named there, since Distribute reads no repo's `not_docs`.
 
 **The answer.** The scan's last step, `Docs only`, runs only after gitleaks passed, on a `pull_request` event with an
 empty `ref`, with `continue-on-error`, so it never fails the scan. It proves `HEAD` is the event's commit with exactly
