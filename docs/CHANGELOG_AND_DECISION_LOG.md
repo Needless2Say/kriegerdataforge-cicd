@@ -3990,3 +3990,93 @@ every other door of its class is closed, which met its bar per reader each time 
 fixed code runs the fix check, at about a Claude read's and a Codex cloud read's cost. The numbers each change should
 move are in the review bench's ledger. No workflow and no tool changes. VERSION 0.2.157, kit and cicd's own copies at
 v1.24.0.
+
+## D-077. CI's Postgres comes from the owner's own mirror on GitHub's registry, copied by its digest
+
+- **Date.** 2026-10-17
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Follows.** D-064, which it keeps, ECR Public over Docker Hub, but for its consequence that Google's mirror is a
+  one line host change, which it reopens.
+- **Tier / scope:** Epic · a new workflow, `mirror-ci-images.yml`, the image test and `docs/reference/WORKFLOWS.md`
+  here, then the three Postgres lanes and a lane proof in `ci.yml` in a second pull request, and the same service in
+  each repository that starts it · no input, output or secret of any lane changed
+
+**Context.** D-064 moved CI's Postgres from Docker Hub to AWS ECR Public's gallery by its index digest. ECR Public
+limits anonymous pulls by data, 500 GB a month, and its pricing page says data from a public repository "is limited by
+source IP when an AWS account is not used". A hosted runner shares its address with other tenants, so it can arrive
+with the month already spent. On 2026-10-17 four jobs of two runs died before a test ran, each pull answered
+"toomanyrequests: Data limit exceeded", and each was cleared only by the owner's rerun. The runner tries a service pull
+three times within eleven seconds from the same address, so it cannot outwait a monthly count. A hosted runner starts
+every job empty and pulls a service image before the first step, so a copy kept on a developer's machine never
+reaches it.
+
+**Decision.**
+
+1. The image is copied whole, its index by its digest with every platform and attestation it names, to
+   `ghcr.io/needless2say/postgres`, tagged `16.15`, a public package under the owner's own name. GitHub documents
+   anonymous pulls of a public package and free storage and bandwidth for one, and states no rate limit. Users report
+   one, counted per namespace, at about twenty requests a pull. The mirror changes whose allowance a pull spends and
+   who keeps the image, not what a job downloads.
+2. The copy is made by `mirror-ci-images.yml`, on `main` alone, at a push that changes its own file and at the owner's
+   dispatch, which takes no input, never on a pull request. Its `copy` job holds `packages: write` through the job's
+   own token, the one job here that may write a package, and checks out nothing and runs no repository code and no
+   action. Each kept entry, its digest, its tag and its `server_version_num`, is written in the workflow's own text. An
+   entry already on the mirror with every manifest its index lists is left as it is. Any other is copied with
+   `skopeo copy --all --preserve-digests`, from ECR Public, then Docker Hub, then Google's mirror, each by the same
+   digest, and its index and every listed manifest are then hashed to their digests.
+3. Its `verify` job has no permissions. It starts the lanes' own service from the mirror by the newest kept digest,
+   holds `server_version_num` read by host and port, and reads every kept entry's index and listed manifests with no
+   credentials at all. A hosted runner logs in to GitHub's registry with the job's own token before it pulls a service
+   from there, so a lane's pull is not anonymous. It names no secret and the token is the job's own, which every job
+   holds, so D-035 holds. The read with no credentials is the proof the package is public.
+4. The lanes move only after the copy is proven, in a second pull request that changes each lane's service host and
+   nothing else, with a job of `ci.yml` that calls the integration lane by a local reference and holds its service's
+   version, so that pull request proves the lane on the mirror before it merges.
+5. A Postgres patch is ordered. A pull request appends the new entry and moves `verify` to it, its merge copies and
+   proves it, and later pull requests move the lanes. The old entry stays kept, so a rollback names it again, and a way
+   back to ECR Public's gallery is the lanes' lines and the test's one constant for the lanes' image.
+6. **No version of the package, tagged or untagged, is ever deleted.** The index's platform and attestation
+   manifests show on the registry as untagged versions, and deleting any of them fails every Postgres lane in every
+   repository before a test runs. GitHub restores a deleted package within 30 days while its name is not reused, and a
+   dispatch of the copier copies the same digest again while a source still serves it.
+7. `scripts/tests/test_workflow_service_images.py` keeps D-064's rule on the text for every workflow but the copier,
+   the lanes' image one constant apart from D-065's pattern, and holds every lane's digest the same and one the copier
+   keeps, and `verify` on the newest. It reads the copier by a strict rule of its own, its triggers, its `main` guard,
+   each job's declared permissions, its `needs`, its concurrency, `verify`'s service, its target and its sources, each
+   held whole as a key's line and every line below it, so a line continued or a key added below a blank line is
+   refused, and no action, its kept entries, and its every line that names an image or a pull. It refuses a `credentials` key in any workflow, `persist-credentials` apart, and a declared
+   grant that can write a package, in any quoting, a flow mapping or an escaped key, at a workflow's scope or a job's,
+   anywhere but the copier's `copy` job. A workflow that declares no permissions takes the repository's default token,
+   which the text cannot show, so the owner keeps the default workflow permission read only.
+
+**Alternatives considered.**
+
+- *Google's mirror by the same digest, D-064's named fallback.* Declined. D-064 called it a one line host change, but
+  its own test refuses the host, so it never was. Google caches frequently accessed images and gives no guarantee that
+  one stays cached, so a pinned digest that falls out of use can vanish.
+- *Back to Docker Hub.* Declined, it reopens D-064, whose limit was met by eight jobs on hosted runners.
+- *An authenticated pull from ECR Public.* Declined, an AWS key or an OIDC role in jobs that run a pull request's code,
+  which D-035 forbids, and a permission every caller must grant, a breaking change.
+- *A credential named for the mirror.* Declined, the runner already logs in with the job's token, and a limit counted
+  per namespace is not lifted by a login.
+- *`docker save` and `docker load` through the Actions cache.* Declined, Postgres started as a step in six workflows,
+  which D-064's test refuses, a cache GitHub evicts after a week unused, and an image loaded from a file a job cannot
+  check by its index digest.
+- *A retry with a wait.* Declined, the runner already tries three times, and a wait meets the same address and the
+  same monthly count.
+- *The runner's own PostgreSQL.* Declined, its version is the runner image's choice, not the lanes'.
+- *A copy made by hand.* Declined, a token that can write packages on a developer's machine, and a manual step at every
+  bump that no log keeps.
+
+**Trade-offs.** `packages: write` through the job's token can publish a package in the owner's namespace and write any
+package whose Actions access grants this repository, not this one alone. It sits on one job that checks out nothing,
+runs no action, writes the one target its text names, and starts at the owner's merge or dispatch. A dispatch on
+another branch is skipped by the `main` guard, and a fork's run gets a token of the fork's. A lane's pull now depends
+on the runner's login with the job's token as well as on the registry. The package is public for good, since GitHub
+never makes a public package private again, and anyone may pull it and spend the namespace's allowance, accepted.
+
+**Consequences.** A Postgres lane's pull no longer spends an allowance a runner's other tenants share, and the owner
+keeps the image as long as the lanes need it. A caller changes nothing. GitHub's pages disagree on a new package's
+first visibility, so the first run is expected to end with `verify` failed on a private package, until the owner sets
+it public and dispatches the copier again. What reopens this is a change to GitHub's registry limits, or a Postgres
+lane failing on its pull from the mirror. VERSION 0.2.158.
