@@ -194,6 +194,8 @@ def test_a_dot_in_a_pattern_is_a_dot():
     ("a+.md", "one of ? + [ ] !"),
     ("[CB]at.md", "one of ? + [ ] !"),
     ("!README.md", "one of ? + [ ] !"),
+    ("docs/{a,b}.md", "one of ? + [ ] ! { }"),
+    ("app/[slug]/x.md", "write * in its place"),
 ])
 def test_a_malformed_not_docs_pattern_refuses(pattern, reason):
     assert reason in ci_paths.malformed(pattern)
@@ -206,6 +208,16 @@ def test_a_malformed_not_docs_pattern_refuses(pattern, reason):
 def test_a_well_formed_pattern_has_no_reason():
     for pattern, _matches, _misses in GITHUB_EXAMPLES:
         assert ci_paths.malformed(pattern) == ""
+
+
+def test_a_refused_character_written_as_a_star_still_names_its_path():
+    """
+    A path whose name holds a refused character is named with * in its place, a superset that matches it and passes
+    the tracked file check, so no file a repo needs to name is out of reach.
+    """
+    tracked  = ["app/[slug]/x.md", "src/p/a.jsx", "docs/{draft}.md"]
+    compiled = ci_paths.check_not_docs(["app/*/x.md", "src/p/*.jsx", "docs/*draft*.md"], tracked)
+    assert [any(expression.fullmatch(path) for expression in compiled) for path in tracked] == [True, True, True]
 
 
 def test_a_not_docs_pattern_that_matches_no_tracked_file_refuses():

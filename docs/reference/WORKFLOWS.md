@@ -591,8 +591,10 @@ deletion and an addition, is docs.
 **`not_docs`** names the docs a repo's code reads, a README a wheel or an npm package packs, a prompt a package loads,
 a Markdown file a test asserts. Patterns over the whole path in GitHub's path filter syntax, `*` within one folder and
 `**` across folders, `**/` matching zero or more folders. A pattern holding `?`, `+`, `[`, `]` or `!`, which GitHub
-reads another way, is refused, as is an empty or absolute one, one with an empty, `.` or `..` part or a backslash,
-and one that matches no tracked file. A refusal gives no answer, and every lane runs. The pull request that makes code
+reads another way, or `{` and `}`, which a matcher may read as alternation, is refused, as is an empty or absolute
+one, one with an empty, `.` or `..` part or a backslash, and one that matches no tracked file. A refusal gives no
+answer, every lane runs, and the step's log and summary say why. A path whose name holds one of those characters is
+named with `*` in its place, `app/*/x.md` for `app/[slug]/x.md`, a superset that still matches it. The pull request that makes code
 read a `.md` or a file under `docs/` adds it to `not_docs` in the same pull request, and a file the kit syncs is never
 named there, since Distribute reads no repo's `not_docs`.
 
@@ -600,8 +602,8 @@ named there, since Distribute reads no repo's `not_docs`.
 empty `ref`, with `continue-on-error`, so it never fails the scan. It proves `HEAD` is the event's commit with exactly
 two parents, the pull request's base and head, in a checkout that is not shallow, lists the change with
 `git diff --name-only --no-renames -z`, checks git's exit status, and writes `docs_only=true` only when the list says
-so. It prints no path to the log and writes its summary, each path escaped, to the step summary file alone. A push, a
-schedule or a release dispatch with a `ref` gets no answer.
+so. It prints no path to the log, one line of fixed text and counts, and writes its summary, each path escaped, to
+the step summary file alone. A push, a schedule or a release dispatch with a `ref` gets no answer.
 
 **`skip`**, a boolean defaulting to `false`, is on every billed lane, `ci-python-tests`, `-integration`, `-system`,
 `-mutation`, `-security`, `-lint`, `-typecheck`, `ci-python-kdf-fmt`, `ci-vercel-compactor`,

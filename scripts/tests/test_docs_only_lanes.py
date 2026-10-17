@@ -51,8 +51,8 @@ SKIP_LANES = (
     "ci-npm-audit.yml",
 )
 
-# each job the renderer does not write, by its lane, the one job lanes and the security lane's bandit job, which runs
-# on cicd's own scripts in the cancel probe
+# each job the renderer does not write, by its lane, the one job lanes and the security lane's bandit job, which the
+# cancel probe enters on a cancelled run
 HAND_GUARDED = {
     "ci-python-security.yml": "bandit",
     "ci-vercel-compactor.yml": "vercel-compactor-staleness",
@@ -280,7 +280,7 @@ def test_only_a_proven_docs_only_merge_writes_the_answer(tmp_path, changes):
     repo, shas = _pull_request(tmp_path, changes)
     stdout, output, summary = _answer(tmp_path, repo, shas)
     assert output == "docs_only=true\n"
-    assert stdout == "docs only, every billed lane skips\n"
+    assert stdout == f"docs only, {len(changes)} paths, every billed lane skips\n"
     assert f"Docs only, {len(changes)} paths, every billed lane skipped." in summary
 
 
@@ -295,11 +295,14 @@ def test_only_a_proven_docs_only_merge_writes_the_answer(tmp_path, changes):
 ], ids = ["mixed", "code-renamed-into-docs", "code-under-docs", "not-docs-match", "malformed-not-docs",
           "not-docs-matching-nothing", "a-question-mark"])
 def test_a_change_that_is_not_docs_only_writes_nothing(tmp_path, changes, not_docs, said):
+    """
+    No answer, and the reason in the log as well as the summary, a refusal's fixed text and counts, never a path.
+    """
     repo, shas = _pull_request(tmp_path, changes)
     stdout, output, summary = _answer(tmp_path, repo, shas, not_docs)
     assert output == ""
-    assert stdout == "not docs only or no answer, every lane runs\n"
-    assert said in summary
+    assert stdout.count("\n") == 1 and stdout.startswith(("not docs only, ", "no answer, every lane runs, "))
+    assert said in summary and said in stdout
 
 
 def test_a_shallow_checkout_writes_nothing(tmp_path):
@@ -423,8 +426,9 @@ def test_every_job_outside_the_renderer_runs_on_always_and_fails_a_cancelled_run
 
 def test_the_one_job_lanes_guard_is_the_probed_security_lanes_byte_for_byte():
     """
-    cicd has no Next.js app to build, so its cancel probe runs the security lane's bandit job on its own scripts. Each
-    one job lane's guard is held equal to that one, its if and its first step, byte for byte.
+    cicd has no Next.js app to build, so its cancel probe enters the security lane's bandit job on a cancelled run,
+    where the guard step fails it before bandit runs. Each one job lane's guard is held equal to that one, its if and
+    its first step, byte for byte.
     """
     def guard(name: str) -> str:
         head, steps = _jobs(_lane(name))[HAND_GUARDED[name]].split("    steps:\n", 1)

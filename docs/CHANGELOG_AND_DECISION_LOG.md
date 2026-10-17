@@ -3859,8 +3859,9 @@ design, its reads and a panel of models on it are kept in the ecosystem's privat
   sensitive, less a file under `docs/` whose extension, in any case, is on a short list of code. `GROUPS` holds the one
   group, so another is a data change. A repo's `not_docs` names the docs its code, tests, build or package read, in
   GitHub's path filter syntax, `*` and `**` alone, so the same string means the same files here and in a push filter.
-  A pattern holding `?`, `+`, `[`, `]` or `!`, which GitHub reads another way, refuses, as do a malformed pattern and
-  one that matches no tracked file, and a refusal gives no answer.
+  A pattern holding `?`, `+`, `[`, `]` or `!`, which GitHub reads another way, or `{` and `}`, refuses, as do a
+  malformed pattern and one that matches no tracked file, and a refusal gives no answer, its fixed reason in the log.
+  A path whose name holds one of those characters is named with `*` in its place.
 - **The scan answers.** `secret-scan.yml`'s last step, on `success()`, a `pull_request` event and an empty `ref`, with
   `continue-on-error`, proves `HEAD` is the pull request's merge from the event's own commit ids, lists the change with
   renames off and its exit status checked, and writes `docs_only=true` only when every path is docs. It runs
@@ -3888,9 +3889,11 @@ design, its reads and a panel of models on it are kept in the ecosystem's privat
   the public repos, whose CI has no fast path and bills nothing, keep their bump.
 - **The proof.** `ci.yml` calls three lanes with `skip: true` and no secret, a one job lane, a split lane with package
   access asked for and the security lane, and `probe-nested.yml`, which runs the scan beside a lane called with
-  `skip: true` three levels down. Its cancel probes are wired as a consumer's jobs. A cancelled run must end each
-  failed, none skipped, the security lane's probe running on a cancelled run alone, since its tools read a tree laid
-  out as a consumer's. A test holds the one job lanes' guard byte for byte equal to the probed Bandit job's.
+  `skip: true` three levels down. Its cancel probes are wired as a consumer's jobs, the unit test lane's caller on
+  `always()` proving a consumer's caller. A cancelled run must end each guarded job failed in its guard step, its
+  later steps skipped, none skipped whole, the security lane's probe running on a cancelled run alone, since its tools
+  read a tree laid out as a consumer's. A test holds the one job lanes' guard byte for byte equal to the probed Bandit
+  job's.
 - **The undo.** A pull request here that makes the last step write nothing turns the fast path off in every repo at
   once, the inputs kept, since removing one a caller passes breaks it. The open docs only pull requests are listed,
   held and rerun on the disabled classifier before any merges, and none is bumped to merge it.

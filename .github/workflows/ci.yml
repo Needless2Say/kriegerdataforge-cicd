@@ -12,7 +12,8 @@
 #   skip-probe, skip-probe-split, skip-probe-security, skip-probe-nested
 #                   D-075's proof that a lane called with skip reports each of its jobs skipped under its own name
 #   cancel-probe-lane, cancel-probe-security, cancel-probe-local
-#                   D-075's proof that a job wired to the scan runs on this repo's code and fails a cancelled run
+#                   D-075's proof that a job wired to the scan fails a cancelled run, the lane and local probes running
+#                   on this repo's code otherwise and the security probe on a cancelled run alone
 #
 # Every job must pass before a PR can be merged. The owner sets them as required status checks in the repo's
 # ruleset for main. The two D-035 jobs run only where the secrets exist and are not required checks, and no ruleset
