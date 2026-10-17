@@ -1039,12 +1039,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
-    # D-064. Docker's official image from AWS ECR Public's gallery, pinned by its index digest, postgres 16.15 as the
-    #   16 tag held on 2026-10-09. Docker Hub's anonymous pull limit is shared by every tenant of a runner's address
-    #   and failed whole jobs before a test ran. A new patch is a hand edit of the digest
+    # D-077. Docker's official image by its index digest, postgres 16.15, server_version_num 160015, from the owner's
+    #   mirror on GitHub's registry, which mirror-ci-images.yml copies and proves public. Docker Hub's pull limit
+    #   (D-064) and then ECR Public's data limit, each counted by a runner's address, had failed whole jobs before a
+    #   test ran. A new patch follows the copier's order in docs/reference/WORKFLOWS.md
     services:
       postgres:
-        image: public.ecr.aws/docker/library/postgres@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
+        image: ghcr.io/needless2say/postgres@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
         env:
           POSTGRES_USER: kdf
           POSTGRES_PASSWORD: kdf

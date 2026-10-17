@@ -474,16 +474,20 @@ a reusable workflow of the caller's own and call that in the matrix. The fetch j
 lane is one template, `scripts/fetch_private_job.template.yml`, written by
 `scripts/render_fetch_job.py`, and a test fails when a copy differs.
 
-The Postgres these three jobs start is Docker's official image from AWS ECR Public's gallery, pinned by its index
-digest, PostgreSQL 16.15 (D-064). Docker Hub's anonymous pull limit, shared by every tenant of a runner's address,
-had failed whole jobs before a test ran. A new patch follows the copier's order in
+The Postgres these three jobs start is Docker's official image from the owner's mirror on GitHub's registry,
+`ghcr.io/needless2say/postgres`, pinned by its index digest, PostgreSQL 16.15, `server_version_num` 160015 (D-077).
+Docker Hub's anonymous pull limit (D-064) and then ECR Public's data limit, each counted by a runner's address, had
+failed whole jobs before a test ran. `mirror-ci-images.yml` copies the image there and proves it public, and the
+runner logs in to GitHub's registry with the job's own token before it pulls the service, a `docker ... login
+ghcr.io` line in "Initialize containers" that names no secret. `postgres-lane-proof` in this repo's `ci.yml` proves
+the lane on each pull request here that changes code, before a caller meets it, a docs only one skipping it (D-075). A new patch follows the copier's order in
 [CI's Postgres mirror](#cis-postgres-mirror-d-077), and
 `scripts/tests/test_workflow_service_images.py` holds every workflow here but the copier, which has its own, to one
 rule on its text. A line that is not
-a comment and names `image`, `container` or `docker`, in any case, must be a service's `image:` line with a pinned
-reference and nothing after it, and no line may hold a `\x`, `\u` or `\U` escape. So a job's container, a `docker://`
-step or a script's `docker run` is refused until the test is changed with it. It catches a mistake, not a workflow
-written to hide a pull, which whoever can edit a workflow could write anyway.
+a comment and names `image`, `container` or `docker`, in any case, must be a service's `image:` line with the lanes'
+image by a digest and nothing after it, and no line may hold a `\x`, `\u` or `\U` escape. So a job's container, a
+`docker://` step or a script's `docker run` is refused until the test is changed with it. It catches a mistake, not a
+workflow written to hide a pull, which whoever can edit a workflow could write anyway.
 
 **`ci-python-integration.yml`** additionally provisions a PostgreSQL 16 **service** (`kdf`/`kdf`/
 `kdf_test`, health checked) and exports the connection string under **two** names,
@@ -846,7 +850,7 @@ owner gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for 
 
 | Workflow | Trigger(s) | What it does | Owner gate |
 |---|---|---|---|
-| `ci.yml` | `pull_request` → `main` | actionlint + pytest (`scripts/tests/`) + calls `bump-version-check.yml`, and D-075's skip and cancel probes, no required check, `skip-probe-nested` calling `probe-nested.yml`, a `workflow_call` only `ci.yml` calls, the scan beside a lane called with `skip: true` | n/a |
+| `ci.yml` | `pull_request` → `main` | actionlint + pytest (`scripts/tests/`) + calls `bump-version-check.yml`, and D-075's skip and cancel probes, no required check, `skip-probe-nested` calling `probe-nested.yml`, a `workflow_call` only `ci.yml` calls, the scan beside a lane called with `skip: true`, and D-077's `postgres-lane-proof`, the integration lane by a local reference holding its service's `server_version_num`, no required check | n/a |
 | `release.yml` | `push` `main`, `paths: [VERSION]` | calls `create-github-release.yml` (`contents:write`) | n/a |
 | `issue-create-repo.yml` | `issues: labeled` (`new-repo`) | provisions a repo from a template. Creates `prod`+`dev` Environments (owner reviewer, `main` only). Branch protection. Uses **repo level** `CICD_PAT` (Administration/Contents/Environments/Secrets/Variables/Actions R-W + Members: Read) | inline owner check |
 | `ops-rotate-secrets.yml` | `issues: labeled` (`ops:rotate-secrets`) | issue form front end for `rotate_secret.py` (`check`/`generate`/`paste`) | `_authorize-owner` |
@@ -892,15 +896,18 @@ request. Its `KEPT` list holds each kept entry, its digest, its tag and its `ser
   manifest it lists are read with `skopeo inspect --raw --no-creds` and hashed to their digests. A hosted runner logs
   in to GitHub's registry with the job's own token before it pulls a service from there, so a service's pull is not
   anonymous, and that read with no credentials is the proof the package is public. A package still private fails
-  there, closed, which is the expected end of the first run, until the owner sets the package public on its page and
-  dispatches the copier again.
+  there, closed, and the owner then sets it public on its page and dispatches the copier again. The first run, on
+  2026-10-17, found it public already, a workflow's package taking its public repository's visibility.
 
 A Postgres patch is ordered. First a cicd pull request appends the new entry to `KEPT` and moves `verify`'s service
 line to it, the lanes unchanged, and its merge runs the copier, which copies and proves it. Then the pull requests
-that move the lanes, cicd's and each repo's that starts the same service, each proven by its own run before it
-merges. The image test holds every lane's digest among the kept ones and `verify` on the newest. The old entry stays
-kept, so a rollback is the lanes' pull request naming it again, and moving the lanes back to ECR Public's gallery is
-their lines and the test's one constant for the lanes' image.
+that move the lanes, each lane's digest and the version `postgres-lane-proof` expects moving together, cicd's proven
+by its own `postgres-lane-proof`, each other repo's that starts the same service by its own run before it merges. A
+pull request that both appended an entry and moved a lane to it would fail its `postgres-lane-proof` on the missing
+image, so the proof guards the order too. The image test holds every lane's digest among the kept ones, `verify` on
+the newest, and the proof's expected version the lanes' entry's. The old entry stays kept, so a rollback is the
+lanes' pull request naming it again with its version, and moving the lanes back to ECR Public's gallery is their lines
+and the test's one constant for the lanes' image.
 
 **No version of the package, tagged or untagged, is ever deleted.** The index's platform and attestation manifests
 show as untagged versions, which a tidy of untagged versions would remove, and every Postgres lane in every repo then
