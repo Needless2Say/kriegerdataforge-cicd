@@ -119,6 +119,39 @@ def _joined(job: str) -> bool:
     return re.search(r"^    needs: \[[^\]]*\bsecret-scan\b[^\]]*\]$", job, flags = re.MULTILINE) is not None
 
 
+def _guard_fails_a_cancelled_run(job: str) -> bool:
+    """
+    Whether a job's first step runs on a cancelled run alone and ends it failed, its run block's last line exit 1, so a
+    guard that says so but exits 0 is caught.
+    """
+    first = job.split("    steps:\n", 1)[1].lstrip("\n").split("\n\n", 1)[0]
+    lines = first.split("\n")
+    return (
+        len(lines) >= 4
+        and lines[0].startswith("      - name: ")
+        and lines[1] == "        if: ${{ cancelled() }}"
+        and "        run: |" in lines
+        and lines[-1].strip() == "exit 1"
+        and all("exit 0" not in line for line in lines)
+    )
+
+
+@pytest.mark.parametrize("guard, holds", [
+    ("      - name: Fail a cancelled run\n        if: ${{ cancelled() }}\n        run: |\n"
+     "          echo \"::error::the run was cancelled\"\n          exit 1\n", True),
+    ("      - name: Fail a cancelled run\n        if: ${{ cancelled() }}\n        run: |\n          exit 0\n", False),
+    ("      - name: Fail a cancelled run\n        if: ${{ always() }}\n        run: |\n          exit 1\n", False),
+    ("      - name: Fail a cancelled run\n        if: ${{ cancelled() }}\n        run: |\n"
+     "          echo \"cancelled\"\n", False),
+], ids = ["fails", "exits-0", "always", "no-exit"])
+def test_the_guard_check_holds_a_step_that_fails_a_cancelled_run_and_nothing_else(guard, holds):
+    """
+    The wiring test reads each consumer's local job with this check, so the check itself is held here, on a runner too.
+    """
+    job = f"    name: Version check\n    runs-on: ubuntu-latest\n    steps:\n{guard}\n      - run: echo next\n"
+    assert _guard_fails_a_cancelled_run(job) is holds
+
+
 def _jobs(repo: str, name: str) -> dict[str, str]:
     """
     The jobs of one workflow, each job's text from its key to the next job's.
@@ -390,8 +423,7 @@ def test_a_repo_is_wired_whole_or_not_at_all_and_a_release_never_skips_a_lane(re
             assert f"\n      skip: ${{{{ {SKIP_EXPRESSION} }}}}\n" in job, key
         else:
             assert _condition(job) in LOCAL_CONDITIONS, f"{key} {_condition(job)}"
-            first = job.split("    steps:\n", 1)[1].lstrip("\n")
-            assert re.match(r"      - name: [^\n]+\n        if: \$\{\{ cancelled\(\) \}\}\n", first), key
+            assert _guard_fails_a_cancelled_run(job), f"{key}'s first step does not fail a cancelled run"
     assert "\n      ref: ${{ inputs.ref }}\n" in jobs["secret-scan"], "a release hands the scan its tag"
     here = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "secret-scan.yml"
     assert SCAN_ANSWERS in here.read_text(encoding = "utf-8").replace("\r\n", "\n")
