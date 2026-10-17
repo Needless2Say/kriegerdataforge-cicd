@@ -20,6 +20,7 @@ commit its dispatch files name.
 | {Orchestrator} | {Step 1} | {`main` at sha, version} | | {model and effort} | {the log's section 1} |
 | {Fresh Claude reviewer} | {Step 2} | {pin sha} | {state sha} | {model and effort} | {link to the report} |
 | {Codex} | {Step 2} | {pin sha} | {state sha} | {model and effort} | {link to the Codex report} |
+| {Fresh Claude reviewer, Codex} | {Fix check, step 3b} | {pin sha} | {state sha} | {models} | {links to both fix check reports} |
 | {Sol} | {Round 1} | {the commit its dispatches name} | | {model} | {link to `step-4-sol/round-1/`} |
 | {Fresh Claude reviewer, Codex} | {Step 5 final} | {pin sha} | {state sha} | {models} | {links to both final reports} |
 | {Fresh Claude reviewer, Codex} | {Second read n} | {pin sha} | {state sha} | {models} | {links} |
@@ -34,14 +35,17 @@ running stack and how it was started, and how long each review took.}
 
 ## 3. The findings
 
-One row per finding of every source, the orchestrator's own, both step 2 reviews, each Sol round, the final reviews and
-the second reads, real or not, plus every question for the owner that was acted on. Severity and Blocks as adjudicated.
+One row per finding of every source, the orchestrator's own, both step 2 reviews, both fix check readers, each Sol
+round, the final reviews and the second reads, real or not, plus every question for the owner that was acted on. A
+defect two readers of one step both raised, shown by one reproduction, keeps both rows, each naming the other's id in
+The defect, and the shared count lives in the retrospective alone. Severity and Blocks as adjudicated.
 **At the step 2 pin** says whether the defect was in the tree the step 2 reviewers read, yes, no or unsure, and **How
 decided** says how that was settled, a read of the file at the pin, a probe, or the commit that brought the code in.
 **Needs** says what a reviewer had to have to find it, the repo alone, the sibling repos, or a running stack.
 **Source** uses the words `kdf-retro.js` places in the cycle, `Orchestrator, step 1`, `Orchestrator, after step 2`,
-`Step 2 Claude`, `Step 2 Codex`, `Sol R<n> D<m>`, `Second read <n>`, `Final Claude` and `Final Codex`, so a finding the
-orchestrator made after the pin counts as an escape. The tool prints how it read each source, and one it cannot place
+`Step 2 Claude`, `Step 2 Codex`, `Fix check Claude, after step 3`, `Fix check Codex, after step 3`, `Sol R<n> D<m>`,
+`Second read <n>`, `Final Claude` and `Final Codex`, so a finding the orchestrator or the fix check made after the pin
+counts as an escape. The tool prints how it read each source, and one it cannot place
 prints as unplaced.
 
 Sorted by At the step 2 pin (yes, unsure, no, declined) and within each by severity, most severe first.
@@ -73,7 +77,7 @@ a defect.
 | Caught by the step 2 Claude review | | | | | |
 | Caught by the step 2 Codex review | | | | | |
 | Caught by either | | | | | |
-| Found later, by Sol, the final reviews or a second read | | | | | |
+| Found later, by the fix check, Sol, the final reviews or a second read | | | | | |
 
 {One line that reconciles with the log, the finding ids it carries, how many were at the step 2 pin, how many came in
 after it, and how many were declined or measured false.}

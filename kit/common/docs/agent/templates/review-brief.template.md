@@ -7,6 +7,22 @@
 > beside it. The same text with the closing line changed is the final brief, `{PFX}_REVIEW_{slice}_FINAL_PROMPT.md` in
 > the slice's `step-5-final` folder. A final brief names first in its look for list every Blocks fix of the last Sol
 > round, which the final reviews read there in place of a narrow read of its own, section 4 step 5 of the process.
+>
+> **For a fix check**, section 4 step 3b, the same text becomes `{PFX}_REVIEW_{slice}_FIXCHECK_PROMPT.md` in the
+> slice's `step-3-fix-check` folder, with these changes. In "Your role" the words "Never open another reviewer's report
+> of this scope" read "Never open the other fix check reader's report", and no other word of that paragraph changes.
+> "This review" asks of every step 3 fix whether every other door of its class in the scope is closed, at any
+> severity, and whether the fix changes the rule rather than refusing the one input found, and says a regression is a
+> finding. "The commit" confirms `HEAD~{n}` for as many commits as the pin sits above the state, sizes the fixes' delta
+> between the commit that brought both step 2 reports in and the last fix, and names the Codex branch
+> `review/{pfx}-{slice}-fixcheck-codex`. The step 2 reports, both or the one rule 15 went on with, are in the scope
+> and the reading order, as `AGENT_ROLES.md` section 5 lets a fix check reader read them. A table of the
+> fixes stands before the look for list, each fix's findings, its class in one line, where it landed and what pins it,
+> and the list opens with the other doors of each class and regressions. An evidence section holds the orchestrator's
+> own checks of each fix, with their inputs, results and limits, for a reader to challenge and never settled. The
+> report names the FIXCHECK files and the ids `{PFX}-{slice}-FC-n` and `{PFX}-{slice}-FC-Cn`, and each finding names
+> the fix it checks by its number, or says it is a regression or outside the table.
+>
 > The process is [`../CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md),
 > sections 6, 7 and 8 define what this brief must hold. The reviewer starts from one line, `Read <this file> and run
 > the review, write your report to <report>, edit nothing else.` A brief that needs more than that line to start a
@@ -48,7 +64,8 @@ stays at the pin, and read your own branch made from the pin, as your one line s
 `git rev-parse HEAD` prints the pin and `git rev-parse HEAD~1` prints `{state sha}`, and name both in your header.
 Size the delta with `git diff --stat {tip} HEAD`, never with a log range. Another reviewer reads the same pin in its
 own turn. Never open its report or the adjudication log's rows about it. At the same pin they are kept out of
-the folder while you read and must not be sought elsewhere. {At a later pin, when rule 15 let the other family go
+the folder while you read and must not be sought elsewhere, and the branch `{review branch}-codex` is one the Claude
+reader never reads. {At a later pin, when rule 15 let the other family go
 first, its report and its rows are in the tree and in history. Skip the log's sections {n} and {n}, and never open
 that report.}
 
@@ -90,7 +107,10 @@ code.
 ## Commands
 
 You may run, from the repo root, {the test, lint and type commands, a single mutant or lane, a loopback peer a probe
-needs, started inside a test}. A mutant edits a file
+needs, started inside a test, and for a hop to another thread or loop a server a consumer runs, already installed in
+an environment the orchestrator names by its path, started inside a test on loopback, never the running stack}. {Name
+what the cloud lacks, a server among it, and a probe that needs what no environment holds goes under Could not
+settle.} A mutant edits a file
 and restores it, the one edit your role allows, so run `git status --porcelain` before and after it, and stop if they
 differ. You may not run {make ci, make bump, an install, anything that rewrites a tracked file}, and you create
 nothing in the tree but your report and any scratch note, both in this brief's folder, `{step folder}`.
@@ -121,7 +141,7 @@ implementation does not do what the decision says, and then the finding names wh
 
 {The plan's list for this slice is the starting point. What step 1 settled is above, what is left, and what step 1
 added, is where a finding is likeliest. One bullet per area, each naming the specific question, not the topic. In a
-final brief, every Blocks fix of the last Sol round comes first, with its finding id. Keep the five standing bullets
+final brief, every Blocks fix of the last Sol round comes first, with its finding id. Keep the eight standing bullets
 after the areas, word for word, and delete a stack's readers only when the slice holds none of that stack.}
 
 - **{Area}.** {Whether X could ever Y, whether Z holds when W, what happens to V when U.}
@@ -144,6 +164,19 @@ after the areas, word for word, and delete a stack's readers only when the slice
   and whose text each carries, the caller's, a peer's such as a server's answer or a library's error, and the
   operator's settings. Probe whether text someone else wrote reaches a message with harm where it lands, a secret
   shown, a forged log line, a broken encoding or a size no one bounded.
+- **What a success test reads of its outcome.** For every test of a grant, a match, a value returned or a message
+  written, whether it reads the outcome's value, the id, the role, the message, the byte, or only that an outcome
+  came. A test that asserts a status, a truthy result or that nothing was raised passes against code that returns
+  the wrong user, the wrong role or the wrong text, so it proves the path ran and not that the answer is right.
+- **A hop to another thread or loop.** Every place the code hands work to another thread, an executor or another
+  event loop, what the work carries across, the request's context and its context variables, what it needs on the
+  other side, a running loop or a thread's own state, and which servers a consumer runs it under. Probe it under a
+  real server where the brief's commands name one, and otherwise say which server it was not run under.
+- **What a stored secret holds.** Every stored secret or pinned value the code compares against what a caller
+  sends, how its environment can leave it, a line end from a file written on Windows, a pasted space, a byte order
+  mark, a platform's decode of bytes it could not read, and what the protocol lets a caller send to match it. Probe
+  with a value the probe makes, never one an environment holds, whether a stored value can hold what no caller can
+  send, so it never matches, or match what it should not.
 - **The new tests.** Whether each pins what its name claims. A test that would pass against a broken implementation
   is a finding.
 - **The docs.** Every `file:line` cite into this slice against the code, and every claim in the adjudication log's

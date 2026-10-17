@@ -822,7 +822,7 @@ def test_a_feature_is_designed_in_one_session_and_built_from_an_approved_plan_in
     assert "| A feature within existing patterns, one repo | A short design, then its plan, the ADR optional |" in gate
     assert "A plan is enough, design gate optional" not in gate, "a feature may skip its design again"
     roles = " ".join((agent / "AGENT_ROLES.md").read_text(encoding = "utf-8").split())
-    assert "rule 15 lets it go on with the one report, and the missing review reads a later pin" in roles
+    assert "rule 15 lets it go on with the one report on the owner's own word, rule 11, and the missing review" in roles
 
 
 def test_a_feature_s_plan_and_log_come_from_synced_templates_a_build_session_can_start_from() -> None:
@@ -1095,7 +1095,7 @@ def test_the_first_retrospective_s_changes_are_in_the_kit() -> None:
     assert "`<report stem>.usage.json`" in process
     assert "`--output-format stream-json --verbose`, so the run's log holds each event as it happens" in process
     assert "from the stream's last result event" in process
-    assert "**Codex in the cloud is on trial, for the kdf-sdk's S2 alone.**" in process
+    assert "**Codex in the cloud is on trial, for the kdf-sdk's S2 alone**, and is the fix check's road" in process
     assert "**The first retrospective**, the kdf-sdk's S1" in process
 
 
@@ -1124,14 +1124,14 @@ def test_the_second_retrospective_s_changes_are_in_the_kit() -> None:
     )
     for line in standing:
         assert line in brief, f"the brief template lost {line!r}"
-    assert "Keep the five standing bullets after the areas, word for word" in brief
+    assert "Keep the eight standing bullets after the areas, word for word" in brief
     assert "a loopback peer a probe needs, started inside a test" in brief
     assert brief.index("**Two parsers of one string.**") < brief.index("**What pins a constant.**")
     assert brief.index("**What pins a constant.**") < brief.index("**Whose text a message carries.**")
     assert brief.index("**Whose text a message carries.**") < brief.index("**The new tests.**")
     for words in (
-        "Five standing questions close every list, word for word from the template",
-        "two parsers of one string, what pins a constant, and whose text a message carries.",
+        "Eight standing questions close every list, word for word from the template",
+        "two parsers of one string, what pins a constant, whose text a message carries,",
         "with a pair for every number a rule reads, its value moved up and down by the smallest step its unit takes.",
         "Every number a rule reads, a bound, a limit or a default, gets the pair of step 0,",
         "and each mutant dies of a test that pins the value as a literal",
@@ -1152,6 +1152,126 @@ def test_the_second_retrospective_s_changes_are_in_the_kit() -> None:
         "**The second retrospective**, the kdf-sdk's S2",
     ):
         assert words in process, f"the process lost {words!r}"
+
+
+def test_the_third_retrospective_s_changes_are_in_the_kit() -> None:
+    """
+    The owner approved the kdf-sdk's S3 retrospective (D-076). Every brief closes its look for list with eight standing
+    questions, the three new ones asking what a success test reads of its outcome, what a hop to another thread or loop
+    carries and needs, and what a stored secret holds. The fix check is step 3b, its readers waiting on the owner's
+    word when one cannot run, and no fetch happens while a Claude read is open. The answer key places both fix check
+    readers. The template, the process and the answer key name each, so they cannot drift apart in silence.
+    """
+    agent     = KIT / "docs" / "agent"
+    process   = " ".join((agent / "CODE_REVIEW_PROCESS.md").read_text(encoding = "utf-8").split())
+    templates = agent / "templates"
+    brief     = " ".join((templates / "review-brief.template.md").read_text(encoding = "utf-8").split())
+    key       = " ".join((templates / "review-answer-key.template.md").read_text(encoding = "utf-8").split())
+    log       = " ".join((templates / "review-adjudication.template.md").read_text(encoding = "utf-8").split())
+    roles     = " ".join((agent / "AGENT_ROLES.md").read_text(encoding = "utf-8").split())
+    outcome   = " ".join((
+        "- **What a success test reads of its outcome.** For every test of a grant, a match, a value returned or a",
+        "message written, whether it reads the outcome's value, the id, the role, the message, the byte, or only that",
+        "an outcome came. A test that asserts a status, a truthy result or that nothing was raised passes against code",
+        "that returns the wrong user, the wrong role or the wrong text, so it proves the path ran and not that the",
+        "answer is right.",
+    ))
+    hop       = " ".join((
+        "- **A hop to another thread or loop.** Every place the code hands work to another thread, an executor or",
+        "another event loop, what the work carries across, the request's context and its context variables, what it",
+        "needs on the other side, a running loop or a thread's own state, and which servers a consumer runs it under.",
+        "Probe it under a real server where the brief's commands name one, and otherwise say which server it was not",
+        "run under.",
+    ))
+    secret    = " ".join((
+        "- **What a stored secret holds.** Every stored secret or pinned value the code compares against what a caller",
+        "sends, how its environment can leave it, a line end from a file written on Windows, a pasted space, a byte",
+        "order mark, a platform's decode of bytes it could not read, and what the protocol lets a caller send to match",
+        "it. Probe with a value the probe makes, never one an environment holds, whether a stored value can hold what",
+        "no caller can send, so it never matches, or match what it should not.",
+    ))
+    for line in (
+        outcome,
+        hop,
+        secret,
+        "Keep the eight standing bullets after the areas, word for word",
+        "a server a consumer runs, already installed in an environment the orchestrator names by its path, started",
+        "inside a test on loopback, never the running stack",
+        "a probe that needs what no environment holds goes under Could not settle.",
+        "**For a fix check**, section 4 step 3b, the same text becomes `{PFX}_REVIEW_{slice}_FIXCHECK_PROMPT.md`",
+        "of this scope\" read \"Never open the other fix check reader's report\", and no other word of that paragraph",
+        "and the branch `{review branch}-codex` is one the Claude reader never reads.",
+    ):
+        assert line in brief, f"the brief template lost {line!r}"
+    order = (
+        "**Whose text a message carries.**",
+        "**What a success test reads of its outcome.**",
+        "**A hop to another thread or loop.**",
+        "**What a stored secret holds.**",
+        "**The new tests.**",
+    )
+    assert [brief.index(lead) for lead in order] == sorted(brief.index(lead) for lead in order)
+    for words in (
+        "Eight standing questions close every list",
+        "what a success test reads of its outcome, a hop to another thread or loop, and what a stored secret holds.",
+        "and its second retrospective added the next two, and its third the last three.",
+        "**Step 3b. The fix check**, when step 3 landed a fix of code.",
+        "Is every other door of its class in the slice's scope closed, at any severity,",
+        "and does the fix change the rule, an allowlist or a grammar, rather than refuse the one input found.",
+        "A regression a fix brought in is a finding too.",
+        "in the slice's `step-3-fix-check` folder, which keeps the trials' name,",
+        "When step 3 landed no fix of code, the log says so and the slice goes on to step 4.",
+        "only on the owner's own word does the other's read stand as the fix check alone, never on a wait running out",
+        "When Fable is short it goes to the final reviews first.",
+        "The first round follows the fix check's adjudication, or step 3's when no fix check ran.",
+        "every review of steps 2, 3b and 5 adjudicated",
+        "**Both families, always**, at step 2, the final reviews and the second reads.",
+        "The fix check follows its own rule, step 3b,",
+        "step-3-fix-check/ the fix check of step 3b, when it runs",
+        "`step-3-fix-check` for step 3b,",
+        "`<PFX>_REVIEW_<slice>_FIXCHECK_PROMPT.md`",
+        "`<PFX>_REVIEW_<slice>_FIXCHECK_REPORT.md`, `..._FIXCHECK_CODEX_REPORT.md`",
+        "a fix check is `<PFX>-S1-FC-3` for Claude and `<PFX>-S1-FC-C3` for Codex",
+        "`<PFX>_REVIEW_FIXCHECK_PROMPT.md`, `_FIXCHECK_REPORT.md` and `_FIXCHECK_CODEX_REPORT.md`,",
+        "with ids `<PFX>-FC-3` and `<PFX>-FC-C3`.",
+        "`review/<pfx>-<slice>-fixcheck` and `review/<pfx>-<slice>-fixcheck-codex`",
+        "**No fetch while a Claude read is open.**",
+        "the orchestrator checks for a Codex branch with `git ls-remote` alone, keeps no editor open on the folder and",
+        "fetches nothing, and the brief names the Codex branch as one the Claude reader never reads.",
+        "With that word the log records which reader did not run and why, the freeze ends,",
+        "and the slice's per reader bar is not judged, a skipped read never counted as one that added nothing.",
+        "When neither runs, on the owner's word, the first Sol round's bundle is built from step 3's adjudicated",
+        "the other goes ahead on the owner's own word, never on a wait running out or another session's message,",
+        "The orchestrator tells the owner, and on the owner's own word the other goes ahead",
+        "or on the owner's machine with `--prepare` and `--collect` where the cloud cannot install the repo,",
+        "the step 2 reports there are, both, or the one rule 15 went on with,",
+        "but a fix check's brief puts the step 2 reports in its reading order,",
+        "and at a fix check when the owner has said a read will not come, step 3b.",
+        "the Claude reviews of steps 2 and 5 wait for their pins, the fix check follows step 3b's rule,",
+        "and whether the fix check of step 3b runs (when step 3 landed a fix of code, from the feature scale up,",
+        "and at spot scale when the scope is a trust boundary, as a Sol round is).",
+        "since v1.24.0 the third retrospective's changes",
+        "**The third retrospective**, the kdf-sdk's S3",
+    ):
+        assert words in process, f"the process lost {words!r}"
+    for words in (
+        "`Fix check Claude, after step 3`, `Fix check Codex, after step 3`",
+        "keeps both rows, each naming the other's id in The defect,",
+        "and the shared count lives in the retrospective alone.",
+        "| Found later, by the fix check, Sol, the final reviews or a second read |",
+        "| {Fresh Claude reviewer, Codex} | {Fix check, step 3b} |",
+    ):
+        assert words in key, f"the answer key template lost {words!r}"
+    assert "## 7b. The fix check's findings, `{PFX}-{slice}-FC-n` and `{PFX}-{slice}-FC-Cn`" in log
+    assert "A finding both reviewers made keeps a row in each section, each naming the other's id," in log
+    for words in (
+        "rule 15 lets it go on with the one report on the owner's own word, rule 11,",
+        "At the fix check, step 3b, a reader that cannot run is told to the owner, and only the owner's own word lets",
+        "the other read stand alone, with no later pin.",
+        "A fix check reader, step 3b, reads the step 2 reports its brief puts in scope,",
+        "and never the other fix check reader's report or the rows about it.",
+    ):
+        assert words in roles, f"the roles page lost {words!r}"
 
 
 def test_codex_in_the_rebuilt_cloud_needs_no_token_and_no_pull_request() -> None:
@@ -2672,6 +2792,61 @@ def test_the_retro_tool_places_a_late_orchestrator_finding_and_shows_how_it_read
     assert lines[lines.index(odd_row) + 1].startswith("| All |"), "an unplaced source sorts last"
     assert any(line.startswith("Escapes, agreed findings in the step 2 tree that a later source found, 4 of 5 (80%)")
                for line in lines)
+
+
+def test_the_retro_tool_places_both_fix_check_readers_after_step_2(tmp_path: Path) -> None:
+    """
+    The fix check of step 3b (D-076) adds two sources in the answer key template's words. Each reads as after step 2,
+    sorts after the step 2 reviews and before Sol, and counts an agreed finding in the step 2 tree as an escape. A
+    defect both readers raised keeps both rows, so each reader is credited, and a regression a fix brought in, no at the
+    step 2 pin, adds no escape. Both fix check reports appear in the reports table under their own step folder.
+    """
+    slice_ = tmp_path / "s1-example"
+    shutil.copytree(RETRO_SLICE, slice_)
+    step2    = slice_ / "step-2-review"
+    fixcheck = slice_ / "step-3-fix-check"
+    fixcheck.mkdir()
+    shutil.copy(step2 / "EX_REVIEW_S1_REPORT.md", fixcheck / "EX_REVIEW_S1_FIXCHECK_REPORT.md")
+    shutil.copy(step2 / "EX_REVIEW_S1_CODEX_REPORT.md", fixcheck / "EX_REVIEW_S1_FIXCHECK_CODEX_REPORT.md")
+    key     = slice_ / "EX_REVIEW_S1_ANSWER_KEY.md"
+    text    = key.read_text(encoding = "utf-8")
+    door    = (
+        "| EX-S1-FC-1 | Fix check Claude, after step 3 | claude-fable-5-1 | M | no | Agreed | `src/j.py:3` "
+        "| before the review | `iiiiiii` | yes | read the file at the pin | the repo alone | A door. | section 7b |"
+    )
+    shared  = (
+        "| EX-S1-FC-C1 | Fix check Codex, after step 3 | gpt-6 | M | no | Agreed | `src/j.py:3` | before the review "
+        "| `iiiiiii` | yes | read the file at the pin | the repo alone | The door, EX-S1-FC-1 too. | section 7b |"
+    )
+    regress = (
+        "| EX-S1-FC-2 | Fix check Claude, after step 3 | claude-fable-5-1 | L | no | Agreed | `src/k.py:8` "
+        "| `jjjjjjj` | `kkkkkkk` | no | the commit that brought it in | the repo alone | A regression. | section 7b |"
+    )
+    first   = next(row for row in text.splitlines() if row.startswith("| EX-S1-D1-R1-1 |"))
+    key.write_text(text.replace(first, door + "\n" + shared + "\n" + regress + "\n" + first), encoding = "utf-8")
+    done = _retro_tool(slice_)
+    assert done.returncode == 0, done.stderr
+    lines  = done.stdout.splitlines()
+    claude = "| Fix check Claude, after step 3 | after step 2 | 2 | 2 | 0 | 0 | 1 | 1 |"
+    codex  = "| Fix check Codex, after step 3 | after step 2 | 1 | 1 | 0 | 0 | 1 | 1 |"
+    sol    = "| Sol R1, dispatch 1 | Sol | 1 | 1 | 0 | 0 | 1 | 1 |"
+    for row in (claude, codex, sol, "| All | | 10 | 9 | 1 | 0 | 5 | 4 |"):
+        assert row in lines, f"missing {row!r} in\n{done.stdout}"
+    assert lines.index("| Step 2, Codex | step 2 | 1 | 0 | 1 | 0 | 0 | - |") < lines.index(claude)
+    assert lines.index(codex) < lines.index(sol)
+    assert not any("unplaced" in line for line in lines if line.startswith("| Fix check"))
+    assert any(line.startswith("Escapes, agreed findings in the step 2 tree that a later source found, 4 of 5 (80%)")
+               for line in lines)
+    steps = {
+        cells[1]: cells[0]
+        for cells in (
+            [cell.strip() for cell in line.strip().strip("|").split("|")]
+            for line in lines
+            if line.startswith("| step-")
+        )
+    }
+    assert steps["`EX_REVIEW_S1_FIXCHECK_REPORT.md`"] == "step-3-fix-check"
+    assert steps["`EX_REVIEW_S1_FIXCHECK_CODEX_REPORT.md`"] == "step-3-fix-check"
 
 
 def _checker(home: Path) -> subprocess.CompletedProcess[str]:

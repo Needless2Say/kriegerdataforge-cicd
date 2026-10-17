@@ -3930,3 +3930,63 @@ check, so a miss lets a later docs edit to that file merge with its lanes skippe
 reports skipped and passing. Every input is optional with a default that changes nothing, so a caller that passes none
 runs as before, a push, a schedule and a release among them. VERSION 0.2.156, `SCRIPTS_VERSION` 1.5.4, kit and cicd's
 own copies at v1.23.0.
+
+## D-076. The third retrospective's changes, three standing questions, the fix check and no fetch while Claude reads
+
+- **Date.** 2026-10-17
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Supersedes.** In part D-029's rule 15, "Both families, always", which now holds at step 2, the final reviews and
+  the second reads, the fix check following its own rule.
+- **Tier / scope:** Standard · `kit/common/docs/agent/CODE_REVIEW_PROCESS.md`, `AGENT_ROLES.md`, the brief, answer
+  key, adjudication, README and retrospective templates and their copies in `docs/agent/`, the tests · kit v1.24.0,
+  synced by the Distribute
+
+**Context.** The kdf-sdk's third slice closed with a retrospective, and the owner approved its five proposals, four
+of them the kit's, the other two sent to a design session. Three are classes of defect a step 2 brief did not ask
+about. A success test that reads that an outcome came and not its value passes against code that returns the wrong
+answer. Work handed to another thread or loop can lose what it needs there, and the test client never shows it. A
+stored secret can hold what no caller can send, or match what it should not. The fourth is the fix check, a read
+after step 3 that a review ran on trial in two slices, a fresh Claude reader and Codex asking of every fix whether
+every other door of its class is closed, which met its bar per reader each time it was measured.
+
+**Decision.**
+
+- **Three standing look for questions**, what a success test reads of its outcome, a hop to another thread or loop,
+  and what a stored secret holds, after the five of D-039 and D-061 and before the brief's own two. A thread hop is
+  probed under a server already installed in an environment the orchestrator names, started inside a test on
+  loopback, and a stored secret with a value the probe makes, never one an environment holds. The process says eight
+  standing questions and names them, and the template keeps all eight word for word in every brief.
+- **The fix check, step 3b**, when step 3 landed a fix of code, from the feature scale up and at spot scale for a
+  trust boundary. A fresh Claude reader and Codex in the cloud each read one brief at one pin of the fixed tree, its
+  folder `step-3-fix-check`, its files `_FIXCHECK_PROMPT.md`, `_FIXCHECK_REPORT.md` and `_FIXCHECK_CODEX_REPORT.md`,
+  its ids `-FC-n` and `-FC-Cn`, its branches `review/<pfx>-<slice>-fixcheck` and `-fixcheck-codex`. The brief is the
+  template's fix check form. Both reports are adjudicated before the first Sol round. A Blocks finding is named first
+  in that round's dispatch over its area. Each reader stays while it finds what the other does not, the slice's
+  retrospective proposing keep or end for the rest of that review.
+- **A reader that cannot run goes to the owner.** The orchestrator tells the owner which and why, and only the
+  owner's own word lets the other read stand alone, D-073, after which the freeze ends and that slice's bar is not
+  judged. Fable goes to the final reviews first when it is short. The Sol rounds and both final reviews still need
+  both families, and rule 15 says the owner's word lets one family go ahead there too, as the roles page does. Where
+  the cloud cannot install the repo, Codex reads the fix check on the owner's machine. A fix check reader reads the
+  step 2 reports its brief names, which the roles page now allows, and never the other fix check reader's.
+- **No fetch while a Claude read is open**, at any step. The launcher leaves remote tracking refs out of its check, so
+  a fetch would put a Codex report one `git show` away. The orchestrator checks for a Codex branch with `git ls-remote`
+  alone, keeps no editor open on the folder, and every brief names the Codex branch as one the Claude reader never
+  reads.
+- **The answer key and the log keep one row per finding.** A defect two readers of one step raised keeps both rows,
+  each naming the other, in the log as in the key, and the shared count lives in the retrospective. Its Source words
+  gain `Fix check Claude, after step 3` and `Fix check Codex, after step 3`, which `kdf-retro.js` already places after
+  step 2, so the tool is unchanged and a fixture test proves it.
+
+**Alternatives considered.**
+
+- *A joint answer key source for a defect both fix check readers raised.* Declined, the final reads already keep one
+  row per family, and a joint row would make the two steps count apart.
+- *Letting a brief mark a standing question "none in this scope".* Declined, a standing question exists so the
+  reviewer, not the brief's author, decides whether a scope holds its class.
+- *The slice going on alone when a fix check reader cannot run.* Declined, a wait ends on the owner's word, D-073.
+
+**Consequences.** Every brief written from kit v1.24.0 asks eight standing questions, and every slice whose step 3
+fixed code runs the fix check, at about a Claude read's and a Codex cloud read's cost. The numbers each change should
+move are in the review bench's ledger. No workflow and no tool changes. VERSION 0.2.157, kit and cicd's own copies at
+v1.24.0.

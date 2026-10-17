@@ -57,6 +57,7 @@ timeline.}
 | Date | Step | What happened | Files |
 | --- | --- | --- | --- |
 | {YYYY-MM-DD} | {Step 2} | {Claude and Codex read pin {sha}} | {Links to the brief and both reports} |
+| {YYYY-MM-DD} | {Step 3b, the fix check} | {Claude and Codex read pin {sha} of the fixed tree} | {Links to the fix check brief and both reports} |
 
 ## Pull requests
 

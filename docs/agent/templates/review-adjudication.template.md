@@ -6,9 +6,9 @@
 > verdict, the fix, the test and the mutant. Never delete a row, a wrong verdict is corrected by a new row that says
 > so. The process is [`../CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md), sections 4, 6 and 8. Delete this box
 > and every hint in braces when you fill a section. At spot scale the file is `{PFX}_REVIEW_ADJUDICATION.md` at the
-> root of the review folder, and it keeps
-> sections 0, 1, 5, 6, 7 and 11, and 8 to 10 when Sol runs. Each reviewer's section names the pin it read. A report is
-> read and its findings reproduced when it arrives, and its rows are written once both reports of the pin are in, or
+> root of the review folder, and it keeps sections 0, 1, 5, 6, 7 and 11, 7b when the fix check runs, and 8 to 10
+> when Sol runs. Each reviewer's section names the pin it read. A report is read and its findings reproduced when it
+> arrives, and its rows are written once both reports of the pin are in, or
 > when rule 15 goes on without the other family, so the second reviewer never reads them.
 
 > **Status.** {Steps done, with dates and the commit or pull request that carries each. Next step.}
@@ -64,7 +64,15 @@ many declined.}
 
 ## 7. The Codex review's findings, `{PFX}-{slice}-Cn`, adjudicated {date}
 
-{The same table, one row per Codex finding. A finding both reviewers made is one row that names both ids.}
+{The same table, one row per Codex finding. A finding both reviewers made keeps a row in each section, each naming
+the other's id, so the answer key restates the log row for row.}
+
+## 7b. The fix check's findings, `{PFX}-{slice}-FC-n` and `{PFX}-{slice}-FC-Cn`, adjudicated {date}
+
+{Step 3b, when it ran. The pin both readers read, then Claude's table and Codex's, the same columns, one row per
+finding of each reader. A defect both raised, shown by one reproduction, keeps both rows, each naming the other's id.
+A regression names the fix that brought it. When step 3 landed no fix of code, one line says so. When a reader did
+not run, which and why, and the owner's words that let the other stand alone.}
 
 ## 8. Step 4, the Sol dispatches
 
