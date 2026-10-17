@@ -14,10 +14,13 @@
 #   cancel-probe-lane, cancel-probe-local
 #                   D-075's proof of a cancel during the scan, the lane's caller never entered so its checks never
 #                   report, and the local job failed in its first step, which reads the scan's result
+#   postgres-lane-proof
+#                   D-077's proof of the Postgres lanes on the owner's mirror, the integration lane by a local
+#                   reference, its service's server_version_num held to the kept entry the lanes name
 #
 # Every job must pass before a PR can be merged. The owner sets them as required status checks in the repo's
-# ruleset for main. The two D-035 jobs run only where the secrets exist and are not required checks, and no ruleset
-# requires a D-075 probe.
+# ruleset for main. The two D-035 jobs run only where the secrets exist and are not required checks, no ruleset
+# requires a D-075 probe, and postgres-lane-proof is not a required check, the owner's choice of 2026-10-17.
 
 name: CI
 
@@ -206,6 +209,27 @@ jobs:
             echo ""
             echo "The scan ended $SCAN_RESULT and answered docs_only='$DOCS_ONLY', so this job ran."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # D-077. The Postgres lanes' proof, on the pull request itself, before any caller meets the lanes. The integration
+  #   lane by a local reference, so a pull request runs its own version of it, the three lanes' service blocks
+  #   differing by the database's name alone. It installs and migrates nothing, and its test reads the service's
+  #   server_version_num by host and port with psql, no password prompt and an SQL error failing it, held to the
+  #   kept entry the lanes' digest names, so a lane moved before its copy fails here on the missing image. It names
+  #   no secret, so it runs for a fork's pull request too, waits for the scan as a lane's caller does, and is not a
+  #   required check
+  postgres-lane-proof:
+    needs: [secret-scan]
+    if: ${{ !cancelled() }}
+    uses: ./.github/workflows/ci-python-integration.yml
+    with:
+      install_command: echo nothing to install
+      migrate_command: echo nothing to migrate
+      seed_command: ""
+      test_command: >-
+        number="$(PGPASSWORD=kdf psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 5432 -U kdf -d kdf_test -At
+        -c 'show server_version_num')" && echo "the lane's service reports server_version_num $number" &&
+        test "$number" = 160015
+      skip: ${{ needs.secret-scan.result == 'success' && needs.secret-scan.outputs.docs_only == 'true' }}
 
   # D-035's proof, on the pull request itself, before any repo depends on the change. The unit test lane, by a local
   # reference so the pull request's own version runs, with package access on. Its fetch job mirrors this public repo,

@@ -50,7 +50,7 @@ ECR_PUBLIC: str = "public.ecr.aws/docker/library/postgres"
 
 # the one image every Postgres lane names (D-077), ECR Public's gallery until the copier's run proved the mirror, then
 # the mirror. A way back is the lanes' lines and this constant, which stands apart from PINNED_IMAGE, D-065's
-LANE_IMAGE:  str = ECR_PUBLIC
+LANE_IMAGE:  str = MIRROR
 LANE_PINNED: re.Pattern[str] = re.compile(rf"^{re.escape(LANE_IMAGE)}@sha256:[0-9a-f]{{64}}$")
 
 # the one line that may name an image in a lane, a service's block key and the pinned reference, nothing after it
@@ -184,6 +184,27 @@ HUB:  str = "postgres:16"
 # two kept digests, the older first, for the cases of a bump's stages
 OLDER:  str = "sha256:" + "a" * 64
 NEWEST: str = "sha256:" + "b" * 64
+
+# the lanes' own proof in ci.yml (D-077), held whole, since a test command that never queried Postgres passed a
+# reading of its number alone (Codex's read). The integration lane called by a local reference, waiting for the scan
+# and taking its skip (D-075), installing and migrating nothing, and its test a psql read of the service by host and
+# port, an SQL error or another number failing it, held to the version of the kept entry the lanes' digest names
+LANE_PROOF:     str = "postgres-lane-proof"
+LANE_PROOF_JOB: tuple[str, ...] = (
+    "  postgres-lane-proof:",
+    "    needs: [secret-scan]",
+    "    if: ${{ !cancelled() }}",
+    "    uses: ./.github/workflows/ci-python-integration.yml",
+    "    with:",
+    "      install_command: echo nothing to install",
+    "      migrate_command: echo nothing to migrate",
+    '      seed_command: ""',
+    "      test_command: >-",
+    '        number="$(PGPASSWORD=kdf psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 5432 -U kdf -d kdf_test -At',
+    "        -c 'show server_version_num')\" && echo \"the lane's service reports server_version_num $number\" &&",
+    '        test "$number" = {version}',
+    "      skip: ${{ needs.secret-scan.result == 'success' && needs.secret-scan.outputs.docs_only == 'true' }}",
+)
 
 # ======================================================================================================================
 # Helpers
@@ -497,6 +518,64 @@ def test_the_postgres_services_name_one_image_each_and_the_same_one():
     images = {name: found for name, (found, _) in _workflows().items() if found}
 
     assert stage_faults(images, kept_digests(_text(COPIER))) == []
+
+
+def proof_held(ci: str, version: str) -> bool:
+    """
+    Whether a ci.yml holds the lanes' proof whole, expecting this ``server_version_num``.
+    """
+    jobs = _blocks(_block(_blocks(ci.splitlines(), 0), "jobs")[1:], 2)
+    return _block(jobs, LANE_PROOF) == [line.replace("{version}", version) for line in LANE_PROOF_JOB]
+
+
+def _lanes_version() -> str:
+    """
+    The ``server_version_num`` of the kept entry the lanes' one digest names, or none.
+    """
+    lanes   = {digest(image) for name, (found, _) in _workflows().items() if name != COPIER for image in found}
+    matched = [KEPT_ENTRY.match(entry) for entry in kept_entries(_text(COPIER))]
+    entries = {entry["digest"]: entry["version"] for entry in matched if entry}
+    return entries.get(next(iter(lanes)), "") if len(lanes) == 1 else ""
+
+
+def test_the_lane_proof_calls_the_integration_lane_and_expects_the_version_of_the_lanes_digest():
+    """
+    The lane is proven on cicd's own pull request before any caller meets it (D-077). A bump moves each lane's digest
+    and the version the proof expects together, so a lane moved to an entry the copier has not copied fails its own
+    pull request's proof, on the missing image. It waits for the scan as a lane's caller does and names no secret, so
+    it runs for a fork's pull request too.
+    """
+    version = _lanes_version()
+
+    assert version and proof_held(_text("ci.yml"), version)
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        # from Codex's read, a test command that never queries Postgres, and its connection or failure chain loosened
+        ("        number=\"$(PGPASSWORD=kdf psql", "        number=160015 && true \"$(PGPASSWORD=kdf psql"),
+        (" -h 127.0.0.1 -p 5432 ", " "),
+        (" -v ON_ERROR_STOP=1 ", " "),
+        ("$number\" &&\n        test", "$number\" ;\n        test"),
+        # another version, an install that runs code, a secret, or no wait for the scan
+        ('        test "$number" = ', '        test "$number" = 1'),
+        ("      install_command: echo nothing to install\n", "      install_command: pip install -r requirements.in\n"),
+        (
+            "    uses: ./.github/workflows/ci-python-integration.yml\n",
+            "    uses: ./.github/workflows/ci-python-integration.yml\n    secrets: inherit\n",
+        ),
+        (
+            "    if: ${{ !cancelled() }}\n    uses: ./.github/workflows/ci-python-integration",
+            "    uses: ./.github/workflows/ci-python-integration",
+        ),
+    ],
+)
+def test_a_lane_proof_out_of_its_shape_is_refused(old, new):
+    text = _text("ci.yml")
+    assert old in text, "each case changes a line the proof holds"
+
+    assert not proof_held(text.replace(old, new, 1), _lanes_version())
 
 
 @pytest.mark.parametrize(
