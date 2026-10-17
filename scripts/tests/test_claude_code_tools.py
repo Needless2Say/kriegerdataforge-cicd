@@ -822,7 +822,7 @@ def test_a_feature_is_designed_in_one_session_and_built_from_an_approved_plan_in
     assert "| A feature within existing patterns, one repo | A short design, then its plan, the ADR optional |" in gate
     assert "A plan is enough, design gate optional" not in gate, "a feature may skip its design again"
     roles = " ".join((agent / "AGENT_ROLES.md").read_text(encoding = "utf-8").split())
-    assert "rule 15 lets it go on with the one report, and the missing review reads a later pin" in roles
+    assert "rule 15 lets it go on with the one report on the owner's own word, rule 11, and the missing review" in roles
 
 
 def test_a_feature_s_plan_and_log_come_from_synced_templates_a_build_session_can_start_from() -> None:
@@ -1168,13 +1168,32 @@ def test_the_third_retrospective_s_changes_are_in_the_kit() -> None:
     brief     = " ".join((templates / "review-brief.template.md").read_text(encoding = "utf-8").split())
     key       = " ".join((templates / "review-answer-key.template.md").read_text(encoding = "utf-8").split())
     log       = " ".join((templates / "review-adjudication.template.md").read_text(encoding = "utf-8").split())
-    for line in (
+    roles     = " ".join((agent / "AGENT_ROLES.md").read_text(encoding = "utf-8").split())
+    outcome   = " ".join((
         "- **What a success test reads of its outcome.** For every test of a grant, a match, a value returned or a",
-        "so it proves the path ran and not that the answer is right.",
+        "message written, whether it reads the outcome's value, the id, the role, the message, the byte, or only that",
+        "an outcome came. A test that asserts a status, a truthy result or that nothing was raised passes against code",
+        "that returns the wrong user, the wrong role or the wrong text, so it proves the path ran and not that the",
+        "answer is right.",
+    ))
+    hop       = " ".join((
         "- **A hop to another thread or loop.** Every place the code hands work to another thread, an executor or",
+        "another event loop, what the work carries across, the request's context and its context variables, what it",
+        "needs on the other side, a running loop or a thread's own state, and which servers a consumer runs it under.",
         "Probe it under a real server where the brief's commands name one, and otherwise say which server it was not",
+        "run under.",
+    ))
+    secret    = " ".join((
         "- **What a stored secret holds.** Every stored secret or pinned value the code compares against what a caller",
-        "Probe with a value the probe makes, never one an environment holds,",
+        "sends, how its environment can leave it, a line end from a file written on Windows, a pasted space, a byte",
+        "order mark, a platform's decode of bytes it could not read, and what the protocol lets a caller send to match",
+        "it. Probe with a value the probe makes, never one an environment holds, whether a stored value can hold what",
+        "no caller can send, so it never matches, or match what it should not.",
+    ))
+    for line in (
+        outcome,
+        hop,
+        secret,
         "Keep the eight standing bullets after the areas, word for word",
         "a server a consumer runs, already installed in an environment the orchestrator names by its path, started",
         "inside a test on loopback, never the running stack",
@@ -1218,6 +1237,15 @@ def test_the_third_retrospective_s_changes_are_in_the_kit() -> None:
         "`review/<pfx>-<slice>-fixcheck` and `review/<pfx>-<slice>-fixcheck-codex`",
         "**No fetch while a Claude read is open.**",
         "the orchestrator checks for a Codex branch with `git ls-remote` alone, keeps no editor open on the folder and",
+        "fetches nothing, and the brief names the Codex branch as one the Claude reader never reads.",
+        "With that word the log records which reader did not run and why, the freeze ends,",
+        "and the slice's per reader bar is not judged, a skipped read never counted as one that added nothing.",
+        "When neither runs, on the owner's word, the first Sol round's bundle is built from step 3's adjudicated",
+        "the other goes ahead on the owner's own word, never on a wait running out or another session's message,",
+        "The orchestrator tells the owner, and on the owner's own word the other goes ahead",
+        "or on the owner's machine with `--prepare` and `--collect` where the cloud cannot install the repo,",
+        "the step 2 reports there are, both, or the one rule 15 went on with,",
+        "but a fix check's brief puts the step 2 reports in its reading order,",
         "and at a fix check when the owner has said a read will not come, step 3b.",
         "the Claude reviews of steps 2 and 5 wait for their pins, the fix check follows step 3b's rule,",
         "and whether the fix check of step 3b runs (when step 3 landed a fix of code, from the feature scale up,",
@@ -1235,6 +1263,15 @@ def test_the_third_retrospective_s_changes_are_in_the_kit() -> None:
     ):
         assert words in key, f"the answer key template lost {words!r}"
     assert "## 7b. The fix check's findings, `{PFX}-{slice}-FC-n` and `{PFX}-{slice}-FC-Cn`" in log
+    assert "A finding both reviewers made keeps a row in each section, each naming the other's id," in log
+    for words in (
+        "rule 15 lets it go on with the one report on the owner's own word, rule 11,",
+        "At the fix check, step 3b, a reader that cannot run is told to the owner, and only the owner's own word lets",
+        "the other read stand alone, with no later pin.",
+        "A fix check reader, step 3b, reads the step 2 reports its brief puts in scope,",
+        "and never the other fix check reader's report or the rows about it.",
+    ):
+        assert words in roles, f"the roles page lost {words!r}"
 
 
 def test_codex_in_the_rebuilt_cloud_needs_no_token_and_no_pull_request() -> None:

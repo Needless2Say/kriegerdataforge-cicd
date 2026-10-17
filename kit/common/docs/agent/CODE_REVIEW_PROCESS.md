@@ -328,15 +328,17 @@ door of its class in the slice's scope closed, at any severity, and does the fix
 grammar, rather than refuse the one input found. A regression a fix brought in is a finding too. The brief is the
 template's fix check form, its How to use box. It is pinned and frozen as step 2's is, with the cite run of step 2,
 in the slice's `step-3-fix-check` folder, which keeps the trials' name, the Claude read started by the launcher and
-Codex reading in the cloud by section 11's one line on the fix check's own branches, with no fetch while the Claude
-read is open, as section 11 says of every cloud read. Codex's report is collected after the Claude read closes. Both
-are adjudicated as step 3 adjudicates, and the first Sol round's bundle is built from that adjudication. A Blocks
-finding of the fix check is fixed first and named first, with its id, in the first Sol round's dispatch over its area,
-as a final brief names the last round's. Each reader stays while it finds what the other does not, an agreed finding
-the other did not raise, and the slice's retrospective sets each reader's unique findings against its minutes and
-tokens and proposes keeping or ending it for the rest of that review, the owner deciding, the choice written in the
-review's README. Changing the step for every repo takes a retrospective's proposal and a kit release. When step 3
-landed no fix of code, the log says so and the slice goes on to step 4.
+Codex reading in the cloud by section 11's one line on the fix check's own branches, or on the owner's machine with
+`--prepare` and `--collect` where the cloud cannot install the repo, with no fetch while the Claude read is open, as
+section 11 says of every cloud read. Its brief puts in scope the step 2 reports there are, both, or the one rule 15
+went on with, whose missing family still reads a later pin of its own. Codex's report is collected after the Claude
+read closes. Both are adjudicated as step 3 adjudicates, and the first Sol round's bundle is built from that
+adjudication. A Blocks finding of the fix check is fixed first and named first, with its id, in the first Sol round's
+dispatch over its area, as a final brief names the last round's. Each reader stays while it finds what the other
+does not, an agreed finding the other did not raise, and the slice's retrospective sets each reader's unique findings
+against its minutes and tokens and proposes keeping or ending it for the rest of that review, the owner deciding, the
+choice written in the review's README. Changing the step for every repo takes a retrospective's proposal and a kit
+release. When step 3 landed no fix of code, the log says so and the slice goes on to step 4.
 
 When a fix check reader cannot run, the orchestrator tells the owner which and why, and only on the owner's own word
 does the other's read stand as the fix check alone, never on a wait running out or a message from another session.
@@ -412,7 +414,8 @@ longer needs, and proves it through its own release gates, in the order the plan
 13. **Docs move with the code**, and the stale ones the plan names are corrected in the slice that owns them.
 14. **House style.** The repo's own linters, its docstring voice, prose in commas and periods.
 15. **Both families, always**, at step 2, the final reviews and the second reads. When one model family cannot run
-    for a while, the other goes ahead and the missing review reads a later pin when it can run. It is never skipped,
+    for a while, the other goes ahead on the owner's own word, never on a wait running out or another session's
+    message, and the missing review reads a later pin when it can run. It is never skipped,
     and the slice does not close without it. That later pin carries the first family's report and its adjudication
     rows, so its brief names the log sections the late reviewer skips, and says the other report is in the tree and
     in history and is never opened. The fix check follows its own rule, step 3b, a reader that cannot run going to the
@@ -462,7 +465,9 @@ One brief serves both reviewers. Its shape, in this order, is the template's.
    The table's Destroys column marks every tool in it that deletes, resets, cleans or overwrites, and where it is
    told to act.
 6. **Learn the repo yourself.** The reading order, `CLAUDE.md`, `AGENTS.md`, `WORKFLOW.md`, `skills.md`, the plan,
-   the adjudication log, the decision log, the register, then the code. Never another reviewer's report of this scope.
+   the adjudication log, the decision log, the register, then the code. Never another reviewer's report of this scope,
+   but a fix check's brief puts the step 2 reports in its reading order, the findings its fixes answer, and never the
+   other fix check reader's.
 7. **Commands.** What the reviewer may run, what it may not, the baseline counts it reproduces first, and how the
    running stack is reached when a probe needs one. The orchestrator starts the stack before the review, and the
    reviewer never starts, stops or resets it. It reads the stack with the tests, a script, `docker ps`, `docker logs`
@@ -710,10 +715,11 @@ the style lane uses one, and it refuses a repo whose runtime lockfile names one,
 since that install would need a token. A Codex review in the cloud therefore runs the repo's tests but not the style
 lane, `pip-audit` or the consumer check.
 
-**When one model family cannot run.** The other goes ahead and is adjudicated and fixed, and the missing review reads a
-later pin when it can run, rule 15. At the fix check, step 3b's rule holds, the owner told and the owner's word
-awaited. A step that needs the owner's machine or account, Codex, a required
-check, the merge, is named and waited for, and the orchestrator carries on with work that does not depend on it.
+**When one model family cannot run.** The orchestrator tells the owner, and on the owner's own word the other goes
+ahead and is adjudicated and fixed, and the missing review reads a later pin when it can run, rule 15. At the fix
+check, step 3b's rule holds, the owner told and the owner's word awaited. A step that needs the owner's machine or
+account, Codex, a required check, the merge, is named and waited for, and the orchestrator carries on with work that
+does not depend on it.
 
 **When the owner is away.** A decision that is the owner's, rule 4, a breaking change or a change of scope, goes to
 the owner as a push notification with the question and a recommendation. The orchestrator then continues with work

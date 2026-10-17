@@ -15,7 +15,8 @@
 > severity, and whether the fix changes the rule rather than refusing the one input found, and says a regression is a
 > finding. "The commit" confirms `HEAD~{n}` for as many commits as the pin sits above the state, sizes the fixes' delta
 > between the commit that brought both step 2 reports in and the last fix, and names the Codex branch
-> `review/{pfx}-{slice}-fixcheck-codex`. Both step 2 reports are in the scope and the reading order. A table of the
+> `review/{pfx}-{slice}-fixcheck-codex`. The step 2 reports, both or the one rule 15 went on with, are in the scope
+> and the reading order, as `AGENT_ROLES.md` section 5 lets a fix check reader read them. A table of the
 > fixes stands before the look for list, each fix's findings, its class in one line, where it landed and what pins it,
 > and the list opens with the other doors of each class and regressions. An evidence section holds the orchestrator's
 > own checks of each fix, with their inputs, results and limits, for a reader to challenge and never settled. The

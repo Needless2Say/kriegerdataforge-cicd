@@ -3937,9 +3937,9 @@ own copies at v1.23.0.
 - **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
 - **Supersedes.** In part D-029's rule 15, "Both families, always", which now holds at step 2, the final reviews and
   the second reads, the fix check following its own rule.
-- **Tier / scope:** Standard · `kit/common/docs/agent/CODE_REVIEW_PROCESS.md`, the brief, answer key, adjudication,
-  README and retrospective templates and their copies in `docs/agent/`, the tests · kit v1.24.0, synced by the
-  Distribute
+- **Tier / scope:** Standard · `kit/common/docs/agent/CODE_REVIEW_PROCESS.md`, `AGENT_ROLES.md`, the brief, answer
+  key, adjudication, README and retrospective templates and their copies in `docs/agent/`, the tests · kit v1.24.0,
+  synced by the Distribute
 
 **Context.** The kdf-sdk's third slice closed with a retrospective, and the owner approved its five proposals, four
 of them the kit's, the other two sent to a design session. Three are classes of defect a step 2 brief did not ask
@@ -3966,15 +3966,17 @@ every other door of its class is closed, which met its bar per reader each time 
 - **A reader that cannot run goes to the owner.** The orchestrator tells the owner which and why, and only the
   owner's own word lets the other read stand alone, D-073, after which the freeze ends and that slice's bar is not
   judged. Fable goes to the final reviews first when it is short. The Sol rounds and both final reviews still need
-  both families.
+  both families, and rule 15 says the owner's word lets one family go ahead there too, as the roles page does. Where
+  the cloud cannot install the repo, Codex reads the fix check on the owner's machine. A fix check reader reads the
+  step 2 reports its brief names, which the roles page now allows, and never the other fix check reader's.
 - **No fetch while a Claude read is open**, at any step. The launcher leaves remote tracking refs out of its check, so
   a fetch would put a Codex report one `git show` away. The orchestrator checks for a Codex branch with `git ls-remote`
   alone, keeps no editor open on the folder, and every brief names the Codex branch as one the Claude reader never
   reads.
-- **The answer key keeps one row per finding.** A defect two readers of one step raised keeps both rows, each naming
-  the other, and the shared count lives in the retrospective. Its Source words gain `Fix check Claude, after step 3`
-  and `Fix check Codex, after step 3`, which `kdf-retro.js` already places after step 2, so the tool is unchanged and a
-  fixture test proves it.
+- **The answer key and the log keep one row per finding.** A defect two readers of one step raised keeps both rows,
+  each naming the other, in the log as in the key, and the shared count lives in the retrospective. Its Source words
+  gain `Fix check Claude, after step 3` and `Fix check Codex, after step 3`, which `kdf-retro.js` already places after
+  step 2, so the tool is unchanged and a fixture test proves it.
 
 **Alternatives considered.**
 

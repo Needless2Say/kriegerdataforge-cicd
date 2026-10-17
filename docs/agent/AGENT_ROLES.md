@@ -108,9 +108,12 @@ Everything an implementer may, and in addition write and pin review briefs, star
 reviewer's turn in the repo folder with the launcher, adjudicate their reports, and notify the owner. From a review's
 pin until both reports of it are in, it changes nothing in that folder, no edit, commit, checkout or stash, and it
 writes a report's adjudication rows only then, so the second reviewer never reads them. Where one model family cannot
-run for a while, [`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md) rule 15 lets it go on with the one report, and the
-missing review reads a later pin. It never reviews its own work in place of a fresh reviewer, never edits a reviewer's
-report, and never skips a model family's review, it waits for it or has it read at that later pin.
+run for a while at step 2, the final reviews or a second read, [`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md)
+rule 15 lets it go on with the one report on the owner's own word, rule 11, and the missing review reads a later pin.
+At the fix check, step 3b, a reader that cannot run is told to the owner, and only the owner's own word lets the other
+read stand alone, with no later pin. It never reviews its own work in place of a fresh reviewer, never edits a
+reviewer's report, and never skips a model family's review of step 2, the final reviews or a second read, it waits
+for it or has it read at that later pin.
 
 **The supporting session** is an implementer started beside the orchestrator. It works from the orchestrator's
 handoffs, each carrying the finding, the evidence that proves it, what is already done, what would prove the fix and
@@ -152,7 +155,9 @@ branch, is the only git write allowed. Use the GitHub CLI or API. Install or
 download anything, a web fetch or search included. Redirect output into a file outside `docs/reviews/`. Use
 connectors, artifacts, messages, schedules or notifications. Run a recursive `grep`, `rg -u` or `--no-ignore`,
 `git grep --no-index` or `git diff --no-index`, which read what `.gitignore` excludes. Open another reviewer's report of the same scope, the adjudication rows about it, or
-anything under `.git/kdf-review`, where the launcher holds a report while a review is open.
+anything under `.git/kdf-review`, where the launcher holds a report while a review is open. A fix check reader, step
+3b, reads the step 2 reports its brief puts in scope, the findings its fixes answer, and never the other fix check
+reader's report or the rows about it.
 
 **Finish** by writing the report in the shape of
 [`templates/review-report.template.md`](templates/review-report.template.md). A probe a rule blocks goes under

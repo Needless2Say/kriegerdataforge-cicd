@@ -64,7 +64,8 @@ many declined.}
 
 ## 7. The Codex review's findings, `{PFX}-{slice}-Cn`, adjudicated {date}
 
-{The same table, one row per Codex finding. A finding both reviewers made is one row that names both ids.}
+{The same table, one row per Codex finding. A finding both reviewers made keeps a row in each section, each naming
+the other's id, so the answer key restates the log row for row.}
 
 ## 7b. The fix check's findings, `{PFX}-{slice}-FC-n` and `{PFX}-{slice}-FC-Cn`, adjudicated {date}
 
