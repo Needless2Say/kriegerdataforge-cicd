@@ -45,7 +45,9 @@ Every change an earlier retrospective proposed and the owner approved is an expe
 | {D-NNN, a look for line on secret handling} | {S1's retrospective} | {escapes of that class} | {two before, none here} | {keep} |
 
 {Before the first retrospective of a campaign, list the changes the kit made since the last review that this one is
-the first to run under, from the ledger.}
+the first to run under, from the ledger. When the fix check ran, one row for each of its readers, its unique findings,
+an agreed finding the other did not raise, against its minutes and tokens, and keep or end for the rest of the review,
+or not judged when a reader did not run.}
 
 ## 5. Proposals
 

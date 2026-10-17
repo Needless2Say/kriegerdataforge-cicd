@@ -11,7 +11,8 @@
 > before every pin, two more standing look for questions and a pair of mutants for every number a rule reads, and
 > since v1.21.0 a pin's freeze that gives way where rule 15 lets one family go ahead, and since v1.22.0 a handoff
 > talked through with the owner and kept in a backlog for a design session and a build session, built by the
-> supporting session only on the owner's word. Kept
+> supporting session only on the owner's word, and since v1.24.0 the third retrospective's changes, three more
+> standing look for questions and the fix check as step 3b, with no fetch while a Claude read is open. Kept
 > byte identical across every KDF repo by the kit sync engine,
 > canonical source `kriegerdataforge-cicd/kit/common/docs/agent/CODE_REVIEW_PROCESS.md`. Never edit a synced copy,
 > change the canonical one. The tooling that keeps the process safe, the guard, the reviewer
@@ -50,8 +51,9 @@ rule hold. Reviewers are read only and write only their report. Sessions never m
 it.
 
 **What the scale changes.** Whether there is a plan, how many slices and Sol rounds, whether Phase B runs (from the
-feature scale up, when there is more than one slice), and whether steps 1b and 1c and Phase C run (a shared library or
-platform, at any scale).
+feature scale up, when there is more than one slice), whether steps 1b and 1c and Phase C run (a shared library or
+platform, at any scale), and whether the fix check of step 3b runs (when step 3 landed a fix of code, from the feature
+scale up, and at spot scale when the scope is a trust boundary, as a Sol round is).
 
 **Choosing.** Take the smallest scale that covers the owner's question. A spot review that finds its scope is wider
 grows into a feature or repo review, and its files become the first slice's. A repo review whose seam matters most
@@ -150,6 +152,10 @@ docs/reviews/
         SDK_REVIEW_S1_PROMPT.md                    the brief, committed in the pin
         SDK_REVIEW_S1_REPORT.md                    the fresh Claude review
         SDK_REVIEW_S1_CODEX_REPORT.md              the Codex review
+      step-3-fix-check/                            the fix check of step 3b, when it runs
+        SDK_REVIEW_S1_FIXCHECK_PROMPT.md
+        SDK_REVIEW_S1_FIXCHECK_REPORT.md
+        SDK_REVIEW_S1_FIXCHECK_CODEX_REPORT.md
       step-4-sol/
         round-1/
           SDK_REVIEW_S1_SOL_R1_D1_PROMPT.md        each dispatch, word for word as it was sent
@@ -173,9 +179,9 @@ docs/reviews/
 - **A slice folder** is `s1-<name>`, `s2-<name>` and on, `x1-<name>` for a seam slice, and `phase-b`. A spot review has
   none, its step folders and its log sit in the review folder itself.
 - **A step folder** is named by the cycle's step, section 4, so the folders sort in the order the review ran. Only the
-  steps that send a prompt or receive a report or an answer get one, `step-2-review`, `step-4-sol` with a `round-<n>`
-  folder per round, `step-5-final`, and `step-5-second-read-<n>` with its own brief and reports. Steps 0, 1, 1b, 1c, 3
-  and 6 leave code, tests and rows, and the adjudication log is their record.
+  steps that send a prompt or receive a report or an answer get one, `step-2-review`, `step-3-fix-check` for step 3b,
+  `step-4-sol` with a `round-<n>` folder per round, `step-5-final`, and `step-5-second-read-<n>` with its own brief and
+  reports. Steps 0, 1, 1b, 1c, 3 and 6 leave code, tests and rows, and the adjudication log is their record.
 - **The adjudication log** sits at the slice root, since it spans every step. Any other file a step writes, the upgrade
   notes of step 1c for one, sits beside it as `<PFX>_REVIEW_<slice>_<WHAT>.md`. The answer key, section 8, sits there
   too, written once when the slice closes, and the retrospective, section 14, written after it.
@@ -198,6 +204,8 @@ README whenever a step closes.
 | Brief | `<PFX>_REVIEW_<slice>_PROMPT.md` | `step-2-review` | Orchestrator, one brief for both reviewers |
 | Claude report | `<PFX>_REVIEW_<slice>_REPORT.md` | Beside the brief | Fresh Claude reviewer |
 | Codex report | `<PFX>_REVIEW_<slice>_CODEX_REPORT.md` | Beside the brief | Codex |
+| Fix check brief | `<PFX>_REVIEW_<slice>_FIXCHECK_PROMPT.md` | `step-3-fix-check` | Orchestrator, one brief for both readers, step 3b |
+| Fix check reports | `<PFX>_REVIEW_<slice>_FIXCHECK_REPORT.md`, `..._FIXCHECK_CODEX_REPORT.md` | Beside the fix check brief | Fresh Claude reviewer, Codex |
 | Adjudication log | `<PFX>_REVIEW_<slice>_ADJUDICATION.md` | The slice folder | Orchestrator, one row per finding from every source |
 | Answer key | `<PFX>_REVIEW_<slice>_ANSWER_KEY.md` | The slice folder, beside the log | Orchestrator, at step 6 when the slice closes, from the finished log and git |
 | Retrospective | `<PFX>_REVIEW_<slice>_RETRO.md` | The slice folder, beside the answer key | Orchestrator, at step 6 after the answer key, its numbers printed by `kdf-retro.js`, section 14 |
@@ -211,13 +219,15 @@ README whenever a step closes.
 | Decisions | `docs/CHANGELOG_AND_DECISION_LOG.md`, the next `D-NNN` | The repo root's `docs/` | Orchestrator |
 
 A finding id names its source, so an adjudication row can always be traced. The orchestrator's own findings are
-`S1-3`. A fresh Claude review is `<PFX>-S1-3`, Codex is `<PFX>-S1-C3`, a Sol finding is `<PFX>-S1-D2-R1-3` for
-dispatch 2 round 1, and a final review is `<PFX>-S1-FIN-3` for Claude and `<PFX>-S1-FIN-C3` for Codex.
+`S1-3`. A fresh Claude review is `<PFX>-S1-3`, Codex is `<PFX>-S1-C3`, a fix check is `<PFX>-S1-FC-3` for Claude and
+`<PFX>-S1-FC-C3` for Codex, a Sol finding is `<PFX>-S1-D2-R1-3` for dispatch 2 round 1, and a final review is
+`<PFX>-S1-FIN-3` for Claude and `<PFX>-S1-FIN-C3` for Codex.
 
 **At spot scale** there is no plan and no slice. `<PFX>` names the scope, `SDK_JWKS` for a module or `HUB_PR412` for a
 pull request, and the files are `<PFX>_REVIEW_PROMPT.md`, `_REPORT.md`, `_CODEX_REPORT.md`, `_ADJUDICATION.md`,
-`_ANSWER_KEY.md` and `_RETRO.md`, with finding ids `<PFX>-3` and `<PFX>-C3`. They sit in the same step folders,
-straight under the review folder.
+`_ANSWER_KEY.md` and `_RETRO.md`, with finding ids `<PFX>-3` and `<PFX>-C3`, and a fix check's
+`<PFX>_REVIEW_FIXCHECK_PROMPT.md`, `_FIXCHECK_REPORT.md` and `_FIXCHECK_CODEX_REPORT.md`, with ids `<PFX>-FC-3` and
+`<PFX>-FC-C3`. They sit in the same step folders, straight under the review folder.
 
 **Across repos** the slice ids are unique in the campaign, the plan maps each to its repo, and each slice's folder
 lives in the repo it reads, inside a review folder with the same `<YYYY-MM-DD>-<scope>` name in every repo. The lead
@@ -238,10 +248,10 @@ when this layout arrived moves into its folder with its next pull request.
 **The archive is also a benchmark.** A closed slice holds a brief, the commit it pinned, every report of that commit
 and an answer key that says which defects the commit held, so any model can later be given the same brief at the same
 commit and its report scored against the key, alone or beside other models. Only reports of the same commit compare
-fairly. Step 2, step 5 and each second read read one pin, while each Sol round reads a later commit, after the fixes
-of the rounds before it. Runs of other models made later, to compare them, never go into `docs/reviews/`. That folder
-is the record of what the review did, and a later reviewer reads it, so a benchmark keeps its runs and its scores in a
-place of its own and copies the keys it needs.
+fairly. Step 2, the fix check, step 5 and each second read read one pin, while each Sol round reads a later commit,
+after the fixes of the rounds before it. Runs of other models made later, to compare them, never go into
+`docs/reviews/`. That folder is the record of what the review did, and a later reviewer reads it, so a benchmark keeps
+its runs and its scores in a place of its own and copies the keys it needs.
 
 ## 4. The cycle every slice goes through
 
@@ -312,9 +322,34 @@ report, and every scratch note or probe that reviewer left in the brief's folder
 where only the orchestrator opens them, reads the report, reproduces its findings and plans. The rows are written and the fixes start once both reports of the pin are in, or when rule 15 goes on without
 the other family.
 
+**Step 3b. The fix check**, when step 3 landed a fix of code. Once step 3's fixes are pushed, a fresh Claude reviewer
+and Codex each read one brief at one pin of the fixed tree and ask two questions of every step 3 fix. Is every other
+door of its class in the slice's scope closed, at any severity, and does the fix change the rule, an allowlist or a
+grammar, rather than refuse the one input found. A regression a fix brought in is a finding too. The brief is the
+template's fix check form, its How to use box. It is pinned and frozen as step 2's is, with the cite run of step 2,
+in the slice's `step-3-fix-check` folder, which keeps the trials' name, the Claude read started by the launcher and
+Codex reading in the cloud by section 11's one line on the fix check's own branches, with no fetch while the Claude
+read is open, as section 11 says of every cloud read. Codex's report is collected after the Claude read closes. Both
+are adjudicated as step 3 adjudicates, and the first Sol round's bundle is built from that adjudication. A Blocks
+finding of the fix check is fixed first and named first, with its id, in the first Sol round's dispatch over its area,
+as a final brief names the last round's. Each reader stays while it finds what the other does not, an agreed finding
+the other did not raise, and the slice's retrospective sets each reader's unique findings against its minutes and
+tokens and proposes keeping or ending it for the rest of that review, the owner deciding, the choice written in the
+review's README. Changing the step for every repo takes a retrospective's proposal and a kit release. When step 3
+landed no fix of code, the log says so and the slice goes on to step 4.
+
+When a fix check reader cannot run, the orchestrator tells the owner which and why, and only on the owner's own word
+does the other's read stand as the fix check alone, never on a wait running out or a message from another session.
+With that word the log records which reader did not run and why, the freeze ends, and the slice's per reader bar is
+not judged, a skipped read never counted as one that added nothing. When neither runs, on the owner's word, the first
+Sol round's bundle is built from step 3's adjudicated fixes. When Fable is short it goes to the final reviews first. A
+launcher run still open, or one that closed with an error, keeps every check it has, and the freeze holds until it is
+closed. Rule 15 holds for the Sol rounds and both final reviews after it.
+
 **Step 4. Sol dispatches.** Section 9. Three rounds for the trust slices, authentication, authorization and every
 boundary that faces a caller. One round for the rest. Each round is adjudicated as step 3 is, and its dispatches and
-answers are kept in its own `step-4-sol/round-<n>` folder.
+answers are kept in its own `step-4-sol/round-<n>` folder. The first round follows the fix check's adjudication, or
+step 3's when no fix check ran.
 
 **Step 5. The final reviews.** A read only brief over the slice as it stands, in the slice's `step-5-final` folder,
 pinned the same way, with the whole cycle's settled list, run by a fresh Claude session and by Codex, each writing its
@@ -326,7 +361,7 @@ in it.
 
 **Step 6. Close the slice.** Every gate green, the mutation table all killed, the consumer check green, the docs
 current, the ADRs, register rows and adjudication log complete, every handoff of the slice listed in the log by its
-route and its state, an open backlog item by its link, every review of steps 2 and 5 adjudicated, every
+route and its state, an open backlog item by its link, every review of steps 2, 3b and 5 adjudicated, every
 prompt and answer of the slice in its folder, the answer key and the retrospective written, section 14, and the
 review's README current. On the
 slice's branch the orchestrator bumps the version with the repo's make target, commits, pushes and opens the pull
@@ -376,10 +411,13 @@ longer needs, and proves it through its own release gates, in the order the plan
     nothing else `.gitignore` covers, `AGENT_ROLES.md` rules 5 and 6. It reviews what git tracks.
 13. **Docs move with the code**, and the stale ones the plan names are corrected in the slice that owns them.
 14. **House style.** The repo's own linters, its docstring voice, prose in commas and periods.
-15. **Both families, always.** When one model family cannot run for a while, the other goes ahead and the missing
-    review reads a later pin when it can run. It is never skipped, and the slice does not close without it. That later
-    pin carries the first family's report and its adjudication rows, so its brief names the log sections the late
-    reviewer skips, and says the other report is in the tree and in history and is never opened.
+15. **Both families, always**, at step 2, the final reviews and the second reads. When one model family cannot run
+    for a while, the other goes ahead and the missing review reads a later pin when it can run. It is never skipped,
+    and the slice does not close without it. That later pin carries the first family's report and its adjudication
+    rows, so its brief names the log sections the late reviewer skips, and says the other report is in the tree and
+    in history and is never opened. The fix check follows its own rule, step 3b, a reader that cannot run going to the
+    owner, whose word alone lets the other read stand, and the Sol rounds and both final reviews after it still need
+    both families.
 
 ## 6. Severity, and what blocks
 
@@ -411,7 +449,9 @@ One brief serves both reviewers. Its shape, in this order, is the template's.
 3. **The commit.** The state commit, which the brief can name, the pin, the commit that adds the brief on top of it,
    which the brief describes since no commit holds its own hash, the slice's branch that holds them, the tip they sit
    on, and for Codex in the cloud a separate review branch, `review/<pfx>-<slice>`, that never moves off the pin, and
-   the branch Codex makes from the pin for its report, `review/<pfx>-<slice>-codex`, section 11.
+   the branch Codex makes from the pin for its report, `review/<pfx>-<slice>-codex`, section 11, which the brief
+   names as one the Claude reader never reads. A fix check's two are `review/<pfx>-<slice>-fixcheck` and
+   `review/<pfx>-<slice>-fixcheck-codex`.
    `kdf-brief.js facts`, run on the state before the brief's own commit, prints them. The reviewer confirms that
    `git rev-parse HEAD` is the pin and
    `git rev-parse HEAD~1` the state commit before anything else, and sizes the slice's delta with
@@ -428,11 +468,12 @@ One brief serves both reviewers. Its shape, in this order, is the template's.
    reviewer never starts, stops or resets it. It reads the stack with the tests, a script, `docker ps`, `docker logs`
    and `curl` to this machine, `AGENT_ROLES.md` section 5. It reads no secret file, rule 5 there, and prints no value.
 8. **Settled.** Numbered, with the reasons, so a reviewer does not re-derive a decision.
-9. **Look for.** A starting list, by area. A question becomes a finding only when a probe proves it. Five standing
+9. **Look for.** A starting list, by area. A question becomes a finding only when a probe proves it. Eight standing
    questions close every list, word for word from the template, the paths a tool acts on, the environment a child is
-   handed, two parsers of one string, what pins a constant, and whose text a message carries. The kdf-sdk's first
+   handed, two parsers of one string, what pins a constant, whose text a message carries, what a success test reads
+   of its outcome, a hop to another thread or loop, and what a stored secret holds. The kdf-sdk's first
    retrospective found 26 of its 43 escapes in the first three classes, each one read past by a step 2 brief that did
-   not ask, and its second retrospective added the last two.
+   not ask, and its second retrospective added the next two, and its third the last three.
 10. **Rules of evidence.** Probe, quote the line, reproduce, and put what cannot be settled under "Could not settle".
 11. **The report.** Section 8.
 
@@ -569,7 +610,7 @@ needed.
 
 **A fresh Claude reviewer.** The orchestrator runs the launcher from any folder, with the repo checked out at the pin.
 `<step>` is the step folder of section 3, `docs/reviews/<YYYY-MM-DD>-<scope>/<slice folder>/step-2-review`
-for example, and the brief and both reports sit in it.
+for example, or `step-3-fix-check` for a fix check, and the brief and both reports sit in it.
 
 ```text
 bash <cicd>/tools/claude-code/kdf-review.sh --repo <repo root> --brief <step>/<brief> \
@@ -634,16 +675,25 @@ bash <cicd>/tools/claude-code/kdf-review.sh --repo <repo root> --codex-report <s
 ```
 
 which checks that the branch is built on the pin and adds nothing but new files under `docs/reviews`, then writes the
-report into the folder. Both review branches stay until the review closes, and the owner deletes them then, since the
-guard keeps a session from deleting a branch. Codex's commits carry the owner's name, as a session's do, which is why
+report into the folder. A fix check takes the same line and the same collect on its own two branches,
+`review/<pfx>-<slice>-fixcheck` at its pin and `review/<pfx>-<slice>-fixcheck-codex` for its report. Every review
+branch stays until the review closes, and the owner deletes them then, since the guard keeps a session from deleting
+a branch.
+
+**No fetch while a Claude read is open.** The launcher's check leaves out remote tracking refs, since an editor's
+background fetch moves them, and a reviewer may `git show` any ref, so a fetch would put a Codex report pushed to its
+branch one command away. While a Claude read of any pin is open, at step 2, the fix check or the final reviews, the
+orchestrator checks for a Codex branch with `git ls-remote` alone, keeps no editor open on the folder and fetches
+nothing, and the brief names the Codex branch as one the Claude reader never reads. It collects the Codex report once
+the Claude read has closed. Codex's commits carry the owner's name, as a session's do, which is why
 the collect check is the fence. Codex loads `AGENTS.md` by itself, and everything after it follows the text,
 `AGENTS.md` to `WORKFLOW.md` to `AGENT_ROLES.md`, and the one line to the brief and its reading order, which is why
 the report's header lists what it read first.
 
-**Codex in the cloud is on trial, for the kdf-sdk's S2 alone.** Six Codex turns of the kdf-sdk's first slice waited
-for the owner at the machine, hours to a day each, so the owner approved one slice in the cloud, measured at S2's
-retrospective, before it becomes the default road. Its environment holds no token. The owner's steps, once per repo,
-in the Codex app.
+**Codex in the cloud is on trial, for the kdf-sdk's S2 alone**, and is the fix check's road, step 3b. Six Codex
+turns of the kdf-sdk's first slice waited for the owner at the machine, hours to a day each, so the owner approved one
+slice in the cloud, measured at S2's retrospective, before it becomes the default road. Its environment holds no
+token. The owner's steps, once per repo, in the Codex app.
 
 1. Connect Codex to GitHub with access to only the reviewed repo.
 2. Create a cloud environment of that repo. Replace the Install script Codex drafts with
@@ -661,7 +711,8 @@ since that install would need a token. A Codex review in the cloud therefore run
 lane, `pip-audit` or the consumer check.
 
 **When one model family cannot run.** The other goes ahead and is adjudicated and fixed, and the missing review reads a
-later pin when it can run, rule 15. A step that needs the owner's machine or account, Codex, a required
+later pin when it can run, rule 15. At the fix check, step 3b's rule holds, the owner told and the owner's word
+awaited. A step that needs the owner's machine or account, Codex, a required
 check, the merge, is named and waited for, and the orchestrator carries on with work that does not depend on it.
 
 **When the owner is away.** A decision that is the owner's, rule 4, a breaking change or a change of scope, goes to
@@ -670,8 +721,8 @@ that does not depend on the answer.
 
 **Models and limits.** The strongest model belongs on the fresh reviews, where a miss is hardest to notice, and the
 orchestrator's work is reviewed after it by those reviews. A weekly limit is a scheduling fact. When the strongest
-model is out, the orchestrator may run on the next model down, the Claude reviews wait for their pins, and the Codex
-reviews run meanwhile.
+model is out, the orchestrator may run on the next model down, the Claude reviews of steps 2 and 5 wait for their
+pins, the fix check follows step 3b's rule, and the Codex reviews run meanwhile.
 
 **State lives in files.** The review folder's README, the plan's progress table, the briefs, the reports, the Sol
 dispatches and answers and the adjudication logs carry the review, so a session that compacts or restarts reads them
@@ -690,8 +741,9 @@ and goes on. Every step ends by updating them. The review is a work record
   how each is checked, a Claude run by its report and the report's `.usage.json`, a Codex run by its report in the
   folder or on its collect branch. From the pin until both of its reports are in, the folder is frozen, so the
   orchestrator only reads, and the launcher's refusal of a second open review of the folder stops a duplicate. The
-  freeze gives way where rule 15 lets one model family go ahead while the other reads a later pin. Once both reports
-  are in, or the one rule 15 goes on with, the Now block takes the results. Outside a freeze, a Codex run, a Sol
+  freeze gives way where rule 15 lets one model family go ahead while the other reads a later pin, and at a fix check
+  when the owner has said a read will not come, step 3b. Once both reports are in, or the one rule 15 or step 3b goes
+  on with, the Now block takes the results. Outside a freeze, a Codex run, a Sol
   dispatch or a pull request is named Pending before it starts and comes out once its result is checked.
 
 ## 12. Starting a review
@@ -783,3 +835,8 @@ by the launcher, section 11. They are kit v1.13.0, cicd ADR D-039, and S2's retr
 Three are the kit's. A cite check before every pin, section 4 steps 0 and 2 and section 11, two standing look for
 questions, what pins a constant and whose text a message carries, section 7, and a pair of mutants for every number a
 rule reads, section 4 steps 0 and 1. They are kit v1.20.0, cicd ADR D-061, and S3's retrospective reads them first.
+
+**The third retrospective**, the kdf-sdk's S3, the owner's yeses of 2026-10-17. Three standing look for questions,
+what a success test reads of its outcome, a hop to another thread or loop and what a stored secret holds, section 7,
+the fix check as a step of its own, section 4 step 3b, and no fetch while a Claude read is open, section 11. They are
+kit v1.24.0, cicd ADR D-076.
