@@ -444,6 +444,8 @@ def main() -> None:
             if current_tuple == base_tuple:
                 print(f"FAIL: version ({version}) is the same as origin/{args.base_branch} ({base_version}).")
                 print("      Bump the version before merging: make bump-patch")
+                print("      A pull request of docs alone bumps no version where the repo's ci.yml passes skip, its")
+                print("      version check skipped, so a release always means code (D-075).")
                 passed = False
             elif current_tuple in allowed:
                 bump_type = ["patch", "minor", "major"][allowed.index(current_tuple)]

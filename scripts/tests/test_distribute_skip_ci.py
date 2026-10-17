@@ -3,9 +3,10 @@ Tests for cicd D-047, a Distribute that runs no CI when every change is already 
 
 A sync pull request ran the repo's whole CI, 10 to 24 billed minutes in each of 17 private repos per Distribute. Now a
 sync whose every changed path is on an exact allowlist, the kit's copies, the AGENTS.md pointer, the Dependabot limits
-and the version scripts, carries `[skip ci]` in every commit, so GitHub starts no pull_request workflow. Any other
-change, a patch of a repo's own Makefile or the mutation engine, leaves the marker off and CI runs. The kit and the
-scripts can also travel in one pull request per repo, and the version check lets that combined branch through.
+and the version scripts, or is docs by ci_paths, the one list every private repo's CI reads (D-075), carries
+`[skip ci]` in every commit, so GitHub starts no pull_request workflow. Any other change, a patch of a repo's own
+Makefile or the mutation engine, leaves the marker off and CI runs. The kit and the scripts can also travel in one
+pull request per repo, and the version check lets that combined branch through.
 """
 
 from __future__ import annotations
@@ -40,12 +41,22 @@ NOT_ELIGIBLE     = [
     "ruff.toml",
     "pyproject.toml",
     "scripts/check_version.py",                  # a delete of a superseded copy
-    "docs/README.md",                            # a directory is never on the list, only exact paths
-    "docs/agent/NOT_A_KIT_FILE.md",
+    "docs/agent/probe.py",                       # code under docs/ stays code (D-075)
+    "README.MD",                                 # the docs rule is case sensitive
     ".github/workflows/ci.yml",
+    ".github/dependabot.yaml",                   # the Dependabot limits are eligible by their exact entry alone
 ]
 ENGINE           = {"src": "scripts/common/mutation_runner.py", "dest": "scripts/kdf_scripts/mutation_runner.py"}
 CHECK = {"src": "scripts/common/check_version.py", "dest": "scripts/kdf_scripts/check_version.py", "pretested": True}
+
+# docs by ci_paths, eligible outside the kit's registry since D-075, which reopened D-047's exact paths for docs alone
+DOCS_ELIGIBLE = [
+    "docs/x.md",
+    "docs/README.md",
+    "docs/agent/NOT_A_KIT_FILE.md",
+    "docs/img/diagram.png",
+    "NOTES.md",
+]
 
 
 def _always(_changed, _pretested) -> bool:
@@ -92,6 +103,41 @@ def test_a_change_off_the_list_lets_ci_run_even_beside_eligible_ones(path):
 
 def test_an_empty_change_set_never_skips():
     assert rs.skip_ci_eligible([], {"skills.md"}) is False
+    assert rs.skip_ci_eligible([], set()) is False
+
+
+@pytest.mark.parametrize("path", DOCS_ELIGIBLE)
+def test_a_docs_path_outside_the_kit_is_eligible_by_the_one_list(path):
+    """
+    D-075. Distribute reads ci_paths, the rule every private repo's CI reads, so a docs change a sync carries skips CI
+    whether or not the registry names it.
+    """
+    assert rs.skip_ci_eligible([path], set()) is True
+    assert rs.skip_ci_eligible([path], dk.pretested_paths(KIT_REGISTRY["files"])) is True
+
+
+def test_a_mix_of_pretested_and_docs_paths_is_eligible_and_one_script_makes_it_not():
+    allow = ds.pretested_dests(SCRIPTS_REGISTRY, HUB)
+    assert rs.skip_ci_eligible(["scripts/kdf_scripts/check_version.py", "docs/x.md", "NOTES.md"], allow) is True
+    assert rs.skip_ci_eligible(["docs/x.md", "scripts/kdf_scripts/mutation_runner.py"], allow) is False
+    assert rs.skip_ci_eligible(["docs/x.md", "Makefile"], allow) is False
+
+
+def test_the_dependabot_limits_are_eligible_by_their_exact_entry_alone():
+    allow = dk.pretested_paths(KIT_REGISTRY["files"])
+    assert rs.skip_ci_eligible([".github/dependabot.yml"], allow) is True
+    assert rs.skip_ci_eligible([".github/dependabot.yml"], set()) is False
+
+
+def test_every_kit_sync_stays_eligible():
+    allow = dk.pretested_paths(KIT_REGISTRY["files"])
+    assert rs.skip_ci_eligible(sorted(allow), allow) is True
+
+
+def test_the_body_names_only_what_ci_runs_for_and_never_a_doc():
+    note = rs.ci_note(False, ["docs/x.md", "Makefile", "scripts/kdf_scripts/check_version.py"], VERSION_SCRIPTS)
+    assert note.endswith("these changes here: Makefile.")
+    assert "D-075" in rs.ci_note(True, ["docs/x.md"], set())
 
 
 def test_the_marker_is_what_github_reads():

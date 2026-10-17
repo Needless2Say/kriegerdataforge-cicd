@@ -11,10 +11,17 @@ on:
         description: Python version to use
         type: string
         default: "3.14"
+      skip:
+        description: Skip every job of this lane, each reporting skipped, which a required check counts as passing. A caller passes its docs only answer, true only after its secret scan succeeded and said every changed path is docs (D-075). False runs every job as before
+        type: boolean
+        default: false
 
 jobs:
   vercel-compactor-staleness:
     name: Vercel compactor up-to-date
+    # D-075. Only skip, the caller's docs only answer, skips this job. With no always() a cancelled run cancels it,
+    #   and a caller on !cancelled() is never entered after a cancel during the scan, its check left unreported
+    if: ${{ !inputs.skip }}
     runs-on: ubuntu-slim
 
     steps:

@@ -6,7 +6,14 @@ own `ci.yml` on the release tag, the suites a release alone runs, and its E2E jo
 every one of them, passes only when each passed and carries the release in its name, the mark the PROD deploy reads.
 The hub and the auth UI pin their own workflows in their own suites. The four tenant repos hold no such suite, so
 the shape is read here, from the owner's workspace, where the repos sit side by side. On a runner this repo is alone
-and every case reports itself skipped.
+and every case reports itself skipped, unless KDF_CONSUMERS_REQUIRED is set, which fails a missing repo instead, so a
+run meant to read all six cannot pass on fewer.
+
+Each job's role is read from its condition (D-075). A job a pull request alone is held to names the pull request
+event. A repo wired for the docs only fast path joins every other job to the secret scan, a lane's caller on
+!cancelled() passing the skip expression, so a cancel during the scan never enters it, and a local job on always()
+and that expression's negation with a first step that fails when the scan did not finish. A repo is read before its
+change and after it, wired whole or not at all, and a release, which the scan never answers, skips no lane.
 """
 
 from __future__ import annotations
@@ -55,6 +62,34 @@ PINNED   = re.compile(r"actions/checkout@[0-9a-f]{40} # v[0-9.]+")
 # every lane's result GitHub can write, and the one that passes
 RESULTS = ("success", "failure", "cancelled", "skipped")
 
+# the one skip expression, true only when the scan job itself succeeded and said every path is docs (D-075)
+SKIP_EXPRESSION = "needs.secret-scan.result == 'success' && needs.secret-scan.outputs.docs_only == 'true'"
+PULL_REQUEST    = "github.event_name == 'pull_request'"
+
+# the conditions a job of ci.yml may hold, before its repo's change and after it, a lane's caller and a local job. A
+# caller on always() is entered after a cancel, so none is allowed one
+CALLER_CONDITIONS = ("${{ !cancelled() }}", f"${{{{ !cancelled() && {PULL_REQUEST} }}}}")
+LOCAL_CONDITIONS  = (
+    f"${{{{ always() && !({SKIP_EXPRESSION}) }}}}",
+    f"${{{{ always() && !({SKIP_EXPRESSION}) && {PULL_REQUEST} }}}}",
+)
+BEFORE_CONDITIONS = (PULL_REQUEST,)
+
+# what the scan's last step runs on, in this repo's secret-scan.yml, so a release with a ref gets no answer
+SCAN_ANSWERS = f"        if: ${{{{ success() && {PULL_REQUEST} && inputs.ref == '' }}}}\n"
+
+# a local job's first step reads the scan's result, which a step sees after a cancel where cancelled() reads false
+SCAN_UNFINISHED = "${{ needs.secret-scan.result != 'success' && needs.secret-scan.result != 'failure' }}"
+
+
+def _missing(repo: str) -> None:
+    """
+    A sibling repo that is not beside this one, a skip, or a failure when the run must read every consumer.
+    """
+    if os.environ.get("KDF_CONSUMERS_REQUIRED"):
+        pytest.fail(f"{repo} is not checked out beside this repo and KDF_CONSUMERS_REQUIRED is set")
+    pytest.skip(f"{repo} is not checked out beside this repo")
+
 
 def _workflow(repo: str, name: str) -> str:
     """
@@ -62,8 +97,65 @@ def _workflow(repo: str, name: str) -> str:
     """
     path = WORKSPACE / repo / ".github" / "workflows" / name
     if not path.is_file():
-        pytest.skip(f"{repo} is not checked out beside this repo")
+        _missing(repo)
     return path.read_text(encoding = "utf-8").replace("\r\n", "\n")
+
+
+def _condition(job: str) -> str:
+    """
+    A job's own if, empty when it has none.
+    """
+    found = re.search(r"^    if: (.+)$", job, flags = re.MULTILINE)
+    return found.group(1).strip() if found else ""
+
+
+def _pull_request_only(job: str) -> bool:
+    """
+    Whether a job runs on a pull request alone, its condition naming the event.
+    """
+    return PULL_REQUEST in _condition(job)
+
+
+def _joined(job: str) -> bool:
+    """
+    Whether a job waits for the secret scan, wired for the docs only fast path.
+    """
+    return re.search(r"^    needs: \[[^\]]*\bsecret-scan\b[^\]]*\]$", job, flags = re.MULTILINE) is not None
+
+
+def _guard_fails_an_unfinished_scan(job: str) -> bool:
+    """
+    Whether a job's first step runs when the scan ended neither success nor failure and ends the job failed, its run
+    block's last line exit 1, so a guard that says so but exits 0, or one on cancelled(), which never fires in a job
+    always() keeps, is caught.
+    """
+    first = job.split("    steps:\n", 1)[1].lstrip("\n").split("\n\n", 1)[0]
+    lines = first.split("\n")
+    return (
+        len(lines) >= 4
+        and lines[0].startswith("      - name: ")
+        and lines[1] == f"        if: {SCAN_UNFINISHED}"
+        and "        run: |" in lines
+        and lines[-1].strip() == "exit 1"
+        and all("exit 0" not in line for line in lines)
+    )
+
+
+@pytest.mark.parametrize("guard, holds", [
+    (f"      - name: Fail when the scan did not finish\n        if: {SCAN_UNFINISHED}\n        run: |\n"
+     "          echo \"::error::the secret scan did not finish\"\n          exit 1\n", True),
+    (f"      - name: Fail when the scan did not finish\n        if: {SCAN_UNFINISHED}\n        run: |\n"
+     "          exit 0\n", False),
+    ("      - name: Fail a cancelled run\n        if: ${{ cancelled() }}\n        run: |\n          exit 1\n", False),
+    (f"      - name: Fail when the scan did not finish\n        if: {SCAN_UNFINISHED}\n        run: |\n"
+     "          echo \"unfinished\"\n", False),
+], ids = ["fails", "exits-0", "cancelled", "no-exit"])
+def test_the_guard_check_holds_a_step_that_fails_an_unfinished_scan_and_nothing_else(guard, holds):
+    """
+    The wiring test reads each consumer's local job with this check, so the check itself is held here, on a runner too.
+    """
+    job = f"    name: Version check\n    runs-on: ubuntu-latest\n    steps:\n{guard}\n      - run: echo next\n"
+    assert _guard_fails_an_unfinished_scan(job) is holds
 
 
 def _jobs(repo: str, name: str) -> dict[str, str]:
@@ -304,14 +396,44 @@ def test_a_release_skips_the_jobs_a_pull_request_alone_is_held_to_and_no_other(r
     how the code is laid out, and no deploy runs the image. Every other job of ci.yml judges the release.
     """
     jobs    = _jobs(repo, "ci.yml")
-    skipped = sorted(key for key, job in jobs.items() if "\n    if: " in job)
+    skipped = sorted(key for key, job in jobs.items() if _pull_request_only(job))
     assert skipped == sorted(key for key in PULL_REQUEST_ONLY if key in jobs)
     assert "version-check" in skipped
-    for key in skipped:
-        assert "\n    if: github.event_name == 'pull_request'\n" in jobs[key], key
+    allowed = (*BEFORE_CONDITIONS, *CALLER_CONDITIONS, *LOCAL_CONDITIONS)
+    for key, job in jobs.items():
+        assert _condition(job) in ("", *allowed), f"{key} holds a condition no role names, {_condition(job)}"
     assert sorted(key for key, job in jobs.items() if "github.event_name" in job) == skipped
     scan = "\n      fetch-depth: ${{ inputs.ref != '' && 1 || 0 }}\n"
     assert scan in jobs["secret-scan"], "a release scans the tree its tag names"
+
+
+@pytest.mark.parametrize("repo", sorted(CONSUMERS))
+def test_a_repo_is_wired_whole_or_not_at_all_and_a_release_never_skips_a_lane(repo):
+    """
+    D-075. Before its change no job waits for the scan and every job runs as it did. After it every other job does, a
+    lane's caller on !cancelled() handing the lane the one skip expression, so a cancel during the scan never enters
+    it and its checks never report, and a local job on always() and the expression's negation with a first step that
+    fails when the scan did not finish, since a local job skipped on a cancelled run reports Success. The expression
+    needs the scan to have said docs only, which its last step says only on a pull request with no ref, and a release
+    hands the scan its tag, so a release dispatch skips no lane.
+    """
+    jobs   = _jobs(repo, "ci.yml")
+    others = {key: job for key, job in jobs.items() if key != "secret-scan"}
+    joined = {key for key, job in others.items() if _joined(job)}
+    assert joined in (set(), set(others)), f"wired in part, {sorted(set(others) - joined)} wait for no scan"
+    if not joined:
+        assert not any("inputs.skip" in job or "\n      skip: " in job for job in jobs.values())
+        return
+    for key, job in others.items():
+        if "\n    uses: " in job:
+            assert _condition(job) in CALLER_CONDITIONS, f"{key} {_condition(job)}"
+            assert f"\n      skip: ${{{{ {SKIP_EXPRESSION} }}}}\n" in job, key
+        else:
+            assert _condition(job) in LOCAL_CONDITIONS, f"{key} {_condition(job)}"
+            assert _guard_fails_an_unfinished_scan(job), f"{key}'s first step does not fail an unfinished scan"
+    assert "\n      ref: ${{ inputs.ref }}\n" in jobs["secret-scan"], "a release hands the scan its tag"
+    here = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "secret-scan.yml"
+    assert SCAN_ANSWERS in here.read_text(encoding = "utf-8").replace("\r\n", "\n")
 
 
 @pytest.mark.parametrize("repo, held", [
@@ -328,10 +450,11 @@ def test_a_release_skips_the_jobs_a_pull_request_alone_is_held_to_and_no_other(r
 def test_the_checks_a_release_is_held_to_are_the_owners_list(repo, held):
     """
     The owner's list of 2026-09-27, one for the FastAPI repos and one for the Next.js repos. `security` is
-    bandit and pip-audit, two jobs of one lane.
+    bandit and pip-audit, two jobs of one lane. A job a pull request alone is held to names the event, and every
+    other job judges the release, a condition joining it to the scan or none.
     """
     jobs = _jobs(repo, "ci.yml")
-    assert sorted(key for key, job in jobs.items() if "\n    if: " not in job) == sorted(held)
+    assert sorted(key for key, job in jobs.items() if not _pull_request_only(job)) == sorted(held)
 
 # ======================================================================================================================
 # The lanes of this repo
@@ -360,7 +483,7 @@ def test_a_tenants_gate_runs_every_mutant_table_the_repo_holds(repo):
     """
     tables = WORKSPACE / repo / "mutation_tests"
     if not tables.is_dir():
-        pytest.skip(f"{repo} is not checked out beside this repo")
+        _missing(repo)
     held  = sorted(path.stem for path in tables.glob("*.json"))
     held  = held or sorted(path.stem for path in tables.glob("*.py") if path.stem not in ("__init__", "run"))
     job   = _jobs(repo, "prod-gate.yml")["mutation-tests"]

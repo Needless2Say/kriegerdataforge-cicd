@@ -24,9 +24,11 @@ check mode reports drift and opens nothing; distribute mode opens one
 review-gated PR per drifted repo and NEVER auto-merges.
 
 A sync whose every changed file is on the caller's pretested allowlist, copies of what cicd's own suite tested or
-config no CI job reads, carries ``[skip ci]`` in every commit message, so GitHub starts no pull_request workflow for
-its PR (ADR D-047). Any other changed file, a patch of the repo's own Makefile for instance, leaves the marker off and
-the repo's CI runs as before.
+config no CI job reads, or is docs by ``ci_paths``, the one list every private repo's CI reads too, carries
+``[skip ci]`` in every commit message, so GitHub starts no pull_request workflow for its PR (ADR D-047, docs since
+D-075). Any other changed file, a patch of the repo's own Makefile or a script for instance, leaves the marker off and
+the repo's CI runs as before. Distribute reads no repo's ``not_docs``, so a file the kit registry syncs is never named
+in one.
 """
 
 from __future__ import annotations
@@ -39,6 +41,7 @@ from dataclasses import dataclass
 from typing import Callable, Collection
 
 # third party imports
+from common.ci_paths import docs_only
 from common.http import build_session
 
 # ======================================================================================================================
@@ -341,7 +344,8 @@ def _normalize(text: str) -> str:
 def skip_ci_eligible(changed: Collection[str], pretested: Collection[str]) -> bool:
     """
     Whether a sync may skip the repo's CI, judged fail closed. Only when something changed and every changed path is
-    on the pretested allowlist, exact paths, never a directory (ADR D-047).
+    on the pretested allowlist, exact paths (ADR D-047), or is docs by ci_paths, the root docs/ folder and every .md
+    less code under docs/, the one rule every private repo's CI reads (D-075). The scripts stay exact paths.
 
     Args:
         changed: the repo relative paths the sync changes, deletions included
@@ -350,7 +354,7 @@ def skip_ci_eligible(changed: Collection[str], pretested: Collection[str]) -> bo
     Returns:
         bool: True when the sync's commits may carry the skip marker
     """
-    return bool(changed) and all(path in pretested for path in changed)
+    return bool(changed) and all(path in pretested or docs_only([path]) for path in changed)
 
 
 def with_skip_ci(message: str, skip: bool) -> str:
@@ -382,11 +386,11 @@ def ci_note(skip: bool, changed: Collection[str], pretested: Collection[str]) ->
     if skip:
         source = os.environ.get("GITHUB_SHA", "")[:12] or "the checked out commit"
         return (
-            f"**CI skipped** (`{SKIP_CI_MARKER}`, cicd D-047). Every changed file is a copy of "
-            f"kriegerdataforge-cicd@{source}, tested there, or config no CI job reads. Merge with the bypass where a "
-            "ruleset requires checks."
+            f"**CI skipped** (`{SKIP_CI_MARKER}`, cicd D-047 and D-075). Every changed file is a copy of "
+            f"kriegerdataforge-cicd@{source}, tested there, config no CI job reads, or docs no lane reads. Merge with "
+            "the bypass where a ruleset requires checks."
         )
-    untested = sorted(path for path in changed if path not in pretested)
+    untested = sorted(path for path in changed if path not in pretested and not docs_only([path]))
     return f"**CI runs** (cicd D-047), because cicd never tested these changes here: {', '.join(untested)}."
 
 

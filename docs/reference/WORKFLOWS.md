@@ -406,9 +406,10 @@ the mirrors as one artifact kept for a day. A plain https link to a repo's page,
 `[project.urls]` holds, is not a pin and passes, while any other form pip could install (git+,
 git@ or ssh:// URLs, archive or wheel links, a pip option line) fails the plan. The **install job**
 keeps its id and its name, so every ruleset's required check is unchanged, names no secret, runs on
-`always()`, and its first step ends it failed when the run was cancelled or, with `needs_sdk_auth`,
-unless the fetch succeeded (a skipped required job counts as passing). It checks the caller out
-with no credential kept, then downloads the mirrors and hands git one
+`always()` unless the caller's `skip` says docs only (D-075), and its first step ends it failed when, with
+`needs_sdk_auth`, the fetch did not succeed (a skipped required job counts as passing). The step's `cancelled()` arm
+reads false in a job `always()` keeps through a cancel, measured in D-075, so without package access the job runs its
+work on a cancelled run. It checks the caller out with no credential kept, then downloads the mirrors and hands git one
 `url.file://<mirror>.insteadOf https://github.com/Needless2Say/<repo>.git` rewrite per repo
 through `GIT_CONFIG_COUNT`, `KEY_n` and `VALUE_n` in the job's environment. Without
 `needs_sdk_auth` the lane is one job as before. The token is **App token first** (reports ecosystem
@@ -428,9 +429,10 @@ and resolved to its commit), `scan_files` (`repo:path` items read inside an extr
 `token_repositories` (the narrower fence per call, empty is every repo the fetch clones). The style
 lane splits the same way since D-038, because `python -m` put the checkout first on the import path,
 so a pull request's `pip.py` or `kdf_fmt/` ran where the secret was, and `check_command` is the
-caller's own text. Its fetch job always runs, mirrors only `kriegerdataforge-fmt` and mints for
-that repo alone. With no `kdf_fmt_ref` it reads the caller's `requirements-dev.in`, where every repo
-declares kdf-fmt at `main`, the one branch a requirement file may name (D-054), and its check job
+caller's own text. Its fetch job runs on every call that `skip` does not skip, mirrors only
+`kriegerdataforge-fmt` and mints for that repo alone. With no `kdf_fmt_ref` it reads the caller's
+`requirements-dev.in`, where every repo declares kdf-fmt at `main`, the one branch a requirement file may name
+(D-054), and its check job
 reads the ref from the same line, the URL fixed, failing by name when the line is missing. A caller
 that passes `kdf_fmt_ref`, an override, gets that ref alone. The check job keeps the
 name `Style (kdf-fmt)`, names no secret and installs in isolated mode (`python -I`). Isolated mode
@@ -553,12 +555,14 @@ Runs **gitleaks** over the consumer's working tree **and** git history to catch 
 
 | Input | Type | Default | Required |
 |---|---|---|---|
-| `ref` | string | `""`, the caller run's own ref | no (`:21-24`) |
-| `fetch-depth` | number | `0` (full history) | no (`:25-29`) |
+| `ref` | string | `""`, the caller run's own ref | no |
+| `fetch-depth` | number | `0` (full history) | no |
+| `not_docs` | string | `""`, the docs the caller's code, tests, build or package read, space separated patterns | no |
 
-- **Secrets.** `GITHUB_TOKEN` (default). **Outputs.** None.
-- **Permissions.** Top level **and** job. `contents: read`, `pull-requests: read` (`:31-33`, `:40-42`). The caller
-  grants both at its top level, or the whole run fails at startup and shows no check at all.
+- **Secrets.** `GITHUB_TOKEN` (default). **Outputs.** `docs_only`, `true` on a pull request whose every changed
+  path is docs and none is in `not_docs`, proven against its merge commit, else empty (D-075, below).
+- **Permissions.** Top level **and** job. `contents: read`, `pull-requests: read`. The caller grants both at its top
+  level, or the whole run fails at startup and shows no check at all.
 - **Consumers.** Every repo, from its `ci.yml`, and since 2026-09-29 this repo too, as a local reference so a change to
   the lane is exercised by the pull request that makes it. No `GITLEAKS_LICENSE` needed for public/individual use. On
   a pull request the action scans the commits the pull request adds, not the whole history.
@@ -571,6 +575,106 @@ jobs:
   secret-scan:
     uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/secret-scan.yml@main
 ```
+
+### The docs only fast path (D-075)
+
+A pull request whose every change is docs runs the secret scan alone in a repo whose `ci.yml` is wired for it, every
+required check still reporting and passing, and it bumps no version. GitHub has no rule that requires a check only
+when its paths change. A workflow skipped by a path filter leaves its checks pending, and a job skipped by its own
+condition reports Success, so the skip lives in the workflows.
+
+**What counts as docs** is one list, `scripts/common/ci_paths.py`, which the scan and Distribute both read. A path is
+docs when it starts with the root `docs/` folder or its last part ends in `.md`, both case sensitive, so `README.MD`
+and `nested/docs/x.txt` are code. A file under `docs/` whose extension, in any case, is on the short list of code
+(`.py`, `.pyi`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.tf`, `.tfvars`, `.tfstate`, `.tfplan`, `.hcl`, `.sh`,
+`.go`, `.sql`) stays code. A change is docs only when it changes at least one path and every path, a rename read as a
+deletion and an addition, is docs.
+
+**`not_docs`** names the docs a repo's code reads, a README a wheel or an npm package packs, a prompt a package loads,
+a Markdown file a test asserts. Patterns over the whole path in GitHub's path filter syntax, `*` within one folder and
+`**` across folders, `**/` matching zero or more folders. A pattern holding `?`, `+`, `[`, `]` or `!`, which GitHub
+reads another way, or `{` and `}`, which a matcher may read as alternation, is refused, as is an empty or absolute
+one, one with an empty, `.` or `..` part or a backslash, and one that matches no tracked file. A refusal gives no
+answer, every lane runs, and the step's log and summary say why. A path whose name holds one of those characters is
+named with `*` in its place, `app/*/x.md` for `app/[slug]/x.md`, a superset that still matches it. The pull request
+that makes code read a `.md` or a file under `docs/` adds it to `not_docs` in the same pull request, and a file the
+kit syncs is never named there, since Distribute reads no repo's `not_docs`.
+
+**The answer.** The scan's last step, `Docs only`, runs only after gitleaks passed, on a `pull_request` event with an
+empty `ref`, with `continue-on-error`, so it never fails the scan. It proves `HEAD` is the event's commit with exactly
+two parents, the pull request's base and head, in a checkout that is not shallow, lists the change with
+`git diff --name-only --no-renames -z`, checks git's exit status, and writes `docs_only=true` only when the list says
+so. It prints no path to the log, one line of fixed text and counts, and writes its summary, each path escaped, to
+the step summary file alone. A push, a schedule or a release dispatch with a `ref` gets no answer.
+
+**`skip`**, a boolean defaulting to `false`, is on every billed lane, `ci-python-tests`, `-integration`, `-system`,
+`-mutation`, `-security`, `-lint`, `-typecheck`, `ci-python-kdf-fmt`, `ci-vercel-compactor`,
+`ci-nextjs-lint-typecheck`, `-build`, `-tests` and `ci-npm-audit`. Every job of the lane reads it, so each required
+check `<caller job> / <called job>` reports skipped. A caller job skipped by its own condition would report its own
+name alone and leave the required check pending. A job the fetch renderer does not write, the one job lanes and the
+security lane's Bandit job, reads `skip` alone, so a cancelled run cancels it as it did before. `secret-scan.yml`,
+`ci-codeql.yml` and `fetch-private-packages.yml` take no `skip`.
+
+**The caller pattern.** The skip is one expression, true only when the scan job itself succeeded and said so. Each
+lane's caller job waits for the scan, runs on `!cancelled()` joined to any condition it had, and passes the
+expression. A job's own `if` reads `cancelled()` true after a cancel, so a cancel during the scan never enters the
+caller and each `<caller job> / <called job>` check never reports, which blocks a merge as a failed check does. Never
+put a caller on `always()`. GitHub keeps a job on `always()` running through a cancel, and a step's `cancelled()`
+reads false inside it, so no guard step there can fail it (D-075, measured). Each local job waits for the scan, runs
+on `always()` and the expression's negation joined to its own condition, since a local job skipped on a cancelled run
+reports Success under its own name, and its first step fails it when the scan ended neither `success` nor `failure`,
+the result a step does read after a cancel. A required check that comes from a matrix job, or a job whose name holds
+an expression, may report its unexpanded name when skipped, so such a job is listed and checked before it is wired.
+
+```yaml
+jobs:
+  secret-scan:
+    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/secret-scan.yml@main
+    with:
+      ref: ${{ inputs.ref }}
+      not_docs: README.md src/example/prompts/*.md
+
+  lint:
+    needs: [secret-scan]
+    if: ${{ !cancelled() }}
+    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ci-python-lint.yml@main
+    with:
+      ref: ${{ inputs.ref }}
+      skip: ${{ needs.secret-scan.result == 'success' && needs.secret-scan.outputs.docs_only == 'true' }}
+    secrets: inherit
+
+  version-check:
+    name: Version check
+    needs: [secret-scan]
+    if: ${{ always() && !(needs.secret-scan.result == 'success' && needs.secret-scan.outputs.docs_only == 'true') && github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail when the scan did not finish
+        if: ${{ needs.secret-scan.result != 'success' && needs.secret-scan.result != 'failure' }}
+        env:
+          SCAN_RESULT: ${{ needs.secret-scan.result }}
+        run: |
+          echo "::error::the secret scan ended $SCAN_RESULT, so this job ends failed rather than skipped and checks nothing"
+          exit 1
+      # the job's own steps follow
+```
+
+On a code pull request every lane starts after the scan, about a minute later, and no billed minute is added, since
+the scan runs anyway. A run cancelled after the scan, a superseded push under `cancel-in-progress` for instance,
+cancels a lane's jobs, while a rendered lane's install job and a local job, each on `always()`, run to their end. A
+docs only merge to `main` starts every workflow that runs on a push, and the scan answers only
+a pull request, so each such workflow takes a `paths:` filter of the same rule, every path, then not `docs/**` and not
+`**/*.md`, then the code under `docs/` and each `not_docs` pattern included again. A push has no required check, so a
+path filter is safe there. A path filter matches case sensitively, so a code file under `docs/` whose extension is not
+lower case is code to the scan and docs to the filter, which only spares a push workflow on its merge after its pull
+request ran whole.
+
+**The undo.** A pull request here that makes the last step write nothing turns the fast path off in every repo at
+once, keeping the inputs the callers pass, since removing an input a caller passes breaks that caller. A check already
+green stays green and a running workflow may keep the old lane, so the undo also lists the open docs only pull
+requests, holds their merges, and reruns each on the disabled classifier before any merges. A docs pull request is
+never bumped to merge it, which would cut a release. Until the fast path works again, a docs only pull request is held
+or closed.
 
 ### Ecosystem watch, for a private caller alone
 
@@ -740,13 +844,13 @@ owner gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for 
 
 | Workflow | Trigger(s) | What it does | Owner gate |
 |---|---|---|---|
-| `ci.yml` | `pull_request` → `main` | actionlint + pytest (`scripts/tests/`) + calls `bump-version-check.yml` | n/a |
+| `ci.yml` | `pull_request` → `main` | actionlint + pytest (`scripts/tests/`) + calls `bump-version-check.yml`, and D-075's skip and cancel probes, no required check, `skip-probe-nested` calling `probe-nested.yml`, a `workflow_call` only `ci.yml` calls, the scan beside a lane called with `skip: true` | n/a |
 | `release.yml` | `push` `main`, `paths: [VERSION]` | calls `create-github-release.yml` (`contents:write`) | n/a |
 | `issue-create-repo.yml` | `issues: labeled` (`new-repo`) | provisions a repo from a template. Creates `prod`+`dev` Environments (owner reviewer, `main` only). Branch protection. Uses **repo level** `CICD_PAT` (Administration/Contents/Environments/Secrets/Variables/Actions R-W + Members: Read) | inline owner check |
 | `ops-rotate-secrets.yml` | `issues: labeled` (`ops:rotate-secrets`) | issue form front end for `rotate_secret.py` (`check`/`generate`/`paste`) | `_authorize-owner` |
 | `ops-distribute-kit.yml` | `issues: labeled` (`ops:distribute-kit`) | issue form front end for `distribute_kit.py` (`check`/`distribute`) | `_authorize-owner` |
 | `ops-distribute-scripts.yml` | `issues: labeled` (`ops:distribute-scripts`) | issue form front end for `distribute_scripts.py`, the script sync sibling of `ops-distribute-kit.yml` (ADR D-013). Issue content flows through env vars into an argv array and `mode` is allow listed | `_authorize-owner` |
-| `ops-distribute-all.yml` | `issues: labeled` (`ops:distribute-all`) | issue form front end for `distribute_all.py`, the kit and the dev scripts in ONE sync PR per repo, for the day both are due (ADR D-047). Every Distribute workflow closes its issue after posting the result, completed on success and not planned on a failure, and a sync PR whose every change is a copy cicd tested carries `[skip ci]` | `_authorize-owner` |
+| `ops-distribute-all.yml` | `issues: labeled` (`ops:distribute-all`) | issue form front end for `distribute_all.py`, the kit and the dev scripts in ONE sync PR per repo, for the day both are due (ADR D-047). Every Distribute workflow closes its issue after posting the result, completed on success and not planned on a failure, and a sync PR whose every change is a copy cicd tested or docs by `ci_paths` (D-075) carries `[skip ci]` | `_authorize-owner` |
 | `ops-setup-e2e.yml` | `issues: labeled` (`ops:setup-e2e`) | arms an E2E-journey repo. Writes `RUN_E2E_GATE=false`, `USE_GITHUB_APP=true`, copies `KDF_APP_ID`/`KDF_APP_PRIVATE_KEY`. Validates target against the fixed 6-repo allow list | `_authorize-owner` |
 | `ops-provision-projects.yml` | `issues: labeled` (`ops:provision-projects`) | issue form front end for `provision_projects.py` (`check`/`execute`). Adopts/creates the 6 Projects v2 boards from `projects_registry.json`. Runs on an owner staged **classic** PAT in `SECRET_VALUE_NEW`. Neither an App token nor a fine grained PAT can manage user owned ProjectsV2 (ADR D-010 W1 finding) | `_authorize-owner` |
 | `ops-distribute-app-secrets.yml` | `issues: labeled` (`ops:distribute-app-secrets`) | issue form front end for `distribute_app_secrets.py` (`check`/`execute`). Copies this repo's `KDF_APP_ID`/`KDF_APP_PRIVATE_KEY` to every consumer repo in `secret_registry.json` (`distribute_source_env` entries, the 12-repo registry list generalizes `ops-setup-e2e`'s fixed copy step). App token scoped `secrets:write` to exactly those repos. Run after an App key rotation (§8.3a) or when onboarding a consumer | `_authorize-owner` |

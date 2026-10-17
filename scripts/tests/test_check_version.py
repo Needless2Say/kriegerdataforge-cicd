@@ -93,6 +93,16 @@ def test_main_fails_on_no_bump(tmp_path):
     assert _run_main(tmp_path, "0.10.6") == 1
 
 
+def test_an_unbumped_branch_is_told_the_docs_exception(tmp_path, capsys):
+    # D-075. A session following the message must not turn a docs change into a release
+    (tmp_path / "VERSION").write_text("0.10.6\n", encoding = "utf-8")
+    assert _run_main(tmp_path, "0.10.6") == 1
+    out = capsys.readouterr().out
+    assert "Bump the version before merging: make bump-patch" in out
+    assert "A pull request of docs alone bumps no version where the repo's ci.yml passes skip" in out
+    assert "(D-075)" in out and out.isascii()
+
+
 def test_main_warns_and_passes_when_base_unreadable(tmp_path, capsys):
     # Fresh clone / offline: the increment check is skipped, not failed.
     (tmp_path / "VERSION").write_text("0.10.8\n", encoding = "utf-8")

@@ -8,9 +8,11 @@ when a different repository calls it, so the fetch job is not a called workflow.
 script's text inline, and `fetch-private-packages.yml` carries the same job for a caller that runs its own install job,
 the kdf-sdk canary. Each lane's install job takes its if and its first step from the same template, so a cancelled
 run or a fetch that did not succeed ends it failed alike in every lane. The style lane takes the same fetch job and
-the same if and first step for its check job (D-038), its fetch always runs, mirrors only the formatter the caller
-pins and mints for it alone, so the template's @NAME@ fields are filled per copy. Every copy comes from
-`fetch_private_job.template.yml`, and `test_secretless_lanes.py` fails when one differs.
+the same if and first step for its check job (D-038), its fetch runs on every call a docs only answer does not skip,
+mirrors only the formatter the caller pins and mints for it alone, so the template's @NAME@ fields are filled per copy.
+Every lane's fetch and install job read its skip input, the caller's docs only answer (D-075), and the standalone's
+fetch reads none. Every copy comes from `fetch_private_job.template.yml`, and `test_secretless_lanes.py` fails when
+one differs.
 
 Usage:
     python scripts/render_fetch_job.py           # write every copy
@@ -75,8 +77,10 @@ STYLE_FILLS = {
     "NEEDS_SDK_AUTH": "true",
 }
 
-# the fetch job's if in a lane, where it runs only when the caller asks for package access
-LANE_CONDITION = "    if: ${{ inputs.needs_sdk_auth }}\n"
+# the fetch job's if in a lane, where it runs only when the caller asks for package access and the caller's docs only
+# answer does not skip the lane (D-075), and in the style lane, whose fetch always runs but for that answer
+LANE_CONDITION  = "    if: ${{ inputs.needs_sdk_auth && !inputs.skip }}\n"
+STYLE_CONDITION = "    if: ${{ !inputs.skip }}\n"
 
 # where a lane's fetch job ends, the next job's id line that is not the fetch job's own
 NEXT_JOB = r"(?=^  [a-z0-9-]+:\n(?!    name: Fetch private packages))"
@@ -210,7 +214,7 @@ def render_lane(text: str, fills: dict[str, str] = LANE_FILLS, condition: str = 
     Args:
         text: the lane's text
         fills: the values of the template's fields for this lane
-        condition: the fetch job's if line, empty in the style lane, whose fetch always runs
+        condition: the fetch job's if line, the style lane's reading the skip input alone
 
     Returns:
         str: the lane's new text, in the lane's own line endings
@@ -262,7 +266,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     stale: list[str] = []
     targets = {name: render_lane(_read(WORKFLOWS / name)) for name in LANES}
-    targets[STYLE_LANE] = render_lane(_read(WORKFLOWS / STYLE_LANE), STYLE_FILLS, "")
+    targets[STYLE_LANE] = render_lane(_read(WORKFLOWS / STYLE_LANE), STYLE_FILLS, STYLE_CONDITION)
     targets[STANDALONE] = render_standalone()
     for name, wanted in targets.items():
         path    = WORKFLOWS / name

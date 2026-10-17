@@ -1,0 +1,22 @@
+# D-075. A probe at the depth of a caller whose own ci.yml is called by another workflow, as the kdf-sdk's merge gate
+# calls its ci.yml. This repo's ci.yml calls this workflow, which runs a real job, the secret scan, beside a lane called
+# with skip true, so one run shows a running and a skipped lane three levels down, each skipped job's check name and
+# the enclosing job's result. Called by ci.yml alone, and no ruleset requires it.
+
+name: Probe, a nested skip
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  secret-scan:
+    uses: ./.github/workflows/secret-scan.yml
+
+  unit-tests:
+    uses: ./.github/workflows/ci-nextjs-tests.yml
+    with:
+      skip: true

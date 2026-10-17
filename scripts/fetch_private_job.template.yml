@@ -2,7 +2,8 @@
 # Each section starts at a line `#@ <name>`. @SCRIPT@ is fetch_private_packages.py's text, @DELIMITER@ its heredoc's
 # end and @INPUTS@ the inputs section. install-guard and install-require are the install job's if and its first step,
 # written into each lane's install job. The other @NAME@ fields are filled per copy, from the caller's inputs in the
-# seven lanes and the standalone, with fixed values in the style lane (D-038). Edit here, then run
+# seven lanes and the standalone, with fixed values in the style lane (D-038). The fetch job's if is the renderer's per
+# copy, the lane's skip input among it (D-075), and the standalone's fetch has none. Edit here, then run
 # `python scripts/render_fetch_job.py`.
 #@ job-head
   # D-035. The one job of this workflow that names a secret. It runs git and this workflow's own text, nothing of the
@@ -99,10 +100,12 @@
           if-no-files-found: error
 #@ install-guard
     # D-035. FAIL CLOSED. A skipped required job counts as passing, so this job runs whatever happened before it, a
-    #   cancelled run included, and its first step ends it failed when the run was cancelled or, with package access,
-    #   when the fetch did not succeed. GitHub reads cancelled() only in an if, so the step's if is the check and its
-    #   run only says why. Written by scripts/render_fetch_job.py from its template
-    if: ${{ always() }}
+    #   cancelled run included, and its first step ends it failed when, with package access, the fetch did not
+    #   succeed. The step's cancelled() arm reads false in a job always() keeps through a cancel (D-075, measured), so
+    #   without package access the job runs its work. Only skip, the caller's docs only answer (D-075), skips it whole,
+    #   and a caller passes it true only after its secret scan succeeded and said so. Written by
+    #   scripts/render_fetch_job.py from its template
+    if: ${{ always() && !inputs.skip }}
 #@ install-require
       - name: Require the private packages
         if: ${{ cancelled() || (@NEEDS_SDK_AUTH@ && needs.fetch-private.result != 'success') }}
