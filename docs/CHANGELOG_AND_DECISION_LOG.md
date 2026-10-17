@@ -3899,9 +3899,11 @@ design, its reads and a panel of models on it are kept in the ecosystem's privat
   access asked for and the security lane, and `probe-nested.yml`, which runs the scan beside a lane called with
   `skip: true` three levels down. Its cancel probes are wired as a consumer's jobs, the unit test lane's caller on
   `!cancelled()` and a local job on `always()` with the scan result guard first. A run cancelled during the scan must
-  leave the caller's checks unreported and fail the local job in its first step, and one cancelled after the caller
-  was entered must end the lane's job cancelled, never skipped. The contract tests hold the text alone, so these runs,
-  read job by job, are the proof.
+  leave the caller's checks unreported and fail the local job in its first step. One cancelled after the callers were
+  entered must end every job of a called lane that holds no `always()` cancelled, never skipped, as cicd's own
+  `style` and `version-check` lanes, the class of the six hand written jobs, were in the measured runs, while the
+  probe lane's rendered install job, on `always()` by D-035, runs to its end. The contract tests hold the text alone,
+  so these runs, read job by job, are the proof.
 - **The undo.** A pull request here that makes the last step write nothing turns the fast path off in every repo at
   once, the inputs kept, since removing one a caller passes breaks it. The open docs only pull requests are listed,
   held and rerun on the disabled classifier before any merges, and none is bumped to merge it.
