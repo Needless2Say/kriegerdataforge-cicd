@@ -3838,8 +3838,8 @@ repo's sync merges, its supporting session follows the owner's word and the ecos
 - **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
 - **Supersedes.** In part D-047, its "exact paths, never a directory", for docs alone.
 - **Tier / scope:** Epic · `scripts/common/ci_paths.py` and `scripts/render_ci_paths.py`, `secret-scan.yml`'s
-  `not_docs` input, `docs_only` output and last step, the `skip` input on every billed lane with the cancel guard on
-  every job the fetch renderer does not write, `repo_sync.skip_ci_eligible`, `check_version.py`'s message, the probes
+  `not_docs` input, `docs_only` output and last step, the `skip` input on every billed lane, every job the fetch
+  renderer does not write reading it alone, `repo_sync.skip_ci_eligible`, `check_version.py`'s message, the probes
   of `ci.yml` and `probe-nested.yml`, the consumer test, kit v1.23.0 (`WORKFLOW.md`, `DEFINITION_OF_DONE.md`) and
   cicd's own copies · each private repo's `ci.yml` wired by a pull request of its own after this one merges
 
@@ -3868,15 +3868,23 @@ design, its reads and a panel of models on it are kept in the ecosystem's privat
   `ci_paths.py`'s own text, written into its heredoc by `render_ci_paths.py`, since a lane cannot be trusted to check
   this repo out at its own commit (D-035), prints no path to the log, and exits 0 on every refusal.
 - **Every billed lane takes `skip`**, a boolean defaulting to `false`, on every job, so each required check reports
-  skipped. The fetch template writes it into the split lanes and the style lane, and every job outside the renderer,
-  the one job lanes and the security lane's Bandit job, runs on `always()` unless skipped with a first step that fails
-  a cancelled run, D-035's guard, since the wait for the scan opens a cancel window and a job skipped on a cancelled
-  run reports Success. `secret-scan.yml`, `ci-codeql.yml` and `fetch-private-packages.yml` take none.
+  skipped. The fetch template writes it into the split lanes and the style lane, their install job staying on
+  `always()` as D-035 has it, and every job outside the renderer, the one job lanes and the security lane's Bandit job,
+  reads `skip` alone, so a cancelled run cancels it as before. `secret-scan.yml`, `ci-codeql.yml` and
+  `fetch-private-packages.yml` take none.
+- **The cancel, measured.** The wait for the scan opens a cancel window, and a job skipped on a cancelled run reports
+  Success. This pull request's own runs, cancelled by hand, showed that GitHub keeps a job whose `if` holds `always()`
+  running through a cancel, or starts it after one, and that inside such a job a step's `cancelled()` reads false and
+  its `success()` true, while a job's own `if` reads `cancelled()` true and a step reads a needed job's result as
+  `cancelled`. So a first step on `cancelled()` never fires there, D-035's install job included, whose guard fails it
+  through its fetch arm alone, and a job on `always()` bills in full on a superseded run.
 - **The caller pattern.** One expression, true only when the scan job itself succeeded and said so. A lane's caller
-  waits for the scan on `always()` and passes it, a local job waits on `always()` and its negation with the cancel
-  guard first. A docs only pull request skips `Version check`, so it needs no bump, and a docs only merge cuts no
-  release. A workflow that runs on a push to `main` takes a `paths:` filter of the same rule, safe on a push, which has
-  no required check.
+  waits for the scan on `!cancelled()` and passes it, so a cancel during the scan never enters the caller and each
+  `<caller> / <called>` check never reports, which blocks a merge, at no minute. A local job, whose check is its own
+  name, waits on `always()` and the expression's negation, its first step failing it when the scan ended neither
+  `success` nor `failure`. A docs only pull request skips `Version check`, so it needs no bump, and a docs only merge
+  cuts no release. A workflow that runs on a push to `main` takes a `paths:` filter of the same rule, safe on a push,
+  which has no required check.
 - **Distribute reads the same list.** `skip_ci_eligible` is true when something changed and each path is pretested
   or docs by `ci_paths`, so a docs path outside the kit's registry skips CI as a kit copy does, the scripts staying
   exact paths. **Its gap.** Distribute reads no repo's `not_docs`, which would need a YAML reader in a standard library
@@ -3890,10 +3898,10 @@ design, its reads and a panel of models on it are kept in the ecosystem's privat
 - **The proof.** `ci.yml` calls three lanes with `skip: true` and no secret, a one job lane, a split lane with package
   access asked for and the security lane, and `probe-nested.yml`, which runs the scan beside a lane called with
   `skip: true` three levels down. Its cancel probes are wired as a consumer's jobs, the unit test lane's caller on
-  `always()` proving a consumer's caller. A cancelled run must end each guarded job failed in its guard step, its
-  later steps skipped, none skipped whole, the security lane's probe running on a cancelled run alone, since its tools
-  read a tree laid out as a consumer's. A test holds the one job lanes' guard byte for byte equal to the probed Bandit
-  job's.
+  `!cancelled()` and a local job on `always()` with the scan result guard first. A run cancelled during the scan must
+  leave the caller's checks unreported and fail the local job in its first step, and one cancelled after the caller
+  was entered must end the lane's job cancelled, never skipped. The contract tests hold the text alone, so these runs,
+  read job by job, are the proof.
 - **The undo.** A pull request here that makes the last step write nothing turns the fast path off in every repo at
   once, the inputs kept, since removing one a caller passes breaks it. The open docs only pull requests are listed,
   held and rerun on the disabled classifier before any merges, and none is bumped to merge it.
@@ -3909,7 +3917,10 @@ design, its reads and a panel of models on it are kept in the ecosystem's privat
   stays.
 
 **Trade-offs.** On a code pull request every lane starts after the scan, about a minute later in wall time, and no
-billed minute is added. The rollout runs each private repo's whole CI once, since a change to `ci.yml` is code. A
+billed minute is added. A local job and a rendered lane's install job stay on `always()`, so a superseded run past the
+scan runs them to their end, where before the wiring a local job was cancelled. Reading a job's state that GitHub
+starts after a cancel would need a new lane input, a contract across every caller, so it is not taken. The rollout
+runs each private repo's whole CI once, since a change to `ci.yml` is code. A
 `not_docs` kept current by a rule, the pull request that makes code read a `.md` running whole and its reviewer the
 check, so a miss lets a later docs edit to that file merge with its lanes skipped.
 

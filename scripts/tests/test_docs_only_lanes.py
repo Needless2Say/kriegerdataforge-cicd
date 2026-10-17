@@ -3,9 +3,11 @@ Contract tests for D-075, a docs only pull request runs the secret scan alone.
 
 The scan's last step answers docs_only, its copy of `scripts/common/ci_paths.py` held to the script and run here on
 fixture repos made through git's index, so a path no file system holds is still a path in git. Every billed lane takes
-the skip input on every job, and each job the fetch renderer does not write runs on always() with D-035's cancel guard
-written by hand. Text level, as the rest of this suite reads workflows. The skipped check names and a cancelled run
-are proved on GitHub by this repo's own CI, the probe jobs of ci.yml.
+the skip input on every job, and each job the fetch renderer does not write reads it alone, so a cancelled run cancels
+it. A caller waits for the scan on !cancelled(), and a local job on always() fails in its first step when the scan did
+not finish, since a step's cancelled() reads false in a job always() keeps through a cancel, measured on this repo's
+pull request #307. Text level, as the rest of this suite reads workflows, so a text that matches proves no behaviour.
+The skipped check names and a cancelled run are proved on GitHub by this repo's own CI, the probe jobs of ci.yml.
 """
 
 from __future__ import annotations
@@ -51,9 +53,8 @@ SKIP_LANES = (
     "ci-npm-audit.yml",
 )
 
-# each job the renderer does not write, by its lane, the one job lanes and the security lane's bandit job, which the
-# cancel probe enters on a cancelled run
-HAND_GUARDED = {
+# each job the renderer does not write, by its lane, the one job lanes and the security lane's bandit job
+HAND_WRITTEN = {
     "ci-python-security.yml": "bandit",
     "ci-vercel-compactor.yml": "vercel-compactor-staleness",
     "ci-nextjs-lint-typecheck.yml": "lint-and-typecheck",
@@ -62,20 +63,23 @@ HAND_GUARDED = {
     "ci-npm-audit.yml": "npm-audit",
 }
 
-# the if of a job the renderer does not write, and its first step, D-035's guard written by hand
-HAND_GUARD      = (
-    "    # D-075. FAIL CLOSED. A skipped required job counts as passing, so this job runs whatever happened "
-    "before it, a\n"
-    "    #   cancelled run included, and its first step ends it failed when the run was cancelled. Only skip, "
-    "the caller's\n"
-    "    #   docs only answer, skips it whole. GitHub reads cancelled() only in an if, so the step's if is the check\n"
-    "    if: ${{ always() && !inputs.skip }}\n"
+# the if of a job the renderer does not write, with no always(), so a cancelled run cancels it as any job
+HAND_CONDITION = (
+    "    # D-075. Only skip, the caller's docs only answer, skips this job. With no always() a cancelled run cancels "
+    "it,\n"
+    "    #   and a caller on !cancelled() is never entered after a cancel during the scan, its check left unreported\n"
+    "    if: ${{ !inputs.skip }}\n"
 )
-HAND_GUARD_STEP = (
-    "      - name: Fail a cancelled run\n"
-    "        if: ${{ cancelled() }}\n"
+
+# a local job's first step, which reads the scan's result, the signal a step does see after a cancel
+LOCAL_GUARD_STEP = (
+    "      - name: Fail when the scan did not finish\n"
+    "        if: ${{ needs.secret-scan.result != 'success' && needs.secret-scan.result != 'failure' }}\n"
+    "        env:\n"
+    "          SCAN_RESULT: ${{ needs.secret-scan.result }}\n"
     "        run: |\n"
-    '          echo "::error::the run was cancelled, so this job ends failed rather than skipped and checks nothing"\n'
+    '          echo "::error::the secret scan ended $SCAN_RESULT, so this job ends failed rather than skipped and '
+    'checks nothing"\n'
     "          exit 1\n"
 )
 
@@ -382,7 +386,7 @@ def test_a_path_holding_a_newline_and_a_workflow_command_reaches_no_log_and_no_o
     assert '\\n::' in summary
 
 # ======================================================================================================================
-# The skip input and the cancel guard
+# The skip input and the cancel
 # ======================================================================================================================
 
 @pytest.mark.parametrize("name", SKIP_LANES)
@@ -410,37 +414,19 @@ def test_every_job_of_a_billed_lane_reads_skip(name):
         assert len(conditions) == 1 and "!inputs.skip" in conditions[0], f"{name} {job_id}"
 
 
-@pytest.mark.parametrize("name", sorted(HAND_GUARDED))
-def test_every_job_outside_the_renderer_runs_on_always_and_fails_a_cancelled_run(name):
+@pytest.mark.parametrize("name", sorted(HAND_WRITTEN))
+def test_every_job_outside_the_renderer_reads_skip_alone_and_no_cancel(name):
     """
-    A job of the caller waits for the scan, which opens a cancel window before the lane starts, and a job skipped on a
-    cancelled run reports Success. So each job the renderer does not write runs on always(), skipped only by the skip
-    input, and its first step ends it failed when the run was cancelled, D-035's guard written by hand.
+    GitHub keeps a job whose if holds always() running through a cancel, and a step's cancelled() reads false inside
+    it, so a guard step there never fires and a superseded run bills the job in full (cicd #307's cancelled runs). Each
+    job the renderer does not write reads the skip input alone, so a cancelled run cancels it as it did before D-075,
+    and the caller's !cancelled() keeps a cancel during the scan from entering the lane at all.
     """
-    job  = _jobs(_lane(name))[HAND_GUARDED[name]]
+    job  = _jobs(_lane(name))[HAND_WRITTEN[name]]
     head = job.split("    steps:\n", 1)[0]
-    assert HAND_GUARD in head and head.count("    if: ") == 1
-    first = job.split("    steps:\n", 1)[1].split("\n\n", 1)[0] + "\n"
-    assert first == HAND_GUARD_STEP
-
-
-def test_the_one_job_lanes_guard_is_the_probed_security_lanes_byte_for_byte():
-    """
-    cicd has no Next.js app to build, so its cancel probe enters the security lane's bandit job on a cancelled run,
-    where the guard step fails it before bandit runs. Each one job lane's guard is held equal to that one, its if and
-    its first step, byte for byte.
-    """
-    def guard(name: str) -> str:
-        head, steps = _jobs(_lane(name))[HAND_GUARDED[name]].split("    steps:\n", 1)
-        start = head.index("    # D-075.")
-        end   = head.index("\n", head.index("    if: ")) + 1
-        return head[start:end] + steps.split("\n\n", 1)[0]
-
-
-    probed = guard("ci-python-security.yml")
-    assert probed == HAND_GUARD + HAND_GUARD_STEP.rstrip("\n")
-    for name in HAND_GUARDED:
-        assert guard(name) == probed, name
+    assert HAND_CONDITION in head and head.count("    if: ") == 1
+    conditions = re.findall(r"^\s+if: (.+)$", job, flags = re.MULTILINE)
+    assert not [condition for condition in conditions if "always()" in condition or "cancelled()" in condition]
 
 
 @pytest.mark.parametrize("name", ["secret-scan.yml", "ci-codeql.yml", "fetch-private-packages.yml"])
@@ -483,24 +469,28 @@ def test_the_nested_probe_runs_a_scan_beside_a_skipped_lane_three_levels_down():
     assert "    uses: ./.github/workflows/probe-nested.yml\n" in _jobs(_lane("ci.yml"))["skip-probe-nested"]
 
 
-@pytest.mark.parametrize("probe, condition", [
-    ("cancel-probe-lane", "${{ always() }}"),
-    ("cancel-probe-security", "${{ cancelled() }}"),
-])
-def test_the_lane_cancel_probes_wait_for_the_scan_with_the_one_skip_expression(probe, condition):
+def test_the_lane_cancel_probe_waits_for_the_scan_on_not_cancelled_with_the_one_skip_expression():
     """
-    Wired as a consumer's lane callers are, each waits for the scan and hands its lane the skip expression. The
-    security lane's runs on a cancelled run alone, since its tools read a tree laid out as a consumer's.
+    Wired as a consumer's lane caller is, it waits for the scan on !cancelled(), which a job's own if reads true after a
+    cancel, so a cancel during the scan never enters the lane and its checks never report, and it hands its lane the
+    skip expression. The security lane's cancel probe went with the hand written guard it proved.
     """
-    job = _jobs(_lane("ci.yml"))[probe]
-    assert job.startswith(f"    needs: [secret-scan]\n    if: {condition}\n    uses: ./.github/workflows/")
+    jobs = _jobs(_lane("ci.yml"))
+    job  = jobs["cancel-probe-lane"]
+    assert job.startswith("    needs: [secret-scan]\n    if: ${{ !cancelled() }}\n    uses: ./.github/workflows/")
     assert f"      skip: ${{{{ {SKIP_EXPRESSION} }}}}\n" in job
     assert "secrets" not in job
+    assert "cancel-probe-security" not in jobs
 
 
-def test_the_local_cancel_probe_is_a_consumers_local_job_with_the_guard_first():
+def test_the_local_cancel_probe_is_a_consumers_local_job_with_the_scan_result_guard_first():
+    """
+    A local job's check is its own name, so one skipped on a cancel would report Success. It runs on always() and its
+    first step fails it when the scan ended neither success nor failure, the signal a step does read after a cancel.
+    """
     job = _jobs(_lane("ci.yml"))["cancel-probe-local"]
     assert f"    needs: [secret-scan]\n    if: ${{{{ always() && !({SKIP_EXPRESSION}) }}}}\n" in job
     first = job.split("    steps:\n", 1)[1].split("\n\n", 1)[0] + "\n"
-    assert first == HAND_GUARD_STEP
+    assert first == LOCAL_GUARD_STEP
+    assert "cancelled()" not in job
     assert '} >> "$GITHUB_STEP_SUMMARY"' in job, "the scan's answer reaches the run summary"

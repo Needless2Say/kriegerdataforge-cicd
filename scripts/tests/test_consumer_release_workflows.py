@@ -11,9 +11,9 @@ run meant to read all six cannot pass on fewer.
 
 Each job's role is read from its condition (D-075). A job a pull request alone is held to names the pull request
 event. A repo wired for the docs only fast path joins every other job to the secret scan, a lane's caller on
-always() passing the skip expression and a local job on always() and that expression's negation with a cancel guard
-first. A repo is read before its change and after it, wired whole or not at all, and a release, which the scan never
-answers, skips no lane.
+!cancelled() passing the skip expression, so a cancel during the scan never enters it, and a local job on always()
+and that expression's negation with a first step that fails when the scan did not finish. A repo is read before its
+change and after it, wired whole or not at all, and a release, which the scan never answers, skips no lane.
 """
 
 from __future__ import annotations
@@ -66,8 +66,9 @@ RESULTS = ("success", "failure", "cancelled", "skipped")
 SKIP_EXPRESSION = "needs.secret-scan.result == 'success' && needs.secret-scan.outputs.docs_only == 'true'"
 PULL_REQUEST    = "github.event_name == 'pull_request'"
 
-# the conditions a job of ci.yml may hold, before its repo's change and after it, a lane's caller and a local job
-CALLER_CONDITIONS = ("${{ always() }}", f"${{{{ always() && {PULL_REQUEST} }}}}")
+# the conditions a job of ci.yml may hold, before its repo's change and after it, a lane's caller and a local job. A
+# caller on always() is entered after a cancel, so none is allowed one
+CALLER_CONDITIONS = ("${{ !cancelled() }}", f"${{{{ !cancelled() && {PULL_REQUEST} }}}}")
 LOCAL_CONDITIONS  = (
     f"${{{{ always() && !({SKIP_EXPRESSION}) }}}}",
     f"${{{{ always() && !({SKIP_EXPRESSION}) && {PULL_REQUEST} }}}}",
@@ -76,6 +77,9 @@ BEFORE_CONDITIONS = (PULL_REQUEST,)
 
 # what the scan's last step runs on, in this repo's secret-scan.yml, so a release with a ref gets no answer
 SCAN_ANSWERS = f"        if: ${{{{ success() && {PULL_REQUEST} && inputs.ref == '' }}}}\n"
+
+# a local job's first step reads the scan's result, which a step sees after a cancel where cancelled() reads false
+SCAN_UNFINISHED = "${{ needs.secret-scan.result != 'success' && needs.secret-scan.result != 'failure' }}"
 
 
 def _missing(repo: str) -> None:
@@ -119,17 +123,18 @@ def _joined(job: str) -> bool:
     return re.search(r"^    needs: \[[^\]]*\bsecret-scan\b[^\]]*\]$", job, flags = re.MULTILINE) is not None
 
 
-def _guard_fails_a_cancelled_run(job: str) -> bool:
+def _guard_fails_an_unfinished_scan(job: str) -> bool:
     """
-    Whether a job's first step runs on a cancelled run alone and ends it failed, its run block's last line exit 1, so a
-    guard that says so but exits 0 is caught.
+    Whether a job's first step runs when the scan ended neither success nor failure and ends the job failed, its run
+    block's last line exit 1, so a guard that says so but exits 0, or one on cancelled(), which never fires in a job
+    always() keeps, is caught.
     """
     first = job.split("    steps:\n", 1)[1].lstrip("\n").split("\n\n", 1)[0]
     lines = first.split("\n")
     return (
         len(lines) >= 4
         and lines[0].startswith("      - name: ")
-        and lines[1] == "        if: ${{ cancelled() }}"
+        and lines[1] == f"        if: {SCAN_UNFINISHED}"
         and "        run: |" in lines
         and lines[-1].strip() == "exit 1"
         and all("exit 0" not in line for line in lines)
@@ -137,19 +142,20 @@ def _guard_fails_a_cancelled_run(job: str) -> bool:
 
 
 @pytest.mark.parametrize("guard, holds", [
-    ("      - name: Fail a cancelled run\n        if: ${{ cancelled() }}\n        run: |\n"
-     "          echo \"::error::the run was cancelled\"\n          exit 1\n", True),
-    ("      - name: Fail a cancelled run\n        if: ${{ cancelled() }}\n        run: |\n          exit 0\n", False),
-    ("      - name: Fail a cancelled run\n        if: ${{ always() }}\n        run: |\n          exit 1\n", False),
-    ("      - name: Fail a cancelled run\n        if: ${{ cancelled() }}\n        run: |\n"
-     "          echo \"cancelled\"\n", False),
-], ids = ["fails", "exits-0", "always", "no-exit"])
-def test_the_guard_check_holds_a_step_that_fails_a_cancelled_run_and_nothing_else(guard, holds):
+    (f"      - name: Fail when the scan did not finish\n        if: {SCAN_UNFINISHED}\n        run: |\n"
+     "          echo \"::error::the secret scan did not finish\"\n          exit 1\n", True),
+    (f"      - name: Fail when the scan did not finish\n        if: {SCAN_UNFINISHED}\n        run: |\n"
+     "          exit 0\n", False),
+    ("      - name: Fail a cancelled run\n        if: ${{ cancelled() }}\n        run: |\n          exit 1\n", False),
+    (f"      - name: Fail when the scan did not finish\n        if: {SCAN_UNFINISHED}\n        run: |\n"
+     "          echo \"unfinished\"\n", False),
+], ids = ["fails", "exits-0", "cancelled", "no-exit"])
+def test_the_guard_check_holds_a_step_that_fails_an_unfinished_scan_and_nothing_else(guard, holds):
     """
     The wiring test reads each consumer's local job with this check, so the check itself is held here, on a runner too.
     """
     job = f"    name: Version check\n    runs-on: ubuntu-latest\n    steps:\n{guard}\n      - run: echo next\n"
-    assert _guard_fails_a_cancelled_run(job) is holds
+    assert _guard_fails_an_unfinished_scan(job) is holds
 
 
 def _jobs(repo: str, name: str) -> dict[str, str]:
@@ -405,10 +411,11 @@ def test_a_release_skips_the_jobs_a_pull_request_alone_is_held_to_and_no_other(r
 def test_a_repo_is_wired_whole_or_not_at_all_and_a_release_never_skips_a_lane(repo):
     """
     D-075. Before its change no job waits for the scan and every job runs as it did. After it every other job does, a
-    lane's caller on always() handing the lane the one skip expression, and a local job on always() and the
-    expression's negation with a cancel guard as its first step, since a local job skipped on a cancelled run reports
-    Success. The expression needs the scan to have said docs only, which its last step says only on a pull request with
-    no ref, and a release hands the scan its tag, so a release dispatch skips no lane.
+    lane's caller on !cancelled() handing the lane the one skip expression, so a cancel during the scan never enters
+    it and its checks never report, and a local job on always() and the expression's negation with a first step that
+    fails when the scan did not finish, since a local job skipped on a cancelled run reports Success. The expression
+    needs the scan to have said docs only, which its last step says only on a pull request with no ref, and a release
+    hands the scan its tag, so a release dispatch skips no lane.
     """
     jobs   = _jobs(repo, "ci.yml")
     others = {key: job for key, job in jobs.items() if key != "secret-scan"}
@@ -423,7 +430,7 @@ def test_a_repo_is_wired_whole_or_not_at_all_and_a_release_never_skips_a_lane(re
             assert f"\n      skip: ${{{{ {SKIP_EXPRESSION} }}}}\n" in job, key
         else:
             assert _condition(job) in LOCAL_CONDITIONS, f"{key} {_condition(job)}"
-            assert _guard_fails_a_cancelled_run(job), f"{key}'s first step does not fail a cancelled run"
+            assert _guard_fails_an_unfinished_scan(job), f"{key}'s first step does not fail an unfinished scan"
     assert "\n      ref: ${{ inputs.ref }}\n" in jobs["secret-scan"], "a release hands the scan its tag"
     here = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "secret-scan.yml"
     assert SCAN_ANSWERS in here.read_text(encoding = "utf-8").replace("\r\n", "\n")

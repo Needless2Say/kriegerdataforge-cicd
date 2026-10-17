@@ -11,9 +11,9 @@
 #                   D-035's proof that the unit lane's install job holds no secret, and its positive control
 #   skip-probe, skip-probe-split, skip-probe-security, skip-probe-nested
 #                   D-075's proof that a lane called with skip reports each of its jobs skipped under its own name
-#   cancel-probe-lane, cancel-probe-security, cancel-probe-local
-#                   D-075's proof that a job wired to the scan fails a cancelled run, the lane and local probes running
-#                   on this repo's code otherwise and the security probe on a cancelled run alone
+#   cancel-probe-lane, cancel-probe-local
+#                   D-075's proof of a cancel during the scan, the lane's caller never entered so its checks never
+#                   report, and the local job failed in its first step, which reads the scan's result
 #
 # Every job must pass before a PR can be merged. The owner sets them as required status checks in the repo's
 # ruleset for main. The two D-035 jobs run only where the secrets exist and are not required checks, and no ruleset
@@ -163,27 +163,18 @@ jobs:
   skip-probe-nested:
     uses: ./.github/workflows/probe-nested.yml
 
-  # D-075. The cancel probes, wired as a consumer's ci.yml wires its lanes and local jobs, each waiting for the scan
-  #   with the one skip expression. On this repo's own code change the scan says not docs only and each runs, and a
-  #   run cancelled during the scan must end each failed and none skipped. The unit test lane runs one test file
+  # D-075. The cancel probes, wired as a consumer's ci.yml wires a lane caller and a local job, each waiting for the
+  #   scan with the one skip expression. On this repo's own code change the scan says not docs only and each runs. On
+  #   a run cancelled during the scan the caller, on !cancelled(), is never entered, so its checks never report and
+  #   block a merge, and the local job, which a skip would turn green, fails in its first step, which reads the scan's
+  #   result, since a step's cancelled() reads false in a job always() keeps. The unit test lane runs one test file
   cancel-probe-lane:
     needs: [secret-scan]
-    if: ${{ always() }}
+    if: ${{ !cancelled() }}
     uses: ./.github/workflows/ci-python-tests.yml
     with:
       install_command: pip install -r scripts/requirements-test.txt
       test_command: cd scripts && python -m pytest tests/test_ci_paths.py -q
-      skip: ${{ needs.secret-scan.result == 'success' && needs.secret-scan.outputs.docs_only == 'true' }}
-
-  # the security lane runs only on a cancelled run, the case it proves. Its pip-audit reads a root requirements.txt
-  #   this repo does not have, and bandit at -ll reports findings in this repo's scripts, so a normal run of it would
-  #   fail for reasons that are not the skip's. Its jobs' guards are the ones every one job lane holds byte for byte
-  cancel-probe-security:
-    needs: [secret-scan]
-    if: ${{ cancelled() }}
-    uses: ./.github/workflows/ci-python-security.yml
-    with:
-      bandit_paths: scripts/
       skip: ${{ needs.secret-scan.result == 'success' && needs.secret-scan.outputs.docs_only == 'true' }}
 
   cancel-probe-local:
@@ -196,10 +187,12 @@ jobs:
       contents: read
 
     steps:
-      - name: Fail a cancelled run
-        if: ${{ cancelled() }}
+      - name: Fail when the scan did not finish
+        if: ${{ needs.secret-scan.result != 'success' && needs.secret-scan.result != 'failure' }}
+        env:
+          SCAN_RESULT: ${{ needs.secret-scan.result }}
         run: |
-          echo "::error::the run was cancelled, so this job ends failed rather than skipped and checks nothing"
+          echo "::error::the secret scan ended $SCAN_RESULT, so this job ends failed rather than skipped and checks nothing"
           exit 1
 
       - name: Read the scan's answer into the summary

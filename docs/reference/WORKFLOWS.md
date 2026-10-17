@@ -406,9 +406,10 @@ the mirrors as one artifact kept for a day. A plain https link to a repo's page,
 `[project.urls]` holds, is not a pin and passes, while any other form pip could install (git+,
 git@ or ssh:// URLs, archive or wheel links, a pip option line) fails the plan. The **install job**
 keeps its id and its name, so every ruleset's required check is unchanged, names no secret, runs on
-`always()` unless the caller's `skip` says docs only (D-075), and its first step ends it failed when the run was
-cancelled or, with `needs_sdk_auth`, unless the fetch succeeded (a skipped required job counts as passing). It
-checks the caller out with no credential kept, then downloads the mirrors and hands git one
+`always()` unless the caller's `skip` says docs only (D-075), and its first step ends it failed when, with
+`needs_sdk_auth`, the fetch did not succeed (a skipped required job counts as passing). The step's `cancelled()` arm
+reads false in a job `always()` keeps through a cancel, measured in D-075, so without package access the job runs its
+work on a cancelled run. It checks the caller out with no credential kept, then downloads the mirrors and hands git one
 `url.file://<mirror>.insteadOf https://github.com/Needless2Say/<repo>.git` rewrite per repo
 through `GIT_CONFIG_COUNT`, `KEY_n` and `VALUE_n` in the job's environment. Without
 `needs_sdk_auth` the lane is one job as before. The token is **App token first** (reports ecosystem
@@ -610,15 +611,20 @@ the step summary file alone. A push, a schedule or a release dispatch with a `re
 `-mutation`, `-security`, `-lint`, `-typecheck`, `ci-python-kdf-fmt`, `ci-vercel-compactor`,
 `ci-nextjs-lint-typecheck`, `-build`, `-tests` and `ci-npm-audit`. Every job of the lane reads it, so each required
 check `<caller job> / <called job>` reports skipped. A caller job skipped by its own condition would report its own
-name alone and leave the required check pending. Every job of a lane runs on `always()` unless `skip` is true, and its
-first step fails a cancelled run, since a job skipped on a cancelled run reports Success. `secret-scan.yml`,
+name alone and leave the required check pending. A job the fetch renderer does not write, the one job lanes and the
+security lane's Bandit job, reads `skip` alone, so a cancelled run cancels it as it did before. `secret-scan.yml`,
 `ci-codeql.yml` and `fetch-private-packages.yml` take no `skip`.
 
 **The caller pattern.** The skip is one expression, true only when the scan job itself succeeded and said so. Each
-lane's caller job waits for the scan, runs on `always()` joined to any condition it had, and passes the expression.
-Each local job waits for the scan, runs on `always()` and the expression's negation joined to its own condition, and
-its first step fails a cancelled run. A required check that comes from a matrix job, or a job whose name holds an
-expression, may report its unexpanded name when skipped, so such a job is listed and checked before it is wired.
+lane's caller job waits for the scan, runs on `!cancelled()` joined to any condition it had, and passes the
+expression. A job's own `if` reads `cancelled()` true after a cancel, so a cancel during the scan never enters the
+caller and each `<caller job> / <called job>` check never reports, which blocks a merge as a failed check does. Never
+put a caller on `always()`. GitHub keeps a job on `always()` running through a cancel, and a step's `cancelled()`
+reads false inside it, so no guard step there can fail it (D-075, measured). Each local job waits for the scan, runs
+on `always()` and the expression's negation joined to its own condition, since a local job skipped on a cancelled run
+reports Success under its own name, and its first step fails it when the scan ended neither `success` nor `failure`,
+the result a step does read after a cancel. A required check that comes from a matrix job, or a job whose name holds
+an expression, may report its unexpanded name when skipped, so such a job is listed and checked before it is wired.
 
 ```yaml
 jobs:
@@ -630,7 +636,7 @@ jobs:
 
   lint:
     needs: [secret-scan]
-    if: ${{ always() }}
+    if: ${{ !cancelled() }}
     uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ci-python-lint.yml@main
     with:
       ref: ${{ inputs.ref }}
@@ -643,16 +649,20 @@ jobs:
     if: ${{ always() && !(needs.secret-scan.result == 'success' && needs.secret-scan.outputs.docs_only == 'true') && github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Fail a cancelled run
-        if: ${{ cancelled() }}
+      - name: Fail when the scan did not finish
+        if: ${{ needs.secret-scan.result != 'success' && needs.secret-scan.result != 'failure' }}
+        env:
+          SCAN_RESULT: ${{ needs.secret-scan.result }}
         run: |
-          echo "::error::the run was cancelled, so this job ends failed rather than skipped and checks nothing"
+          echo "::error::the secret scan ended $SCAN_RESULT, so this job ends failed rather than skipped and checks nothing"
           exit 1
       # the job's own steps follow
 ```
 
 On a code pull request every lane starts after the scan, about a minute later, and no billed minute is added, since
-the scan runs anyway. A docs only merge to `main` starts every workflow that runs on a push, and the scan answers only
+the scan runs anyway. A run cancelled after the scan, a superseded push under `cancel-in-progress` for instance,
+cancels a lane's jobs, while a rendered lane's install job and a local job, each on `always()`, run to their end. A
+docs only merge to `main` starts every workflow that runs on a push, and the scan answers only
 a pull request, so each such workflow takes a `paths:` filter of the same rule, every path, then not `docs/**` and not
 `**/*.md`, then the code under `docs/` and each `not_docs` pattern included again. A push has no required check, so a
 path filter is safe there. A path filter matches case sensitively, so a code file under `docs/` whose extension is not

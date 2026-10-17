@@ -55,7 +55,7 @@ on:
         type: string
         default: ""
       skip:
-        description: Skip every job of this lane, each reporting skipped, which a required check counts as passing. A caller passes its docs only answer, true only after its secret scan succeeded and said every changed path is docs (D-075). False runs every job, a cancelled run ending them failed
+        description: Skip every job of this lane, each reporting skipped, which a required check counts as passing. A caller passes its docs only answer, true only after its secret scan succeeded and said every changed path is docs (D-075). False runs every job as before
         type: boolean
         default: false
 
@@ -1030,10 +1030,11 @@ jobs:
     name: Mutation (${{ matrix.lane }})
     needs: [fetch-private]
     # D-035. FAIL CLOSED. A skipped required job counts as passing, so this job runs whatever happened before it, a
-    #   cancelled run included, and its first step ends it failed when the run was cancelled or, with package access,
-    #   when the fetch did not succeed. GitHub reads cancelled() only in an if, so the step's if is the check and its
-    #   run only says why. Only skip, the caller's docs only answer (D-075), skips it whole, and a caller passes it true
-    #   only after its secret scan succeeded and said so. Written by scripts/render_fetch_job.py from its template
+    #   cancelled run included, and its first step ends it failed when, with package access, the fetch did not
+    #   succeed. The step's cancelled() arm reads false in a job always() keeps through a cancel (D-075, measured), so
+    #   without package access the job runs its work. Only skip, the caller's docs only answer (D-075), skips it whole,
+    #   and a caller passes it true only after its secret scan succeeded and said so. Written by
+    #   scripts/render_fetch_job.py from its template
     if: ${{ always() && !inputs.skip }}
     permissions:
       contents: read
