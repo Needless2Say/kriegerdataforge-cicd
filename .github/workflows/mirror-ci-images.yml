@@ -1,0 +1,194 @@
+# Mirror CI images (D-077). Copies the Postgres image D-064 pinned, its whole index by its digest, from Docker's
+# official image to the owner's mirror on GitHub's registry, ghcr.io/needless2say/postgres, and proves the copy public
+# on a runner. Every Postgres lane pulls the mirror by that digest, so a pull spends no allowance the other tenants of
+# a runner's address share, and the owner decides how long the image is kept.
+#
+# Jobs:
+#   copy     Copy postgres by digest. The one job of this repo that may write a package, through the job's own token.
+#            It checks out nothing and runs no repository code and no action
+#   verify   Prove the copy public. No token scope at all, the lanes' own service by the newest kept digest, its
+#            server_version_num read by host and port, and every kept entry read with no credentials
+#
+# It runs on main alone, on a push that changes this file and on the owner's dispatch, which takes no input, and never
+# on a pull request. A bump appends an entry to KEPT and moves verify's service line to it, this runs at its merge, and
+# the lanes move in a later pull request, the order docs/reference/WORKFLOWS.md writes. No version of the package,
+# tagged or untagged, is ever deleted, since every Postgres lane in every repo pulls it. The image test,
+# scripts/tests/test_workflow_service_images.py, holds this file to a strict rule of its own.
+
+name: Mirror CI images
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/mirror-ci-images.yml]
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  # the mirror, the one target a copy writes
+  TARGET: ghcr.io/needless2say/postgres
+  # the sources a copy tries in turn, Docker's official image on ECR Public's gallery, Docker Hub and Google's mirror,
+  # each read by the kept entry's digest, so any one of them gives the same bytes
+  SOURCES: public.ecr.aws/docker/library/postgres docker.io/library/postgres mirror.gcr.io/library/postgres
+  # every kept entry, its index digest, its tag and its server_version_num, the newest last. None is ever removed, so a
+  # rollback is a pull request that moves the lanes back to an older one
+  KEPT: |
+    sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d 16.15 160015
+
+jobs:
+  copy:
+    name: Copy postgres by digest
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      packages: write
+
+    # a run in progress is never cut short, and of the runs waiting the newest runs, which copies every kept entry
+    concurrency:
+      group: mirror-ci-images-copy
+      cancel-in-progress: false
+
+    steps:
+      # the job's token through standard input, never an argument, into a file under the runner's temp folder, which
+      # the runner empties at the job's end
+      - name: Log in to GitHub's registry with the job's token
+        env:
+          REGISTRY_AUTH_FILE: ${{ runner.temp }}/kdf-registry-auth.json
+          REGISTRY_TOKEN: ${{ github.token }}
+        run: printf '%s' "$REGISTRY_TOKEN" | skopeo login --username "$GITHUB_ACTOR" --password-stdin ghcr.io
+
+      # An entry the mirror already holds is left as it is, so a new entry never depends on fetching an old one
+      #   upstream again. Present means its index, read by its digest, and every manifest that index lists, each read
+      #   by its own, hash to those digests, the SHA-256 of their exact bytes. That proves the manifests present, not
+      #   every layer they name, which verify's service pull proves for the newest entry on the runner's platform.
+      #   Every other entry is copied whole, --all for every platform and attestation the index names and
+      #   --preserve-digests to fail a copy that would change a byte, then held to the same check, so a copy cut
+      #   short is repaired by the next run
+      - name: Copy each kept entry the mirror lacks
+        env:
+          REGISTRY_AUTH_FILE: ${{ runner.temp }}/kdf-registry-auth.json
+        run: |
+          set -euo pipefail
+          raw="$RUNNER_TEMP/kdf-manifest"
+          present() {
+            local digest="$1" listed
+            skopeo inspect --raw "docker://$TARGET@$digest" > "$raw.index" || return 1
+            [ "sha256:$(sha256sum < "$raw.index" | cut -d ' ' -f 1)" = "$digest" ] || return 1
+            jq -r '.manifests[]?.digest' "$raw.index" > "$raw.listed" || return 1
+            while read -r listed; do
+              skopeo inspect --raw "docker://$TARGET@$listed" > "$raw.one" || return 1
+              [ "sha256:$(sha256sum < "$raw.one" | cut -d ' ' -f 1)" = "$listed" ] || return 1
+            done < "$raw.listed"
+          }
+          read -r -a sources <<< "$SOURCES"
+          while read -r digest tag version; do
+            [ -n "$digest" ] || continue
+            if present "$digest"; then
+              echo "$TARGET@$digest, $tag ($version), is present on the mirror and left as it is"
+              continue
+            fi
+            copied=""
+            for source in "${sources[@]}"; do
+              echo "copying $digest, $tag ($version), from $source"
+              if skopeo copy --all --preserve-digests "docker://$source@$digest" "docker://$TARGET:$tag"; then
+                copied="$source"
+                break
+              fi
+              echo "::warning::$source did not serve $digest, so the next source is tried"
+            done
+            if [ -z "$copied" ]; then
+              echo "::error::no source served $digest"
+              exit 1
+            fi
+            if ! present "$digest"; then
+              echo "::error::the copy of $digest from $copied is not present whole, a later run repairs it"
+              exit 1
+            fi
+            echo "copied $digest from $copied, its index and every manifest it lists hashed to their digests"
+          done <<< "$KEPT"
+
+  verify:
+    name: Prove the copy public
+    needs: copy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions: {}
+
+    # The lanes' own service with the newest kept digest written out and no credentials, so the runner pulls it after
+    #   the copy and before the first step, the index and this platform's layers. The runner logs in to GitHub's
+    #   registry with the job's own token first, so this pull is not anonymous, and the read with no credentials below
+    #   is the proof the package is public
+    services:
+      postgres:
+        image: ghcr.io/needless2say/postgres@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
+        env:
+          POSTGRES_USER: kdf
+          POSTGRES_PASSWORD: kdf
+          POSTGRES_DB: kdf_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kdf -d kdf_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+
+    steps:
+      # by its host, port, user and database, never the runner's own PostgreSQL, against the newest kept entry's number
+      - name: Hold the service's server_version_num to the newest kept entry
+        env:
+          PGPASSWORD: kdf
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 -U kdf -d kdf_test; then break; fi
+            if [ "$attempt" = 30 ]; then
+              echo "::error::nothing answered on 127.0.0.1:5432"
+              exit 1
+            fi
+            sleep 2
+          done
+          expected="$(printf '%s\n' "$KEPT" | awk 'NF { newest = $3 } END { print newest }')"
+          number="$(psql -X -h 127.0.0.1 -p 5432 -U kdf -d kdf_test -v ON_ERROR_STOP=1 -At -c 'show server_version_num')"
+          shown="$(psql -X -h 127.0.0.1 -p 5432 -U kdf -d kdf_test -v ON_ERROR_STOP=1 -At -c 'show server_version')"
+          echo "the service reports server_version_num $number, server_version $shown, and the newest entry $expected"
+          if [ "$number" != "$expected" ]; then
+            echo "::error::the service reports server_version_num $number, not the newest kept entry's $expected"
+            exit 1
+          fi
+
+      # every kept entry's index and every manifest it lists, read with no credentials at all and each hashed to its
+      # digest, so a package still private fails here, closed, and each entry is proven public and present
+      - name: Read every kept entry with no credentials
+        run: |
+          set -euo pipefail
+          raw="$RUNNER_TEMP/kdf-manifest"
+          while read -r digest tag version; do
+            [ -n "$digest" ] || continue
+            if ! skopeo inspect --raw --no-creds "docker://$TARGET@$digest" > "$raw.index"; then
+              echo "::error::$TARGET@$digest cannot be read with no credentials, set the package public"
+              exit 1
+            fi
+            if [ "sha256:$(sha256sum < "$raw.index" | cut -d ' ' -f 1)" != "$digest" ]; then
+              echo "::error::the index read for $digest does not hash to it"
+              exit 1
+            fi
+            jq -r '.manifests[]?.digest' "$raw.index" > "$raw.listed"
+            count=0
+            while read -r listed; do
+              if ! skopeo inspect --raw --no-creds "docker://$TARGET@$listed" > "$raw.one"; then
+                echo "::error::$TARGET@$listed, which $digest lists, cannot be read with no credentials"
+                exit 1
+              fi
+              if [ "sha256:$(sha256sum < "$raw.one" | cut -d ' ' -f 1)" != "$listed" ]; then
+                echo "::error::the manifest read for $listed, which $digest lists, does not hash to it"
+                exit 1
+              fi
+              count=$((count + 1))
+            done < "$raw.listed"
+            echo "$TARGET@$digest, $tag ($version), is public, its index and its $count listed manifests read"
+          done <<< "$KEPT"

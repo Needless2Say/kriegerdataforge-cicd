@@ -476,8 +476,10 @@ lane is one template, `scripts/fetch_private_job.template.yml`, written by
 
 The Postgres these three jobs start is Docker's official image from AWS ECR Public's gallery, pinned by its index
 digest, PostgreSQL 16.15 (D-064). Docker Hub's anonymous pull limit, shared by every tenant of a runner's address,
-had failed whole jobs before a test ran. A new patch is a hand edit of the digest in all three files, and
-`scripts/tests/test_workflow_service_images.py` holds every workflow here to one rule on its text. A line that is not
+had failed whole jobs before a test ran. A new patch follows the copier's order in
+[CI's Postgres mirror](#cis-postgres-mirror-d-077), and
+`scripts/tests/test_workflow_service_images.py` holds every workflow here but the copier, which has its own, to one
+rule on its text. A line that is not
 a comment and names `image`, `container` or `docker`, in any case, must be a service's `image:` line with a pinned
 reference and nothing after it, and no line may hold a `\x`, `\u` or `\U` escape. So a job's container, a `docker://`
 step or a script's `docker run` is refused until the test is changed with it. It catches a mistake, not a workflow
@@ -837,7 +839,7 @@ shown where it differs from top level):
 
 ## Repo internal event triggered workflows
 
-The remaining eighteen `.github/workflows/*.yml` (of 38 total: 20 `workflow_call` above + these 18) are
+The remaining twenty `.github/workflows/*.yml` (of 48 total, 28 `workflow_call` and these 20) are
 **not** `workflow_call`, so they cannot be `uses:`-d by a tenant. They run inside `kriegerdataforge-cicd` on schedules / issues / dispatch, and the ops ones are
 owner gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for completeness of the
 `.github/workflows/` enumeration.
@@ -863,6 +865,7 @@ owner gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for 
 | `trigger-reports-triage.yml` | weekly `schedule` (Mon 09:23 UTC) + `workflow_dispatch` (`apps`, `environment`, `dry_run`) | `trigger_triage.py`: POSTs each selected app's `X-Cron-Secret`-gated `/reports/triage/cron` (`reports_registry.json`). **Disarmed at birth**: the schedule job requires `vars.RUN_REPORTS_TRIAGE == 'true'` AND per app registry `enabled: true`. Scheduled runs = enabled apps against prod. POSTs never status retried, output metadata only | n/a (dispatch is maintainer only by repo perms, schedule gated by `RUN_REPORTS_TRIAGE`) |
 | `hub-prune-tokens.yml` | daily `schedule` (04:17 UTC) + `workflow_dispatch` (`environment`) | POSTs the auth hub's `CRON_SECRET` gated `/internal/cron/prune-tokens` once per environment, which deletes expired denylist rows, spent verification tokens, audit rows past retention, abandoned registrations and expired OIDC rows in the hub (hub DEFERRED row 21). **Disarmed at birth**, the schedule job requires `vars.RUN_HUB_PRUNE == 'true'`, arm it with the hub release whose route answers POST. Per environment secrets `KDF_HUB_URL_{DEV,PROD}` and `KDF_HUB_CRON_SECRET_{DEV,PROD}`, an environment missing either is skipped with a notice. Prints the per table counts only | n/a (dispatch is maintainer only by repo perms, schedule gated by `RUN_HUB_PRUNE`) |
 | `codeql.yml` | `push` / `pull_request` → `main` + weekly `schedule` (Sun 00:00 UTC) | CodeQL over the Playwright suite under `e2e/`, through the centralized reusable workflow. The analyze job stays skipped until `vars.ENABLE_CODEQL == 'true'` (a public repo or GitHub Code Security) | n/a |
+| `mirror-ci-images.yml` | `push` `main`, `paths` its own file alone, + `workflow_dispatch` with no `inputs` | The copier of CI's Postgres image (D-077), the next section | n/a (`main` guard on its copy job, `packages: write` to that job alone, the workflow `{}`) |
 
 `GH_PACKAGES_PAT` distribution, Vercel/kit ops, and the App secret distribution mint short lived
 **GitHub App** tokens when `vars.USE_GITHUB_APP == 'true'`, falling back to `CICD_PAT`
@@ -870,6 +873,48 @@ owner gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for 
 `ops-distribute-app-secrets.yml`). Board provisioning is the exception. It needs an owner staged
 classic PAT (see the D-010 W1 finding). See the GitHub App migration ADR in
 `docs/CHANGELOG_AND_DECISION_LOG.md`.
+
+### CI's Postgres mirror (D-077)
+
+`mirror-ci-images.yml` copies the Postgres image D-064 pinned, Docker's official image by its index digest, to the
+owner's mirror on GitHub's registry, `ghcr.io/needless2say/postgres`, and proves the copy public on a runner. It runs
+on `main` alone, at a push that changes its own file and at the owner's dispatch, which takes no input, never on a pull
+request. Its `KEPT` list holds each kept entry, its digest, its tag and its `server_version_num`, the newest last.
+
+- **`copy`** holds `packages: write` through the job's own token, the one job of this repo that may write a package,
+  and checks out nothing and runs no repository code and no action. It logs in through standard input. An entry whose
+  index and every manifest that index lists are on the mirror, each hashed to its digest, is left as it is, so a new
+  entry never depends on fetching an old one upstream again. Any other entry is copied with
+  `skopeo copy --all --preserve-digests`, from ECR Public's gallery, then Docker Hub, then Google's mirror, each by the
+  same digest, and held to the same check after the copy, so a copy cut short is repaired by the next run.
+- **`verify`** has no permissions. Its service is the lanes' own with the newest kept digest on the mirror, its
+  `server_version_num` read by host and port and held to that entry's. Then every kept entry's index and every
+  manifest it lists are read with `skopeo inspect --raw --no-creds` and hashed to their digests. A hosted runner logs
+  in to GitHub's registry with the job's own token before it pulls a service from there, so a service's pull is not
+  anonymous, and that read with no credentials is the proof the package is public. A package still private fails
+  there, closed, which is the expected end of the first run, until the owner sets the package public on its page and
+  dispatches the copier again.
+
+A Postgres patch is ordered. First a cicd pull request appends the new entry to `KEPT` and moves `verify`'s service
+line to it, the lanes unchanged, and its merge runs the copier, which copies and proves it. Then the pull requests
+that move the lanes, cicd's and each repo's that starts the same service, each proven by its own run before it
+merges. The image test holds every lane's digest among the kept ones and `verify` on the newest. The old entry stays
+kept, so a rollback is the lanes' pull request naming it again, and moving the lanes back to ECR Public's gallery is
+their lines and the test's one constant for the lanes' image.
+
+**No version of the package, tagged or untagged, is ever deleted.** The index's platform and attestation manifests
+show as untagged versions, which a tidy of untagged versions would remove, and every Postgres lane in every repo then
+fails before a test runs. GitHub restores a deleted package within 30 days while its name is not reused, and a dispatch
+of the copier copies the same digest again while a source still serves it.
+
+The image test, `scripts/tests/test_workflow_service_images.py`, reads the copier by a strict rule of its own. Its
+triggers, its `main` guard, each job's declared permissions, its `needs`, its concurrency, `verify`'s service, its
+target and its sources are each held whole, a key's line and every line below it, so a line continued or a key added
+below a blank line is refused. And it holds no action, its kept entries, and its every line that names an image or a
+pull. And it refuses a `credentials` key in any workflow, `persist-credentials`
+apart, and a declared grant that can write a package anywhere but the copier's `copy` job. A workflow that declares no
+permissions takes the repository's default token, which the text cannot show, so the owner keeps this repository's
+default workflow permission read only.
 
 ---
 

@@ -73,6 +73,7 @@ Keeping CI/CD logic in one place means deploy behavior is consistent across all 
 | `check-secret-expiry.yml` | Weekly credential expiry monitor → opens/closes a deduped rotation issue | Internal |
 | `check-oidc-rp-drift.yml` | Weekly PL-084 guard. Detects drift of the copy pasted OIDC RP core across the two tenant frontends → deduped tracking issue | Internal |
 | `ops-rotate-secrets.yml` | Owner only on demand secret rotation (driven by the `Ops · Rotate a secret` issue form) | Internal |
+| `mirror-ci-images.yml` | Copies CI's Postgres image by its digest to `ghcr.io/needless2say/postgres` and proves the copy public (D-077). On `main` alone, at a push that changes it and the owner's dispatch. No version of the package is ever deleted | Internal, every Postgres lane pulls its copy |
 
 ---
 
