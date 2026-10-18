@@ -4080,3 +4080,92 @@ keeps the image as long as the lanes need it. A caller changes nothing. GitHub's
 first visibility, so the first run is expected to end with `verify` failed on a private package, until the owner sets
 it public and dispatches the copier again. What reopens this is a change to GitHub's registry limits, or a Postgres
 lane failing on its pull from the mirror. VERSION 0.2.158.
+
+## D-078. The Linux pre-flight runs a repo's setup first and serves the owner's private Python packages by mirrors
+
+- **Date.** 2026-10-18
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Standard · `tools/claude-code/kdf-preflight.sh`, `tools/claude-code/preflight/`, their tests, the
+  tools' README and the module map · the tool changes, no workflow, input, output or secret changed
+
+**Context.** D-072's pre-flight ran each lane as a bare `make` target in a fresh tree. A repo whose lanes expect
+`make setup` to have filled its venv failed before any test, so a pull request of the SDK reported a skipped
+pre-flight with GitHub's CI as its only Linux gate. A `make setup` alone would not have served it either. Nearly every
+kit repo pins the owner's private formatter, the backends pin the SDK and the reports SDK too, and no token enters
+the container. On 2026-10-17 the owner chose the repo's own setup by default, bare git mirrors read through CI's own
+rewrite, and the host git's own login, a design judged by two panels and revised by their findings, its record
+private.
+
+**Decision.**
+
+1. **Setup first, by default.** When a make lane is named and the `Makefile` at the commit has a `setup` target on its
+   own line, `make setup` runs in the container before the first lane. `--setup <target>` names another and
+   `--no-setup` runs none, the target refused as a lane is, and refused when named as a lane too, beside the other
+   flag, twice, or with no make lane.
+2. **Setup in the lanes step, its status apart.** The target is a build argument used in the step that runs the
+   lanes, so that step is still never cached. Setup runs under the lane timeout, and a green one is followed by the
+   removal of every untracked `.env*` file that is no example, each named, since CI's checkout has none, a file that
+   cannot go making setup red. A red setup runs no make lane, each recorded `skipped`, while `actionlint` still runs.
+   Setup's status is written once every lane has run to a file of its own, by the same remove, write and read back as
+   the lanes', and printed on a marker kind of its own, with a red setup's excerpt first within the 64 KiB.
+3. **The result read whole.** Every result and setup line of the marker step is parsed, and the set must add up, one
+   result for each lane named and none other, one setup line naming the target when setup was due and none when not,
+   `skipped` for a make lane after a red setup alone. Anything else reads 3, so a lane that never ran never reads as
+   passed. A red setup reads 1.
+4. **Which repos are mirrored, and whether any are.** The seven files CI's fetch plan reads by default are read at the
+   commit for pins by CI's `PIN`, comments skipped, each repo held to CI's allowlist read from
+   `scripts/fetch_private_packages.py`, and tests hold the pattern and the reading to the module's own. The scan is a
+   convenience and not the fence. Nothing is mirrored unless `gh api` says the repo under test is private, named by
+   its one `origin` or, for a fresh repo, by `--github`, and unless GitHub holds the commit's base in that repo, its
+   merge base with `origin/main` or the commit itself. So a commit from a pull request or a fork gets no private
+   history, a public repo mirrors nothing, and a visibility GitHub cannot give reads 3.
+5. **How a mirror is made.** `git init --bare` and one fetch of `main` and every tag, then each pinned commit the
+   mirror lacks under a ref of its own, by the host's git with its own credential helper, prompts and askpass off.
+   An empty template and hooks folder of the run's own, the object and ref formats written out and automatic
+   maintenance off keep the host's settings out, and each fetch's URL and TLS check are pinned to themselves and read
+   back from git before it runs, since a host rewrite of the whole URL ties the pin. Git's errors are redacted of any
+   URL's user part.
+6. **What enters.** Every path any commit of each mirror adds, changes or removes, root commits included and renames
+   split, is judged by the secret file rule, a match refusing the run. The context gains each mirror's `HEAD`,
+   `refs`, `objects` and a `config` the tool writes, and is read back whole before anything is built. The mirrors are
+   removed however the run ends, and each mirror's line says its size and seconds.
+7. **How the container reads them.** The lane stage copies the mirrors by an instruction of their own, runner's, and
+   the lane script sets CI's rewrite of each repo's https URL to its mirror for setup and every lane, none with no
+   mirror, so the repo's requirement files and setup run unchanged.
+8. **The hints.** git's credential refusal in a Python lane now means a pin the scan missed or a ref a mirror lacks,
+   so the run failed and is never reported as skipped. A public repo's lane that needs a private package runs on the
+   host. A 401 or 403 from `npm.pkg.github.com` is a skipped pre-flight until private npm packages are served.
+
+**Alternatives considered.**
+
+- *A setup the session must name.* Explicit, but a session that does not know repeats the failure.
+- *A `ci-setup` target in every repo, by the kit.* Cleaner than a developer's bootstrap, but a Distribute to every repo
+  for what `setup` already does.
+- *Each CI job's own install command.* Closest to CI, but written per job in YAML with the runner's variables.
+- *Wheels built on the host.* pip never satisfies a direct URL requirement from a wheel, so the requirement files
+  would be rewritten in the container.
+- *The package token from the repo's `.env.kdf`.* The narrower token, but a public tool would read a secret file.
+- *The workspace's local clones.* No network, but a branch pin resolves against each clone's last fetch.
+- *CI's fetch script run on the host.* One source for the rules, but its git turns the credential helper off and the
+  wrapper would need a host Python, so the wrapper reads CI's allowlist and a test holds its pattern to CI's.
+- *Every branch in the mirror.* Simplest, but it carries branches in progress.
+- *Setup cached by commit.* Faster reruns, but a cached red setup would replay without running.
+- *Following `-r` and `-c` includes.* No kit repo's requirement file holds one, and a missed pin fails closed.
+- *For a public repo, words alone, or mirroring only what `main` already pins.* Words lean on a session knowing who
+  wrote a commit, and the second still copies private history beside a public repo's changed code.
+- *An anonymous `git ls-remote` to tell a public repo.* A failed read does not prove a repo private, while `gh api`'s
+  `private` field says so positively.
+
+**Trade-offs.** The pre-flight does not repeat CI's ref rules, so a pin CI refuses can read green here. A private
+repo's setup runs public packages' install scripts online beside its mirrors, the class D-035 accepts for CI's install
+job. The host's login reaches more than the package token, and the tool fetches only allowlisted repos with it, read
+only, into the run's folder. Docker's build cache keeps each run's mirror layer on the owner's machine, never pushed,
+and the owner prunes it from time to time. Private npm packages stay a later item, and so does each lane as a user of
+its own from a fresh copy of setup's tree.
+
+**Consequences.** A session's pre-flight sets a repo up as a fresh clone is set up. Before the pull request, the SDK's
+unit and style lanes passed in the container at its merged tree with kdf-fmt through its mirror, the FastAPI
+template's unit lane passed with the SDK, the reports SDK and the formatter mirrored by its lock's commits, this repo's
+own suite passed on Linux, and red runs showed a red setup, a missing venv and each refusal. A product repo's three
+mirrors add a few MiB and seconds. What reopens this is a repo whose requirement files use an include, private npm
+packages, or a change to how GitHub reports a repo's visibility. VERSION 0.2.160.
