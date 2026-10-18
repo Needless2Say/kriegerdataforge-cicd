@@ -95,8 +95,9 @@ When your role is unclear, take the narrower one and ask the owner.
 12. **A worker keeps the role of the session that started it, and every rule here.** A worker is a subagent a
    session starts for one job. It keeps no record, sends no notification, asks no one and starts no worker of its
    own. A refusal or a question it meets ends its task and goes back to the session, rule 10, and the owner's yes to
-   the session never goes back to the worker as its own, rule 11. Which sessions may start one is sections 3 and 4,
-   and what a reviewer may use is as section 5 leaves it.
+   the session never goes back to the worker as its own, rule 11. A worker's answer is the session's own tool result,
+   as a test run's is, and not a wait rule 11 names, while every wait rule 11 names stays one. Which sessions may
+   start one is sections 3 and 4, and what a reviewer may use is as section 5 leaves it.
 
 ## 3. Implementer
 
@@ -151,8 +152,8 @@ orchestrator reads it before the reviewed repo relies on it. A merged fix reache
 clone of the repo that owns it is brought forward and the reviewer tooling is installed again. The orchestrator does
 both, between pins and never under an open one, and the supporting session does neither. It never reviews, and never
 edits, commits, checks out or stashes anything in the reviewed repo's folder, which is the orchestrator's for the
-whole review. Its workers keep these limits and the pin's, as the orchestrator's do. A design or build session the owner starts for one of the review's handoffs keeps these same limits
-while the review runs.
+whole review. Its workers keep these limits and the pin's, as the orchestrator's do. A design or build session the
+owner starts for one of the review's handoffs keeps these same limits while the review runs.
 
 ## 5. Reviewer
 

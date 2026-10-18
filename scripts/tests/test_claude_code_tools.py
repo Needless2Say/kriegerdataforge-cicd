@@ -1297,6 +1297,7 @@ def test_a_worker_keeps_its_session_s_role_and_never_reads_as_a_reviewer() -> No
         "12. **A worker keeps the role of the session that started it, and every rule here.**",
         "It keeps no record, sends no notification, asks no one and starts no worker of its own.",
         "and the owner's yes to the session never goes back to the worker as its own, rule 11.",
+        "A worker's answer is the session's own tool result, as a test run's is, and not a wait rule 11 names,",
         "and what a reviewer may use is as section 5 leaves it.",
         "A build of an approved plan writes the plan's steps itself.",
         "every read a page gives the session itself, judgement with security weight or a design in it,",

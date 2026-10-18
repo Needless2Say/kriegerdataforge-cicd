@@ -4189,7 +4189,7 @@ packages, or a change to how GitHub reports a repo's visibility. VERSION 0.2.160
 
 - **Date.** 2026-10-18
 - **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
-- **Tier / scope:** Standard · the kit's `AGENT_ROLES.md` rule 12 and sections 3, 4 and 7, `CODE_REVIEW_PROCESS.md`
+- **Tier / scope.** Standard · the kit's `AGENT_ROLES.md` rule 12 and sections 3, 4 and 7, `CODE_REVIEW_PROCESS.md`
   section 2 and its Status block, cicd's own copies, kit v1.25.0 · text and one test, no tool, workflow or guard changed
 
 **Context.** A session that runs work read every file itself, and its context filled with working it never needed.
@@ -4203,7 +4203,8 @@ context pages. A design judged by a panel of three readers and revised by their 
 1. **A worker keeps its session's role.** Rule 12 of `AGENT_ROLES.md` names a worker, a subagent a session starts for
    one job, and binds it to every rule of the page. It keeps no record, sends no notification, asks no one and starts
    no worker of its own, and a refusal or a question it meets ends its task and goes back to the session, whose yes
-   from the owner never goes back to the worker as its own.
+   from the owner never goes back to the worker as its own. Its answer is the session's own tool result, as a test
+   run's is, and not a wait rule 11 names, while every wait rule 11 names stays one.
 2. **Who may start one.** An implementer, and so the orchestrator and the supporting session, may, and should when the
    work would fill its context with reading it does not need, hand a worker a search, a scan, a read it need not make
    itself, a probe, or the same mechanical edit in many places. A task of a few tool calls stays with the session. A
@@ -4219,8 +4220,8 @@ context pages. A design judged by a panel of three readers and revised by their 
 6. **In a review.** A worker is the orchestrator's tool and never a reader. It never reads a pin as a review's reader,
    answers a review's brief or makes step 1's read or the cite check's read, and while a pin is open it runs only read
    only git in the reviewed repo's folder, fetches nothing from its remote and makes no worktree of it.
-7. **What holds it.** In Claude Code the guard holds a worker's calls in the mode the session's environment sets, seen
-   once. Everything else is words, as the roles page says of every tool.
+7. **What holds it.** In Claude Code the guard holds a worker's calls in the mode the session's environment sets.
+   Everything else is words, as the roles page says of every tool.
 
 **Alternatives considered.**
 
