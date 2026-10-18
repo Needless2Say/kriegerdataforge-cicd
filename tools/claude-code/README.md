@@ -14,8 +14,8 @@ from a clone of this repo.
 | `kdf-brief.js` | Read only. The facts a brief states, measured at the pin, the commit line and the scope table's line counts, a check of a written brief's table, and every `file:line` cite of the living docs beside the lines it names |
 | `kdf-retro.js` | Read only. The numbers a slice's retrospective starts from, counted from its answer key, the launcher's counts beside its reports or else their headers, and its Sol rounds, the escapes first |
 | `kdf-ask-codex.sh` | Asks Codex for a read only review of a change, a plan or a decision, the one way every session does (D-052, D-053). Gives Codex a detached worktree of a commit, or a throwaway repo of a folder of patches with no secret file, link or token in it, sets the session's question in the standard frame, runs Codex with the verified flags and archives its answer in the workspace's `codex-archive`, never in a repo or in `temp` (D-069). Refuses a reviewer, and fails when Codex changed its folder or wrote no answer |
-| `kdf-preflight.sh` | Runs a repo's CI lanes on Linux in a container, the one way a session runs a Linux pre-flight (D-072). Exports a commit as an LF tar, builds the image in `preflight/` with `docker build` alone and options on the guard's list, and reads each lane's result from marker lines a last step prints. Refuses a docker pointed at another machine, a dirty tree with no `--at`, a tracked secret file and an owner only lane |
-| `preflight/` | The pre-flight's image, `Dockerfile`, Python 3.14.7 slim by digest with git, make, ShellCheck, Node and actionlint, and `lanes.sh`, which runs the lanes inside it |
+| `kdf-preflight.sh` | Runs a repo's CI lanes on Linux in a container, the one way a session runs a Linux pre-flight (D-072). Exports a commit as an LF tar, builds the image in `preflight/` with `docker build` alone and options on the guard's list, and reads each lane's result and setup's from marker lines a last step prints. Runs the repo's `setup` first, and serves the owner's private Python packages through bare git mirrors this machine's git fetches, only for a repo GitHub calls private (D-078). Refuses a docker pointed at another machine, a dirty tree with no `--at`, a tracked secret file, an owner only lane and a pin off CI's allowlist |
+| `preflight/` | The pre-flight's image, `Dockerfile`, Python 3.14.7 slim by digest with git, make, ShellCheck, Node and actionlint, and `lanes.sh`, which runs setup and the lanes inside it |
 | `check-wiring.js` | Read only. Says whether this machine's settings wire the guard as the process needs, and prints the block to add when they do not |
 | `kdf-compact.js` | A Claude Code SessionStart hook for the work records (D-058). After a compaction or a resume it prints the paths of the open records the session wrote, read from its own transcript, and nothing for a reviewer or a subagent. It never blocks |
 | `install.sh` | Stages the guard in `~/.claude/hooks/`, smoke tests the staged copy, then puts it in place and keeps the previous one, copies `kdf-compact.js`, and prints the settings block. It edits no settings and refuses to run inside a Claude Code session |
@@ -422,6 +422,9 @@ archive, the tests use them.
 ```bash
 bash kdf-preflight.sh --repo <repo> --lane ci-lint --lane ci-unit-tests --lane actionlint  # HEAD, on a clean tree
 bash kdf-preflight.sh --repo <repo> --at <commit> --lane ci-unit-tests                     # a commit as it stands
+bash kdf-preflight.sh --repo <repo> --lane ci-unit-tests --setup install                   # another setup target
+bash kdf-preflight.sh --repo <repo> --lane ci-unit-tests --no-setup                        # no setup at all
+bash kdf-preflight.sh --repo <fresh repo> --at <commit> --github <name> --lane ci-style    # a repo with no origin
 bash kdf-preflight.sh --repo <repo> --lane ci-unit-tests --keep --timeout 2400             # keep a green run's folder
 ```
 
@@ -443,10 +446,51 @@ commit first. Every `GIT_` variable is dropped first. The hash is printed at the
 refuses the run before anything is exported, since a build's layers outlive the run. A token's shape in tracked
 content is listed as a warning and not refused, since that text is already in git, and this repo's own tests hold
 fake keys as fixtures. The run's folder, `<workspace>/temp/kdf-preflight/<run id>/`, holds `build.log` and
-`context/`, which is the commit's tar from `git archive` with LF line ends beside `preflight/Dockerfile` and
-`preflight/lanes.sh`, and nothing else, so a repo's own `.dockerignore` or `Dockerfile` never selects or replaces
-anything. The tar is unpacked inside the image by `runner`, uid 1001, an unprivileged user as on GitHub's runner, so
-modes, case and links land as a Linux checkout puts them, and made a repo of one commit.
+`context/`, which is the commit's tar from `git archive` with LF line ends beside `preflight/Dockerfile`,
+`preflight/lanes.sh` and `mirrors/`, empty unless the owner's private packages are mirrored, and nothing else, so a
+repo's own `.dockerignore` or `Dockerfile` never selects or replaces anything. The context is read back whole before
+anything is built. The tar is unpacked inside the image by `runner`, uid 1001, an unprivileged user as on GitHub's
+runner, so modes, case and links land as a Linux checkout puts them, and made a repo of one commit.
+
+**Setup first (D-078).** When a make lane is named and the `Makefile` at the commit has a `setup` target on its own
+line, `make setup` runs in the container before the first lane, as a fresh clone is set up, so a repo whose lanes
+expect its venv filled no longer fails before any test. `--setup <target>` names another, such as `install` where a
+repo's `setup` also makes a TLS pair by mkcert, which the image lacks, and `--no-setup` runs none. The target
+is refused as a lane is, and so is one named as a lane too, `--setup` beside `--no-setup`, either named twice, and
+either with no make lane, since `actionlint` alone needs no setup. Setup runs under the lane timeout, its output kept
+apart. After a green setup the lane script removes every file named `.env*` in the work tree that git does not track
+and that is no `.env*.example`, naming each, since CI's checkout has none and a lane would otherwise read an
+example's values, and a file it cannot remove makes setup red. A red setup runs no make lane, each said not run,
+while `actionlint` still runs, and the run reads 1 with setup's excerpt.
+
+**The owner's private Python packages (D-078).** When a make lane is named, the seven files CI's fetch plan reads,
+`requirements.txt`, `requirements.in`, `requirements-dev.txt`, `requirements-dev.in`, `requirements-test.txt`,
+`requirements-test.in` and `pyproject.toml`, are read at the commit for each `git+https://github.com/Needless2Say/`
+pin, by CI's own pattern, a comment skipped, and each repo must be on CI's allowlist, read from
+`scripts/fetch_private_packages.py` beside this tool, else the run is refused. The scan is a convenience and not the
+fence. A pin it does not read, in the `Makefile`, behind an `-r` include or in another file, fails at once in the
+container, which asks for no login. Nothing is mirrored unless GitHub says the repo under test is private,
+`gh api repos/Needless2Say/<name> --jq .private`, the repo named by the clone's one `origin` in its https or ssh
+form, or by `--github <name>` for a fresh repo with no `origin`, and unless GitHub holds the commit's base in that
+repo's network, its merge base with `origin/main`, or the commit itself with `--github`, gh's HTTP 422 alone reading
+as not held and any other failure as 3. A commit names its parent by its id alone, so a base shows what a commit is
+built on and not who wrote it. So a clone's commit is mirrored only the private repos its base already pins, and one
+that adds a private repo refuses the run, its pre-flight reported not run. A repo GitHub calls public mirrors
+nothing, so its lanes that need a private package, such as this repo's `ci-style`, run on the host, and a public
+repo's commit, from a pull request or a fork, gets no private history. A commit built on a private repo's history
+gets only what that history already pins, and a fork of a private repo needs read access to it, the owner's alone
+today, so that route reopens if anyone else gets it. `gh` and git use their own logins, and the tool reads no token.
+For a private repo, this machine's git fetches each pinned repo into a bare mirror of `main`, every tag and each
+pinned commit, prompts off, an empty template and hooks folder of the run's own, the formats written out, automatic
+maintenance off, each fetch's URL and TLS check pinned to itself and read back from git before it runs, so no host
+setting shapes a mirror or runs during its fetch, and git's errors redacted of any URL's user part. Each ref of a
+mirror must resolve to a commit, through any chain of tags, since a tag naming a tree or a blob would bring objects
+no commit names, else the run is refused. Every path any commit of each mirror adds, changes or removes is judged by
+the secret file rule below, a match refusing the run for the owner to decide. The context gains each mirror's
+`HEAD`, `refs`, `objects` and a `config` the tool writes, and the image reads them through CI's own rewrite of each
+repo's https URL to the mirror on disk, so no token and no host setting enters. Each mirror's line says its size and
+the seconds its fetch took, a few MiB and seconds for a product repo's three, and the mirrors are removed however the
+run ends.
 
 **The lanes.** A lane is a `ci-*` target on its own line in the repo's `Makefile` at the commit, or `actionlint`,
 the image's actionlint over the repo's workflows with ShellCheck, which actionlint runs over every `run:` script as on
@@ -456,9 +500,12 @@ guard's owner only make words, such as deploy, release, publish or prod, or dev 
 `make` of it is, and so is `ci-version-check`, which compares against `origin/main`, a history an archive does not
 have. Each lane runs with `ENVIRONMENT=local` and `GIT_TERMINAL_PROMPT=0`, without the base image's own
 `PYTHON_VERSION`, which a runner never sets, and under its own `timeout`, so a red or a hung lane never stops the
-lanes after it. A lane that needs a private package fails at setup, since no token enters the container, and is
-reported in the pull request as a skipped pre-flight, and the tool says so when git's credential failure is in the
-log. Today it serves this repo and any repo whose lanes install public packages alone.
+lanes after it. A lane or a setup that fails on git's credential refusal, in a repo the tool mirrored for or one it
+could not name, means a pin the scan missed or a ref a mirror lacks, a defect to find, so the run failed and the pull
+request reports a failed pre-flight, never a skipped one, and the tool's hint names the repos it mirrored. In a repo
+GitHub calls public the hint says the lane runs on the host, which the pull request reports so. A private npm
+package, which a git mirror cannot serve, is not served yet, so a setup or lane that fails with a 401 or 403 from
+`npm.pkg.github.com` is reported as a skipped pre-flight, and the tool says so.
 
 **The image.** `preflight/Dockerfile` is Python 3.14.7 slim from AWS ECR Public's gallery by its index digest (D-064),
 git, make and ShellCheck from the digest's own Debian release, unpinned since its mirror keeps only the current
@@ -468,8 +515,9 @@ moves, its comment naming where it was read. The base stage is built first and a
 `kdf-preflight-base:<the Dockerfile's hash>`, so a failure there is the tool's and the image shows in `docker images`.
 The first run on a machine builds it, a few minutes. The lanes stage is tagged `kdf-preflight-run:<run id>` and
 removed with `docker rmi` when the run ends, failed or not, under a timeout so a stalled daemon never holds the run,
-and the tool warns when the image may be left behind, the lanes' result standing. The build cache is the owner's to
-prune now and then. The image is never pushed to a registry.
+and the tool warns when the image may be left behind, the lanes' result standing. Docker's build cache keeps each
+run's mirror layer and its setup's venv on this machine, so the owner prunes the build cache from time to time. The
+image is never pushed to a registry.
 
 **The result.** The run id is a build argument used in the step that runs the lanes, so that step is never taken from
 the cache, and a last small step prints each lane's status after a marker holding the run id. The tool reads those
@@ -477,7 +525,12 @@ lines alone, never the build's status, so a broken build never reads as a red la
 lane's log never hides a result. It finds that step by the line BuildKit itself opens it with, which no lane can
 print, and counts only that step's lines that open with a marker, so neither a lane's output nor an excerpt passes for
 a result even from a lane that learns the run id. The lane script writes the statuses only after every lane has run,
-so a lane's stray write never changes one, and the image keeps the script and the tar as root's. The pre-flight reads
+so a lane's stray write never changes one, and the image keeps the script and the tar as root's. Setup's status is
+written the same way to a file of its own and printed on a marker kind of its own, which no lane's result line and
+no excerpt can pass for. The tool reads every result and setup line, and the set must add up, one result for each
+lane named and none other, one setup line naming the target when setup was due and none when not, `skipped` for a
+make lane after a red setup alone and a number otherwise, or the run reads 3, so a lane that never ran never reads as
+passed (D-078). The pre-flight reads
 the lanes of the owner's own repos truly. It does not isolate one lane from another, since every lane runs in the same
 work tree as the same user, so a lane written to deceive could change what a later lane runs, and CI on GitHub stays
 the gate. Running each lane as a user of its own from a fresh tree is a later item. BuildKit drops the rest of a
@@ -490,13 +543,14 @@ given, bounds the whole run, each build running under what remains of it.
 
 | Exit | Meaning |
 | --- | --- |
-| 0 | Every lane passed. The run's folder is removed unless `--keep` is given |
-| 1 | A lane failed, each named with its exit status and the excerpt of its own output. The folder and its `build.log` are kept |
-| 2 | A refusal before anything was built. Bad arguments, the reviewer role, a docker pointed elsewhere, a folder that is no repo, a commit it lacks, a dirty tree with no `--at`, a lane that is not the session's to run or not in the `Makefile`, `actionlint` with no workflows, or a tracked secret file. Nothing is kept |
-| 3 | The run could not complete. A base that would not build, docker unreachable, the run past its timeout, or no whole set of marker lines, with the log's tail printed. The folder is kept |
+| 0 | Setup passed, where it was due, and every lane passed. The run's folder is removed unless `--keep` is given |
+| 1 | Setup or a lane failed, each named with its exit status and the excerpt of its own output, each make lane after a red setup said not run. The folder and its `build.log` are kept |
+| 2 | A refusal before anything was built. Bad arguments, the reviewer role, a docker pointed elsewhere, a folder that is no repo, a commit it lacks, a dirty tree with no `--at`, a lane or a setup target that is not the session's to run or not in the `Makefile`, `actionlint` with no workflows, a tracked secret file, a pin off CI's allowlist, a repo with a pin GitHub cannot be asked about, a commit on no base GitHub holds, a commit that pins a private repo its base does not pin, a host git setting that would send a fetch elsewhere or weaken TLS, a mirror ref that names no commit, or a secret file's name in a mirror's history. Nothing is kept |
+| 3 | The run could not complete. A base that would not build, docker unreachable, the run past its timeout, an allowlist that cannot be read, a visibility or a base GitHub cannot answer for, a fetch git cannot finish, or marker lines that are not one whole and consistent set, with the log's tail printed. The folder is kept, its mirrors removed, once the run has made it. An allowlist that cannot be read and a visibility or a base GitHub cannot answer for come before it, so they leave no folder |
 
-`KDF_DOCKER_BIN` and `KDF_PREFLIGHT_DIR` override the docker program and the runs folder, the tests use them, and
-`scripts/tests/test_kdf_preflight.py` plays docker with a stand in that records every call.
+`KDF_DOCKER_BIN`, `KDF_GH_BIN`, `KDF_PREFLIGHT_DIR` and `KDF_PREFLIGHT_GIT_BASE` override the docker program, gh, the
+runs folder and where the mirrors are fetched from, the tests use them, and `scripts/tests/test_kdf_preflight.py`
+plays docker and gh with stand ins that record every call and fetches from local bare remotes.
 
 ## The compaction hook
 
