@@ -525,7 +525,7 @@ if [ "$mirror" -eq 1 ]; then
 			"is kept at $run"
 	}
 	for name in "${pinned[@]}"; do
-		url="$git_base/$name.git" bare="$run/mirrors/$name.git"
+		url="$git_base/$name.git" bare="$run/mirrors/$name.git" began=$(date +%s)
 		pinning=(-c "url.$url.insteadOf=$url" -c "http.$url.sslVerify=true")
 		mirror_git -c init.defaultRefFormat=files init -q --bare -b main --object-format=sha1 \
 			--template="$run/template" "$bare" >/dev/null 2>"$run/fetch.err" || fetch_failed $? "$name"
@@ -574,7 +574,9 @@ if [ "$mirror" -eq 1 ]; then
 			&& printf '[core]\n\trepositoryformatversion = 0\n\tbare = true\n' > "$copy/config"; } 2>>"$log" \
 			|| die 3 "the mirror of $name could not be copied into the context, the log is $log"
 		mirrored+=("$name")
-		say "mirroring $name, main at $(git --git-dir="$bare" rev-parse -q --verify refs/heads/main)"
+		# its cost said, since every run with a pin fetches each history whole
+		say "mirroring $name, main at $(git --git-dir="$bare" rev-parse -q --verify refs/heads/main)," \
+			"$(du -sk "$bare" | cut -f1) KiB fetched and screened in $(( $(date +%s) - began )) seconds"
 	done
 fi
 # the context read back whole, each entry one of its parts, before anything is built

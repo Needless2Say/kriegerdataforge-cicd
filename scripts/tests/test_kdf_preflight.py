@@ -1434,7 +1434,9 @@ def test_the_scan_finds_a_pin_in_each_of_the_seven_files_and_mirrors_it(rig: Rig
     assert done.returncode == 0, done.stderr
     assert _handed(rig) == [f"{FMT}.git"]
     assert f"kdf-preflight: {UNDER_TEST} is private on GitHub, so its pins are mirrored" in done.stdout
-    assert f"kdf-preflight: mirroring {FMT}, main at {remote.main}" in done.stdout
+    # each mirror's cost said, its size and its seconds
+    said = rf"^kdf-preflight: mirroring {FMT}, main at {remote.main}, \d+ KiB fetched and screened in \d+ seconds$"
+    assert re.search(said, done.stdout, re.M), done.stdout
 
 
 @pytest.mark.parametrize("files", [
