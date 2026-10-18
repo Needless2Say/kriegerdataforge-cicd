@@ -12,8 +12,9 @@
 > since v1.21.0 a pin's freeze that gives way where rule 15 lets one family go ahead, and since v1.22.0 a handoff
 > talked through with the owner and kept in a backlog for a design session and a build session, built by the
 > supporting session only on the owner's word, and since v1.24.0 the third retrospective's changes, three more
-> standing look for questions and the fix check as step 3b, with no fetch while a Claude read is open. Kept
-> byte identical across every KDF repo by the kit sync engine,
+> standing look for questions and the fix check as step 3b, with no fetch while a Claude read is open, and since
+> v1.25.0 a session's workers, a subagent for one job that keeps its session's role and limits and never reads a pin
+> as a reviewer. Kept byte identical across every KDF repo by the kit sync engine,
 > canonical source `kriegerdataforge-cicd/kit/common/docs/agent/CODE_REVIEW_PROCESS.md`. Never edit a synced copy,
 > change the canonical one. The tooling that keeps the process safe, the guard, the reviewer
 > launcher and the installer, is not synced. It lives in `kriegerdataforge-cicd/tools/claude-code/` and is installed on
@@ -75,6 +76,7 @@ pull request that the owner merges, when it changed anything.
 | Owner | The person | Asks the question or approves the plan, answers decisions, runs Codex, pastes the Sol dispatches, reviews and merges every pull request, deploys | |
 | Orchestrator | One long running session of the strongest model the owner can spend, at high effort, started in the folder that holds the repos | Runs steps 0, 1, 1b, 1c, 3 and 6, writes and pins the briefs, launches the fresh reviewers, adjudicates, commits, opens the pull request, watches CI, notifies the owner | Merges, approves, pushes to `main` but a `STATUS.md` commit to `kriegerdataforge-context`, tags, releases, deploys |
 | Supporting session | A second long running session the owner starts beside the orchestrator, in the same folder, of a model the owner chooses | Takes the orchestrator's handoffs for what a review finds outside the reviewed repo, in cicd, this kit, the reviewer tooling or another repo, talks each through with the owner, then writes it into a backlog for a design session and a build session, or builds it as one pull request from a worktree when the owner says so, and reports back, section 2. Turns a closed slice's retrospective into the owner's list of proposals, and builds each approved one the owner marks to build here, section 14 | Reviews, edits or checks out anything in the reviewed repo's folder, lets a fix take effect under an open pin, merges, approves, pushes to `main` but a `STATUS.md` commit to `kriegerdataforge-context`, tags, releases, deploys |
+| Worker | A subagent the orchestrator or the supporting session starts for one job, of the model the session names in the call, [`AGENT_ROLES.md`](AGENT_ROLES.md) sections 3 and 4 | A search, a scan, a read it need not make itself, a probe, or the same mechanical edit in many places, its answer returned to the session, which reads the evidence itself before a finding counts as reproduced, rule 10 | Reads a pin as a review's reader, answers a review's brief, makes step 1's read or the cite check's read, asks the owner, commits or pushes. While a pin is open it runs only read only git in the reviewed repo's folder, fetches nothing from its remote and makes no worktree of it |
 | Fresh Claude reviewer | A new session per review, in the repo folder at the pinned commit, with an empty memory | Reads the brief, reads and probes the code, writes one report | Edits anything but its report, commits, uses GitHub |
 | Codex reviewer | ChatGPT through Codex, in the same folder on the owner's machine, or in the cloud | Reads the same brief at the same pinned commit, writes its own report | The same |
 | Sol | ChatGPT Sol dispatches, pasted by the owner | Reads the scope in rounds against a settled list | |
@@ -83,7 +85,8 @@ pull request that the owner merges, when it changed anything.
 Two independence rules hold the process together. A reviewer never inherits the orchestrator's context, so it is a
 fresh session with an empty memory, briefed only by the brief, reading the pinned commit in the repo folder while the
 other reviewer's report of the scope is kept out of it. And two model families read everything reviewed, Claude and
-ChatGPT, because different models catch different things.
+ChatGPT, because different models catch different things. A worker the orchestrator starts is its tool, briefed by
+it, so it is never independent and never a reader.
 
 **The supporting session.** The orchestrator stays on the review. Outside the reviewed repo it keeps only the small
 items it can finish within its own window, and the rest of what a review finds there goes to the supporting session

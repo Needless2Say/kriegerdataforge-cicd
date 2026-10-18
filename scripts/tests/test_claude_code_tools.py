@@ -1274,6 +1274,51 @@ def test_the_third_retrospective_s_changes_are_in_the_kit() -> None:
         assert words in roles, f"the roles page lost {words!r}"
 
 
+def test_a_worker_keeps_its_session_s_role_and_never_reads_as_a_reviewer() -> None:
+    """
+    The owner asked for workers on 2026-10-18 (D-079). A session that runs work may hand a worker a search, a scan, a
+    read it need not make itself, a probe, or the same mechanical edit in many places, and keeps the gates, the
+    judgement and the record. Rule 12 binds the worker to its session's role, sections 3 and 4 say who may start one, a
+    reviewer's tools stay as section 5 leaves them, and the review process names the one role a worker never takes. The
+    task list and the pin's limits are word for word in both pages, so they cannot drift apart in silence.
+    """
+    agent   = KIT / "docs" / "agent"
+    process = " ".join((agent / "CODE_REVIEW_PROCESS.md").read_text(encoding = "utf-8").split())
+    roles   = " ".join((agent / "AGENT_ROLES.md").read_text(encoding = "utf-8").split())
+    tasks   = "a search, a scan, a read it need not make itself, a probe, or the same mechanical edit in many places"
+    pin     = (
+        "runs only read only git in the reviewed repo's folder, fetches nothing from its remote and makes no worktree "
+        "of it"
+    )
+    # the review process's row opens its cell with the list, so its first letter is a capital there
+    assert tasks in roles and tasks in process.lower()
+    assert pin in roles and pin in process
+    for words in (
+        "12. **A worker keeps the role of the session that started it, and every rule here.**",
+        "It keeps no record, sends no notification, asks no one and starts no worker of its own.",
+        "and the owner's yes to the session never goes back to the worker as its own, rule 11.",
+        "and what a reviewer may use is as section 5 leaves it.",
+        "A build of an approved plan writes the plan's steps itself.",
+        "every read a page gives the session itself, judgement with security weight or a design in it,",
+        "The session names the worker's model in the call, the cheapest that fits,",
+        "A script that starts many agents at once runs only on the owner's explicit word in that session.",
+        "Step 1's read of the slice and the cite check's read stay the orchestrator's own,",
+        "Its workers keep these limits and the pin's, as the orchestrator's do.",
+        "In Claude Code a worker's calls pass the same guard, in the mode the session's environment sets",
+    ):
+        assert words in roles, f"the roles page lost {words!r}"
+    for words in (
+        "| Worker | A subagent the orchestrator or the supporting session starts for one job,",
+        "Reads a pin as a review's reader, answers a review's brief, makes step 1's read or the cite check's read,",
+        "A worker the orchestrator starts is its tool, briefed by it, so it is never independent and never a reader.",
+        "a subagent for one job that keeps its session's role and limits and never reads a pin",
+    ):
+        assert words in process, f"the process lost {words!r}"
+    # the reviewer's own section grants nothing new, its tools stay as they were
+    reviewer = roles[roles.index("## 5. Reviewer"):roles.index("## 6. Chat reader")]
+    assert "worker" not in reviewer.lower()
+
+
 def test_codex_in_the_rebuilt_cloud_needs_no_token_and_no_pull_request() -> None:
     """
     Codex's cloud was rebuilt on 2026-09-29 (D-048). The environment holds no token, its agent reaches github.com alone,
