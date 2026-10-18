@@ -4184,3 +4184,61 @@ template's unit lane passed with the SDK, the reports SDK and the formatter mirr
 own suite passed on Linux, and red runs showed a red setup, a missing venv and each refusal. A product repo's three
 mirrors add a few MiB and seconds. What reopens this is a repo whose requirement files use an include, private npm
 packages, or a change to how GitHub reports a repo's visibility. VERSION 0.2.160.
+
+## D-079. A session that runs work hands a worker what it need not hold, and keeps the judgement and the gates
+
+- **Date.** 2026-10-18
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope.** Standard · the kit's `AGENT_ROLES.md` rule 12 and sections 3, 4 and 7, `CODE_REVIEW_PROCESS.md`
+  section 2 and its Status block, cicd's own copies, kit v1.25.0 · text and one test, no tool, workflow or guard changed
+
+**Context.** A session that runs work read every file itself, and its context filled with working it never needed.
+The kit said nothing of subagents, so a session had no rule for when to start one, what it may not do, or how far to
+trust its answer. On 2026-10-18 the owner asked for a rule that lets every session that runs work start subagents, so
+the work goes faster and the session's own context holds only what it must, in the kit as well as the private
+context pages. A design judged by a panel of three readers and revised by their findings, its record private.
+
+**Decision.**
+
+1. **A worker keeps its session's role.** Rule 12 of `AGENT_ROLES.md` names a worker, a subagent a session starts for
+   one job, and binds it to every rule of the page. It keeps no record, sends no notification, asks no one and starts
+   no worker of its own, and a refusal or a question it meets ends its task and goes back to the session, whose yes
+   from the owner never goes back to the worker as its own. Its answer is the session's own tool result, as a test
+   run's is, and not a wait rule 11 names, while every wait rule 11 names stays one.
+2. **Who may start one.** An implementer, and so the orchestrator and the supporting session, may, and should when the
+   work would fill its context with reading it does not need, hand a worker a search, a scan, a read it need not make
+   itself, a probe, or the same mechanical edit in many places. A task of a few tool calls stays with the session. A
+   build of an approved plan writes the plan's steps itself. What a reviewer may use is left as section 5 leaves it.
+3. **What stays with the session.** The owner's questions and every yes, every read a page gives the session itself,
+   judgement with security weight or a design in it, the commits, pushes and pull requests, and the work record. The
+   brief names the task, the files, the rules the task touches and a short answer to return, the model is named in
+   the call, and a command that asks the owner for leave is the session's own.
+4. **A worker's answer is a claim.** The session checks what it acts on or reports against the files, the diff or the
+   check's own output. In a review a finding counts as reproduced only on evidence the orchestrator read itself.
+5. **Editing.** One editing worker may use the session's tree while nothing else edits it, and workers side by side
+   each have a worktree the session makes and removes, the session reading each diff and committing it.
+6. **In a review.** A worker is the orchestrator's tool and never a reader. It never reads a pin as a review's reader,
+   answers a review's brief or makes step 1's read or the cite check's read, and while a pin is open it runs only read
+   only git in the reviewed repo's folder, fetches nothing from its remote and makes no worktree of it.
+7. **What holds it.** In Claude Code the guard holds a worker's calls in the mode the session's environment sets.
+   Everything else is words, as the roles page says of every tool.
+
+**Alternatives considered.**
+
+- *The private pages alone.* They reach every session on the owner's machines, but a repo's own process text would
+  say nothing.
+- *A build's plan steps handed to workers.* Declined by the owner for now, and on a plan of chained small steps the
+  briefing and the check cost more than the work.
+- *One default model for workers.* Simpler to state, and wrong for half the tasks.
+- *Workers granted to reviewers, or barred from them.* Either changes what a measured review read does in the middle of
+  a campaign, so a reviewer's tools stay as they are.
+- *A worker's return as a wait that needs the owner's yes.* Every worker would then cost the owner's time. The owner
+  read it as the session's own tool result, as a test run is, every wait rule 11 names staying one.
+
+**Trade-offs.** Words hold most of it. Nothing tells a worker a pin is open but its brief, and the guard does not
+check the tool that starts one. A worker pays for its own start before any work, so a small task done by one costs
+more than the session doing it.
+
+**Consequences.** A session that runs work may keep its context for the work while workers search, scan and read for
+it, and the review process names the one role a worker never takes. What reopens this is a build route the owner
+changes, a decision on reviewers' tools, or a guard that holds the tool which starts a worker. VERSION 0.2.161.
