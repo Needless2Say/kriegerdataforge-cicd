@@ -68,8 +68,9 @@
 # before anything was built, 3 when the run could not complete, a base that would not build, docker unreachable, the
 # run past its timeout, a visibility GitHub could not give, a fetch git could not finish, or marker lines that are not
 # one whole and consistent set, with the log's tail. The folder is removed on 0 unless --keep is given and on 2, and
-# kept on 1 and 3, and its mirrors are removed however it ends. KDF_DOCKER_BIN names the docker program, KDF_GH_BIN gh,
-# KDF_PREFLIGHT_DIR the runs folder and KDF_PREFLIGHT_GIT_BASE where the mirrors are fetched from, each for a test.
+# kept on 1 and 3 once the run has made it, the questions to GitHub and the allowlist's read coming before it, and its
+# mirrors are removed however it ends. KDF_DOCKER_BIN names the docker program, KDF_GH_BIN gh, KDF_PREFLIGHT_DIR the
+# runs folder and KDF_PREFLIGHT_GIT_BASE where the mirrors are fetched from, each for a test.
 set -uo pipefail
 export LC_ALL=C
 # git finds its repo, its config and its programs through GIT_ variables first, and the tool needs none of them. git
@@ -447,9 +448,16 @@ if [ "${#pinned[@]}" -gt 0 ]; then
 		fi
 		if [ "$github_named" -eq 0 ]; then
 			base_pins="$(pins_at "$base")" || die 3 "git could not read the pin files at $base, $base_pins"
+			# each pin read as its repo, as the commit's are, since a ref may hold another repo's URL as text
+			base_repos=" "
+			while IFS= read -r match; do
+				[ -n "$match" ] || continue
+				rest="${match#git+https://github.com/Needless2Say/}"
+				base_repos="$base_repos${rest%%.git@*} "
+			done <<< "$base_pins"
 			for name in "${pinned[@]}"; do
 				case "$allowlist" in *" $name:private "*) ;; *) continue ;; esac
-				case "$base_pins" in *"github.com/Needless2Say/$name.git@"*) ;; *)
+				case "$base_repos" in *" $name "*) ;; *)
 					die 2 "$short pins Needless2Say/$name, which its base $base on GitHub does not pin, so nothing" \
 						"private is mirrored. A commit is mirrored only the private repos its base already pins, so its" \
 						"pre-flight is reported not run, for the owner to decide" ;;

@@ -1900,8 +1900,21 @@ def test_a_commit_that_pins_a_private_repo_its_base_does_not_is_refused_before_a
     hub = f"hub @ {_pin('kriegerdataforge', 'main')}\n"
     _commit(rig.repo, {"requirements.txt": hub}, "a hub pin its base does not hold")
     base = env["FAKE_GH_COMMITS"]
-    _refused(_preflight(rig, "ci-lint", env = env), rig, f"pins Needless2Say/kriegerdataforge, which its base {base}")
-    assert _handed(rig) == []
+    done = _preflight(rig, "ci-lint", env = env)
+    _refused(done, rig, f"pins Needless2Say/kriegerdataforge, which its base {base}")
+    assert _handed(rig) == [] and not done.stdout, "refused before the run's folder, so before any fetch"
+
+
+def test_the_base_is_held_to_the_repos_it_pins_and_not_to_its_pins_text(rig: Rig) -> None:
+    # a ref may hold any text a pin's ref allows, another repo's URL among it, so the base's pins are read as repos,
+    # as the commit's are (D-078)
+    _remote(rig, FMT)
+    odd = f"kdf-fmt @ {_pin(FMT, 'x/github.com/Needless2Say/kriegerdataforge.git@main')}\n"
+    env = _private(rig, {"requirements-dev.in": odd})
+    _commit(rig.repo, {"requirements.txt": f"hub @ {_pin('kriegerdataforge', 'main')}\n"}, "a hub pin")
+    done = _preflight(rig, "ci-lint", env = env)
+    _refused(done, rig, "pins Needless2Say/kriegerdataforge, which its base")
+    assert not done.stdout
 
 
 def test_a_public_repo_of_the_allowlist_is_not_held_to_the_base(rig: Rig) -> None:
