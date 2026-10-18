@@ -472,18 +472,25 @@ fence. A pin it does not read, in the `Makefile`, behind an `-r` include or in a
 container, which asks for no login. Nothing is mirrored unless GitHub says the repo under test is private,
 `gh api repos/Needless2Say/<name> --jq .private`, the repo named by the clone's one `origin` in its https or ssh
 form, or by `--github <name>` for a fresh repo with no `origin`, and unless GitHub holds the commit's base in that
-repo, its merge base with `origin/main`, or the commit itself with `--github`. So a commit from a pull request or a
-fork, in any clone, gets no private history. A repo GitHub calls public mirrors nothing, so its lanes that need a
-private package, such as this repo's `ci-style`, run on the host. `gh` and git use their own logins, and the tool
-reads no token. For a private repo, this machine's git fetches each pinned repo into a bare mirror of `main`, every
-tag and each pinned commit, prompts off, an empty template and hooks folder of the run's own, the formats written out,
-automatic maintenance off, each fetch's URL and TLS check pinned to itself and read back from git before it runs, so
-no host setting shapes a mirror or runs during its fetch, and git's errors redacted of any URL's user part. Every path
-any commit of each mirror adds, changes or removes is judged by the secret file rule below, a match refusing the run
-for the owner to decide. The context gains each mirror's `HEAD`, `refs`, `objects` and a `config` the tool writes,
-and the image reads them through CI's own rewrite of each repo's https URL to the mirror on disk, so no token and no
-host setting enters. Each mirror's line says its size and the seconds its fetch took, a few MiB and seconds for a
-product repo's three, and the mirrors are removed however the run ends.
+repo's network, its merge base with `origin/main`, or the commit itself with `--github`, gh's HTTP 422 alone reading
+as not held and any other failure as 3. A commit names its parent by its id alone, so a base shows what a commit is
+built on and not who wrote it. So a clone's commit is mirrored only the private repos its base already pins, and one
+that adds a private repo refuses the run, its pre-flight reported not run. A repo GitHub calls public mirrors
+nothing, so its lanes that need a private package, such as this repo's `ci-style`, run on the host, and a public
+repo's commit, from a pull request or a fork, gets no private history. A commit built on a private repo's history
+gets only what that history already pins, and a fork of a private repo needs read access to it, the owner's alone
+today, so that route reopens if anyone else gets it. `gh` and git use their own logins, and the tool reads no token.
+For a private repo, this machine's git fetches each pinned repo into a bare mirror of `main`, every tag and each
+pinned commit, prompts off, an empty template and hooks folder of the run's own, the formats written out, automatic
+maintenance off, each fetch's URL and TLS check pinned to itself and read back from git before it runs, so no host
+setting shapes a mirror or runs during its fetch, and git's errors redacted of any URL's user part. Each ref of a
+mirror must resolve to a commit, through any chain of tags, since a tag naming a tree or a blob would bring objects
+no commit names, else the run is refused. Every path any commit of each mirror adds, changes or removes is judged by
+the secret file rule below, a match refusing the run for the owner to decide. The context gains each mirror's
+`HEAD`, `refs`, `objects` and a `config` the tool writes, and the image reads them through CI's own rewrite of each
+repo's https URL to the mirror on disk, so no token and no host setting enters. Each mirror's line says its size and
+the seconds its fetch took, a few MiB and seconds for a product repo's three, and the mirrors are removed however the
+run ends.
 
 **The lanes.** A lane is a `ci-*` target on its own line in the repo's `Makefile` at the commit, or `actionlint`,
 the image's actionlint over the repo's workflows with ShellCheck, which actionlint runs over every `run:` script as on
@@ -538,8 +545,8 @@ given, bounds the whole run, each build running under what remains of it.
 | --- | --- |
 | 0 | Setup passed, where it was due, and every lane passed. The run's folder is removed unless `--keep` is given |
 | 1 | Setup or a lane failed, each named with its exit status and the excerpt of its own output, each make lane after a red setup said not run. The folder and its `build.log` are kept |
-| 2 | A refusal before anything was built. Bad arguments, the reviewer role, a docker pointed elsewhere, a folder that is no repo, a commit it lacks, a dirty tree with no `--at`, a lane or a setup target that is not the session's to run or not in the `Makefile`, `actionlint` with no workflows, a tracked secret file, a pin off CI's allowlist, a repo with a pin GitHub cannot be asked about, a commit on no base GitHub holds, a host git setting that would send a fetch elsewhere or weaken TLS, or a secret file's name in a mirror's history. Nothing is kept |
-| 3 | The run could not complete. A base that would not build, docker unreachable, the run past its timeout, an allowlist that cannot be read, a visibility GitHub cannot give, a fetch git cannot finish, or marker lines that are not one whole and consistent set, with the log's tail printed. The folder is kept, its mirrors removed |
+| 2 | A refusal before anything was built. Bad arguments, the reviewer role, a docker pointed elsewhere, a folder that is no repo, a commit it lacks, a dirty tree with no `--at`, a lane or a setup target that is not the session's to run or not in the `Makefile`, `actionlint` with no workflows, a tracked secret file, a pin off CI's allowlist, a repo with a pin GitHub cannot be asked about, a commit on no base GitHub holds, a commit that pins a private repo its base does not pin, a host git setting that would send a fetch elsewhere or weaken TLS, a mirror ref that names no commit, or a secret file's name in a mirror's history. Nothing is kept |
+| 3 | The run could not complete. A base that would not build, docker unreachable, the run past its timeout, an allowlist that cannot be read, a visibility or a base GitHub cannot answer for, a fetch git cannot finish, or marker lines that are not one whole and consistent set, with the log's tail printed. The folder is kept, its mirrors removed |
 
 `KDF_DOCKER_BIN`, `KDF_GH_BIN`, `KDF_PREFLIGHT_DIR` and `KDF_PREFLIGHT_GIT_BASE` override the docker program, gh, the
 runs folder and where the mirrors are fetched from, the tests use them, and `scripts/tests/test_kdf_preflight.py`

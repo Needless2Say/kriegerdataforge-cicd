@@ -4116,17 +4116,22 @@ private.
    commit for pins by CI's `PIN`, comments skipped, each repo held to CI's allowlist read from
    `scripts/fetch_private_packages.py`, and tests hold the pattern and the reading to the module's own. The scan is a
    convenience and not the fence. Nothing is mirrored unless `gh api` says the repo under test is private, named by
-   its one `origin` or, for a fresh repo, by `--github`, and unless GitHub holds the commit's base in that repo, its
-   merge base with `origin/main` or the commit itself. So a commit from a pull request or a fork gets no private
-   history, a public repo mirrors nothing, and a visibility GitHub cannot give reads 3.
+   its one `origin` or, for a fresh repo, by `--github`, and unless GitHub holds the commit's base in that repo's
+   network, its merge base with `origin/main` or the commit itself, gh's 422 alone reading as not held. A commit names
+   its parent by its id alone, so a base shows what a commit is built on and not who wrote it, and a clone's commit is
+   mirrored only the private repos its base already pins, one that adds a private repo refusing the run. So a public
+   repo mirrors nothing and its pull requests and forks get no private history, a commit built on a private repo's
+   history gets only what that history pins, and a visibility or a base GitHub cannot answer for reads 3.
 5. **How a mirror is made.** `git init --bare` and one fetch of `main` and every tag, then each pinned commit the
    mirror lacks under a ref of its own, by the host's git with its own credential helper, prompts and askpass off.
    An empty template and hooks folder of the run's own, the object and ref formats written out and automatic
    maintenance off keep the host's settings out, and each fetch's URL and TLS check are pinned to themselves and read
    back from git before it runs, since a host rewrite of the whole URL ties the pin. Git's errors are redacted of any
    URL's user part.
-6. **What enters.** Every path any commit of each mirror adds, changes or removes, root commits included and renames
-   split, is judged by the secret file rule, a match refusing the run. The context gains each mirror's `HEAD`,
+6. **What enters.** Each ref of a mirror must resolve to a commit through any chain of tags, since a tag naming a tree
+   or a blob brings objects no commit names, else the run is refused. Every path any commit of each mirror adds,
+   changes or removes, root commits included and renames split, is judged by the secret file rule, a match refusing
+   the run. The context gains each mirror's `HEAD`,
    `refs`, `objects` and a `config` the tool writes, and is read back whole before anything is built. The mirrors are
    removed however the run ends, and each mirror's line says its size and seconds.
 7. **How the container reads them.** The lane stage copies the mirrors by an instruction of their own, runner's, and
@@ -4155,13 +4160,23 @@ private.
   wrote a commit, and the second still copies private history beside a public repo's changed code.
 - *An anonymous `git ls-remote` to tell a public repo.* A failed read does not prove a repo private, while `gh api`'s
   `private` field says so positively.
+- *A private repo's commit mirrored only when GitHub holds the commit itself.* It would close a commit made on a known
+  id of a private `main`, but it refuses nearly every unpushed private pre-flight, since nearly every repo pins the
+  formatter, its refusal asks for the push that lands such a commit on GitHub, and GitHub's commits API answers for a
+  repo's whole fork network, so the limit to the base's pins was chosen by a panel instead.
+- *Screening the paths of a tree a tag names.* It would keep such a tag, but no repo of the allowlist holds one,
+  measured on 2026-10-18, and a refusal needs no second screen.
 
 **Trade-offs.** The pre-flight does not repeat CI's ref rules, so a pin CI refuses can read green here. A private
 repo's setup runs public packages' install scripts online beside its mirrors, the class D-035 accepts for CI's install
-job. The host's login reaches more than the package token, and the tool fetches only allowlisted repos with it, read
-only, into the run's folder. Docker's build cache keeps each run's mirror layer on the owner's machine, never pushed,
-and the owner prunes it from time to time. Private npm packages stay a later item, and so does each lane as a user of
-its own from a fresh copy of setup's tree.
+job. A commit made on a known id of a private `main` and fetched into its clone still gets the private repos that
+`main` pins, so a session pre-flights in a private repo's clone only a commit made there or on a branch of that repo
+itself, a rule in words that backs up the limit. A fork of a private repo needs read access to it, the owner's alone
+today, so that route reopens if anyone else gets read access. A cross repo change that adds a private package is
+refused until its pin reaches the base, and CI on GitHub reads it. The host's login reaches more than the package
+token, and the tool fetches only allowlisted repos with it, read only, into the run's folder. Docker's build cache
+keeps each run's mirror layer on the owner's machine, never pushed, and the owner prunes it from time to time.
+Private npm packages stay a later item, and so does each lane as a user of its own from a fresh copy of setup's tree.
 
 **Consequences.** A session's pre-flight sets a repo up as a fresh clone is set up. Before the pull request, the SDK's
 unit and style lanes passed in the container at its merged tree with kdf-fmt through its mirror, the FastAPI

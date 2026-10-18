@@ -23,11 +23,16 @@
 # CI's allowlist in scripts/fetch_private_packages.py, read beside this tool. The scan is a convenience and not the
 # fence, since a pin it does not read fails at once in the container, which asks for no login. Nothing is mirrored
 # unless GitHub says the repo under test is private, the repo named by the clone's one origin, or by --github <name>
-# for a fresh repo with no origin, and unless GitHub holds the commit's base there, its merge base with origin/main,
-# or the commit itself with --github. So a commit from a pull request or a fork gets no private history. gh answers
-# both with its own login. A private repo's pins are fetched by this machine's git with its own credential helper,
-# prompts off, into bare mirrors of main, every tag and each pinned commit, none of the host's git settings shaping
-# them, and every path in each mirror's history is judged by the secret file rule below. The context gains each
+# for a fresh repo with no origin, and unless GitHub holds the commit's base in that repo's network, its merge base
+# with origin/main, or the commit itself with --github. gh answers both with its own login, and its HTTP 422 alone
+# says GitHub holds no such commit. A commit names its parent by its id alone, so a base shows what a commit is built
+# on and not who wrote it, and a clone's commit is mirrored only the private repos its base already pins, one it adds
+# refusing the run. So a public repo's commit, from a pull request or a fork, gets no private history, a commit
+# built on a private repo's history gets only what that history already pins, and a fork of a private repo needs read
+# access to it, the owner's alone today. A private repo's pins are fetched by this machine's git with its own
+# credential helper, prompts off, into bare mirrors of main, every tag and each pinned commit, none of the host's git
+# settings shaping them. Each ref of a mirror must resolve to a commit, through any chain of tags, else the run is
+# refused, and every path in each mirror's history is judged by the secret file rule below. The context gains each
 # mirror's HEAD, refs and objects and a config of the tool's own, which the image reads through CI's rewrite of the
 # repo's https URL, so no token enters.
 #
@@ -134,7 +139,8 @@ github_name() {
 	[[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] && [ "$name" != . ] && [ "$name" != .. ] || return 1
 	printf '%s\n' "$name"
 }
-# CI's allowlist, the names in the ALLOWLIST block of its fetch script, one line each or a comment, and nothing else
+# CI's allowlist, each name in the ALLOWLIST block of its fetch script with its kind, " <name>:private" or
+# " <name>:public", one line each or a comment, and nothing else
 read_allowlist() {
 	local block line names="" entry='^[[:space:]]*"([A-Za-z0-9._-]+)":[[:space:]]*"(private|public)",?[[:space:]]*$'
 	block="$(awk '
@@ -145,13 +151,24 @@ read_allowlist() {
 	while IFS= read -r line; do
 		line="${line%$'\r'}"
 		if [[ "$line" =~ $entry ]]; then
-			names="$names ${BASH_REMATCH[1]}"
+			names="$names ${BASH_REMATCH[1]}:${BASH_REMATCH[2]}"
 		elif ! [[ "$line" =~ ^[[:space:]]*(#.*)?$ ]]; then
 			return 1
 		fi
 	done <<< "$block"
 	[ -n "$names" ] || return 1
 	printf '%s \n' "$names"
+}
+# every pin of the owner's repos in the files CI's fetch plan reads, at a commit, one a line, a comment being a # at
+# the start of a line or after whitespace, as pip reads one. On a file git cannot read, its error and 1
+pins_at() {
+	local file text
+	for file in "${pin_files[@]}"; do
+		git -C "$top" cat-file -e "$1:$file" 2>/dev/null || continue
+		text="$(git -C "$top" show "$1:$file" 2>&1)" || { printf '%s, %s' "$file" "$text"; return 1; }
+		printf '%s\n' "$text" | sed -E 's/(^|[[:space:]])#.*$//' | grep -o -E -e "$pin_pattern"
+	done
+	return 0
 }
 
 repo="" at="" keep=0 timeout_s=1800 setup_target="" setup_named=0 no_setup=0 github="" github_named=0
@@ -329,14 +346,7 @@ deadline=$(( $(date +%s) + timeout_s ))
 remaining() { echo $(( deadline - $(date +%s) )); }
 pinned=() pin_shas=()
 if [ "$make_lane" -eq 1 ]; then
-	matches=""
-	for file in "${pin_files[@]}"; do
-		git -C "$top" cat-file -e "$commit:$file" 2>/dev/null || continue
-		text="$(git -C "$top" show "$commit:$file" 2>&1)" || die 3 "git could not read $file at $short, $text"
-		# a comment is a # at the start of a line or after whitespace, as pip reads one
-		matches="$matches$(printf '%s\n' "$text" | sed -E 's/(^|[[:space:]])#.*$//' | grep -o -E -e "$pin_pattern")"
-		matches="$matches"$'\n'
-	done
+	matches="$(pins_at "$commit")" || die 3 "git could not read the pin files at $short, $matches"
 	if [ -n "${matches//[[:space:]]/}" ]; then
 		allowlist="$(read_allowlist)" \
 			|| die 3 "CI's allowlist could not be read from the ALLOWLIST block of $fetch_script, so the pins of $short" \
@@ -346,7 +356,7 @@ if [ "$make_lane" -eq 1 ]; then
 			[ -n "$match" ] || continue
 			rest="${match#git+https://github.com/Needless2Say/}"
 			name="${rest%%.git@*}" ref="${rest#*.git@}"
-			case "$allowlist" in *" $name "*) ;; *)
+			case "$allowlist" in *" $name:"*) ;; *)
 				die 2 "$short pins Needless2Say/$name, which is not on CI's allowlist in" \
 					"scripts/fetch_private_packages.py, so the run is refused" ;;
 			esac
@@ -405,7 +415,9 @@ if [ "${#pinned[@]}" -gt 0 ]; then
 	visibility="$(ask_private "$named")" || die 3 "$visibility"
 	if [ "$visibility" = true ]; then
 		# a commit fetched from anywhere into a private repo's clone keeps the clone's origin, so it must be built on
-		# that repo's own history, a base GitHub confirms is the repo's
+		# that repo's own history, a base GitHub confirms in the repo's network. A commit names its parent by its id
+		# alone, so a base shows what a commit is built on and not who wrote it, and a commit gets only the private
+		# repos its base already pins
 		if [ "$github_named" -eq 1 ]; then
 			base="$commit"
 		else
@@ -417,14 +429,33 @@ if [ "${#pinned[@]}" -gt 0 ]; then
 					"$named, and nothing private is mirrored"
 		fi
 		left=$(remaining)
-		confirmed=""
-		if [ "$left" -gt 0 ]; then
-			confirmed="$(timeout --kill-after=5 "$left" "$gh_bin" api "repos/Needless2Say/$named/commits/$base" \
-				--jq .sha 2>/dev/null | tr -d '\r')"
+		[ "$left" -gt 0 ] || die 3 "the run passed its timeout before GitHub was asked about $base"
+		errors="$(mktemp)"
+		confirmed="$(timeout --kill-after=5 "$left" "$gh_bin" api "repos/Needless2Say/$named/commits/$base" \
+			--jq .sha 2>"$errors" | tr -d '\r')"
+		status=$?
+		said="$(tr -d '\r' < "$errors" | tail -n 1 | redact)"
+		rm -f "$errors"
+		if [ "$status" -ne 0 ] || [ "$confirmed" != "$base" ]; then
+			# GitHub's 422 alone says it holds no such commit, and any other failure is an answer it could not give
+			case "$said" in *"HTTP 422"*)
+				die 2 "GitHub does not hold $base in Needless2Say/$named, so $short is built on no base GitHub confirms" \
+					"there, and nothing private is mirrored" ;;
+			esac
+			die 3 "gh could not say whether GitHub holds $base in Needless2Say/$named, ${said:-no answer}. When gh is" \
+				"signed out, the owner signs it in with gh auth login"
 		fi
-		[ "$confirmed" = "$base" ] \
-			|| die 2 "GitHub does not hold $base in Needless2Say/$named, so $short is built on no base GitHub confirms" \
-				"there, and nothing private is mirrored"
+		if [ "$github_named" -eq 0 ]; then
+			base_pins="$(pins_at "$base")" || die 3 "git could not read the pin files at $base, $base_pins"
+			for name in "${pinned[@]}"; do
+				case "$allowlist" in *" $name:private "*) ;; *) continue ;; esac
+				case "$base_pins" in *"github.com/Needless2Say/$name.git@"*) ;; *)
+					die 2 "$short pins Needless2Say/$name, which its base $base on GitHub does not pin, so nothing" \
+						"private is mirrored. A commit is mirrored only the private repos its base already pins, so its" \
+						"pre-flight is reported not run, for the owner to decide" ;;
+				esac
+			done
+		fi
 		mirror=1
 	fi
 elif [ -n "$named" ]; then
@@ -550,6 +581,16 @@ if [ "$mirror" -eq 1 ]; then
 			mirror_git --git-dir="$bare" "${pinning[@]}" fetch -q --no-tags --no-auto-maintenance "$url" \
 				"$sha:refs/heads/kdf-pin-${sha:0:12}" 2>"$run/fetch.err" || fetch_failed $? "$name at $sha"
 		done
+		# the screen below walks commits alone and the copy takes every object, so each ref must resolve whole, through
+		# any chain of tags, to a commit, and one naming a tree or a blob, whose paths no commit names, refuses the run
+		refs="$(git --git-dir="$bare" for-each-ref --format='%(refname)' 2>>"$log")" \
+			|| die 2 "git could not list the refs of $name's mirror, so it cannot be screened and the run is refused"
+		while IFS= read -r ref; do
+			[ -n "$ref" ] || continue
+			git --git-dir="$bare" rev-parse -q --verify "$ref^{commit}" >/dev/null 2>&1 \
+				|| die 2 "the mirror of $name holds $ref, which names no commit, so what it brings would enter unscreened." \
+					"The owner decides"
+		done <<< "$refs"
 		[ ! -e "$bare/reftable" ] \
 			|| die 2 "the mirror of $name keeps its refs in a reftable folder, which the image would not read, so this" \
 				"machine's git settings shaped it. The owner checks git's init settings"

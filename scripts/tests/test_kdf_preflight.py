@@ -217,6 +217,10 @@ fi
 case "$2" in
     repos/Needless2Say/*/commits/*)
         sha="${2##*/}"
+        if [ "${FAKE_GH_COMMIT:-}" = error ]; then
+            echo "gh: Server Error (HTTP 500)" >&2
+            exit 1
+        fi
         case " ${FAKE_GH_COMMITS:-} " in *" $sha "*) echo "$sha"; exit 0 ;; esac
         echo "gh: No commit found for SHA: $sha (HTTP 422)" >&2
         exit 1 ;;
@@ -1344,6 +1348,47 @@ def _secret_added_then_removed(work: Path) -> None:
     _git(work, "commit", "-q", "-m", "the secret gone")
 
 
+def _a_tree_holding_a_secret(work: Path) -> str:
+    """
+    A tree of the work repo's index with .env.kdf in it, the index left as it was.
+    """
+    (work / ".env.kdf").write_text("X=1\n", encoding = "utf-8")
+    _git(work, "add", ".env.kdf")
+    tree = _git(work, "write-tree")
+    _git(work, "rm", "-q", "--cached", ".env.kdf")
+    (work / ".env.kdf").unlink()
+    return tree
+
+
+def _lightweight_tag_on_a_tree(work: Path) -> None:
+    # a tag may name a tree or a blob as well as a commit, and fetching every tag brings that tree's objects, which no
+    # commit's diff names
+    _git(work, "tag", "a-tree", _a_tree_holding_a_secret(work))
+
+
+def _annotated_tag_on_a_tree(work: Path) -> None:
+    _git(work, "tag", "-a", "-m", "a tree", "a-tree", _a_tree_holding_a_secret(work))
+
+
+def _tag_on_a_blob(work: Path) -> None:
+    (work / "loose.txt").write_text("X=1\n", encoding = "utf-8")
+    blob = _git(work, "hash-object", "-w", "loose.txt")
+    (work / "loose.txt").unlink()
+    _git(work, "tag", "a-blob", blob)
+
+
+def _tag_naming_a_tag_naming_a_tree(work: Path) -> None:
+    # the inner tag's own ref removed, so the tree is reached through the outer tag's chain alone
+    _git(work, "tag", "-a", "-m", "inner", "inner", _a_tree_holding_a_secret(work))
+    _git(work, "tag", "-a", "-m", "outer", "outer", "inner")
+    _git(work, "tag", "-d", "inner")
+
+
+def _tag_naming_a_tag_naming_a_commit(work: Path) -> None:
+    _git(work, "tag", "-a", "-m", "inner", "inner", "HEAD")
+    _git(work, "tag", "-a", "-m", "outer", "outer", "inner")
+
+
 def _secret_renamed_unchanged(work: Path) -> None:
     _commit(work, {".env.kdf": "X=1\n"}, "a secret")
     _git(work, "mv", ".env.kdf", "notes.txt")
@@ -1822,6 +1867,60 @@ def test_a_secret_files_name_anywhere_in_a_mirrors_history_is_refused_before_doc
         says, pins = "deploy/id_ed25519", FMT_PIN
     done = _preflight(rig, "ci-lint", env = _private(rig, pins))
     _refused(done, rig, f"{FMT}'s history holds {says}, named like a secret file")
+
+
+@pytest.mark.parametrize("tags, ref", [
+    (_lightweight_tag_on_a_tree, "refs/tags/a-tree"),
+    (_annotated_tag_on_a_tree, "refs/tags/a-tree"),
+    (_tag_on_a_blob, "refs/tags/a-blob"),
+    (_tag_naming_a_tag_naming_a_tree, "refs/tags/outer"),
+])
+def test_a_mirror_ref_that_names_no_commit_is_refused_before_docker(rig: Rig, tags, ref: str) -> None:
+    # the screen walks commits alone and the copy takes every object, so a ref resolved whole by ^{commit} to no commit
+    # refuses the run, through any chain of tags, before the screen and the copy (D-078)
+    _remote(rig, FMT, later = (tags,))
+    done = _preflight(rig, "ci-lint", env = _private(rig, FMT_PIN))
+    _refused(done, rig, f"the mirror of {FMT} holds {ref}, which names no commit")
+    assert _handed(rig) == []
+
+
+def test_a_tag_naming_a_tag_naming_a_commit_is_mirrored(rig: Rig) -> None:
+    _remote(rig, FMT, later = (_tag_naming_a_tag_naming_a_commit,))
+    done = _preflight(rig, "ci-lint", env = _private(rig, FMT_PIN))
+    assert done.returncode == 0, done.stderr
+    tags = _git(rig.mirrors / f"{FMT}.git", "for-each-ref", "--format=%(refname)", "refs/tags/").splitlines()
+    assert sorted(tags) == ["refs/tags/inner", "refs/tags/outer", "refs/tags/v1.0.0"]
+
+
+def test_a_commit_that_pins_a_private_repo_its_base_does_not_is_refused_before_any_fetch(rig: Rig) -> None:
+    # a commit built on a confirmed base gets only the private repos that base already pins, so a commit made on a
+    # known id of a private main reaches no other private history (D-078)
+    _remote(rig, FMT)
+    env = _private(rig, FMT_PIN)
+    hub = f"hub @ {_pin('kriegerdataforge', 'main')}\n"
+    _commit(rig.repo, {"requirements.txt": hub}, "a hub pin its base does not hold")
+    base = env["FAKE_GH_COMMITS"]
+    _refused(_preflight(rig, "ci-lint", env = env), rig, f"pins Needless2Say/kriegerdataforge, which its base {base}")
+    assert _handed(rig) == []
+
+
+def test_a_public_repo_of_the_allowlist_is_not_held_to_the_base(rig: Rig) -> None:
+    # the limit holds back private history alone, and the allowlist marks this repo's own stand in public
+    _remote(rig, FMT)
+    _remote(rig, "kriegerdataforge-cicd")
+    env = _private(rig, FMT_PIN)
+    _commit(rig.repo, {"requirements.txt": f"x @ {_pin('kriegerdataforge-cicd', 'main')}\n"}, "a public pin")
+    done = _preflight(rig, "ci-lint", env = env)
+    assert done.returncode == 0, done.stderr
+    assert _handed(rig) == ["kriegerdataforge-cicd.git", f"{FMT}.git"]
+
+
+def test_a_base_github_cannot_answer_for_reads_3(rig: Rig) -> None:
+    # gh's 422 alone says GitHub does not hold the base, and any other failure is an answer it could not give
+    _remote(rig, FMT)
+    done = _preflight(rig, "ci-lint", env = {**_private(rig, FMT_PIN), "FAKE_GH_COMMIT": "error"})
+    assert done.returncode == 3 and "could not say whether GitHub holds" in done.stderr, done.stderr
+    assert "HTTP 500" in done.stderr and not _calls(rig) and not _left(rig)
 
 
 def test_a_fetch_that_fails_reads_3_names_the_repo_and_keeps_the_run_but_its_mirrors(rig: Rig) -> None:
