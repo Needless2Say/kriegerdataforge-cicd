@@ -6,13 +6,14 @@
 # mirror keeps only the current package. The wrapper builds this stage first and alone, by --target base, so a failure
 # here is the tool's, and tags it kdf-preflight-base:<this file's hash>.
 #
-# The lanes stage takes the commit's tar and the lane script, the context's only other files, as root's, unpacks the
-# tar as runner, an unprivileged user as on GitHub's runner, and makes it a repo of one commit. The run id is used in
-# the step that runs the lanes, so that step is never taken from the cache. The last step prints each lane's status
-# after a marker that holds the run id and the end marker, small enough that BuildKit never clips them, and only then,
-# on stderr and within a byte budget, an excerpt of each failed lane's own output, since BuildKit drops the rest of a
-# step's stdout once it clips a noisy lane. No syntax line, so BuildKit's own frontend reads this file and nothing is
-# fetched from Docker Hub (D-065).
+# The lanes stage takes the commit's tar and the lane script as root's, and the owner's private mirrors the wrapper
+# fetched as runner's, the context's only other files. It unpacks the tar as runner, an unprivileged user as on
+# GitHub's runner, and makes it a repo of one commit. The run id and the setup target are used in the step that runs
+# setup and the lanes, so that step is never taken from the cache (D-078). The last step prints each lane's status
+# after a marker that holds the run id, then setup's status from a file of its own when setup ran, then the end
+# marker, small enough that BuildKit never clips them, and only then, on stderr and within a byte budget, an excerpt of
+# a red setup's and of each failed lane's own output, since BuildKit drops the rest of a step's stdout once it clips a
+# noisy lane. No syntax line, so BuildKit's own frontend reads this file and nothing is fetched from Docker Hub (D-065).
 
 # python 3.14.7-slim, the index digest the tag held on 2026-10-14
 FROM public.ecr.aws/docker/library/python@sha256:51dafde81dbdb6ebde285137a295cf18a47ca95234fe388a343719cb97305b3d \
@@ -53,6 +54,10 @@ USER runner
 WORKDIR /home/runner
 # root's, so no lane can change the script the last step runs
 COPY repo.tar lanes.sh /opt/kdf/
+# the owner's private mirrors the wrapper fetched, an empty folder when it fetched none, by an instruction of their own
+# so the folder's contents land in /home/runner/mirrors, runner's, and git's ownership check passes as on GitHub's
+# runner (D-078)
+COPY --chown=runner:runner mirrors /home/runner/mirrors/
 RUN id -u \
     && mkdir work \
     && tar -xf /opt/kdf/repo.tar -C work \
@@ -63,6 +68,10 @@ RUN id -u \
 ARG RUN_ID
 ARG LANE_TIMEOUT
 ARG LANES
-RUN echo "kdf-preflight run $RUN_ID" && bash /opt/kdf/lanes.sh work out/results "$LANE_TIMEOUT" $LANES
-RUN sed "s/^/KDF-PREFLIGHT-RESULT $RUN_ID /" out/results && echo "KDF-PREFLIGHT-END $RUN_ID" \
+ARG SETUP
+RUN echo "kdf-preflight run $RUN_ID" \
+    && bash /opt/kdf/lanes.sh --setup "$SETUP" --mirrors /home/runner/mirrors work out/results "$LANE_TIMEOUT" $LANES
+RUN sed "s/^/KDF-PREFLIGHT-RESULT $RUN_ID /" out/results \
+    && if [ -e out/setup ]; then sed "s/^/KDF-PREFLIGHT-SETUP $RUN_ID /" out/setup; fi \
+    && echo "KDF-PREFLIGHT-END $RUN_ID" \
     && bash /opt/kdf/lanes.sh --tails out/results "$RUN_ID"

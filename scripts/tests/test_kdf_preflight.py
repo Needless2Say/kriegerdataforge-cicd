@@ -230,22 +230,46 @@ def test_the_run_id_is_used_in_the_step_that_runs_the_lanes_and_in_the_marker_st
     assert len(marker) == 1 and used.search(marker[0]) and "KDF-PREFLIGHT-END" in marker[0]
     assert runs[-1] == marker[0], "the marker step is the last"
     assert runs.index(lanes[0]) < runs.index(marker[0])
-    # the results and the end marker first, and only then a failed lane's excerpt, so a clipped excerpt never takes a
-    # result (D-072)
-    order = [marker[0].find(words) for words in ("KDF-PREFLIGHT-RESULT", "KDF-PREFLIGHT-END", "lanes.sh --tails")]
-    assert -1 not in order and order == sorted(order) and used.search(marker[0][order[2]:])
+    # the results, setup's line and the end marker first, and only then an excerpt, so a clipped excerpt never takes a
+    # result (D-072, D-078)
+    words = ("KDF-PREFLIGHT-RESULT", "KDF-PREFLIGHT-SETUP", "KDF-PREFLIGHT-END", "lanes.sh --tails")
+    order = [marker[0].find(word) for word in words]
+    assert -1 not in order and order == sorted(order) and used.search(marker[0][order[3]:])
 
 
-def test_the_lane_stage_fixes_its_environment_and_takes_the_three_files_alone() -> None:
+def test_setup_is_an_argument_of_the_lanes_step_and_its_line_comes_from_a_file_of_its_own() -> None:
+    # the target is used in the step that runs the lanes, which is never taken from the cache, and setup's status is
+    # printed from its own file, never by the sed that prints the lanes' results (D-078)
+    last = _stages()[-1]
+    args = [rest.split("=")[0] for keyword, rest in last if keyword == "ARG"]
+    assert "SETUP" in args, "the target is a build argument of the last stage"
+    runs  = [rest for keyword, rest in last if keyword == "RUN"]
+    lanes = next(rest for rest in runs if "lanes.sh" in rest and "--tails" not in rest)
+    assert re.search(r'lanes\.sh --setup "\$SETUP" --mirrors /home/runner/mirrors work out/results ', lanes), lanes
+    marker = runs[-1]
+    assert re.search(r'sed "s/\^/KDF-PREFLIGHT-RESULT \$RUN_ID /" out/results ', marker)
+    assert re.search(r'sed "s/\^/KDF-PREFLIGHT-SETUP \$RUN_ID /" out/setup\b', marker), marker
+    assert marker.count("out/results") == 2, "the results file read by the sed for results and by --tails alone"
+
+
+def test_the_lane_stage_fixes_its_environment_and_takes_the_three_files_and_the_mirrors_alone() -> None:
     last = _stages()[-1]
     env  = " ".join(rest for keyword, rest in last if keyword == "ENV").split()
     assert "ENVIRONMENT=local" in env and "GIT_TERMINAL_PROMPT=0" in env
     copies = [rest.split() for keyword, rest in last if keyword in ("COPY", "ADD")]
-    assert len(copies) == 1, "one COPY into the lane stage"
-    sources = [word for word in copies[0] if not word.startswith("--")][:-1]
-    assert sorted(sources) == ["lanes.sh", "repo.tar"] and copies[0][-1] == "/opt/kdf/"
+    assert len(copies) == 2, "two COPYs into the lane stage, root's and the mirrors'"
+    root    = next(words for words in copies if "/opt/kdf/" in words)
+    sources = [word for word in root if not word.startswith("--")][:-1]
+    assert sorted(sources) == ["lanes.sh", "repo.tar"] and root[-1] == "/opt/kdf/"
     # root's, so no lane can change the script the last step runs (D-072)
-    assert not [word for word in copies[0] if word.startswith("--chown")]
+    assert not [word for word in root if word.startswith("--chown")]
+    # the mirrors by an instruction of their own, the folder named alone so it lands as itself, runner's, so git's
+    # ownership check passes as on GitHub's runner (D-078)
+    mirrors = next(words for words in copies if words is not root)
+    assert mirrors == ["--chown=runner:runner", "mirrors", "/home/runner/mirrors/"], mirrors
+    order = [index for index, (keyword, rest) in enumerate(last) if keyword == "COPY" and "mirrors" in rest]
+    lanes = [index for index, (keyword, rest) in enumerate(last) if keyword == "RUN" and "--setup" in rest]
+    assert order and lanes and order[0] < lanes[0], "the mirrors are in place before setup runs"
 
 
 def test_the_lane_stage_unpacks_the_tar_and_makes_a_repo_of_one_commit() -> None:
@@ -423,6 +447,202 @@ def test_the_actionlint_lane_is_red_when_no_shellcheck_is_on_the_path() -> None:
     run   = text.find('"$limit" actionlint')
     assert -1 < guard < run, "the guard comes before actionlint runs"
     assert re.search(r"\bstatus=127\b", text[guard:run]), "the lane's status is 127, red"
+
+# ----------------------------------------------------------------------------------------------------------------------
+# setup first, in the lane script (D-078)
+# ----------------------------------------------------------------------------------------------------------------------
+def _work(tmp_path: Path, makefile: str, files: dict[str, str] | None = None) -> Path:
+    """
+    A work tree as the image makes it, the Makefile and the files committed in a repo of one commit.
+    """
+    if (BASH is None or GIT is None or shutil.which("make") is None) and not os.environ.get("CI"):
+        pytest.skip("the lane script needs bash, git and make")
+    work = tmp_path / "work"
+    work.mkdir()
+    for name, text in {"Makefile": makefile, **(files or {})}.items():
+        (work / name).parent.mkdir(parents = True, exist_ok = True)
+        (work / name).write_text(text, encoding = "utf-8", newline = "\n")
+    _git(work, "init", "-q", "-b", "main")
+    _git(work, "config", "core.autocrlf", "false")
+    _git(work, "add", "-A")
+    _git(work, "-c", "user.name=kdf-preflight", "-c", "user.email=kdf-preflight@localhost", "commit", "-q", "-m", "w")
+    return work
+
+
+def _lane_script(tmp_path: Path, *args: str, timeout: int = 60) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [str(BASH), LANES.as_posix(), *args],
+        capture_output = True,
+        text = True,
+        cwd = tmp_path,
+        timeout = timeout,
+    )
+
+
+def _lines(path: Path) -> list[str]:
+    return path.read_text(encoding = "utf-8").splitlines()
+
+
+def _lf(path: Path, text: str) -> None:
+    """
+    A file as the lane script writes it in the image, LF on any machine.
+    """
+    path.write_text(text, encoding = "utf-8", newline = "\n")
+
+
+def test_a_green_setup_runs_first_then_every_lane_in_order(tmp_path: Path) -> None:
+    makefile  = "setup:\n\t@echo set up\n\t@echo setup > ../order.txt\n"
+    makefile += "ci-a:\n\t@echo a >> ../order.txt\nci-b:\n\t@echo b >> ../order.txt\n"
+    work = _work(tmp_path, makefile)
+    done = _lane_script(tmp_path, "--setup", "setup", "--mirrors", (tmp_path / "none").as_posix(), work.as_posix(),
+                        "results.txt", "30", "ci-a", "ci-b")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert _lines(tmp_path / "order.txt") == ["setup", "a", "b"]
+    assert _lines(tmp_path / "results.txt") == ["ci-a 0", "ci-b 0"]
+    # setup's status in a file of its own beside the results, its output in its own log, printed when it ends
+    assert _lines(tmp_path / "setup") == ["setup 0"]
+    assert _lines(tmp_path / "setup.log") == ["set up"]
+    assert "set up\n==== kdf-preflight setup setup exited 0" in done.stdout
+
+
+def test_a_red_setup_skips_each_make_lane_and_still_runs_actionlint(tmp_path: Path) -> None:
+    makefile = "setup-red:\n\t@echo the reason setup failed\n\t@exit 2\nci-a:\n\t@echo ran > ../ran.txt\n"
+    work = _work(tmp_path, makefile)
+    done = _lane_script(tmp_path, "--setup", "setup-red", work.as_posix(), "results.txt", "30", "ci-a", "actionlint")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert not (tmp_path / "ran.txt").exists(), "no make lane runs after a red setup"
+    recorded = _lines(tmp_path / "results.txt")
+    assert recorded[0] == "ci-a skipped" and re.fullmatch(r"actionlint \d+", recorded[1]), recorded
+    assert _lines(tmp_path / "setup") == ["setup-red 2"]
+    assert "the reason setup failed" in (tmp_path / "setup.log").read_text(encoding = "utf-8")
+    assert not (tmp_path / "lanes" / "ci-a.log").exists()
+
+
+def test_a_setup_past_its_timeout_is_recorded_124_and_red(tmp_path: Path) -> None:
+    work = _work(tmp_path, "setup:\n\t@sleep 30\nci-a:\n\t@echo a\n")
+    done = _lane_script(tmp_path, "--setup", "setup", work.as_posix(), "results.txt", "2", "ci-a")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert _lines(tmp_path / "setup") == ["setup 124"] and _lines(tmp_path / "results.txt") == ["ci-a skipped"]
+
+
+def test_no_setup_runs_none_and_leaves_no_setup_file(tmp_path: Path) -> None:
+    work = _work(tmp_path, "setup:\n\t@echo setup > ../ran.txt\nci-a:\n\t@echo a\n")
+    done = _lane_script(tmp_path, "--setup", "", work.as_posix(), "results.txt", "30", "ci-a")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert not (tmp_path / "ran.txt").exists() and not (tmp_path / "setup").exists()
+    assert _lines(tmp_path / "results.txt") == ["ci-a 0"]
+
+
+def test_the_env_files_a_green_setup_leaves_are_removed_and_named_before_the_first_lane(tmp_path: Path) -> None:
+    # CI's checkout has no .env file, so one a setup copies from its example is removed before the lanes, an example
+    # and a tracked file kept (D-078)
+    makefile  = "setup:\n\t@cp .env.local.example .env.local\n\t@echo X= > .env.kdf\n"
+    makefile += "\t@mkdir -p sub && echo Y= > sub/.ENV.prod && cp .env.local.example sub/.env.extra.example\n"
+    makefile += "\t@echo kept > notes.txt\n"
+    makefile += "ci-green:\n\t@test ! -e .env.local && test ! -e .env.kdf && test ! -e sub/.ENV.prod\n"
+    makefile += "\t@test -e .env.local.example && test -e sub/.env.extra.example && test -e notes.txt\n"
+    files = {".env.local.example": "# A=\n", ".gitignore": ".env.local\n.env.kdf\nsub/\n"}
+    work  = _work(tmp_path, makefile, files)
+    done  = _lane_script(tmp_path, "--setup", "setup", work.as_posix(), "results.txt", "30", "ci-green")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert _lines(tmp_path / "setup") == ["setup 0"] and _lines(tmp_path / "results.txt") == ["ci-green 0"]
+    for name in (".env.kdf", ".env.local", "sub/.ENV.prod"):
+        assert f"kdf-preflight: removed {name}, which setup left and git does not track" in done.stdout, done.stdout
+    assert "removed .env.local.example" not in done.stdout and "removed sub/.env.extra.example" not in done.stdout
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason = "a folder's mode locks a file in it on Linux alone")
+def test_an_env_file_the_script_cannot_remove_records_setup_red_and_names_it(tmp_path: Path) -> None:
+    makefile = "setup:\n\t@mkdir locked && echo X= > locked/.env.local && chmod 555 locked\nci-a:\n\t@echo a\n"
+    work = _work(tmp_path, makefile, {".gitignore": "locked/\n"})
+    done = _lane_script(tmp_path, "--setup", "setup", work.as_posix(), "results.txt", "30", "ci-a")
+    (work / "locked").chmod(0o755)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert _lines(tmp_path / "setup") == ["setup 1"] and _lines(tmp_path / "results.txt") == ["ci-a skipped"]
+    assert "locked/.env.local could not be removed" in (tmp_path / "setup.log").read_text(encoding = "utf-8")
+
+
+@pytest.mark.parametrize("names", [("kriegerdataforge-fmt", "kriegerdataforge-sdk"), ()])
+def test_the_rewrite_to_each_mirror_is_set_for_setup_and_every_lane(tmp_path: Path, names: tuple[str, ...]) -> None:
+    # the lines CI's step "Point git at the private mirrors" writes, one rewrite a mirror, and none with no mirror
+    mirrors = tmp_path / "mirrors"
+    mirrors.mkdir()
+    for name in names:
+        (mirrors / f"{name}.git").mkdir()
+    (mirrors / "notes.txt").write_text("no mirror\n", encoding = "utf-8")
+    dump      = "@env | grep '^GIT_CONFIG' | LC_ALL=C sort > ../{0}.txt || true\n"
+    makefile  = "setup:\n\t" + dump.format("setup-env") + "ci-a:\n\t" + dump.format("lane-env")
+    work = _work(tmp_path, makefile)
+    done = _lane_script(tmp_path, "--setup", "setup", "--mirrors", mirrors.as_posix(), work.as_posix(), "results.txt",
+                        "30", "ci-a")
+    assert done.returncode == 0, done.stdout + done.stderr
+    expected = [f"GIT_CONFIG_COUNT={len(names)}"] if names else []
+    expected += [f"GIT_CONFIG_KEY_{index}=url.file://{mirrors.as_posix()}/{name}.git.insteadOf"
+                 for index, name in enumerate(names)]
+    expected += [f"GIT_CONFIG_VALUE_{index}=https://github.com/Needless2Say/{name}.git"
+                 for index, name in enumerate(names)]
+    assert _lines(tmp_path / "setup-env.txt") == sorted(expected)
+    assert _lines(tmp_path / "lane-env.txt") == sorted(expected)
+
+
+@pytest.mark.parametrize("setup", ["setup", ""])
+def test_a_lane_forging_setups_status_never_keeps_it(tmp_path: Path, setup: str) -> None:
+    # setup's status is written once every lane has run, by the same remove, write and read back as the lanes', so a
+    # lane's write there is gone, and with no setup no file is left (D-078)
+    makefile = "setup:\n\t@echo set\nci-forge:\n\t@printf 'setup 0\\nsetup 0\\n' > ../setup\n\t@exit 3\n"
+    work = _work(tmp_path, makefile)
+    done = _lane_script(tmp_path, "--setup", setup, work.as_posix(), "results.txt", "30", "ci-forge")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert _lines(tmp_path / "results.txt") == ["ci-forge 2"], "make reports a failed recipe as 2"
+    if setup:
+        assert _lines(tmp_path / "setup") == ["setup 0"]
+    else:
+        assert not (tmp_path / "setup").exists()
+
+
+def test_a_red_setups_excerpt_comes_first_and_stays_within_the_budget(tmp_path: Path) -> None:
+    if BASH is None and not os.environ.get("CI"):
+        pytest.skip("the lane script needs bash")
+    outputs = tmp_path / "lanes"
+    outputs.mkdir()
+    _lf(tmp_path / "results.txt", "ci-a skipped\nci-b skipped\nactionlint 1\n")
+    _lf(tmp_path / "setup", "setup 2\n")
+    lines = "".join(f"{index:03d}{'s' * 400}\n" for index in range(80)) + "the reason setup failed\n"
+    _lf(tmp_path / "setup.log", lines)
+    _lf(outputs / "actionlint.log", "a workflow is wrong\n")
+    done = _lane_script(tmp_path, "--tails", "results.txt", "r")
+    assert done.returncode == 0 and not done.stdout
+    printed = done.stderr.splitlines()
+    setup   = [line for line in printed if line.startswith("KDF-PREFLIGHT-SETUP-TAIL r ")]
+    assert printed[:len(setup)] == setup and len(setup) == 50, "setup's excerpt first, its last 50 lines"
+    assert setup[-1] == "KDF-PREFLIGHT-SETUP-TAIL r the reason setup failed"
+    assert setup[0] == "KDF-PREFLIGHT-SETUP-TAIL r 031" + "s" * 297, "each line cut to 300 bytes"
+    assert printed[len(setup):] == ["KDF-PREFLIGHT-TAIL r actionlint a workflow is wrong"], "a skipped lane has none"
+    assert len(done.stderr.encode("utf-8")) <= 65536
+
+
+def test_a_green_setup_has_no_excerpt_and_a_long_one_keeps_the_budget(tmp_path: Path) -> None:
+    if BASH is None and not os.environ.get("CI"):
+        pytest.skip("the lane script needs bash")
+    outputs = tmp_path / "lanes"
+    outputs.mkdir()
+    _lf(tmp_path / "setup", "setup 0\n")
+    _lf(tmp_path / "setup.log", "fine\n")
+    _lf(tmp_path / "results.txt", "ci-a 2\n")
+    _lf(outputs / "ci-a.log", "the reason\n")
+    done = _lane_script(tmp_path, "--tails", "results.txt", "r")
+    assert done.stderr.splitlines() == ["KDF-PREFLIGHT-TAIL r ci-a the reason"]
+    # a red setup and every lane red, setup's notice keeping its room, all of it within 64 KiB
+    _lf(tmp_path / "setup", "setup 2\n")
+    _lf(tmp_path / "setup.log", "".join(f"{'s' * 400}\n" for _ in range(80)))
+    lanes = [f"ci-{number}" for number in range(1, 8)]
+    _lf(tmp_path / "results.txt", "".join(f"{lane} 2\n" for lane in lanes))
+    for lane in lanes:
+        _lf(outputs / f"{lane}.log", "".join(f"{'l' * 400}\n" for _ in range(80)))
+    done = _lane_script(tmp_path, "--tails", "results.txt", "r")
+    assert done.returncode == 0 and len(done.stderr.encode("utf-8")) <= 65536
+    assert done.stderr.splitlines()[0].startswith("KDF-PREFLIGHT-SETUP-TAIL r ")
+    assert done.stderr.splitlines()[-1].endswith("[the excerpts stop here, their 65536 bytes spent]")
 
 # ======================================================================================================================
 # the wrapper
