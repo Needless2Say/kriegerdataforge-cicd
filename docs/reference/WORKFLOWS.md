@@ -952,10 +952,14 @@ the Dockerfiles' pull requests. A tag no Dockerfile names is removed from `FOLLO
 
 **A new service digest** follows D-077's order. A cicd pull request appends the `PINNED` entry and its `WATCH` line, its
 merge copies and proves it, and later pull requests move the shared stack and the tenants' stacks. Nothing in cicd's
-runs starts the stack to enforce the order, so this page, D-080 and the stack's own comment write it.
+runs starts the stack to enforce the order, so this page, D-080 and the stack's own comment write it. The shared
+stack, `e2e/docker-compose.shared.yml`, names the mirror for its four image lines, each line's package and digest a
+pair the copier pins, which the image test holds.
 
 **Two ways back.** A failing image is answered by a hold. A failing mirror is answered per consumer, its `FROM` line
-or its stack's lines back on an upstream that serves that day, each a pull request in its own repository.
+or its stack's lines back on an upstream that serves that day, each a pull request in its own repository. For the
+shared stack, its four lines on ECR Public's gallery and Mailpit's own `ghcr.io/axllent` by the same digests, and the
+image test's `STACK_MODE` set to `upstream`, in one pull request.
 
 **The packages grow, and the logs fade.** Each index's platform and attestation manifests are untagged versions, and a
 followed tag that moved leaves its old index untagged too, some fifty a year for Python's slim tag. That costs nothing

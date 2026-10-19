@@ -17,6 +17,10 @@ public package and free storage and bandwidth for one, and the owner decides how
 
 A caller changes nothing. No lane's input, output, secret or permission changed, only each service's host.
 
+Since D-080 the same copier keeps every image CI pulls, runs once a day as well, and proves each with a second job,
+`verify-images`. [ci-images-mirror.md](./ci-images-mirror.md) describes the whole of it. The Postgres lanes and their
+kept entry below are unchanged.
+
 ## 2. How it fits together
 
 ```
