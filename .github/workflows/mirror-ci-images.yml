@@ -1,19 +1,43 @@
-# Mirror CI images (D-077). Copies the Postgres image D-064 pinned, its whole index by its digest, from Docker's
-# official image to the owner's mirror on GitHub's registry, ghcr.io/needless2say/postgres, and proves the copy public
-# on a runner. Every Postgres lane pulls the mirror by that digest, so a pull spends no allowance the other tenants of
-# a runner's address share, and the owner decides how long the image is kept.
+# Mirror CI images (D-077, D-080). Keeps every image CI pulls on the owner's mirror on GitHub's registry,
+# ghcr.io/needless2say/<name>, so a pull spends no allowance the other tenants of a runner's address share, and the
+# owner decides how long an image is kept.
+#
+# Four blocks of entries, each in its own text below.
+#   KEPT      The Postgres lanes' image, as D-077 wrote it, copied whole by its index digest
+#   PINNED    The E2E stacks' services and the terraform scan's Checkov, each its package, digest and tag, copied whole
+#             by its digest. The tag is the version and variant the image's config carries, and never moves
+#   FOLLOWED  The two base images every Dockerfile builds on, each its package and tag. Docker Hub alone names the
+#             tag's index digest, by a HEAD that counts toward no limit, and the copy moves the mirror's tag to it.
+#             A hold, a digest written after the tag, keeps the tag on a digest its package already holds instead
+#   WATCH     Read by the weekly ecosystem watch alone, scripts/ecosystem_watch.py, never by a step here. Each line
+#             names a kept or pinned image by its package and tag, its publisher, the upstream tag of its line and the
+#             level a newer version is reported at
 #
 # Jobs:
-#   copy     Copy postgres by digest. The one job of this repo that may write a package, through the job's own token.
-#            It checks out nothing and runs no repository code and no action
-#   verify   Prove the copy public. No token scope at all, the lanes' own service by the newest kept digest, its
-#            server_version_num read by host and port, and every kept entry read with no credentials
+#   copy           Holds first, then each kept and pinned entry, then each followed tag, each entry apart and every
+#                  failure gathered into one red at the close, each kind named. The one job of this repo that may
+#                  write a package, through the job's own token. It checks out nothing and runs no repository code
+#                  and no action, and reads every source with no credentials
+#   verify         The lanes' own Postgres service by the newest kept digest, its server_version_num read
+#   verify-images  Every entry read, and every followed tag and pinned entry pulled, with no credentials at all, and
+#                  each followed tag held to the digest the copy chose. No service, so a service that cannot start
+#                  never hides it
 #
-# It runs on main alone, on a push that changes this file and on the owner's dispatch, which takes no input, and never
-# on a pull request. A bump appends an entry to KEPT and moves verify's service line to it, this runs at its merge, and
-# the lanes move in a later pull request, the order docs/reference/WORKFLOWS.md writes. No version of the package,
-# tagged or untagged, is ever deleted, since every Postgres lane in every repo pulls it. The image test,
-# scripts/tests/test_workflow_service_images.py, holds this file to a strict rule of its own.
+# It runs on main alone, at a push that changes this file, at the owner's dispatch, which takes no input, and once a
+# day, never on a pull request. A run compares this file's blob at its own commit with main's. The same blob runs as
+# current. Another blob applies no hold, follows no tag and copies no followed digest, green on a first attempt with
+# a notice naming main's commit, red on a rerun, which a dispatch from main answers, never a rerun. Kept and pinned
+# entries are copied in every case, which writes only their own fixed tags. One concurrency group holds the whole
+# run, copy and proofs together.
+#
+# Before a followed tag moves, the digest the mirror's tag holds is asked of Docker Hub. A 404 is a possible tamper
+# or a digest Docker Hub no longer serves, the digest recorded, the tag repaired and the run red. A held tag is never
+# asked. A hold is in force once its own run's placement proof is green. A new tag is appended to FOLLOWED, and its
+# merge copies it before any Dockerfile names it. A new service digest is appended to PINNED, its merge copies and
+# proves it, and later pull requests move the stacks. docs/reference/WORKFLOWS.md writes each order and what each
+# kind of red asks. No version of any package, tagged or untagged, is ever deleted, since a build, a stack or a
+# rollback names it. The image test, scripts/tests/test_workflow_service_images.py, holds this file to a strict rule
+# of its own.
 
 name: Mirror CI images
 
@@ -22,34 +46,66 @@ on:
     branches: [main]
     paths: [.github/workflows/mirror-ci-images.yml]
   workflow_dispatch:
+  schedule:
+    - cron: '23 6 * * *'
 
 permissions: {}
 
+# a whole run holds it, copy and proofs, and a run in progress is never cut short. Of the runs waiting the newest runs
+concurrency:
+  group: mirror-ci-images-copy
+  cancel-in-progress: false
+
 env:
-  # the mirror, the one target a copy writes
-  TARGET: ghcr.io/needless2say/postgres
-  # the sources a copy tries in turn, Docker's official image on ECR Public's gallery, Docker Hub and Google's mirror,
-  # each read by the kept entry's digest, so any one of them gives the same bytes
-  SOURCES: public.ecr.aws/docker/library/postgres docker.io/library/postgres mirror.gcr.io/library/postgres
-  # every kept entry, its index digest, its tag and its server_version_num, the newest last. None is ever removed, so a
-  # rollback is a pull request that moves the lanes back to an older one
+  # the mirror's namespace, under which each entry's package is the one target a copy writes
+  TARGET: ghcr.io/needless2say
+  # this file, whose blob at the run's commit and at main's the copy job compares
+  COPIER: .github/workflows/mirror-ci-images.yml
+  # each package and its sources in turn, each read by a digest already chosen, so any one of them gives the same bytes
+  SOURCES: |
+    postgres public.ecr.aws/docker/library/postgres docker.io/library/postgres mirror.gcr.io/library/postgres
+    node public.ecr.aws/docker/library/node docker.io/library/node mirror.gcr.io/library/node
+    python public.ecr.aws/docker/library/python docker.io/library/python mirror.gcr.io/library/python
+    caddy public.ecr.aws/docker/library/caddy docker.io/library/caddy mirror.gcr.io/library/caddy
+    mailpit ghcr.io/axllent/mailpit docker.io/axllent/mailpit
+    checkov ghcr.io/bridgecrewio/checkov docker.io/bridgecrew/checkov
+  # the Postgres lanes' entries, each its index digest, its tag and its server_version_num, the newest last. None is
+  # ever removed, so a rollback is a pull request that moves the lanes back to an older one
   KEPT: |
     sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d 16.15 160015
+  # the E2E stacks' services and the terraform scan's Checkov, each its package, its index digest and its tag
+  PINNED: |
+    postgres sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea 16.15-alpine
+    caddy sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d 2.10.2-alpine
+    mailpit sha256:74d609a42ec279aa63c6b4622a6fa9b5408d1ad5b1d76a1c4be40a265ce0863d v1.31.2
+    checkov sha256:39894d0672bb53c913b9784614f05c98de167cb2041ff96aa53dbd64a0b4a159 3.3.6
+  # the base images, each its package and the tag Docker Hub names, and a held digest after it while a hold stands
+  FOLLOWED: |
+    node 24-alpine
+    python 3.14-slim
+  # read by the weekly ecosystem watch alone, each a kept or pinned image's package and tag, its publisher, the
+  # upstream tag of its line and the level a newer version is reported at
+  WATCH: |
+    postgres 16.15 docker.io/library/postgres 16 patch
+    postgres 16.15-alpine docker.io/library/postgres 16-alpine patch
+    caddy 2.10.2-alpine docker.io/library/caddy 2-alpine patch
+    mailpit v1.31.2 ghcr.io/axllent/mailpit latest patch
+    checkov 3.3.6 ghcr.io/bridgecrewio/checkov latest minor
 
 jobs:
   copy:
-    name: Copy postgres by digest
+    name: Copy, hold and follow every entry
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     permissions:
       packages: write
 
-    # a run in progress is never cut short, and of the runs waiting the newest runs, which copies every kept entry
-    concurrency:
-      group: mirror-ci-images-copy
-      cancel-in-progress: false
+    # the blob gate's answer, current, stale or unread, and each followed tag's chosen digest as name:tag@digest
+    outputs:
+      gate: ${{ steps.copy.outputs.gate }}
+      chosen: ${{ steps.copy.outputs.chosen }}
 
     steps:
       # the job's token through standard input, never an argument, into a file under the runner's temp folder, which
@@ -60,59 +116,268 @@ jobs:
           REGISTRY_TOKEN: ${{ github.token }}
         run: printf '%s' "$REGISTRY_TOKEN" | skopeo login --username "$GITHUB_ACTOR" --password-stdin ghcr.io
 
-      # An entry the mirror already holds is left as it is, so a new entry never depends on fetching an old one
-      #   upstream again. Present means its index, read by its digest, and every manifest that index lists, each read
-      #   by its own, hash to those digests, the SHA-256 of their exact bytes. That proves the manifests present, not
-      #   every layer they name, which verify's service pull proves for the newest entry on the runner's platform.
-      #   Every other entry is copied whole, --all for every platform and attestation the index names and
-      #   --preserve-digests to fail a copy that would change a byte, then held to the same check, so a copy cut
-      #   short is repaired by the next run
-      - name: Copy each kept entry the mirror lacks
+      # Present means an entry's index, read by its digest, and every manifest that index lists, each read by its
+      #   own, hash to those digests, and the runner's platform's layers pull into the runner's temp folder. Placed
+      #   means the tag's own manifest hashes to the digest. An entry present and placed is left as it is, and every
+      #   other is copied whole by its digest, --all for every platform and attestation the index names and
+      #   --preserve-digests to fail a copy that would change a byte, each source read with no credentials so the
+      #   write token travels to none, then held to the same checks, so a copy cut short is repaired by the next run.
+      #   Every value read from outside is checked for its shape before a command, a log line or an output uses it
+      - name: Copy, hold and follow every entry
+        id: copy
         env:
           REGISTRY_AUTH_FILE: ${{ runner.temp }}/kdf-registry-auth.json
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          digest_shape='^sha256:[0-9a-f]{64}$'
+          index_types='application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json'
+          index_shape='^application/vnd\.(oci\.image\.index\.v1|docker\.distribution\.manifest\.list\.v2)\+json$'
           raw="$RUNNER_TEMP/kdf-manifest"
+          pull="$RUNNER_TEMP/kdf-pull"
+          red=""
+          chosen=""
+          copied=""
+          answer=""
+          code=""
+
+          # each failure by its kind, kept apart and never cleared by a later success, so the close names every kind
+          failed() {
+            echo "::error::$2"
+            case " $red " in *" $1 "*) ;; *) red="$red $1" ;; esac
+          }
+
+          sha() {
+            printf 'sha256:%s' "$(sha256sum < "$1" | cut -d ' ' -f 1)"
+          }
+
+          # an index by its own mediaType, never one platform's manifest, which would leave a tag one platform
+          indexed() {
+            [[ "$(jq -r '.mediaType // empty' "$1")" =~ $index_shape ]]
+          }
+
           present() {
-            local digest="$1" listed
-            skopeo inspect --raw "docker://$TARGET@$digest" > "$raw.index" || return 1
-            [ "sha256:$(sha256sum < "$raw.index" | cut -d ' ' -f 1)" = "$digest" ] || return 1
+            local ref="$1" digest="$2" listed
+            skopeo inspect --raw "docker://$ref@$digest" > "$raw.index" || return 1
+            [ "$(sha "$raw.index")" = "$digest" ] || return 1
+            indexed "$raw.index" || return 1
             jq -r '.manifests[]?.digest' "$raw.index" > "$raw.listed" || return 1
             while read -r listed; do
-              skopeo inspect --raw "docker://$TARGET@$listed" > "$raw.one" || return 1
-              [ "sha256:$(sha256sum < "$raw.one" | cut -d ' ' -f 1)" = "$listed" ] || return 1
+              [[ "$listed" =~ $digest_shape ]] || return 1
+              skopeo inspect --raw "docker://$ref@$listed" > "$raw.one" || return 1
+              [ "$(sha "$raw.one")" = "$listed" ] || return 1
             done < "$raw.listed"
+            rm -rf "$pull"
+            timeout 900 skopeo copy "docker://$ref@$digest" "dir:$pull" > /dev/null || return 1
+            rm -rf "$pull"
           }
-          read -r -a sources <<< "$SOURCES"
-          while read -r digest tag version; do
-            [ -n "$digest" ] || continue
-            if present "$digest"; then
-              echo "$TARGET@$digest, $tag ($version), is present on the mirror and left as it is"
+
+          placed() {
+            skopeo inspect --raw "docker://$1:$2" > "$raw.tag" || return 1
+            [ "$(sha "$raw.tag")" = "$3" ]
+          }
+
+          # the image's creation time read by its digest, evidence for a reader and never a rule, printed only as a date
+          created() {
+            local when
+            when="$(skopeo inspect --format '{{.Created}}' "docker://$1@$2" 2> /dev/null)" || when=""
+            if [[ "$when" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}[T\ ][0-9]{2}:[0-9]{2}:[0-9]{2} ]]; then
+              printf '%s' "${BASH_REMATCH[0]}"
+            else
+              printf 'unread'
+            fi
+          }
+
+          # Docker Hub's answer for an official image's tag or digest, by a HEAD with an anonymous pull token, which
+          # counts toward no limit. It sets code and answer, and succeeds only on a 200 whose type is an index's and
+          # whose digest, its line end stripped, has its exact shape
+          hub_head() {
+            local name="$1" reference="$2" token type
+            answer=""
+            code=""
+            : > "$raw.head"
+            token="$(curl -fsS --max-time 30 "https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/$name:pull" | jq -r '.token // empty')" || token=""
+            [[ "$token" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+            code="$(curl -sS --max-time 30 --head -o /dev/null -D "$raw.head" -w '%{http_code}' -H "Authorization: Bearer $token" -H "Accept: $index_types" "https://registry-1.docker.io/v2/library/$name/manifests/$reference")" || true
+            [[ "$code" =~ ^[0-9]{3}$ ]] || code="none"
+            type="$(tr -d '\r' < "$raw.head" | grep -i '^content-type:' | tail -n 1 | cut -d ' ' -f 2-)"
+            answer="$(tr -d '\r' < "$raw.head" | grep -i '^docker-content-digest:' | tail -n 1 | cut -d ' ' -f 2-)"
+            [[ "$answer" =~ $digest_shape ]] || answer=""
+            if [ "$code" != 200 ] || [ -z "$answer" ]; then return 1; fi
+            case "$type" in
+              application/vnd.oci.image.index.v1+json | application/vnd.docker.distribution.manifest.list.v2+json) ;;
+              *) return 1 ;;
+            esac
+          }
+
+          # one entry's copy by its digest from each of its package's sources in turn, each attempt bounded
+          copy_from() {
+            local name="$1" digest="$2" tag="$3" source
+            local -a list
+            copied=""
+            read -r -a list <<< "${sources[$name]:-}"
+            for source in "${list[@]}"; do
+              echo "copying $name@$digest to $TARGET/$name:$tag from $source"
+              if timeout 900 skopeo copy --all --preserve-digests --src-no-creds "docker://$source@$digest" "docker://$TARGET/$name:$tag"; then
+                copied="$source"
+                return 0
+              fi
+              echo "::warning::$source did not serve $name@$digest, so the next source is tried"
+            done
+            return 1
+          }
+
+          # a kept or pinned entry, left as it is when present with its tag on it, else copied whole and checked again
+          keep() {
+            local name="$1" digest="$2" tag="$3" ref="$TARGET/$1"
+            if [[ ! "$digest" =~ $digest_shape ]] || [ -z "${sources[$name]:-}" ]; then
+              failed copy "$name $tag names no digest or no source this copier knows"
+              return
+            fi
+            if present "$ref" "$digest" && placed "$ref" "$tag" "$digest"; then
+              echo "$ref:$tag, $digest, is present and placed and left as it is, created $(created "$ref" "$digest")"
+              return
+            fi
+            if ! copy_from "$name" "$digest" "$tag"; then
+              failed copy "no source served $name@$digest, so $ref:$tag is left as it is"
+              return
+            fi
+            if ! present "$ref" "$digest" || ! placed "$ref" "$tag" "$digest"; then
+              failed copy "the copy of $name@$digest from $copied is not present and placed on $ref:$tag, a later run repairs it"
+              return
+            fi
+            echo "copied $name@$digest to $ref:$tag from $copied, present and placed, created $(created "$ref" "$digest")"
+          }
+
+          declare -A sources
+          while read -r name list; do
+            [ -n "$name" ] && sources[$name]="$list"
+          done <<< "$SOURCES"
+
+          # The gate, this run's copier text against main's, by this file's blob at each commit, fetched anonymously
+          #   with no blob into a fresh repository under the runner's temp folder, a ref for each, nothing checked out
+          #   and nothing run. An empty read never counts as equal
+          gate="unread"
+          work="$RUNNER_TEMP/kdf-gate"
+          origin="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          run_blob=""
+          main_blob=""
+          main_commit=""
+          rm -rf "$work"
+          if git init -q "$work" \
+            && git -C "$work" -c credential.helper= fetch -q --depth 1 --filter=blob:none --no-tags "$origin" "+$GITHUB_SHA:refs/kdf/run" \
+            && git -C "$work" -c credential.helper= fetch -q --depth 1 --filter=blob:none --no-tags "$origin" "+refs/heads/main:refs/kdf/main"; then
+            run_blob="$(git -C "$work" rev-parse --verify --quiet "refs/kdf/run:$COPIER")" || run_blob=""
+            main_blob="$(git -C "$work" rev-parse --verify --quiet "refs/kdf/main:$COPIER")" || main_blob=""
+            main_commit="$(git -C "$work" rev-parse --verify --quiet "refs/kdf/main^{commit}")" || main_commit=""
+          fi
+          [[ "$main_commit" =~ ^[0-9a-f]{40}$ ]] || main_commit="unread"
+          if [[ ! "$run_blob" =~ ^[0-9a-f]{40}$ ]] || [[ ! "$main_blob" =~ ^[0-9a-f]{40}$ ]]; then
+            failed gate "the copier's blob could not be read at this run's commit and at main's, so no hold is applied and no followed tag moves"
+          elif [ "$run_blob" = "$main_blob" ]; then
+            gate="current"
+            echo "this run's copier text is main's, blob $run_blob, so it runs as current"
+          else
+            gate="stale"
+            if [[ ! "${GITHUB_RUN_ATTEMPT:-}" =~ ^1$ ]]; then
+              failed stale-rerun "this rerun's copier text is not main's, so it applied no hold and moved no followed tag. Dispatch the copier from main, unless main's own run has ended green since"
+            else
+              echo "::notice::this run's copier text is not main's, so it applied no hold and moved no followed tag, the work of main's commit $main_commit"
+            fi
+          fi
+
+          # holds first, each set from the mirror's own copy with no upstream read, and Docker Hub's digest named
+          while read -r name tag hold; do
+            if [ -z "$name" ] || [ -z "${hold:-}" ] || [ "$gate" != current ]; then continue; fi
+            ref="$TARGET/$name"
+            if [[ ! "$hold" =~ $digest_shape ]]; then
+              failed hold "$name $tag holds no digest of its shape, so $ref:$tag is left as it is"
               continue
             fi
-            copied=""
-            for source in "${sources[@]}"; do
-              echo "copying $digest, $tag ($version), from $source"
-              if skopeo copy --all --preserve-digests "docker://$source@$digest" "docker://$TARGET:$tag"; then
-                copied="$source"
-                break
+            if ! present "$ref" "$hold"; then
+              failed hold "$ref lacks the held digest $hold, so $ref:$tag is left as it is"
+              continue
+            fi
+            if ! placed "$ref" "$tag" "$hold"; then
+              echo "setting $ref:$tag to the held digest $hold from the mirror's own copy"
+              if ! timeout 900 skopeo copy --all --preserve-digests --src-no-creds "docker://$ref@$hold" "docker://$ref:$tag" || ! placed "$ref" "$tag" "$hold"; then
+                failed hold "$ref:$tag could not be set to the held digest $hold"
+                continue
               fi
-              echo "::warning::$source did not serve $digest, so the next source is tried"
-            done
-            if [ -z "$copied" ]; then
-              echo "::error::no source served $digest"
-              exit 1
             fi
-            if ! present "$digest"; then
-              echo "::error::the copy of $digest from $copied is not present whole, a later run repairs it"
-              exit 1
+            chosen="$chosen $name:$tag@$hold"
+            echo "the hold is in force, $ref:$tag on $hold, created $(created "$ref" "$hold")"
+            if hub_head "$name" "$tag"; then
+              echo "::warning::$ref:$tag is held on $hold while Docker Hub names $answer"
+            else
+              echo "::warning::$ref:$tag is held on $hold, and Docker Hub's digest for it was not read, answer $code"
             fi
-            echo "copied $digest from $copied, its index and every manifest it lists hashed to their digests"
+          done <<< "$FOLLOWED"
+
+          while read -r digest tag _; do
+            [ -n "$digest" ] && keep postgres "$digest" "$tag"
           done <<< "$KEPT"
+
+          while read -r name digest tag; do
+            [ -n "$name" ] && keep "$name" "$digest" "$tag"
+          done <<< "$PINNED"
+
+          # each followed tag not held, moved to the digest Docker Hub names, after the tamper check of the digest the
+          # mirror's tag holds now
+          while read -r name tag hold; do
+            if [ -z "$name" ] || [ -n "${hold:-}" ] || [ "$gate" != current ]; then continue; fi
+            ref="$TARGET/$name"
+            if ! hub_head "$name" "$tag"; then
+              failed refused "Docker Hub did not name $name:$tag's index, answer $code, so $ref:$tag is left as it is"
+              continue
+            fi
+            wanted="$answer"
+            echo "Docker Hub names $name:$tag $wanted"
+            mirrored=""
+            tampered=""
+            if skopeo inspect --raw "docker://$ref:$tag" > "$raw.tag" 2> /dev/null; then
+              mirrored="$(sha "$raw.tag")"
+            fi
+            if [ -n "$mirrored" ] && [ "$mirrored" != "$wanted" ]; then
+              if hub_head "$name" "$mirrored" && [ "$answer" = "$mirrored" ]; then
+                echo "$ref:$tag held $mirrored, a digest Docker Hub serves for $name, and moves to $wanted"
+              elif [ "$code" = 404 ]; then
+                tampered="$mirrored"
+                echo "$ref:$tag held $mirrored, which Docker Hub does not serve for $name, recorded here"
+              else
+                echo "::warning::$ref:$tag held $mirrored, and Docker Hub's answer for it decides nothing, answer $code"
+              fi
+            fi
+            if present "$ref" "$wanted" && placed "$ref" "$tag" "$wanted"; then
+              chosen="$chosen $name:$tag@$wanted"
+              echo "$ref:$tag, $wanted, is present and placed and left as it is, created $(created "$ref" "$wanted")"
+            elif ! copy_from "$name" "$wanted" "$tag"; then
+              failed copy "no source served $name@$wanted, so $ref:$tag is left as it is"
+            elif ! skopeo inspect --raw "docker://$ref@$wanted" > "$raw.index" || ! indexed "$raw.index"; then
+              failed copy "$name@$wanted from $copied is not an index, so it is refused"
+            elif ! present "$ref" "$wanted" || ! placed "$ref" "$tag" "$wanted"; then
+              failed copy "the copy of $name@$wanted from $copied is not present and placed on $ref:$tag, a later run repairs it"
+            else
+              chosen="$chosen $name:$tag@$wanted"
+              echo "followed $ref:$tag to $wanted from $copied, present and placed, created $(created "$ref" "$wanted")"
+            fi
+            if [ -n "$tampered" ]; then
+              failed tamper "a possible tamper or a digest Docker Hub no longer serves, $ref:$tag held $tampered. Read the recorded digest and the package's access"
+            fi
+          done <<< "$FOLLOWED"
+
+          echo "gate=$gate" >> "$GITHUB_OUTPUT"
+          echo "chosen=${chosen# }" >> "$GITHUB_OUTPUT"
+          if [ -n "$red" ]; then
+            echo "::error::this run ends red for:$red, each named above"
+            exit 1
+          fi
 
   verify:
     name: Prove the copy public
     needs: copy
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/main' &&
+      (needs.copy.result == 'success' || needs.copy.result == 'failure')
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -161,34 +426,160 @@ jobs:
             exit 1
           fi
 
-      # every kept entry's index and every manifest it lists, read with no credentials at all and each hashed to its
-      # digest, so a package still private fails here, closed, and each entry is proven public and present
-      - name: Read every kept entry with no credentials
+  verify-images:
+    name: Prove every image public and present
+    needs: copy
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/main' &&
+      (needs.copy.result == 'success' || needs.copy.result == 'failure')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    permissions: {}
+
+    steps:
+      # Every kept and pinned digest and every followed tag, the index and every manifest it lists read with no
+      #   credentials at all and hashed, so a package still private fails here, closed. Each followed tag and pinned
+      #   entry pulled for the runner's platform with no credentials, its config and layers, which a build or a stack
+      #   downloads. On a current run each followed tag is held to the digest the copy chose, or to its hold, or when
+      #   the copy chose none given the tamper check. A run whose copier text is not main's decides nothing of a
+      #   followed or held tag, since an old text's holds and follows are no longer the owner's
+      - name: Read and pull every entry with no credentials
+        env:
+          GATE: ${{ needs.copy.outputs.gate }}
+          CHOSEN: ${{ needs.copy.outputs.chosen }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          digest_shape='^sha256:[0-9a-f]{64}$'
+          index_types='application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json'
+          index_shape='^application/vnd\.(oci\.image\.index\.v1|docker\.distribution\.manifest\.list\.v2)\+json$'
           raw="$RUNNER_TEMP/kdf-manifest"
-          while read -r digest tag version; do
-            [ -n "$digest" ] || continue
-            if ! skopeo inspect --raw --no-creds "docker://$TARGET@$digest" > "$raw.index"; then
-              echo "::error::$TARGET@$digest cannot be read with no credentials, set the package public"
-              exit 1
-            fi
-            if [ "sha256:$(sha256sum < "$raw.index" | cut -d ' ' -f 1)" != "$digest" ]; then
-              echo "::error::the index read for $digest does not hash to it"
-              exit 1
-            fi
-            jq -r '.manifests[]?.digest' "$raw.index" > "$raw.listed"
+          pull="$RUNNER_TEMP/kdf-pull"
+          red=""
+          answer=""
+          code=""
+          count=0
+
+          failed() {
+            echo "::error::$2"
+            case " $red " in *" $1 "*) ;; *) red="$red $1" ;; esac
+          }
+
+          sha() {
+            printf 'sha256:%s' "$(sha256sum < "$1" | cut -d ' ' -f 1)"
+          }
+
+          indexed() {
+            [[ "$(jq -r '.mediaType // empty' "$1")" =~ $index_shape ]]
+          }
+
+          readable() {
+            local ref="$1" digest="$2" listed
             count=0
+            skopeo inspect --raw --no-creds "docker://$ref@$digest" > "$raw.index" || return 1
+            [ "$(sha "$raw.index")" = "$digest" ] || return 1
+            indexed "$raw.index" || return 1
+            jq -r '.manifests[]?.digest' "$raw.index" > "$raw.listed" || return 1
             while read -r listed; do
-              if ! skopeo inspect --raw --no-creds "docker://$TARGET@$listed" > "$raw.one"; then
-                echo "::error::$TARGET@$listed, which $digest lists, cannot be read with no credentials"
-                exit 1
-              fi
-              if [ "sha256:$(sha256sum < "$raw.one" | cut -d ' ' -f 1)" != "$listed" ]; then
-                echo "::error::the manifest read for $listed, which $digest lists, does not hash to it"
-                exit 1
-              fi
+              [[ "$listed" =~ $digest_shape ]] || return 1
+              skopeo inspect --raw --no-creds "docker://$ref@$listed" > "$raw.one" || return 1
+              [ "$(sha "$raw.one")" = "$listed" ] || return 1
               count=$((count + 1))
             done < "$raw.listed"
-            echo "$TARGET@$digest, $tag ($version), is public, its index and its $count listed manifests read"
+          }
+
+          pulled() {
+            rm -rf "$pull"
+            timeout 900 skopeo copy --src-no-creds "docker://$1@$2" "dir:$pull" > /dev/null || return 1
+            rm -rf "$pull"
+          }
+
+          hub_head() {
+            local name="$1" reference="$2" token type
+            answer=""
+            code=""
+            : > "$raw.head"
+            token="$(curl -fsS --max-time 30 "https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/$name:pull" | jq -r '.token // empty')" || token=""
+            [[ "$token" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+            code="$(curl -sS --max-time 30 --head -o /dev/null -D "$raw.head" -w '%{http_code}' -H "Authorization: Bearer $token" -H "Accept: $index_types" "https://registry-1.docker.io/v2/library/$name/manifests/$reference")" || true
+            [[ "$code" =~ ^[0-9]{3}$ ]] || code="none"
+            type="$(tr -d '\r' < "$raw.head" | grep -i '^content-type:' | tail -n 1 | cut -d ' ' -f 2-)"
+            answer="$(tr -d '\r' < "$raw.head" | grep -i '^docker-content-digest:' | tail -n 1 | cut -d ' ' -f 2-)"
+            [[ "$answer" =~ $digest_shape ]] || answer=""
+            if [ "$code" != 200 ] || [ -z "$answer" ]; then return 1; fi
+            case "$type" in
+              application/vnd.oci.image.index.v1+json | application/vnd.docker.distribution.manifest.list.v2+json) ;;
+              *) return 1 ;;
+            esac
+          }
+
+          decide=""
+          if [ "$GATE" = current ]; then
+            decide="yes"
+          else
+            echo "::notice::the copy's gate reads $GATE, so no placement or tamper decision is made on a followed or held tag"
+          fi
+          read -r -a chosen <<< "$CHOSEN"
+
+          while read -r digest tag _; do
+            [ -n "$digest" ] || continue
+            if readable "$TARGET/postgres" "$digest"; then
+              echo "$TARGET/postgres@$digest, $tag, is public, its index and its $count listed manifests read"
+            else
+              failed private "$TARGET/postgres@$digest cannot be read whole with no credentials, set the package public"
+            fi
           done <<< "$KEPT"
+
+          while read -r name digest tag; do
+            [ -n "$name" ] || continue
+            if ! readable "$TARGET/$name" "$digest"; then
+              failed private "$TARGET/$name@$digest cannot be read whole with no credentials, set the package public"
+            elif ! pulled "$TARGET/$name" "$digest"; then
+              failed pull "$TARGET/$name@$digest's config and layers for this platform cannot be pulled with no credentials"
+            else
+              echo "$TARGET/$name@$digest, $tag, is public, its index, its $count listed manifests and this platform pulled"
+            fi
+          done <<< "$PINNED"
+
+          while read -r name tag hold; do
+            [ -n "$name" ] || continue
+            ref="$TARGET/$name"
+            if ! skopeo inspect --raw --no-creds "docker://$ref:$tag" > "$raw.tag"; then
+              failed private "$ref:$tag cannot be read with no credentials, set the package public"
+              continue
+            fi
+            found="$(sha "$raw.tag")"
+            if ! readable "$ref" "$found"; then
+              failed private "$ref:$tag, $found, cannot be read whole with no credentials"
+              continue
+            fi
+            if ! pulled "$ref" "$found"; then
+              failed pull "$ref:$tag, $found, its config and layers for this platform cannot be pulled with no credentials"
+              continue
+            fi
+            echo "$ref:$tag is on $found, public, its index, its $count listed manifests and this platform pulled"
+            [ -n "$decide" ] || continue
+            expected=""
+            for item in "${chosen[@]}"; do
+              if [[ "$item" =~ ^([a-z0-9-]+):([0-9a-z.-]+)@(sha256:[0-9a-f]{64})$ ]] \
+                && [ "${BASH_REMATCH[1]}" = "$name" ] && [ "${BASH_REMATCH[2]}" = "$tag" ]; then
+                expected="${BASH_REMATCH[3]}"
+              fi
+            done
+            if [ -n "$expected" ]; then
+              [ "$found" = "$expected" ] || failed placement "$ref:$tag is on $found, not $expected, the digest the copy chose"
+            elif [ -n "${hold:-}" ]; then
+              [ "$found" = "$hold" ] || failed placement "$ref:$tag is on $found, not its held digest $hold"
+            elif hub_head "$name" "$found" && [ "$answer" = "$found" ]; then
+              echo "$ref:$tag is on $found, a digest Docker Hub serves for $name"
+            elif [ "$code" = 404 ]; then
+              failed tamper "a possible tamper or a digest Docker Hub no longer serves, $ref:$tag is on $found. Read the recorded digest and the package's access"
+            else
+              echo "::warning::$ref:$tag is on $found, and Docker Hub's answer for it decides nothing, answer $code"
+            fi
+          done <<< "$FOLLOWED"
+
+          if [ -n "$red" ]; then
+            echo "::error::this proof ends red for:$red, each named above"
+            exit 1
+          fi

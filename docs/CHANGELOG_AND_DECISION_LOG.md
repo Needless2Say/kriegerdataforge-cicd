@@ -4242,3 +4242,132 @@ more than the session doing it.
 **Consequences.** A session that runs work may keep its context for the work while workers search, scan and read for
 it, and the review process names the one role a worker never takes. What reopens this is a build route the owner
 changes, a decision on reviewers' tools, or a guard that holds the tool which starts a worker. VERSION 0.2.161.
+
+## D-080. Every image CI pulls comes from the owner's mirror, the base images followed by tag, the rest by digest
+
+- **Date.** 2026-10-18
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Follows.** D-077, which it keeps, its lanes, its proofs and its kept entry unchanged, and three lines of whose
+  "Won't have (now)" it reopens. D-065, kept in its aim, tags for the base images and digests for the services, and
+  moved in its host.
+- **Tier / scope:** Epic · `mirror-ci-images.yml`, the image test and its docs here, then the shared E2E stack and the
+  weekly ecosystem watch in two more pull requests, and in the app repositories each Dockerfile's base, each tenant's
+  E2E stack and the terraform repository's security scan · no input, output or secret of any reusable workflow changed
+
+**Context.** D-065 moved the E2E journey's services and every Dockerfile's base image off Docker Hub to AWS ECR
+Public's gallery, the services by digest and the base images by tag. ECR Public limits anonymous data by source
+address, and D-077 moved CI's Postgres to the owner's mirror after that cap failed four jobs. On 2026-10-18 an image
+job of a pull request failed three times over five hours, each time before a layer was built, at BuildKit's
+`load metadata for public.ecr.aws/docker/library/node:24-alpine`, answered `429 Too Many Requests ... toomanyrequests:
+Data limit exceeded`. Once an address is past the cap even a tag's manifest of a few kilobytes is refused, so no build
+cache, retry or rerun on the same pool of addresses avoids it. The terraform repository's scan also pulled Checkov by
+tag from its publisher's registry and fetched Trivy's checks bundle from Google's mirror at every run. D-077's design
+had left "the E2E stacks", "the Dockerfiles' base images, pulled by tag, which a mirror by digest cannot follow" and
+"a schedule ... or a package for anything but Postgres" for later. The owner brought in the first two and, of the
+third, the schedule and the packages. No cleanup and no credential.
+
+**Decision.**
+
+1. The copier keeps four blocks of entries in its own text. `KEPT`, the lanes' Postgres as D-077 wrote it. `PINNED`,
+   the E2E stacks' Postgres 16-alpine, Caddy and Mailpit and the terraform scan's Checkov, each a package, an index
+   digest and a tag read from the image's own config, its version and variant, `16.15-alpine`, `2.10.2-alpine`,
+   `v1.31.2` and `3.3.6`, never a tag that moves upstream and never one another entry holds. `FOLLOWED`, the base
+   images `node 24-alpine` and `python 3.14-slim`, each a tag. `WATCH`, which no step of the copier reads, a line per
+   kept or pinned image naming its publisher, its line's upstream tag and the level a newer version is reported at,
+   `patch`, or `minor` for Checkov, for the weekly report of item 9.
+2. **A followed tag is decided by Docker Hub alone.** Once a day and at each run, a `HEAD` for the tag's manifest on
+   `registry-1.docker.io` with an anonymous pull token and an `Accept` naming the OCI index and the Docker manifest
+   list, which Docker's page says does not count toward its limit. Its answer counts only as a 200 with an index's
+   `Content-Type` and a `Docker-Content-Digest` of `sha256:` and 64 hexadecimal characters, its line end stripped.
+   Anything else leaves the tag as it is and the run ends red, so a mirror gone stale is never silent. ECR Public's
+   gallery and Google's mirror never decide a tag. They serve bytes by a digest already chosen. The registry's own
+   specification does not promise a `Content-Type` on a `HEAD`, which Docker Hub sends, so a missing one decides
+   nothing.
+3. **Every copy is by a digest, checked by its hash, its tag's placement proven.** `skopeo copy --all
+   --preserve-digests --src-no-creds` from each source in turn, each attempt bounded, so the job's write token travels
+   to no source. Before an entry is left as it is, its index, every manifest it lists and the runner's platform's
+   layers are read, and its tag's own manifest is hashed to the digest, so a part gone or a tag elsewhere is repaired.
+   Every entry, a hold among them, must be an index by its own `mediaType`, so no tag is left one platform. Every
+   outside value is checked for its shape before a
+   command, a log line or an output uses it. Each entry is taken apart from the others, and every failure is gathered
+   into one red at the close, each kind named and none cleared by a later success.
+4. **A hold.** A followed tag may name a digest its package on the mirror already holds, a pull request's one line.
+   Holds run first. The tag is set from the mirror's own copy with no upstream read, a hold's digest is never sent to
+   Docker Hub, and each run warns naming the held digest and Docker Hub's current one, so a forgotten hold is never
+   silent. A hold is in force once its own run's placement proof is green. Removing the line resumes following.
+5. **A run judges itself by its own copier text.** It fetches its own commit and `main`'s anonymously with no blob into
+   a fresh repository, a ref for each, and compares this file's blob at each. The same blob runs as current, so a merge
+   during a run or a rerun of a failed run is harmless. Another blob applies no hold, follows no tag and copies no
+   followed digest, ending green on a first attempt with a notice naming `main`'s commit and red on a rerun, since a
+   rerun of an old run can displace a hold's waiting run. A failed fetch or an empty read is red and moves nothing
+   followed. Kept and pinned entries are copied in every case, which writes only their own fixed tags. One concurrency
+   group holds the whole run.
+6. **A tamper check.** Before a followed tag moves, the digest the mirror's tag holds is asked of Docker Hub by an
+   uncounted `HEAD`. A 200 naming that digest goes on. A 404 is a possible tamper or a digest Docker Hub no longer
+   serves, never proof of either, so the digest is recorded, the tag repaired and the run ends red. Anything else is a
+   warning. It finds a swap only after a build may have used it, which only a digest pin would prevent.
+7. **The triggers.** D-077's push and dispatch, and a schedule, `23 6 * * *`, on `main` alone. The copy job keeps the
+   one `packages: write` grant, checks out nothing and runs no repository code and no action.
+8. **Two proofs with no permissions,** each on `main` after a copy that succeeded or failed, by a condition that names
+   `!cancelled()`, since without a status function GitHub adds `success()`. `verify` keeps D-077's Postgres service.
+   `verify-images`, with no service, reads every entry's index and listed manifests with no credentials at all and
+   pulls the runner's platform of each followed tag and pinned entry with `skopeo copy --src-no-creds`, so a package
+   still private fails closed. On a current run it holds each followed tag to the digest the copy chose, or to its
+   hold, or gives it the tamper check when the copy chose none. A run whose text is not `main`'s makes no placement or
+   tamper decision on a followed or held tag.
+9. **A weekly report**, in the ecosystem watch, names a kept or pinned image whose publisher has shipped a newer version
+   at its line's level, a followed tag's next major or minor, a Trivy release newer than the terraform scan pins, and a
+   copier whose last scheduled run is red or more than two days old. It writes nothing but its issue. An update stays a
+   reviewed pull request in the order of item 10.
+10. **The order.** Each image is on the mirror and proven before any consumer names it. A new tag is appended to
+    `FOLLOWED`, its merge copies it, then the Dockerfiles move. A new service digest is appended to `PINNED`, its merge
+    copies and proves it, then the stacks move. **No version of any package, tagged or untagged, is ever deleted**,
+    since a build, a stack or a rollback names it. A failing image is answered by a hold. A failing mirror is answered
+    per consumer, its line back on an upstream that serves that day.
+11. The image test holds the copier's text, its blocks whole, every entry in its exact shape, every source on one of
+    seven known hosts and paths, every destination tag unique, the blob comparison's lines and the tamper check's token
+    and `HEAD` lines as written, both proofs' condition, the copy job's outputs, and every other line that names an
+    image or a pull. It refuses one of the copier's names set in a step's env or by a script's assignment, which the
+    rule of D-077 passed, and a `continue-on-error`, `shell` or `working-directory` key or a step's `if`, which would
+    let a failure end green or a proof skip with both scripts unchanged. And it runs the copy step's script and the
+    proof's script under bash with stub `skopeo`, `curl` and `git`, holding each kind of red and green above.
+
+**Who can move a followed tag.** A followed tag chooses the code every build runs beside that build's tokens, so the
+boundary is whoever can write the packages. The copy job's token, the owner's own sign in, and any classic token with
+`write:packages`. None is stored, the owner held none on 2026-10-18, and a GitHub App has no Packages permission at
+all. The rules are that no token is ever given `write:packages` and no repository but this one is given write in a
+package's Actions access, which the owner reads on each new package's page. A dated inventory that those rules and
+this repository's read only default workflow permission keep true, not a guarantee.
+
+**Alternatives considered.**
+
+- *Base images pinned by digest.* The most reproducible, but every patch a bump by hand in up to eight repositories,
+  and Dependabot opens no pull request here (D-047). Declined by the owner, who chose the tag.
+- *Google's mirror by tag in each `FROM`.* Google documents it as a daemon's cache with no guarantee an image stays,
+  and the services by digest would still need the copier.
+- *A registry sign in for builds.* A credential in a job whose build runs the pull request's code, which D-035
+  forbids.
+- *BuildKit or the daemon mirroring Docker Hub.* A step in every image job, Google's cache by tag again, and Docker
+  Hub's limit on the fallback.
+- *The tag read from whichever source answers, ordered by creation time.* A lagging source could move a tag back, and
+  a creation time cannot order two indexes.
+- *A staging tag promoted after a second check.* A second write for a gap the hold's own run closes.
+- *Checkov installed with pip.* Another public registry at each run, and dependencies resolved each time.
+- *Trivy's checks bundle mirrored.* An artifact of its own media types that skopeo is not proven to carry, republished
+  often. The checks a pinned Trivy carries move with its reviewed version.
+- *Dependabot or Renovate for images.* Dependabot opens nothing here, and Renovate is a new bot with a token.
+- *A layer cache, or a retry.* The refusal comes at the tag's manifest, before any layer, and a monthly count per
+  address does not clear in minutes.
+
+**Trade-offs.** A base image's patch reaches a build within a day rather than at once. The `packages: write` grant now
+runs unattended daily, in a job that checks out nothing, runs no action, reads every source with no credentials and
+writes only the packages its text names. Each package is public for good, and the namespace's reported limit is spent
+by every image CI pulls. A Docker Hub refusal ends a run red though every tag still serves its last image, measured a
+month after the last merge before a quieter end is weighed. Followed tags leave untagged versions behind, kept since
+no version is deleted.
+
+**Consequences.** Once the first run proves every package public, no image a runner pulls to build, start or scan with
+spends an allowance a runner's other tenants share, and no job that builds a pull request's code gains a secret, a
+credential or a permission. A Dockerfile's `FROM` line still names a tag. What reopens this is a change to GitHub's
+registry limits, a build failing on its pull from the mirror, or a deploy target that runs these images, which would
+weigh a digest pin again. VERSION 0.2.162.
