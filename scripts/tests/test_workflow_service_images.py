@@ -93,12 +93,17 @@ CREDENTIALS: re.Pattern[str] = re.compile(
     re.IGNORECASE,
 )
 
-# the E2E stack every release's journey starts on a runner (D-065), and the one line that may name an image there,
-# from the official gallery on ECR Public or a publisher's own GitHub registry, by digest
+# the E2E stack every release's journey starts on a runner (D-065, D-080), and the one line that may name an image
+# there, by digest, in the stack's mode. The mirror, the owner's own namespace on GitHub's registry, the copier's
+# pinned entries. Or upstream, its way back, each image's own reference, Docker's official gallery on ECR Public for
+# Postgres and Caddy and Mailpit's publisher's GitHub registry. One constant, apart from the lanes' LANE_IMAGE, and a
+# way back is the stack's lines and this constant
 SHARED_COMPOSE: Path = Path(__file__).resolve().parents[2] / "e2e" / "docker-compose.shared.yml"
-COMPOSE_IMAGE:  re.Pattern[str] = re.compile(
-    rf"^\s+image: (?:{PINNED_IMAGE}|ghcr\.io/[a-z0-9-]+/[a-z0-9._-]+@sha256:[0-9a-f]{{64}})\s*$",
-)
+STACK_MODE:     str = "mirror"
+STACK_IMAGES:   dict[str, str] = {
+    "mirror": r"ghcr\.io/needless2say/[a-z0-9][a-z0-9._-]*@sha256:[0-9a-f]{64}",
+    "upstream": rf"{PINNED_IMAGE}|ghcr\.io/axllent/mailpit@sha256:[0-9a-f]{{64}}",
+}
 
 # a pinned reference, and Docker Hub's image, for the forms the cases write
 GOOD: str = f"{LANE_IMAGE}@sha256:" + "a" * 64
@@ -270,18 +275,21 @@ def test_no_workflow_names_an_image_but_by_the_pinned_service_line():
     assert refused == []
 
 
-def compose_judged(text: str) -> tuple[int, list[str]]:
+def compose_judged(text: str, mode: str = STACK_MODE) -> tuple[int, list[str]]:
     """
     A compose file's text judged line by line, the rule of the workflows narrowed to an ``image`` key, since a stack
     also names the variable ``E2E_IMAGE_TARGET``.
 
     Args:
         text: A compose file's text
+        mode: The stack's mode, ``mirror`` or ``upstream``
 
     Returns:
-        tuple[int, list[str]]: How many pinned image lines it holds, and every other line that names an image key,
-            in any quoting or inside a flow mapping, or holds an escape, each refused
+        tuple[int, list[str]]: How many pinned image lines it holds in that mode, and every other line that names an
+            image key, in any quoting or inside a flow mapping, or holds an escape, each refused
     """
+    allowed = re.compile(rf"^\s+image: (?:{STACK_IMAGES[mode]})\s*$")
+
     pinned, refused = 0, []
     for line in text.splitlines():
         if COMMENT.match(line):
@@ -289,7 +297,7 @@ def compose_judged(text: str) -> tuple[int, list[str]]:
         if ESCAPE.search(line):
             refused.append(line.strip())
         elif re.search(r"""["']?\bimage\b["']?\s*:""", line, re.IGNORECASE):
-            if COMPOSE_IMAGE.match(line):
+            if allowed.match(line):
                 pinned += 1
             else:
                 refused.append(line.strip())
@@ -298,9 +306,38 @@ def compose_judged(text: str) -> tuple[int, list[str]]:
 
 def test_the_e2e_stack_pulls_every_image_by_digest_and_none_from_docker_hub():
     """
-    A release's E2E journey pulls these on a runner, the postgres, both caddy edges and mailpit (D-065).
+    A release's E2E journey pulls these on a runner, the postgres, both caddy edges and mailpit (D-065), each from the
+    stack's mode, the owner's mirror since D-080.
     """
     assert compose_judged(SHARED_COMPOSE.read_text(encoding = "utf-8")) == (4, [])
+
+
+@pytest.mark.parametrize(
+    ("mode", "image", "passes"),
+    [
+        # the mirror refuses every upstream, any other GitHub namespace, a tag and Docker Hub
+        ("mirror", f"ghcr.io/needless2say/postgres@sha256:{'a' * 64}", True),
+        ("mirror", f"public.ecr.aws/docker/library/postgres@sha256:{'a' * 64}", False),
+        ("mirror", f"ghcr.io/axllent/mailpit@sha256:{'a' * 64}", False),
+        ("mirror", f"ghcr.io/someone/caddy@sha256:{'a' * 64}", False),
+        ("mirror", "ghcr.io/needless2say/caddy:2.10.2-alpine", False),
+        ("mirror", "caddy:2-alpine", False),
+        # upstream, the way back, takes each image's own reference and refuses the mirror and any other namespace
+        ("upstream", f"public.ecr.aws/docker/library/caddy@sha256:{'a' * 64}", True),
+        ("upstream", f"ghcr.io/axllent/mailpit@sha256:{'a' * 64}", True),
+        ("upstream", f"ghcr.io/needless2say/postgres@sha256:{'a' * 64}", False),
+        ("upstream", f"ghcr.io/someone/mailpit@sha256:{'a' * 64}", False),
+        ("upstream", f"ghcr.io/axllent/caddy@sha256:{'a' * 64}", False),
+        ("upstream", "postgres:16-alpine", False),
+    ],
+)
+def test_the_stacks_mode_admits_its_own_images_alone(mode, image, passes):
+    """
+    Both configurations, so the way back to upstream is a constant and the stack's lines (D-080).
+    """
+    expected = (1, []) if passes else (0, [f"image: {image}"])
+
+    assert compose_judged(f"services:\n  db:\n    image: {image}\n", mode) == expected
 
 
 @pytest.mark.parametrize(

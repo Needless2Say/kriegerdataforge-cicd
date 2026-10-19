@@ -625,8 +625,8 @@ def stack_pairs(text: str) -> list[tuple[str, str]]:
 
 def test_each_stack_image_is_a_package_and_digest_the_copier_pins():
     """
-    The stack still names its upstreams until cicd's second pull request moves it to the mirror, and each of its four
-    lines is already a package and digest the copier pins, so that pull request flips the host alone.
+    Each of the stack's four lines is a package and digest the copier pins, compared together, so the host moved
+    between the mirror and upstream alone and a new digest is copied before a line names it.
     """
     pairs = stack_pairs(STACK.read_text(encoding = "utf-8"))
 
