@@ -708,6 +708,7 @@ def test_an_unreadable_tag_list_is_a_blind_spot_that_keeps_the_issue_open(regist
     body, _, state = ew.render(snapshot)
     assert state == "open"
     assert "the release tags of kriegerdataforge-fmt could not be read, HTTP 403" in body
+    assert "Everything was read." not in body
 
 
 def test_tags_are_read_past_the_first_page() -> None:
