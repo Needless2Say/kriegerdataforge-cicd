@@ -900,8 +900,9 @@ Every destination tag is unique across `KEPT`, `PINNED` and `FOLLOWED`, so the l
   and checks out nothing and runs no repository code and no action. It logs in through standard input and reads every
   source with `--src-no-creds`, so the token travels to none. First its gate, then holds, then each kept and pinned
   entry, then each followed tag, each entry apart, every failure gathered into one red at the close with its kind
-  named, none cleared by a later success. An entry is left as it is only when its index, every manifest it lists and
-  the runner's platform's layers read, each hashed to its digest, and its tag's own manifest hashes to the digest.
+  named, none cleared by a later success. An entry is left as it is only when its index, an index by its own
+  `mediaType`, every manifest it lists and the runner's platform's layers read, each hashed to its digest, and its
+  tag's own manifest hashes to the digest. A followed tag left as it is is still chosen, so the proof holds it there.
   Every other is copied with `skopeo copy --all --preserve-digests --src-no-creds`, from each source in turn by the same
   digest, each attempt bounded, and held to the same checks after. Each line it writes names the entry, its source,
   its digest and its image's creation time, evidence and never a rule. Its outputs are the gate's answer and each
@@ -987,7 +988,8 @@ held whole, a key's line and every line below it, so a line continued or a key a
 Its sources, kept, pinned, followed and watched entries are held to their exact shapes, every source on one of seven
 known hosts and paths and every destination tag unique. It holds no action, the blob comparison's lines and the tamper
 check's token and `HEAD` lines as written, and its every other line that names an image or a pull, and refuses one of
-its names set in a step's env or by a script's assignment. `scripts/tests/test_mirror_ci_images.py` holds the cases
+its names set in a step's env or by a script's assignment, and a `continue-on-error`, `shell` or `working-directory`
+key or a step's `if`. `scripts/tests/test_mirror_ci_images.py` holds the cases
 the rule refuses and runs the copy step's and the proof's scripts under bash with stub `skopeo`, `curl` and `git`, one
 case for each kind of red and green above. And the test refuses a `credentials` key in any workflow,
 `persist-credentials` apart, and a declared grant that can write a package anywhere but the copier's `copy` job. A

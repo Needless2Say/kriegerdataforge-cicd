@@ -4287,7 +4287,8 @@ third, the schedule and the packages. No cleanup and no credential.
    --preserve-digests --src-no-creds` from each source in turn, each attempt bounded, so the job's write token travels
    to no source. Before an entry is left as it is, its index, every manifest it lists and the runner's platform's
    layers are read, and its tag's own manifest is hashed to the digest, so a part gone or a tag elsewhere is repaired.
-   A followed digest must be an index by its `mediaType`. Every outside value is checked for its shape before a
+   Every entry, a hold among them, must be an index by its own `mediaType`, so no tag is left one platform. Every
+   outside value is checked for its shape before a
    command, a log line or an output uses it. Each entry is taken apart from the others, and every failure is gathered
    into one red at the close, each kind named and none cleared by a later success.
 4. **A hold.** A followed tag may name a digest its package on the mirror already holds, a pull request's one line.

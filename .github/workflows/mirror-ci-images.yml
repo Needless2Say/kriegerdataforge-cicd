@@ -131,6 +131,7 @@ jobs:
           set -uo pipefail
           digest_shape='^sha256:[0-9a-f]{64}$'
           index_types='application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json'
+          index_shape='^application/vnd\.(oci\.image\.index\.v1|docker\.distribution\.manifest\.list\.v2)\+json$'
           raw="$RUNNER_TEMP/kdf-manifest"
           pull="$RUNNER_TEMP/kdf-pull"
           red=""
@@ -149,10 +150,16 @@ jobs:
             printf 'sha256:%s' "$(sha256sum < "$1" | cut -d ' ' -f 1)"
           }
 
+          # an index by its own mediaType, never one platform's manifest, which would leave a tag one platform
+          indexed() {
+            [[ "$(jq -r '.mediaType // empty' "$1")" =~ $index_shape ]]
+          }
+
           present() {
             local ref="$1" digest="$2" listed
             skopeo inspect --raw "docker://$ref@$digest" > "$raw.index" || return 1
             [ "$(sha "$raw.index")" = "$digest" ] || return 1
+            indexed "$raw.index" || return 1
             jq -r '.manifests[]?.digest' "$raw.index" > "$raw.listed" || return 1
             while read -r listed; do
               [[ "$listed" =~ $digest_shape ]] || return 1
@@ -341,11 +348,11 @@ jobs:
               fi
             fi
             if present "$ref" "$wanted" && placed "$ref" "$tag" "$wanted"; then
+              chosen="$chosen $name:$tag@$wanted"
               echo "$ref:$tag, $wanted, is present and placed and left as it is, created $(created "$ref" "$wanted")"
             elif ! copy_from "$name" "$wanted" "$tag"; then
               failed copy "no source served $name@$wanted, so $ref:$tag is left as it is"
-            elif ! skopeo inspect --raw "docker://$ref@$wanted" > "$raw.index" \
-              || [[ ! "$(jq -r '.mediaType // empty' "$raw.index")" =~ ^application/vnd\.(oci\.image\.index\.v1|docker\.distribution\.manifest\.list\.v2)\+json$ ]]; then
+            elif ! skopeo inspect --raw "docker://$ref@$wanted" > "$raw.index" || ! indexed "$raw.index"; then
               failed copy "$name@$wanted from $copied is not an index, so it is refused"
             elif ! present "$ref" "$wanted" || ! placed "$ref" "$tag" "$wanted"; then
               failed copy "the copy of $name@$wanted from $copied is not present and placed on $ref:$tag, a later run repairs it"
@@ -445,6 +452,7 @@ jobs:
           set -uo pipefail
           digest_shape='^sha256:[0-9a-f]{64}$'
           index_types='application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json'
+          index_shape='^application/vnd\.(oci\.image\.index\.v1|docker\.distribution\.manifest\.list\.v2)\+json$'
           raw="$RUNNER_TEMP/kdf-manifest"
           pull="$RUNNER_TEMP/kdf-pull"
           red=""
@@ -461,11 +469,16 @@ jobs:
             printf 'sha256:%s' "$(sha256sum < "$1" | cut -d ' ' -f 1)"
           }
 
+          indexed() {
+            [[ "$(jq -r '.mediaType // empty' "$1")" =~ $index_shape ]]
+          }
+
           readable() {
             local ref="$1" digest="$2" listed
             count=0
             skopeo inspect --raw --no-creds "docker://$ref@$digest" > "$raw.index" || return 1
             [ "$(sha "$raw.index")" = "$digest" ] || return 1
+            indexed "$raw.index" || return 1
             jq -r '.manifests[]?.digest' "$raw.index" > "$raw.listed" || return 1
             while read -r listed; do
               [[ "$listed" =~ $digest_shape ]] || return 1

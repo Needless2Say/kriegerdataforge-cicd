@@ -112,6 +112,7 @@ COPIER_KNOWN: frozenset[str] = frozenset({
     "name: Prove every image public and present",
     "run: printf '%s' \"$REGISTRY_TOKEN\" | skopeo login --username \"$GITHUB_ACTOR\" --password-stdin ghcr.io",
     "index_types='application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json'",
+    "index_shape='^application/vnd\\.(oci\\.image\\.index\\.v1|docker\\.distribution\\.manifest\\.list\\.v2)\\+json$'",
     "application/vnd.oci.image.index.v1+json | application/vnd.docker.distribution.manifest.list.v2+json) ;;",
     'skopeo inspect --raw "docker://$ref@$digest" > "$raw.index" || return 1',
     'skopeo inspect --raw "docker://$ref@$listed" > "$raw.one" || return 1',
@@ -133,9 +134,7 @@ COPIER_KNOWN: frozenset[str] = frozenset({
     'echo "$ref:$tag held $mirrored, a digest Docker Hub serves for $name, and moves to $wanted"',
     'echo "$ref:$tag held $mirrored, which Docker Hub does not serve for $name, recorded here"',
     "echo \"::warning::$ref:$tag held $mirrored, and Docker Hub's answer for it decides nothing, answer $code\"",
-    'elif ! skopeo inspect --raw "docker://$ref@$wanted" > "$raw.index" \\',
-    "|| [[ ! \"$(jq -r '.mediaType // empty' \"$raw.index\")\" =~"
-    " ^application/vnd\\.(oci\\.image\\.index\\.v1|docker\\.distribution\\.manifest\\.list\\.v2)\\+json$ ]]; then",
+    'elif ! skopeo inspect --raw "docker://$ref@$wanted" > "$raw.index" || ! indexed "$raw.index"; then',
     "failed tamper \"a possible tamper or a digest Docker Hub no longer serves, $ref:$tag held $tampered. Read the"
     " recorded digest and the package's access\"",
     'skopeo inspect --raw --no-creds "docker://$ref@$digest" > "$raw.index" || return 1',
@@ -163,6 +162,8 @@ COPY_REQUIRED:  tuple[str, ...] = (
     'if [[ ! "${GITHUB_RUN_ATTEMPT:-}" =~ ^1$ ]]; then',
     'if [ -z "$name" ] || [ -z "${hold:-}" ] || [ "$gate" != current ]; then continue; fi',
     'if [ -z "$name" ] || [ -n "${hold:-}" ] || [ "$gate" != current ]; then continue; fi',
+    'indexed "$raw.index" || return 1',
+    'chosen="$chosen $name:$tag@$wanted"',
     'if hub_head "$name" "$mirrored" && [ "$answer" = "$mirrored" ]; then',
     'elif [ "$code" = 404 ]; then',
     TOKEN_LINE,
@@ -174,6 +175,7 @@ COPY_REQUIRED:  tuple[str, ...] = (
 )
 PROOF_STEP:     str = "Read and pull every entry with no credentials"
 PROOF_REQUIRED: tuple[str, ...] = (
+    'indexed "$raw.index" || return 1',
     'if [ "$GATE" = current ]; then',
     '[ -n "$decide" ] || continue',
     'elif [ -n "${hold:-}" ]; then',
@@ -193,6 +195,12 @@ ASSIGNING:      str = (
 )
 ASSIGNED:       re.Pattern[str] = re.compile(ASSIGNING)
 ASSIGNED_KNOWN: frozenset[str] = frozenset({'[ -n "$name" ] && sources[$name]="$list"'})
+
+# a key that lets a failure end green, a step skip, or a script run under another shell, from Codex's review of D-080,
+# whose two mutations, continue-on-error on the copy step and if: false on the proof's, left both scripts the same.
+# Refused anywhere in the copier, and an if refused at a step's scope, deeper than a job's keys
+CONTROL: re.Pattern[str] = re.compile(r"""^\s+(?:-\s+)?["']?(?:continue-on-error|shell|working-directory)["']?\s*:""")
+STEP_IF: re.Pattern[str] = re.compile(r"""^ {6,}(?:-\s+)?["']?if["']?\s*:""")
 
 # the copier's blocks the rule holds whole, each a key's line and every line below it indented deeper, so a line
 # continued or a key added below a blank line changes its block, as Codex's read of D-077 found a substring did not,
@@ -465,6 +473,11 @@ def _scripts_faults(text: str, lines: list[str]) -> list[str]:
         if not COMMENT.match(line) and line.strip() not in ASSIGNED_KNOWN and (
             SET_IN_ENV.match(line) or ASSIGNED.search(line)
         )
+    ]
+    faults += [
+        f"a key lets a failure end green, a step skip or a script change its shell, {line.strip()}"
+        for line in lines
+        if not COMMENT.match(line) and (CONTROL.match(line) or STEP_IF.match(line))
     ]
     for job, step, required in (("copy", COPY_STEP, COPY_REQUIRED), ("verify-images", PROOF_STEP, PROOF_REQUIRED)):
         script = {line.strip() for line in step_script(text, job, step).splitlines()}

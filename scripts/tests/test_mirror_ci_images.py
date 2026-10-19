@@ -569,6 +569,15 @@ def _followed(found: Fixture) -> list[str]:
         ("          declare -A sources\n", '          declare -A sources\n          sources[postgres]="quay.io/x"\n'),
         (RAW_LINE, f"{RAW_LINE}          export TARGET=x\n"),
         (RAW_LINE, f"{RAW_LINE}          read -r TARGET <x\n"),
+        # from Codex's review of D-080, a failure that ends green or a proof step skipped, each leaving both scripts
+        # the same, and a script under another shell
+        ("        id: copy\n", "        id: copy\n        continue-on-error: true\n"),
+        ("    timeout-minutes: 45\n", "    timeout-minutes: 45\n    continue-on-error: true\n"),
+        (f"      - name: {PROOF_STEP}\n", f"      - name: {PROOF_STEP}\n        if: false\n"),
+        ("        id: copy\n", "        id: copy\n        'if': ${{ false }}\n"),
+        ("        id: copy\n", "        id: copy\n        shell: bash {0}\n"),
+        # a present check that takes one platform's manifest for an index
+        ('            indexed "$raw.index" || return 1\n', ""),
     ],
 )
 def test_a_copier_out_of_its_rule_is_refused(old, new):
@@ -806,6 +815,53 @@ def test_a_hold_is_set_from_the_mirrors_own_copy_and_its_digest_is_never_sent_to
     )]
     assert not [call for call in world.calls() if "public.ecr.aws/docker/library/node" in call]
     assert f"is held on {fixture.held} while Docker Hub names {fixture.node}" in ran.output
+
+
+@NEEDS_BASH
+def test_a_hold_on_one_platforms_manifest_is_red_and_leaves_the_tag(fixture):
+    """
+    From Codex's review of D-080, a hold naming a child of an index the package holds, which would leave the tag one
+    platform, is refused, since a present entry is an index by its own mediaType.
+    """
+    world = fixture.world
+    world.serve(f"{NAMESPACE}/node", fixture.held)
+    child = (world.registry / "_blobs" / f"{fixture.held[7:]}.listed").read_text(encoding = "utf-8").split()[0]
+    ran   = _copy(fixture, followed = f"node 24-alpine {child}\npython 3.14-slim\n")
+
+    assert ran.code == 1 and "hold" in ran.close
+    assert world.mirrored("node", "24-alpine") == ""
+
+
+@NEEDS_BASH
+def test_a_followed_tag_already_placed_is_still_chosen_so_a_later_move_is_a_placement_red(fixture):
+    """
+    From Codex's review of D-080. A tag already on Docker Hub's digest is left as it is and still chosen, so a writer
+    that moves it to an older digest Docker Hub still serves is caught by the proof's placement and not passed by its
+    tamper check.
+    """
+    world = fixture.world
+    world.tag(f"{NAMESPACE}/node", "24-alpine", fixture.node)
+    ran = _copy(fixture)
+
+    assert ran.code == 0, ran.output
+    assert f"node:24-alpine@{fixture.node}" in ran.outputs["chosen"]
+    assert not [call for call in world.calls() if call.startswith("skopeo copy --all") and "/node@" in call]
+    world.tag(f"{NAMESPACE}/node", "24-alpine", fixture.old_node)
+    world.answer("node", fixture.old_node, 200, fixture.old_node)
+    proof = _proof(fixture, "current", ran.outputs["chosen"])
+
+    assert proof.code == 1 and "placement" in proof.close
+
+
+@NEEDS_BASH
+def test_a_proof_of_a_tag_on_one_platforms_manifest_is_red(fixture):
+    world = fixture.world
+    world.serve(f"{NAMESPACE}/node", fixture.node)
+    child = (world.registry / "_blobs" / f"{fixture.node[7:]}.listed").read_text(encoding = "utf-8").split()[0]
+    world.tag(f"{NAMESPACE}/node", "24-alpine", child)
+    ran = _proof(fixture, "current", "")
+
+    assert ran.code == 1 and "private" in ran.close
 
 
 @NEEDS_BASH
