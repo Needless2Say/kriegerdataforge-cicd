@@ -481,7 +481,7 @@ failed whole jobs before a test ran. `mirror-ci-images.yml` copies the image the
 runner logs in to GitHub's registry with the job's own token before it pulls the service, a `docker ... login
 ghcr.io` line in "Initialize containers" that names no secret. `postgres-lane-proof` in this repo's `ci.yml` proves
 the lane on each pull request here that changes code, before a caller meets it, a docs only one skipping it (D-075). A new patch follows the copier's order in
-[CI's Postgres mirror](#cis-postgres-mirror-d-077), and
+[CI's image mirror](#cis-image-mirror-d-077-d-080), and
 `scripts/tests/test_workflow_service_images.py` holds every workflow here but the copier, which has its own, to one
 rule on its text. A line that is not
 a comment and names `image`, `container` or `docker`, in any case, must be a service's `image:` line with the lanes'
@@ -869,7 +869,7 @@ owner gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for 
 | `trigger-reports-triage.yml` | weekly `schedule` (Mon 09:23 UTC) + `workflow_dispatch` (`apps`, `environment`, `dry_run`) | `trigger_triage.py`: POSTs each selected app's `X-Cron-Secret`-gated `/reports/triage/cron` (`reports_registry.json`). **Disarmed at birth**: the schedule job requires `vars.RUN_REPORTS_TRIAGE == 'true'` AND per app registry `enabled: true`. Scheduled runs = enabled apps against prod. POSTs never status retried, output metadata only | n/a (dispatch is maintainer only by repo perms, schedule gated by `RUN_REPORTS_TRIAGE`) |
 | `hub-prune-tokens.yml` | daily `schedule` (04:17 UTC) + `workflow_dispatch` (`environment`) | POSTs the auth hub's `CRON_SECRET` gated `/internal/cron/prune-tokens` once per environment, which deletes expired denylist rows, spent verification tokens, audit rows past retention, abandoned registrations and expired OIDC rows in the hub (hub DEFERRED row 21). **Disarmed at birth**, the schedule job requires `vars.RUN_HUB_PRUNE == 'true'`, arm it with the hub release whose route answers POST. Per environment secrets `KDF_HUB_URL_{DEV,PROD}` and `KDF_HUB_CRON_SECRET_{DEV,PROD}`, an environment missing either is skipped with a notice. Prints the per table counts only | n/a (dispatch is maintainer only by repo perms, schedule gated by `RUN_HUB_PRUNE`) |
 | `codeql.yml` | `push` / `pull_request` → `main` + weekly `schedule` (Sun 00:00 UTC) | CodeQL over the Playwright suite under `e2e/`, through the centralized reusable workflow. The analyze job stays skipped until `vars.ENABLE_CODEQL == 'true'` (a public repo or GitHub Code Security) | n/a |
-| `mirror-ci-images.yml` | `push` `main`, `paths` its own file alone, + `workflow_dispatch` with no `inputs` | The copier of CI's Postgres image (D-077), the next section | n/a (`main` guard on its copy job, `packages: write` to that job alone, the workflow `{}`) |
+| `mirror-ci-images.yml` | `push` `main`, `paths` its own file alone, + `workflow_dispatch` with no `inputs` + daily `schedule` (06:23 UTC) | The copier of every image CI pulls (D-077, D-080), the next section | n/a (`main` guard on its copy job, `packages: write` to that job alone, both proof jobs and the workflow `{}`) |
 
 `GH_PACKAGES_PAT` distribution, Vercel/kit ops, and the App secret distribution mint short lived
 **GitHub App** tokens when `vars.USE_GITHUB_APP == 'true'`, falling back to `CICD_PAT`
@@ -878,26 +878,88 @@ owner gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for 
 classic PAT (see the D-010 W1 finding). See the GitHub App migration ADR in
 `docs/CHANGELOG_AND_DECISION_LOG.md`.
 
-### CI's Postgres mirror (D-077)
+### CI's image mirror (D-077, D-080)
 
-`mirror-ci-images.yml` copies the Postgres image D-064 pinned, Docker's official image by its index digest, to the
-owner's mirror on GitHub's registry, `ghcr.io/needless2say/postgres`, and proves the copy public on a runner. It runs
-on `main` alone, at a push that changes its own file and at the owner's dispatch, which takes no input, never on a pull
-request. Its `KEPT` list holds each kept entry, its digest, its tag and its `server_version_num`, the newest last.
+`mirror-ci-images.yml` keeps every image CI pulls on the owner's mirror on GitHub's registry,
+`ghcr.io/needless2say/<name>`, and proves each public on a runner, so no pull spends an allowance a runner's other
+tenants share. It runs on `main` alone, at a push that changes its own file, at the owner's dispatch, which takes no
+input, and once a day at 06:23 UTC, never on a pull request. Its env names every entry in its own text.
+
+| Block | What it keeps | How a tag is set |
+| --- | --- | --- |
+| `SOURCES` | Each package and its sources in turn, Docker's official images on ECR Public's gallery, Docker Hub and Google's mirror, Mailpit's and Checkov's publishers on GitHub's registry and Docker Hub | A source serves bytes by a digest already chosen, read with no credentials, and never decides a tag |
+| `KEPT` | The Postgres lanes' entries, each its index digest, its tag and its `server_version_num`, the newest last (D-077) | Fixed, the entry's own tag |
+| `PINNED` | The E2E stacks' Postgres 16-alpine, Caddy and Mailpit and the terraform scan's Checkov, each its package, index digest and tag | Fixed, the version and variant its image's config carries, `16.15-alpine`, `2.10.2-alpine`, `v1.31.2`, `3.3.6` |
+| `FOLLOWED` | The base images every Dockerfile builds on, `node 24-alpine` and `python 3.14-slim`, and a held digest while a hold stands | The digest Docker Hub names for the tag, read each run, unless held |
+| `WATCH` | A line per kept or pinned image, its publisher, its line's upstream tag and the level a newer version is reported at, `patch` or Checkov's `minor` | Never, the weekly ecosystem watch alone reads it |
+
+Every destination tag is unique across `KEPT`, `PINNED` and `FOLLOWED`, so the lanes' `16.15` and the stacks'
+`16.15-alpine` never share one.
 
 - **`copy`** holds `packages: write` through the job's own token, the one job of this repo that may write a package,
-  and checks out nothing and runs no repository code and no action. It logs in through standard input. An entry whose
-  index and every manifest that index lists are on the mirror, each hashed to its digest, is left as it is, so a new
-  entry never depends on fetching an old one upstream again. Any other entry is copied with
-  `skopeo copy --all --preserve-digests`, from ECR Public's gallery, then Docker Hub, then Google's mirror, each by the
-  same digest, and held to the same check after the copy, so a copy cut short is repaired by the next run.
+  and checks out nothing and runs no repository code and no action. It logs in through standard input and reads every
+  source with `--src-no-creds`, so the token travels to none. First its gate, then holds, then each kept and pinned
+  entry, then each followed tag, each entry apart, every failure gathered into one red at the close with its kind
+  named, none cleared by a later success. An entry is left as it is only when its index, every manifest it lists and
+  the runner's platform's layers read, each hashed to its digest, and its tag's own manifest hashes to the digest.
+  Every other is copied with `skopeo copy --all --preserve-digests --src-no-creds`, from each source in turn by the same
+  digest, each attempt bounded, and held to the same checks after. Each line it writes names the entry, its source,
+  its digest and its image's creation time, evidence and never a rule. Its outputs are the gate's answer and each
+  followed tag's chosen digest.
+- **Its gate.** The run fetches its own commit and `main`'s anonymously with no blob into a fresh repository and
+  compares this file's blob at each. The same blob runs as current. Another blob applies no hold, follows no tag and
+  copies no followed digest, ending green with a notice naming `main`'s commit on a first attempt and red on a rerun.
+  A failed fetch or an empty read is red and moves nothing followed. Kept and pinned entries are copied in every case.
+- **A followed tag** is decided by Docker Hub alone, by a `HEAD` for `registry-1.docker.io/v2/library/<name>/manifests/
+  <tag>` with an anonymous pull token, which Docker says does not count toward its limit. Its answer counts only as a
+  200 with an index's `Content-Type` and a digest of its exact shape. Before the tag moves, the digest the mirror's tag
+  holds is asked the same way, the tamper check. A 404 records that digest, repairs the tag and ends the run red. A
+  refusal decides nothing. The copied digest must be an index by its `mediaType`.
 - **`verify`** has no permissions. Its service is the lanes' own with the newest kept digest on the mirror, its
-  `server_version_num` read by host and port and held to that entry's. Then every kept entry's index and every
-  manifest it lists are read with `skopeo inspect --raw --no-creds` and hashed to their digests. A hosted runner logs
-  in to GitHub's registry with the job's own token before it pulls a service from there, so a service's pull is not
-  anonymous, and that read with no credentials is the proof the package is public. A package still private fails
-  there, closed, and the owner then sets it public on its page and dispatches the copier again. The first run, on
-  2026-10-17, found it public already, a workflow's package taking its public repository's visibility.
+  `server_version_num` read by host and port and held to that entry's (D-077).
+- **`verify-images`** has no permissions and no service. It reads every entry's index and listed manifests with
+  `skopeo inspect --raw --no-creds` and pulls the runner's platform of each followed tag and pinned entry with
+  `skopeo copy --src-no-creds` into the runner's temp folder, so a package still private fails closed, and the owner
+  sets it public on its page and dispatches the copier again. On a current run it holds each followed tag to the copy's
+  chosen digest, or to its hold, or gives it the tamper check when the copy chose none. A run whose text is not
+  `main`'s makes no placement or tamper decision on a followed or held tag.
+
+Both proofs run on `main` after a copy that succeeded or failed, never after a skip or a cancel, by a condition that
+names `!cancelled()`. One concurrency group, `mirror-ci-images-copy`, holds a whole run, copy and proofs.
+
+**Each kind of red, and what it asks.**
+
+| The close names | What happened | What it asks |
+| --- | --- | --- |
+| `refused` | Docker Hub did not name a followed tag's index | Nothing. The tag still serves its last image, and the next day's run tries again. Counted for the month later check |
+| `stale-rerun` | A rerun whose copier text is not `main`'s | A dispatch from `main`, unless `main`'s own run has ended green since. Never a rerun |
+| `gate` | The copier's blob could not be read at the run's commit or at `main`'s | A dispatch from `main` once GitHub answers |
+| `tamper` | The mirror's tag held a digest Docker Hub does not serve for the image, recorded in the log, the tag already repaired | A look at the recorded digest and at the package's access settings. A 404 can also mean an old digest Docker Hub stopped serving |
+| `hold` | A hold's digest is not in its package, or the tag could not be set to it | The hold's pull request corrected |
+| `copy` | No source served an entry, or the copy is not present and placed | A dispatch once a source serves it, else the entry's pull request |
+| `private`, `pull`, `placement` | `verify-images` could not read or pull an entry with no credentials, or a tag is not on its digest | The package's page set public, then a dispatch, else the log read for the digest |
+
+**A hold.** A bad upstream image is held by a cicd pull request that writes a digest its package already holds after
+the followed tag, `node 24-alpine sha256:<digest>`. Its merge sets the tag from the mirror's own copy with no upstream
+read and never sends that digest to Docker Hub, and each later run warns, naming the held digest and Docker Hub's
+current one. The hold is in force once its own run's placement proof is green, so read that run. A run that compared
+its copier text before the hold merged can still publish in the minutes before, and the hold's run sets the tag back.
+Never rerun an old run to apply a hold, dispatch from `main`. Removing the digest resumes following.
+
+**A new tag**, `node 26-alpine` one day, is a cicd pull request appending it to `FOLLOWED`, its merge copying it, then
+the Dockerfiles' pull requests. A tag no Dockerfile names is removed from `FOLLOWED` in a later one, its copies kept.
+
+**A new service digest** follows D-077's order. A cicd pull request appends the `PINNED` entry and its `WATCH` line, its
+merge copies and proves it, and later pull requests move the shared stack and the tenants' stacks. Nothing in cicd's
+runs starts the stack to enforce the order, so this page, D-080 and the stack's own comment write it.
+
+**Two ways back.** A failing image is answered by a hold. A failing mirror is answered per consumer, its `FROM` line
+or its stack's lines back on an upstream that serves that day, each a pull request in its own repository.
+
+**The packages grow, and the logs fade.** Each index's platform and attestation manifests are untagged versions, and a
+followed tag that moved leaves its old index untagged too, some fifty a year for Python's slim tag. That costs nothing
+for a public package. The run's log is the record of what each tag held when, kept 90 days, the package pages' dates
+the record after that.
 
 A Postgres patch is ordered. First a cicd pull request appends the new entry to `KEPT` and moves `verify`'s service
 line to it, the lanes unchanged, and its merge runs the copier, which copies and proves it. Then the pull requests
@@ -909,19 +971,28 @@ the newest, and the proof's expected version the lanes' entry's. The old entry s
 lanes' pull request naming it again with its version, and moving the lanes back to ECR Public's gallery is their lines
 and the test's one constant for the lanes' image.
 
-**No version of the package, tagged or untagged, is ever deleted.** The index's platform and attestation manifests
-show as untagged versions, which a tidy of untagged versions would remove, and every Postgres lane in every repo then
-fails before a test runs. GitHub restores a deleted package within 30 days while its name is not reused, and a dispatch
-of the copier copies the same digest again while a source still serves it.
+**No version of any package, tagged or untagged, is ever deleted.** The index's platform and attestation manifests
+show as untagged versions, which a tidy of untagged versions would remove, and every build, stack or lane that names
+one then fails before it starts. GitHub restores a deleted package within 30 days while its name is not reused, and a
+dispatch of the copier copies a kept or pinned digest again while a source still serves it, and a followed tag's
+current image always.
 
-The image test, `scripts/tests/test_workflow_service_images.py`, reads the copier by a strict rule of its own. Its
-triggers, its `main` guard, each job's declared permissions, its `needs`, its concurrency, `verify`'s service, its
-target and its sources are each held whole, a key's line and every line below it, so a line continued or a key added
-below a blank line is refused. And it holds no action, its kept entries, and its every line that names an image or a
-pull. And it refuses a `credentials` key in any workflow, `persist-credentials`
-apart, and a declared grant that can write a package anywhere but the copier's `copy` job. A workflow that declares no
-permissions takes the repository's default token, which the text cannot show, so the owner keeps this repository's
-default workflow permission read only.
+**Who can move a followed tag** chooses the code every build runs, so no token is ever given `write:packages`, and no
+repository but this one is given write in a package's Actions access, which the owner reads on each new package's page.
+
+The image test, `scripts/tests/test_workflow_service_images.py`, reads the copier by a strict rule of its own,
+`scripts/tests/copier_rule.py`. Its triggers with their one schedule, its concurrency, its `main` guard, each job's
+declared permissions and condition, its `needs`, the copy job's outputs, `verify`'s service and its target are each
+held whole, a key's line and every line below it, so a line continued or a key added below a blank line is refused.
+Its sources, kept, pinned, followed and watched entries are held to their exact shapes, every source on one of seven
+known hosts and paths and every destination tag unique. It holds no action, the blob comparison's lines and the tamper
+check's token and `HEAD` lines as written, and its every other line that names an image or a pull, and refuses one of
+its names set in a step's env or by a script's assignment. `scripts/tests/test_mirror_ci_images.py` holds the cases
+the rule refuses and runs the copy step's and the proof's scripts under bash with stub `skopeo`, `curl` and `git`, one
+case for each kind of red and green above. And the test refuses a `credentials` key in any workflow,
+`persist-credentials` apart, and a declared grant that can write a package anywhere but the copier's `copy` job. A
+workflow that declares no permissions takes the repository's default token, which the text cannot show, so the owner
+keeps this repository's default workflow permission read only.
 
 ---
 
