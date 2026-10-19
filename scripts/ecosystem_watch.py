@@ -1425,8 +1425,6 @@ def _errors_section(snapshot: dict[str, Any], findings: dict[str, str]) -> list[
                 f"{name} could not be read, {error['detail']}"
             )
         lines += ["", "A 403 on alerts usually means the KDF GitHub App lacks 'Dependabot alerts: Read' on that repo."]
-    else:
-        lines.append("Everything was read.")
     for src in snapshot.get("canonical_scripts_unreadable", []):
         lines.append(f"- cicd's own `{src}` could not be read, so its copies were not compared")
         findings[f"error:cicd:{src}"] = f"cicd's own `{src}` could not be read"
@@ -1439,6 +1437,13 @@ def _errors_section(snapshot: dict[str, Any], findings: dict[str, str]) -> list[
             findings[f"error:release:{source}:{_short(release['error'])}"] = (
                 f"the release tags of {source} could not be read, {release['error']}"
             )
+    # each unread image read is named, and its finding kept, in the images section, so it is counted here alone
+    _, unread = ecosystem_images.counts(snapshot.get("images"))
+    if unread:
+        lines.append(f"- {unread} read{'' if unread == 1 else 's'} of the images section, named there as unread")
+    # the clear line only when nothing above was unread, as the headline counts (the first watch issue, 2026-10-19)
+    if len(lines) == 3:
+        lines.append("Everything was read.")
     return lines
 
 

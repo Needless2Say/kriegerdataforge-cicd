@@ -583,6 +583,20 @@ def test_an_unread_part_a_newer_trivy_or_a_red_schedule_keeps_the_issue_open(git
     assert state == "open" and expected in body_text
 
 
+def test_an_unread_part_is_named_where_the_issue_says_what_could_not_be_read() -> None:
+    """
+    The copier's first scheduled run not yet made, the headline counting it in "could not be read" while that section
+    said "Everything was read.", the first watch issue of 2026-10-19.
+    """
+    runs = {f"/repos/{ei.CICD_REPO}/actions/workflows/{ei.COPIER_FILE}/runs": {"workflow_runs": []}}
+    body_text, _, state = issue(clean_table(COPIER_TEXT), runs)
+    could_not_read = body_text.split("### Could not read")[1]
+
+    assert state == "open" and "**1 could not be read**" in body_text
+    assert "Everything was read." not in body_text
+    assert "- 1 read of the images section, named there as unread" in could_not_read
+
+
 @pytest.mark.parametrize(("text", "found"), [("v1.31.2", (1, 31, 2)), ("16.15-alpine", (16, 15, 0)), ("x1", None)])
 def test_a_version_is_read_from_a_tags_start(text: str, found: tuple[int, int, int] | None) -> None:
     assert ei.version(text) == found
