@@ -4328,8 +4328,9 @@ third, the schedule and the packages. No cleanup and no credential.
     seven known hosts and paths, every destination tag unique, the blob comparison's lines and the tamper check's token
     and `HEAD` lines as written, both proofs' condition, the copy job's outputs, and every other line that names an
     image or a pull. It refuses one of the copier's names set in a step's env or by a script's assignment, which the
-    rule of D-077 passed. And it runs the copy step's script and the proof's script under bash with stub `skopeo`,
-    `curl` and `git`, holding each kind of red and green above.
+    rule of D-077 passed, and a `continue-on-error`, `shell` or `working-directory` key or a step's `if`, which would
+    let a failure end green or a proof skip with both scripts unchanged. And it runs the copy step's script and the
+    proof's script under bash with stub `skopeo`, `curl` and `git`, holding each kind of red and green above.
 
 **Who can move a followed tag.** A followed tag chooses the code every build runs beside that build's tokens, so the
 boundary is whoever can write the packages. The copy job's token, the owner's own sign in, and any classic token with
