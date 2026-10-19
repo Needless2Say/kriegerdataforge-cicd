@@ -701,6 +701,19 @@ counts. Its first step refuses a caller the API does not report private.
   against cicd's, by blob sha, and the deprecation notices on the latest completed run of each active workflow. What
   it cannot read, and a pin it cannot judge, keeps the issue open. A notice seen only on runs older than 60 days is
   listed with its run's date and keeps nothing open, since only a new run of that workflow can clear it.
+- **Images (D-080).** `scripts/ecosystem_images.py` reads the copier, `mirror-ci-images.yml`, from cicd's `main` by
+  the image test's shapes. For each `WATCH` line it asks the line's publisher alone, never a mirror, for its upstream
+  tag by an uncounted `HEAD`. A digest other than the kept one is read for its version, from its config's OCI label
+  or `<NAME>_VERSION` env, else, for an image whose config names none, as Mailpit's, from the publisher's release tag
+  of the kept tag's shape whose index digest is the same, a higher tag on another digest passed over. A newer version
+  at the line's level, patch, or minor for Checkov, is a finding. The same version or a newer one below the level is
+  a rebuild, one note line. A followed tag's newer runtime of its shape on Docker Hub, `26-alpine` beside `24-alpine`,
+  is a note line too and never a finding, since moving runtime is a migration the owner chooses. The Trivy version
+  the terraform scan pins beside Trivy's latest release, and the copier's newest scheduled run red or older than two
+  days, are findings. Its registry reads use anonymous pull tokens, never the App token, each bounded in retries,
+  every tag list at most 20 pages of 1,000, and the whole section in one five minute budget. A read that fails, a
+  list cut short or a version neither config nor tag names is unread and keeps the issue open. It needs no input,
+  secret or permission beyond the watch's own.
 - **Secrets.** `app_id` and `app_private_key`, passed by name, never `inherit`.
 - **Permissions.** `contents: read`, `issues: write`. The App needs Dependabot alerts, Checks, Actions and Contents,
   read only, approved on its installation.

@@ -4318,7 +4318,10 @@ third, the schedule and the packages. No cleanup and no credential.
 9. **A weekly report**, in the ecosystem watch, names a kept or pinned image whose publisher has shipped a newer version
    at its line's level, a followed tag's next major or minor, a Trivy release newer than the terraform scan pins, and a
    copier whose last scheduled run is red or more than two days old. It writes nothing but its issue. An update stays a
-   reviewed pull request in the order of item 10.
+   reviewed pull request in the order of item 10. Two of the owner's answers of 2026-10-19 in the build, since
+   Mailpit's image names its version nowhere and `node:26-alpine` and `python:3.15-slim` already existed. An image
+   whose config names no version takes the publisher's release tag whose index digest matches, none matching unread.
+   And a followed tag's newer runtime is a note line and never a finding, a migration the owner chooses.
 10. **The order.** Each image is on the mirror and proven before any consumer names it. A new tag is appended to
     `FOLLOWED`, its merge copies it, then the Dockerfiles move. A new service digest is appended to `PINNED`, its merge
     copies and proves it, then the stacks move. **No version of any package, tagged or untagged, is ever deleted**,
