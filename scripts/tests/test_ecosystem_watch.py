@@ -340,6 +340,38 @@ def test_a_clean_ecosystem_has_nothing_to_report(registries: None) -> None:
     assert canonical and canonical[0]["behind"] is False
 
 
+def test_collect_carries_the_images_section_into_its_summary_and_the_issue(registries: None, clean_images) -> None:
+    """
+    From Codex's review of D-080's watch, the collector's own wiring, not a summary a test built. A newer Caddy is
+    counted behind, and an unreadable copier is counted unread, each holding the issue open.
+    """
+    reference = "https://registry-1.docker.io/v2/library/caddy/"
+    clean_images.table[("HEAD", reference + "manifests/2-alpine")] = ei.Reply(
+        200,
+        {"content-type": ei.INDEX_TYPES[0], "docker-content-digest": "sha256:" + "b" * 64},
+    )
+    clean_images.table[("GET", reference + "manifests/sha256:" + "b" * 64)] = ei.Reply(200, {}, json.dumps({
+        "manifests": [{"digest": "sha256:" + "8" * 64, "platform": {"os": "linux", "architecture": "amd64"}}],
+    }).encode())
+    clean_images.table[("GET", reference + "manifests/sha256:" + "8" * 64)] = ei.Reply(
+        200,
+        {},
+        json.dumps({"config": {"digest": "sha256:" + "9" * 64}}).encode(),
+    )
+    clean_images.table[("GET", reference + "blobs/sha256:" + "9" * 64)] = ei.Reply(
+        200,
+        {},
+        json.dumps({"config": {"Labels": {"org.opencontainers.image.version": "v2.11.7"}}}).encode(),
+    )
+    snapshot = ew.collect(FakeTransport(base_table()), workers = 1)
+    assert snapshot["summary"]["images_behind"] == 1
+    assert ew.render(snapshot)[2] == "open"
+    table = base_table()
+    del table[f"/repos/{ei.CICD_REPO}/contents/{ei.COPIER_PATH}"]
+    unread = ew.collect(FakeTransport(table), workers = 1)
+    assert unread["images"]["copier"] and unread["summary"]["errors"] == 1
+
+
 def test_the_mutation_engine_is_compared_only_where_it_is_vendored(registries: None) -> None:
     """
     The engine's registry entry names repo A alone (D-040), so repo B, which never carries it, is no drift. The

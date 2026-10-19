@@ -4318,10 +4318,7 @@ third, the schedule and the packages. No cleanup and no credential.
 9. **A weekly report**, in the ecosystem watch, names a kept or pinned image whose publisher has shipped a newer version
    at its line's level, a followed tag's next major or minor, a Trivy release newer than the terraform scan pins, and a
    copier whose last scheduled run is red or more than two days old. It writes nothing but its issue. An update stays a
-   reviewed pull request in the order of item 10. Two of the owner's answers of 2026-10-19 in the build, since
-   Mailpit's image names its version nowhere and `node:26-alpine` and `python:3.15-slim` already existed. An image
-   whose config names no version takes the publisher's release tag whose index digest matches, none matching unread.
-   And a followed tag's newer runtime is a note line and never a finding, a migration the owner chooses.
+   reviewed pull request in the order of item 10.
 10. **The order.** Each image is on the mirror and proven before any consumer names it. A new tag is appended to
     `FOLLOWED`, its merge copies it, then the Dockerfiles move. A new service digest is appended to `PINNED`, its merge
     copies and proves it, then the stacks move. **No version of any package, tagged or untagged, is ever deleted**,
@@ -4374,3 +4371,40 @@ spends an allowance a runner's other tenants share, and no job that builds a pul
 credential or a permission. A Dockerfile's `FROM` line still names a tag. What reopens this is a change to GitHub's
 registry limits, a build failing on its pull from the mirror, or a deploy target that runs these images, which would
 weigh a digest pin again. VERSION 0.2.162.
+
+## D-081. The weekly image report reads an unversioned image by its matching tag, and a newer runtime is a note
+
+- **Date.** 2026-10-19
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Follows.** D-080, item 9, which it narrows, and D-049, the ecosystem watch it grows.
+- **Tier / scope:** Standard · `scripts/ecosystem_images.py` and the watch's render · no input, output, secret or
+  permission of the reusable watch changed
+
+**Context.** D-080 item 9 reads each kept or pinned image's version from its config when its publisher's digest moves,
+and names a followed tag's next major or minor. Two facts met that in the build. Mailpit's image names its version
+nowhere, no annotation, no version label and no env but `PATH`, so its line would read unread every week once its
+publisher moved and keep the watch's issue open for good. And `node:26-alpine` and `python:3.15-slim` already existed,
+so a newer runtime as a finding would hold the issue open from its first run until every app moved runtime.
+
+**Decision.**
+
+1. An image whose config names no version takes the publisher's own release tag of the kept tag's shape whose index
+   digest is the one the line's tag names, the newest first and at most ten asked. A higher tag on another digest is
+   passed over, a higher tag that cannot be read makes the line unread, and no match, a tag list cut short or the
+   section's time budget spent is unread. The owner's answer, "Tag whose digest matches", after a Codex decision read
+   picked it.
+2. A followed tag's newer runtime of its shape is one note line in the images section and never a finding, since moving
+   runtime is a migration the owner chooses. The owner's answer, "Quiet note line", and Python stays at 3.14.
+
+**Alternatives considered.**
+
+- *A Mailpit digest change as a finding.* Every release or rebuild would hold the issue open until a bump.
+- *Mailpit unread as written.* The issue would never clear.
+- *A newer runtime as a finding.* The issue would hold open from day one, and stop catching the eye.
+
+**Trade-offs.** A tag list grows, so the read is bounded and its overflow reads unread. A new runtime is noticed only by
+reading the note.
+
+**Consequences.** The watch's issue clears when nothing needs a pull request, a newer pinned version still opens it,
+and an image with no version in its config is still judged by its version. What reopens this is a publisher that tags
+no release, or the owner wanting a new runtime to hold the issue open. VERSION 0.2.163.

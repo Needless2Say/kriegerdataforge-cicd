@@ -1335,8 +1335,9 @@ def _images_watched(images: dict[str, Any], lines: list[str], findings: dict[str
         findings[f"image:{line['name']}:{line['tag']}:{line['found']}"] = (
             f"{line['name']} kept at `{line['tag']}`, and its publisher has `{line['found']}`"
         )
+    # every value set in a code span, so a publisher's text, already shaped as a version, never renders as markdown
     return [
-        f"{line['name']} {line['tag']} ({line.get('found') or 'its version'})"
+        f"`{line['name']}` `{line['tag']}` (`{line.get('found') or 'the same version'}`)"
         for line in images.get("watched", []) if line.get("state") == "rebuild"
     ]
 
@@ -1390,15 +1391,17 @@ def _images_section(snapshot: dict[str, Any], findings: dict[str, str]) -> list[
     for name, detail in unread:
         lines.append(f"- unread, {name}, {detail}")
         findings[f"image-unread:{name}:{_short(detail)}"] = f"{name} could not be read, {detail}"
+    # the clear line says only what holds, the notes below it saying the rest (Codex's review of 2026-10-19)
     if len(lines) == 3:
-        lines.append("Every image the copier keeps is current upstream, each followed tag is the newest of its shape, "
-                     "the scan's Trivy is the latest, and the copier's schedule is green.")
+        lines.append("Nothing behind its line's level, and every read made.")
     rebuilt = "Rebuilt upstream at the same version or below the line's level, nothing to do: "
     moved   = "Newer runtimes of a followed tag's shape, a migration when chosen, nothing to do now: "
     if rebuilds:
         lines += ["", rebuilt + ", ".join(rebuilds) + "."]
     if runtimes:
         lines += ["", moved + "; ".join(runtimes) + "."]
+    if schedule.get("state") == "running":
+        lines += ["", f"The copier's newest scheduled run, {str(schedule.get('at'))[:10]}, is still running."]
     return lines
 
 

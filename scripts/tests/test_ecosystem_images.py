@@ -247,6 +247,139 @@ def test_an_anonymous_token_is_taken_in_a_registrys_own_shape(token: str, read: 
 
     assert (judged["state"] == "current") is read
 
+# ======================================================================================================================
+# Codex's review of 2026-10-19, each probe a case
+# ======================================================================================================================
+
+def test_a_read_that_outruns_the_budget_while_it_runs_is_unread() -> None:
+    """
+    The deadline is read after a request as well as before it, so an answer that came after 901 seconds is unused.
+    """
+    ticks    = iter([0.0, 0.0, 0.0, 0.0, 901.0])
+    registry = FakeRegistry({("HEAD", url(CADDY, "manifests/2-alpine")): head(digest("a"))})
+    spent    = ei.RegistryClient(fetch = registry, budget = 300, clock = lambda: next(ticks), pause = lambda s: None)
+    judged   = ei.judge_watched(spent, line("caddy", "2.10.2-alpine", CADDY, "2-alpine"), digest("a"))
+
+    assert judged["state"] == "unread" and "time budget" in judged["detail"]
+
+
+def test_a_body_past_its_bound_is_no_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    A publisher that streams without end is cut at MAX_BODY bytes, its answer none.
+    """
+    class Endless:
+        """
+        An answer whose body never ends.
+        """
+        status  = 200
+        headers = {"Content-Type": "application/json"}
+
+
+        def __enter__(self) -> Endless:
+            return self
+
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+
+        def read(self, size: int) -> bytes:
+            return b"x" * size
+
+
+    monkeypatch.setattr(ei, "MAX_BODY", 200000)
+    monkeypatch.setattr(ei.urllib.request, "urlopen", lambda request, timeout: Endless())
+
+    assert ei.urllib_fetch("https://ghcr.io/v2/x/tags/list", {}, "GET").status == 0
+
+
+def test_a_malformed_config_leaves_its_line_unread_and_the_watch_whole() -> None:
+    table = {("HEAD", url(CADDY, "manifests/2-alpine")): head(digest("b"))}
+    image(table, CADDY, digest("b"), {"Labels": ["invalid"], "Env": "not a list"})
+    judged = ei.judge_watched(
+        client(FakeRegistry(table)),
+        line("caddy", "2.10.2-alpine", CADDY, "2-alpine"),
+        digest("a"),
+    )
+
+    assert judged["state"] == "unread"
+
+
+def test_a_higher_tag_that_cannot_be_read_leaves_the_line_unread_not_a_rebuild() -> None:
+    table = mailpit(["v1.31.2", "v1.32.0"], {"v1.31.2": digest("b")})
+    table[("HEAD", url(MAILPIT, "manifests/v1.32.0"))] = ei.Reply(503)
+    judged = ei.judge_watched(client(FakeRegistry(table)), line("mailpit", "v1.31.2", MAILPIT, "latest"), digest("a"))
+
+    assert judged["state"] == "unread"
+
+
+def test_a_short_page_with_a_next_link_is_followed() -> None:
+    """
+    The registry's Link header decides whether a page is the last, never the page's length alone.
+    """
+    first = body({"tags": ["24-alpine"]})
+    first.headers["link"] = '</v2/library/node/tags/list?last=24-alpine&n=1000>; rel="next"'
+    table  = {
+        ("GET", url("docker.io/library/node", f"tags/list?n={ei.TAG_PAGE}")): first,
+        ("GET", url("docker.io/library/node", "tags/list?last=24-alpine&n=1000")): body({"tags": ["26-alpine"]}),
+    }
+    judged = ei.judge_followed(client(FakeRegistry(table)), {"name": "node", "tag": "24-alpine", "hold": None})
+
+    assert (judged["state"], judged["newer"]) == ("newer", ["26-alpine"])
+
+
+def test_a_next_link_outside_the_repository_is_unread() -> None:
+    first = body({"tags": ["24-alpine"]})
+    first.headers["link"] = '</v2/library/python/tags/list?last=x&n=1000>; rel="next"'
+    table  = {("GET", url("docker.io/library/node", f"tags/list?n={ei.TAG_PAGE}")): first}
+    judged = ei.judge_followed(client(FakeRegistry(table)), {"name": "node", "tag": "24-alpine", "hold": None})
+
+    assert judged["state"] == "unread"
+
+
+@pytest.mark.parametrize(
+    ("label", "kept"),
+    [
+        ("3.3.9) ![publisher text](https://example.invalid/pixel)", False),
+        ("3.3.9 <b>bold</b>", False),
+        ("3.3.9", True),
+        ("v2.11.0-beta.1", True),
+    ],
+)
+def test_a_publishers_version_text_is_kept_only_in_a_versions_shape(label: str, kept: bool) -> None:
+    table = {("HEAD", url(CHECKOV, "manifests/latest")): head(digest("b"))}
+    image(table, CHECKOV, digest("b"), {"Labels": {"org.opencontainers.image.version": label}})
+
+    assert (ei.config_version(client(FakeRegistry(table)), CHECKOV, "checkov", digest("b")) == label) is kept
+
+
+def test_no_publisher_text_renders_as_markdown_in_the_issue() -> None:
+    table = clean_table(COPIER_TEXT)
+    table[("HEAD", url(CHECKOV, "manifests/latest"))] = head(digest("b"))
+    image(
+        table,
+        CHECKOV,
+        digest("b"),
+        {"Labels": {"org.opencontainers.image.version": "3.3.9) ![x](https://e.invalid/p)"}},
+    )
+    body_text, _, _ = issue(table)
+
+    assert "![" not in body_text
+
+
+def test_the_clear_line_claims_nothing_a_note_contradicts() -> None:
+    table = clean_table(COPIER_TEXT)
+    table[
+        ("GET", url("docker.io/library/node", f"tags/list?n={ei.TAG_PAGE}"))
+    ] = body({"tags": ["24-alpine", "26-alpine"]})
+    body_text, _, state = issue(table, {f"/repos/{ei.CICD_REPO}/actions/workflows/{ei.COPIER_FILE}/runs": {
+        "workflow_runs": [{"status": "in_progress", "conclusion": None, "created_at": "2026-10-26T06:23:00Z"}],
+    }})
+
+    assert state == "clear"
+    assert "newest of its shape" not in body_text and "schedule is green" not in body_text
+    assert "is still running" in body_text and "Docker Hub has `26-alpine`" in body_text
+
 
 def test_no_registry_read_carries_githubs_token() -> None:
     """
@@ -398,7 +531,7 @@ def test_a_clean_section_clears_the_issue() -> None:
     body, news, state = issue(clean_table(COPIER_TEXT))
 
     assert state == "clear" and news == ""
-    assert "Every image the copier keeps is current upstream" in body and "**0 images behind**" in body
+    assert "Nothing behind its line's level, and every read made." in body and "**0 images behind**" in body
 
 
 def test_a_newer_version_is_a_finding_with_its_news() -> None:
@@ -426,7 +559,7 @@ def test_a_rebuild_and_a_newer_runtime_are_notes_that_keep_nothing_open() -> Non
     body_text, _, state = issue(table)
 
     assert state == "clear"
-    assert "nothing to do: checkov 3.3.6 (3.3.9)." in body_text
+    assert "nothing to do: `checkov` `3.3.6` (`3.3.9`)." in body_text
     assert "`node:24-alpine`, Docker Hub has `25-alpine`, `26-alpine`" in body_text
 
 

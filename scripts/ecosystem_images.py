@@ -61,7 +61,11 @@ WATCH_ENTRY    = re.compile(WATCH_SHAPE)
 
 DIGEST    = re.compile(r"^sha256:[0-9a-f]{64}$")
 VERSION   = re.compile(r"^v?(\d+)\.(\d+)(?:\.(\d+))?")
-TRIVY_PIN = re.compile(r"""^\s+version:\s*["']?(?P<version>v?\d+\.\d+\.\d+)["']?\s*$""")
+NEXT_PAGE = re.compile(r"""<(?P<url>/v2/[^>\s]+)>\s*;\s*rel="?next"?""")
+
+# a version text a publisher writes, kept only in this shape, so no text of a publisher's reaches the issue as written
+VERSION_TEXT = re.compile(r"^v?\d+\.\d+(?:\.\d+)?(?:[.+~-][0-9A-Za-z.+~-]{1,40})?$")
+TRIVY_PIN    = re.compile(r"""^\s+version:\s*["']?(?P<version>v?\d+\.\d+\.\d+)["']?\s*$""")
 
 # the media types a HEAD asks for and an index answers with
 INDEX_TYPES = ("application/vnd.oci.image.index.v1+json", "application/vnd.docker.distribution.manifest.list.v2+json")
@@ -79,15 +83,17 @@ REGISTRIES = {
 # where an image's config names its version beyond the OCI label, `<NAME>_VERSION` otherwise
 VERSION_ENV = {"postgres": "PG_VERSION"}
 
-TIMEOUT     = 20       # seconds for one registry read
-RETRIES     = 2        # tries again after a refusal, a 5xx or a dead connection
-BUDGET      = 300      # seconds for every registry read of the section, well inside the watch's 15 minutes
-TAG_PAGE    = 1000     # tags asked for in one page
-TAG_PAGES   = 20       # pages read of one tag list at most, 20000 tags, a longer list is cut short and unread
-CANDIDATES  = 10       # release tags asked by HEAD at most for an image whose config names no version
-RUN_DAYS    = 2        # a scheduled run older than this is named
-NEWER_SHOWN = 3        # newer followed tags named at most
-STAMP       = "%Y-%m-%dT%H:%M:%SZ"
+TIMEOUT         = 20       # seconds a socket waits for one read
+REQUEST_SECONDS = 60   # seconds one request's body may take in all
+MAX_BODY        = 4194304  # bytes one answer may hold, a tag list page of 1000 tags being some 30000
+RETRIES         = 2        # tries again after a refusal, a 5xx or a dead connection
+BUDGET          = 300      # seconds for every registry read of the section, well inside the watch's 15 minutes
+TAG_PAGE        = 1000     # tags asked for in one page
+TAG_PAGES       = 20       # pages read of one tag list at most, 20000 tags, a longer list is cut short and unread
+CANDIDATES      = 10       # release tags asked by HEAD at most for an image whose config names no version
+RUN_DAYS        = 2        # a scheduled run older than this is named
+NEWER_SHOWN     = 3        # newer followed tags named at most
+STAMP           = "%Y-%m-%dT%H:%M:%SZ"
 
 # ======================================================================================================================
 # The registry client, anonymous
@@ -135,12 +141,21 @@ def urllib_fetch(url: str, headers: dict[str, str], method: str) -> Reply:
         method: GET or HEAD
 
     Returns:
-        Reply: the answer, status 0 when no answer came
+        Reply: the answer, status 0 when no answer came, or when its body passed MAX_BODY bytes or took longer than
+        REQUEST_SECONDS, so a publisher that streams slowly never holds the watch past its budget
     """
     request = urllib.request.Request(url, headers = headers, method = method)
+    began   = time.monotonic()
     try:
         with urllib.request.urlopen(request, timeout = TIMEOUT) as answer:
-            body = answer.read() if method == "GET" else b""
+            body = b""
+            while method == "GET":
+                chunk = answer.read(65536)
+                if not chunk:
+                    break
+                body += chunk
+                if len(body) > MAX_BODY or time.monotonic() - began > REQUEST_SECONDS:
+                    return Reply(0)
             return Reply(answer.status, {key.lower(): value for key, value in answer.headers.items()}, body)
     except urllib.error.HTTPError as error:
         return Reply(error.code, {key.lower(): value for key, value in error.headers.items()})
@@ -186,13 +201,15 @@ class RegistryClient:
             Reply: the last answer
 
         Raises:
-            Unread: the budget ran out before a try
+            Unread: the budget ran out before a try, or while one ran, its answer then never used
         """
         reply = Reply(0)
         for attempt in range(RETRIES + 1):
             if self._clock() >= self._ends:
                 raise Unread("the section's time budget ran out")
             reply = self._fetch(url, headers, method)
+            if self._clock() >= self._ends:
+                raise Unread("the section's time budget ran out")
             if reply.status and reply.status != 429 and reply.status < 500:
                 return reply
             if attempt < RETRIES:
@@ -309,20 +326,35 @@ class RegistryClient:
             list[str]: every tag
 
         Raises:
-            Unread: a page that failed, or a list longer than the pages read, cut short
+            Unread: a page that failed, a next page outside the repository, or a list longer than the pages read, cut
+                short
         """
         found: list[str] = []
-        last = ""
+        root = f"/v2/{reference.partition('/')[2]}/"
+        path = f"tags/list?n={TAG_PAGE}"
         for _ in range(TAG_PAGES):
-            page  = self.json(reference, f"tags/list?n={TAG_PAGE}" + (f"&last={last}" if last else ""))
+            reply = self.get(reference, path)
+            if reply.status != 200:
+                raise Unread(f"{reference}'s tag list answered {reply.status or 'nothing'}")
+            try:
+                page = json.loads(reply.body)
+            except ValueError as exc:
+                raise Unread(f"{reference}'s tag list answered no JSON") from exc
             names = page.get("tags") if isinstance(page, dict) else None
             if not isinstance(names, list) or not all(isinstance(name, str) for name in names):
                 raise Unread(f"{reference}'s tag list has an unexpected shape")
             found += names
-            if len(names) < TAG_PAGE:
+            following = NEXT_PAGE.search(reply.headers.get("link", ""))
+            if following:
+                # the registry names the next page, which is read whatever this page's length
+                if not following.group("url").startswith(root):
+                    raise Unread(f"{reference}'s tag list names a next page outside the repository")
+                path = following.group("url")[len(root):]
+            elif len(names) < TAG_PAGE:
                 return found
-            last = names[-1]
-        raise Unread(f"{reference}'s tag list is longer than {TAG_PAGES * TAG_PAGE}, cut short")
+            else:
+                path = f"tags/list?n={TAG_PAGE}&last={names[-1]}"
+        raise Unread(f"{reference}'s tag list is longer than {TAG_PAGES} pages, cut short")
 
 # ======================================================================================================================
 # The copier's text
@@ -444,37 +476,52 @@ def config_version(client: RegistryClient, publisher: str, name: str, digest: st
         digest: the index digest
 
     Returns:
-        str | None: the version text, None when the config names none
+        str | None: the version text in VERSION_TEXT's shape, None when the config names none in that shape, so a
+        publisher's text reaches the issue only as a version
 
     Raises:
-        Unread: an index, a manifest or a config that could not be read
+        Unread: an index, a manifest or a config that could not be read, or one of an unexpected shape
     """
     index = client.json(publisher, f"manifests/{digest}", INDEX_TYPES)
     child = None
-    for entry in index.get("manifests") or []:
-        platform = entry.get("platform") or {} if isinstance(entry, dict) else {}
+    for entry in _mapping(index).get("manifests") or []:
+        platform = _mapping(_mapping(entry).get("platform"))
         if platform.get("os") == "linux" and platform.get("architecture") == "amd64":
-            child = str(entry.get("digest") or "")
+            child = str(_mapping(entry).get("digest") or "")
             break
     if not child or not DIGEST.match(child):
         raise Unread(f"{publisher}@{digest} lists no linux/amd64 image")
-    manifest = client.json(publisher, f"manifests/{child}", IMAGE_TYPES)
-    blob     = str((manifest.get("config") or {}).get("digest") or "")
+    manifest = _mapping(client.json(publisher, f"manifests/{child}", IMAGE_TYPES))
+    blob     = str(_mapping(manifest.get("config")).get("digest") or "")
     if not DIGEST.match(blob):
         raise Unread(f"{publisher}@{child} names no config")
-    config = client.json(publisher, f"blobs/{blob}").get("config") or {}
-    label  = (config.get("Labels") or {}).get("org.opencontainers.image.version")
-    if label:
-        return str(label)
+    config = _mapping(_mapping(client.json(publisher, f"blobs/{blob}")).get("config"))
+    label  = _mapping(config.get("Labels")).get("org.opencontainers.image.version")
     wanted = VERSION_ENV.get(name, f"{name.upper().replace('-', '_')}_VERSION") + "="
-    return next((str(item)[len(wanted):] for item in (config.get("Env") or []) if str(item).startswith(wanted)), None)
+    env    = config.get("Env") if isinstance(config.get("Env"), list) else []
+    found  = [str(label or ""), *(str(item)[len(wanted):] for item in env if str(item).startswith(wanted))]
+    return next((text for text in found if VERSION_TEXT.match(text)), None)
+
+
+def _mapping(value: Any) -> dict[str, Any]:
+    """
+    A value from a registry's JSON as a mapping, or an empty one when it is anything else.
+
+    Args:
+        value: the value
+
+    Returns:
+        dict[str, Any]: the value when it is a mapping, else an empty one
+    """
+    return value if isinstance(value, dict) else {}
 
 
 def tag_version(client: RegistryClient, publisher: str, kept_tag: str, digest: str) -> str | None:
     """
     For an image whose config names no version, the publisher's release tag of the kept tag's shape whose index
     digest is the one the line's tag names, the newest first, at most CANDIDATES asked. A higher tag on another digest
-    is passed over, so a misleading tag never counts.
+    is passed over, so a misleading tag never counts. A higher tag that cannot be read is no pass, since it may be the
+    newer version, so the line is then unread rather than matched to a lower tag (Codex's review of 2026-10-19).
 
     Args:
         client: the registry client
@@ -486,16 +533,13 @@ def tag_version(client: RegistryClient, publisher: str, kept_tag: str, digest: s
         str | None: the matching tag, None when none of the candidates matches
 
     Raises:
-        Unread: the tag list could not be read whole
+        Unread: the tag list could not be read whole, or a tag above the match could not be read
     """
     shape  = tag_shape(kept_tag)
     ranked = sorted((tag for tag in client.tags(publisher) if shape.match(tag)), key = numbers, reverse = True)
     for tag in ranked[:CANDIDATES]:
-        try:
-            if client.head_digest(publisher, tag) == digest:
-                return tag
-        except Unread:
-            continue
+        if client.head_digest(publisher, tag) == digest:
+            return tag
     return None
 
 # ======================================================================================================================
@@ -533,6 +577,9 @@ def judge_watched(client: RegistryClient, line: dict[str, str], kept: str) -> di
         out["state"] = "newer" if at_level(version(found), kept_version, line["level"]) else "rebuild"
     except Unread as exc:
         out["detail"] = str(exc)
+    except (AttributeError, KeyError, TypeError, ValueError) as exc:
+        # an answer of a shape no rule expected leaves this one line unread, never the whole watch
+        out["detail"] = f"an answer of an unexpected shape, {type(exc).__name__}"
     return out
 
 
@@ -556,6 +603,8 @@ def judge_followed(client: RegistryClient, entry: dict[str, str]) -> dict[str, A
         out["state"] = "newer" if newer else "current"
     except Unread as exc:
         out["detail"] = str(exc)
+    except (AttributeError, KeyError, TypeError, ValueError) as exc:
+        out["detail"] = f"an answer of an unexpected shape, {type(exc).__name__}"
     return out
 
 
