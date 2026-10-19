@@ -18,8 +18,15 @@ from pathlib import Path
 from typing import Any
 
 # third party imports
+import ecosystem_images as ei
 import ecosystem_watch as ew
 import pytest
+from tests.registry_fakes import FakeRegistry, clean_table, client, github_clean
+
+# the copier's own text, which the images section of every collect below reads from a clean world (D-080)
+COPIER_TEXT = (Path(__file__).resolve().parents[2] / ".github" / "workflows" / "mirror-ci-images.yml").read_text(
+    encoding = "utf-8",
+)
 
 OWNER      = ew.OWNER
 A          = f"{OWNER}/repo-a"
@@ -91,6 +98,17 @@ def alert(number: int, severity: str, package: str = "urllib3") -> dict[str, Any
     }
 
 
+@pytest.fixture(autouse = True)
+def clean_images(monkeypatch: pytest.MonkeyPatch) -> FakeRegistry:
+    """
+    Every collect's images section on a fake registry where every watched line is current, so no test touches a
+    network. A test that wants other answers changes the registry's table.
+    """
+    registry = FakeRegistry(clean_table(COPIER_TEXT))
+    monkeypatch.setattr(ew, "registry_client", lambda: client(registry))
+    return registry
+
+
 @pytest.fixture()
 def registries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """
@@ -133,6 +151,7 @@ def base_table() -> dict[str, ew.Response]:
         table[f"/repos/{repo}/contents/docs/agent/KIT_VERSION"] = ok("v9.0.0\n")
         table[f"/repos/{repo}/contents/scripts/kdf_scripts/check_version.py"] = ok({"sha": SHA_CHECK})
     table[f"/repos/{A}/contents/scripts/kdf_scripts/mutation_runner.py"] = ok({"sha": SHA_ENGINE})
+    table.update({path: ok(data) for path, data in github_clean(COPIER_TEXT).items()})
     return table
 
 # ======================================================================================================================
@@ -315,9 +334,42 @@ def test_a_clean_ecosystem_has_nothing_to_report(registries: None) -> None:
         "notices": 0,
         "notices_old": 0,
         "errors": 0,
+        "images_behind": 0,
     }
     canonical = [p for p in snapshot["repos"][0]["pins"] if p["package"] == "kdf-fmt (canonical pin)"]
     assert canonical and canonical[0]["behind"] is False
+
+
+def test_collect_carries_the_images_section_into_its_summary_and_the_issue(registries: None, clean_images) -> None:
+    """
+    From Codex's review of D-080's watch, the collector's own wiring, not a summary a test built. A newer Caddy is
+    counted behind, and an unreadable copier is counted unread, each holding the issue open.
+    """
+    reference = "https://registry-1.docker.io/v2/library/caddy/"
+    clean_images.table[("HEAD", reference + "manifests/2-alpine")] = ei.Reply(
+        200,
+        {"content-type": ei.INDEX_TYPES[0], "docker-content-digest": "sha256:" + "b" * 64},
+    )
+    clean_images.table[("GET", reference + "manifests/sha256:" + "b" * 64)] = ei.Reply(200, {}, json.dumps({
+        "manifests": [{"digest": "sha256:" + "8" * 64, "platform": {"os": "linux", "architecture": "amd64"}}],
+    }).encode())
+    clean_images.table[("GET", reference + "manifests/sha256:" + "8" * 64)] = ei.Reply(
+        200,
+        {},
+        json.dumps({"config": {"digest": "sha256:" + "9" * 64}}).encode(),
+    )
+    clean_images.table[("GET", reference + "blobs/sha256:" + "9" * 64)] = ei.Reply(
+        200,
+        {},
+        json.dumps({"config": {"Labels": {"org.opencontainers.image.version": "v2.11.7"}}}).encode(),
+    )
+    snapshot = ew.collect(FakeTransport(base_table()), workers = 1)
+    assert snapshot["summary"]["images_behind"] == 1
+    assert ew.render(snapshot)[2] == "open"
+    table = base_table()
+    del table[f"/repos/{ei.CICD_REPO}/contents/{ei.COPIER_PATH}"]
+    unread = ew.collect(FakeTransport(table), workers = 1)
+    assert unread["images"]["copier"] and unread["summary"]["errors"] == 1
 
 
 def test_the_mutation_engine_is_compared_only_where_it_is_vendored(registries: None) -> None:

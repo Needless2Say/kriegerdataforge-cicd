@@ -11,6 +11,9 @@ It reads four things across every repo of the kit registry and cicd itself, and 
   drift     each repo's kit version against cicd's, and each vendored dev script against cicd's canonical copy, by git
             blob sha
   notices   the deprecation notices GitHub attached to the latest completed run of each workflow
+  images    each image the copier of D-080 keeps against its publisher, each followed tag against a newer one of its
+            shape, the terraform scan's pinned Trivy against its latest release, and the copier's scheduled run, by
+            `ecosystem_images.py`, its registry reads anonymous and bounded
 
 The snapshot is JSON first (schema kdf-ecosystem-watch/1), so an admin dashboard can take the same data later, and an
 issue body second. A private repo's open vulnerabilities belong in a private place, so a private repo's scheduled
@@ -49,6 +52,9 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import parse_qsl, urlencode, urlparse
+
+# third party imports
+import ecosystem_images
 
 # ======================================================================================================================
 # Configuration
@@ -935,7 +941,22 @@ def canonical_scripts(transport: Transport, scripts: dict[str, list[dict]]) -> d
     return out
 
 
-def collect(transport: Transport, workers: int = 8, now: datetime | None = None) -> dict[str, Any]:
+def registry_client() -> ecosystem_images.RegistryClient:
+    """
+    The anonymous registry client the images section reads with, never the App token of the GitHub reads.
+
+    Returns:
+        ecosystem_images.RegistryClient: a client with the section's own time budget
+    """
+    return ecosystem_images.RegistryClient()
+
+
+def collect(
+    transport: Transport,
+    workers: int = 8,
+    now: datetime | None = None,
+    registry: ecosystem_images.RegistryClient | None = None,
+) -> dict[str, Any]:
     """
     The whole snapshot, every repo read in parallel and none of them written.
 
@@ -943,6 +964,7 @@ def collect(transport: Transport, workers: int = 8, now: datetime | None = None)
         transport: how GitHub is reached
         workers: how many repos are read at once
         now: the snapshot's time, now when None
+        registry: the images section's registry client, an anonymous one when None
 
     Returns:
         dict[str, Any]: the snapshot, schema kdf-ecosystem-watch/1
@@ -967,11 +989,15 @@ def collect(transport: Transport, workers: int = 8, now: datetime | None = None)
         if result["repo"] == CICD_REPO:
             result["pins"].append(canonical_pin)
     missing = sorted(src for src, sha in canonical.items() if sha is None)
-    stamp   = (now or datetime.now(timezone.utc)).strftime(STAMP)
+    moment  = now or datetime.now(timezone.utc)
+    stamp   = moment.strftime(STAMP)
     known   = sorted(releases.known.items())
+    images  = ecosystem_images.collect_images(transport.get, registry or registry_client(), moment)
     summary = summarize(results, stamp)
-    # an unreadable tag list or script source is a blind spot, counted with the repos' own
-    summary["errors"] += sum(1 for source, release in known if release.error) + len(missing)
+    behind, unread = ecosystem_images.counts(images)
+    # an unreadable tag list, script source or image read is a blind spot, counted with the repos' own
+    summary["errors"] += sum(1 for source, release in known if release.error) + len(missing) + unread
+    summary["images_behind"] = behind
     return {
         "schema": SCHEMA,
         "generated_at": stamp,
@@ -980,6 +1006,7 @@ def collect(transport: Transport, workers: int = 8, now: datetime | None = None)
         "releases": {name: {"tag": release.tag, "error": release.error} for name, release in known},
         "canonical_scripts_unreadable": missing,
         "repos": results,
+        "images": images,
         "summary": summary,
     }
 
@@ -1286,6 +1313,98 @@ def _notices_section(repos: list[dict[str, Any]], findings: dict[str, str], as_o
     return lines
 
 
+def _images_watched(images: dict[str, Any], lines: list[str], findings: dict[str, str]) -> list[str]:
+    """
+    The watched images, a table of those newer upstream at their line's level, each a finding, and the rebuilds.
+
+    Args:
+        images: the snapshot's images section
+        lines: the section's lines, added to
+        findings: each finding's key and its news line, added to
+
+    Returns:
+        list[str]: the rebuilds' names, for the section's one note line
+    """
+    newer = [line for line in images.get("watched", []) if line.get("state") == "newer"]
+    if newer:
+        lines += ["| Image | Kept | Upstream now | Read from | Level |", "| --- | --- | --- | --- | --- |"]
+    for line in newer:
+        lines.append(f"| {_cell(line['name'])} | `{_cell(line['tag'])}` | `{_cell(line['found'])}` | "
+                     f"{_cell(line['source'])} of {_cell(line['publisher'])}:{_cell(line['upstream'])} | "
+                     f"{_cell(line['level'])} |")
+        findings[f"image:{line['name']}:{line['tag']}:{line['found']}"] = (
+            f"{line['name']} kept at `{line['tag']}`, and its publisher has `{line['found']}`"
+        )
+    # every value set in a code span, so a publisher's text, already shaped as a version, never renders as markdown
+    return [
+        f"`{line['name']}` `{line['tag']}` (`{line.get('found') or 'the same version'}`)"
+        for line in images.get("watched", []) if line.get("state") == "rebuild"
+    ]
+
+
+def _images_section(snapshot: dict[str, Any], findings: dict[str, str]) -> list[str]:
+    """
+    The images the copier keeps, each followed tag, the terraform scan's Trivy and the copier's schedule (D-080). A
+    newer version, a red or old scheduled run and every unread read are findings. A rebuild is one quiet note line.
+
+    Args:
+        snapshot: the snapshot
+        findings: each finding's key and its news line, added to
+
+    Returns:
+        list[str]: the section's lines
+    """
+    lines  = ["", "### Images CI pulls", ""]
+    images = snapshot.get("images")
+    if not images:
+        return lines + ["Not read in this snapshot."]
+    unread: list[tuple[str, str]] = []
+    if images.get("copier"):
+        unread.append(("the copier's entries", images["copier"]))
+    rebuilds = _images_watched(images, lines, findings)
+    # a newer runtime is a migration the owner plans, so it is a quiet note and never holds the issue open (the
+    # owner's answer of 2026-10-19)
+    runtimes = [
+        f"`{followed['name']}:{followed['tag']}`, Docker Hub has "
+        + ", ".join(f"`{tag}`" for tag in followed["newer"][-ecosystem_images.NEWER_SHOWN:])
+        for followed in images.get("followed", []) if followed.get("state") == "newer"
+    ]
+    trivy    = images.get("trivy") or {}
+    if trivy.get("state") == "newer":
+        lines.append(f"- the terraform scan pins Trivy `{trivy['pinned']}`, and `{trivy['latest']}` is out, its rules "
+                     "arriving with that bump alone")
+        findings[f"trivy:{trivy['latest']}"] = f"Trivy `{trivy['latest']}` is out, the terraform scan pins it lower"
+    schedule = images.get("schedule") or {}
+    if schedule.get("state") in ("red", "old"):
+        link = f", [run]({schedule['url']})" if schedule.get("url") else ""
+        what = "ended red" if schedule["state"] == "red" else f"is older than {ecosystem_images.RUN_DAYS} days"
+        lines.append(f"- the copier's newest scheduled run, {str(schedule.get('at'))[:10]}, {what}{link}")
+        findings[f"copier-run:{schedule['state']}:{schedule.get('at')}"] = f"the copier's scheduled run {what}"
+    for part, name in (
+        *((line, f"{line['name']} {line['tag']}") for line in images.get("watched", [])),
+        *((line, f"`{line['name']}:{line['tag']}`") for line in images.get("followed", [])),
+        (trivy, "the terraform scan's Trivy"),
+        (schedule, "the copier's scheduled run"),
+    ):
+        if part.get("state") == "unread":
+            unread.append((name, part.get("detail") or "unread"))
+    for name, detail in unread:
+        lines.append(f"- unread, {name}, {detail}")
+        findings[f"image-unread:{name}:{_short(detail)}"] = f"{name} could not be read, {detail}"
+    # the clear line says only what holds, the notes below it saying the rest (Codex's review of 2026-10-19)
+    if len(lines) == 3:
+        lines.append("Nothing behind its line's level, and every read made.")
+    rebuilt = "Rebuilt upstream at the same version or below the line's level, nothing to do: "
+    moved   = "Newer runtimes of a followed tag's shape, a migration when chosen, nothing to do now: "
+    if rebuilds:
+        lines += ["", rebuilt + ", ".join(rebuilds) + "."]
+    if runtimes:
+        lines += ["", moved + "; ".join(runtimes) + "."]
+    if schedule.get("state") == "running":
+        lines += ["", f"The copier's newest scheduled run, {str(schedule.get('at'))[:10]}, is still running."]
+    return lines
+
+
 def _errors_section(snapshot: dict[str, Any], findings: dict[str, str]) -> list[str]:
     """
     What could not be read, which keeps the issue open, since a blind spot is a finding too.
@@ -1347,6 +1466,7 @@ def render(snapshot: dict[str, Any], previous_body: str = "", run_url: str = "")
         f"**{summary['pins_unjudged']} pins not judged**",
         f"**{summary['drift']} kit or script drifts**",
         f"**{summary['notices']} deprecation notices**",
+        f"**{summary.get('images_behind', 0)} images behind**",
         f"**{summary['errors']} could not be read**",
     ])
     lines     = [f"## Ecosystem watch, {snapshot['generated_at'][:10]}", "", headline + "."]
@@ -1354,6 +1474,7 @@ def render(snapshot: dict[str, Any], previous_body: str = "", run_url: str = "")
     lines += _pins_section(snapshot["repos"], findings)
     lines += _drift_section(snapshot, findings)
     lines += _notices_section(snapshot["repos"], findings, snapshot["generated_at"])
+    lines += _images_section(snapshot, findings)
     lines += _errors_section(snapshot, findings)
     run   = f", [run]({run_url})" if run_url else ""
     stamp = f"Snapshot `{snapshot['schema']}` of {snapshot['generated_at']}{run}."
@@ -1421,7 +1542,8 @@ def main(argv: list[str] | None = None) -> int:
         summary = snapshot["summary"]
         print(f"ecosystem-watch: {len(snapshot['repos'])} repos, {summary['alerts_total']} open alerts, "
               f"{summary['pins_behind']} pins behind, {summary['pins_unjudged']} not judged, {summary['drift']} "
-              f"drifts, {summary['notices']} notices, {summary['errors']} could not be read")
+              f"drifts, {summary['notices']} notices, {summary['images_behind']} images behind, {summary['errors']} "
+              "could not be read")
         return 0
 
     snapshot = json.loads(Path(args.snapshot).read_text(encoding = "utf-8"))
