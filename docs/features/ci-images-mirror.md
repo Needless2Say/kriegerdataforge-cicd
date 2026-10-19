@@ -25,8 +25,12 @@ limit exceeded`, before a layer was built. No build cache, retry or rerun on the
 GitHub documents anonymous pulls and free bandwidth for a public package, and the owner decides how long each image is
 kept.
 
-No job that builds a pull request's code gains a secret, a credential or a permission. Every consumer pulls the
-public packages anonymously, as it pulled ECR Public before. No reusable workflow's input, output or secret changed.
+No job that builds a pull request's code gains a secret, a credential or a permission. A Dockerfile's build, a
+Compose stack and the terraform scan pull the public packages anonymously, as they pulled ECR Public before. A
+GitHub service container, a Postgres lane's or the copier's `verify` job's, is pulled by the runner after it logs in
+with the job's own token, which every job holds and which names no secret (D-077). Only the copier's own checks, its
+`verify-images` job and its source reads, use no credentials at all on purpose. No reusable workflow's input, output
+or secret changed.
 
 ## 2. How it fits together
 
