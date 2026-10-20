@@ -2,7 +2,8 @@
 
 The guard, the fresh reviewer launcher, the wiring checker and the installer for the
 [KDF Code Review Process](../../kit/common/docs/agent/CODE_REVIEW_PROCESS.md), the one way a session asks Codex for a
-second opinion, and the one way it runs a Linux pre-flight. They run on the owner's machine, in Claude Code sessions.
+second opinion, the one way it runs a Linux pre-flight, and the repo map, a read only lookup over Python clones. They
+run on the owner's machine, in Claude Code sessions.
 They are **not synced** to the other repos, the kit ships Markdown only (ADR D-028), so each machine installs them
 from a clone of this repo.
 
@@ -16,6 +17,7 @@ from a clone of this repo.
 | `kdf-ask-codex.sh` | Asks Codex for a read only review of a change, a plan or a decision, the one way every session does (D-052, D-053). Gives Codex a detached worktree of a commit, or a throwaway repo of a folder of patches with no secret file, link or token in it, sets the session's question in the standard frame, runs Codex with the verified flags and archives its answer in the workspace's `codex-archive`, never in a repo or in `temp` (D-069). Refuses a reviewer, and fails when Codex changed its folder or wrote no answer |
 | `kdf-preflight.sh` | Runs a repo's CI lanes on Linux in a container, the one way a session runs a Linux pre-flight (D-072). Exports a commit as an LF tar, builds the image in `preflight/` with `docker build` alone and options on the guard's list, and reads each lane's result and setup's from marker lines a last step prints. Runs the repo's `setup` first, and serves the owner's private Python packages through bare git mirrors this machine's git fetches, only for a repo GitHub calls private (D-078). Refuses a docker pointed at another machine, a dirty tree with no `--at`, a tracked secret file, an owner only lane and a pin off CI's allowlist |
 | `preflight/` | The pre-flight's image, `Dockerfile`, Python 3.14.7 slim by digest with git, make, ShellCheck, Node and actionlint, and `lanes.sh`, which runs setup and the lanes inside it |
+| `kdf-repo-map.sh` with `kdf_repo_map.py` | The repo map (D-082). A session, and the workers it briefs, ask where a name is defined, who imports it, its resolved static callers, its other uses, what a function's own body calls and its test importers in the Python clones they name, read from git's objects at a commit, nothing written anywhere. A reviewer never runs it, and the wrapper and the module both refuse `KDF_ROLE=reviewer` |
 | `check-wiring.js` | Read only. Says whether this machine's settings wire the guard as the process needs, and prints the block to add when they do not |
 | `kdf-compact.js` | A Claude Code SessionStart hook for the work records (D-058). After a compaction or a resume it prints the paths of the open records the session wrote, read from its own transcript, and nothing for a reviewer or a subagent. It never blocks |
 | `install.sh` | Stages the guard in `~/.claude/hooks/`, smoke tests the staged copy, then puts it in place and keeps the previous one, copies `kdf-compact.js`, and prints the settings block. It edits no settings and refuses to run inside a Claude Code session |
@@ -551,6 +553,96 @@ given, bounds the whole run, each build running under what remains of it.
 `KDF_DOCKER_BIN`, `KDF_GH_BIN`, `KDF_PREFLIGHT_DIR` and `KDF_PREFLIGHT_GIT_BASE` override the docker program, gh, the
 runs folder and where the mirrors are fetched from, the tests use them, and `scripts/tests/test_kdf_preflight.py`
 plays docker and gh with stand ins that record every call and fetches from local bare remotes.
+
+## The repo map
+
+```bash
+bash kdf-repo-map.sh defs <name> --repo <clone>                                 # where a name is defined
+bash kdf-repo-map.sh imports pkg.module --repo <clone> --repo <other clone>     # who imports it, or under it
+bash kdf-repo-map.sh callers pkg.module.name --repo <clone> --at <clone>=<rev>  # its callers at a commit
+bash kdf-repo-map.sh callees pkg.module.name --repo <clone>                     # what its own body calls
+bash kdf-repo-map.sh test-importers pkg.module --repo <clone>                   # the test files that import it
+```
+
+A lookup a search worker would make, in one call (D-082). A session names its clones one by one, each a folder beside
+the cicd clone and never a link that leads outside, and the tool reads each clone's tracked `*.py` files at one
+commit, `refs/remotes/origin/main` as the clone last fetched it unless `--at <clone>=<rev>` names another, through
+`git ls-tree` and `git cat-file` alone. It parses them with Python's own `ast` on every query and keeps nothing, so
+the working tree, an untracked file and an ignored one are never read and nothing is written in a clone or anywhere
+else. Every git call drops the inherited `GIT_` variables and sets `GIT_NO_LAZY_FETCH=1`, so a partial clone's missing
+object leaves the answer incomplete and is never fetched. A path named like a secret file, the names
+`kdf-ask-codex.sh` closes, or anything under `keys/`, a backslash read as a separator, is dropped before any read, a
+test holding the list to the two tools'. Each clone resolves its own modules, never through a table merged across
+clones.
+
+**Who runs it.** A session and the workers it briefs. A reviewer never does. The wrapper refuses `KDF_ROLE=reviewer`
+first, before `--help`, and the module refuses it again, which fences every session the review launcher marks. A clone
+whose git dir, common dir or any worktree registered there holds `kdf-review/open`, the folder `kdf-review.sh` makes
+while a review is open, is refused before any of its files is read, so a review in a sibling worktree fences the clone
+too.
+
+**An answer.** The first line for each clone names the commit read, when `origin/main` last moved, from that ref's
+reflog or unknown without one, and the checkout's commit when it differs. Then three groups, resolved static targets,
+uses that are not calls, and unchecked matches, which are calls kept by name, calls through a base, uses through a
+module or a package the tool cannot establish, and attribute references with a receiver it cannot know, each with its
+label. Each line is `<clone>@<short hash> <path>:<line>` and the words saying what stands there. Each group prints
+every clone's count and at most 40 lines spread across the clones, then prints them by clone in the order `--repo`
+names them, then path, then line, and `--full` prints the rest. The answer ends saying an empty group proves no
+absence, and naming what it cannot see, uncommitted edits, `importlib` and `getattr`, a name held in a string such as a
+`mock.patch` target, a star import, and a method on an instance whose class the `ast` cannot know. A line it names is
+read at its commit, `git -C <clone> show <hash>:<path>`, never in the checkout.
+
+**How it resolves.** By Python's scopes, nearest first. A class body is skipped by the methods inside it, its
+`global` and `nonlocal` declarations with it, a module built into the interpreter or frozen in it, such as `sys`, is
+outside the clone even where a file of the clone bears its name, a call inside an annotation, which Python 3.14 never
+runs with the code around it, is unchecked, a comprehension and a lambda are scopes of their own, a decorator and a
+default are read in the enclosing scope, `global` and `nonlocal` are honoured, and a use in a module or class body
+before the statement binding its name is unchecked, as is a use inside the def or class statement that binds it, a
+default or the class body itself, while a function body runs later and resolves. A name bound twice to different
+things is unchecked. An import's alias keeps its origin, a relative import resolves against its package, and a
+re-export made by an explicit `from` import is followed to its definition, a cycle ending the walk. A dotted module
+receiver resolves only when the clone holds every package on the way and none binds another object under the next
+name, holds a star import or defines `__getattr__`, and a submodule the package does not bind only where an import
+here loads it, before the use in a module or class body. A member a module of the clone does not bind, or only
+annotates with no value, is unchecked. `self.m()` resolves to its class's `m` when the class defines it, an import in
+the class body leading to its origin, and stays unchecked through its base otherwise. A file's module is named from
+the clone's top folder, from `src/` when the clone keeps its packages there, and from any `--package-root`.
+`vercel_api/` and every `--skip` folder are left out. A test file is `test_*.py`, `*_test.py` or `conftest.py`, or any
+file under a folder named `tests` or ending in `_tests`, left out of `imports` and `callers` unless `--tests` keeps
+them.
+
+**What a body calls.** `callees` takes the dotted name of a function or method the clone defines and reads the one
+body that name selects, the module resolution picks and never a file it shadows, a test file included whatever `--tests`
+says. Its first line names the body by path and line. Each call in that body is a line, whatever it calls through, and
+so is each use of a definition or of a name outside the clone that is not a call, while a plain load of a value is left
+out. A resolved call says its target and whether that is a def, a class, a value, a module or a name outside the clone,
+and `self.m()` or `cls.m()` adds that an override may run instead. A call inside a lambda or a generator expression runs
+when it is called or consumed, so it is unchecked with that label, a list, set or dict comprehension runs with the body,
+and a class body nested in it runs as the function does and is labelled so. A def nested in the body is its own query
+and left out, its decorators and defaults running with the body. A call through a parameter, a local, a subscript, a
+call's result, a builtin or a method of a value whose type the `ast` cannot know is unchecked with its label, as is a
+use in an annotation. A name with several bodies, a property with its setter for one, or one whose name, or a class's
+holding it, is bound more than once or declared `global` or `nonlocal`, keeps every line unchecked. A name in a module
+built into the interpreter is outside the clone, whatever file bears that module's name. A body with no line says it
+makes no call or use the `ast` sees, a class names its methods to ask, a name outside the clone says no body is read
+here, and a name the clone does not define says so, each ending 1.
+
+**The venv.** The wrapper runs the module with cicd's own interpreter, `.venv/Scripts/python.exe` on Windows and
+`.venv/bin/python` on Linux, with `-I -B`, and checks that it starts and is Python 3.14 or newer, since `ast` reads the
+grammar of the Python that runs it. With none, it exits 3 and names `make venv`, which the `Makefile` runs as
+`rm -rf .venv`, a venv made with `py -3.14` on Windows or `python3.14` elsewhere, and a pip upgrade, so exit 3 means a
+missing Python 3.14 or no network for pip. Run `make venv` only while the interpreter is missing, since it removes one a
+running query uses. The wrapper never builds one.
+
+| Exit | Meaning |
+| --- | --- |
+| 0 | An answer, at least one line in a group |
+| 1 | Nothing found, every group empty, an empty body, a class or a name the clone does not define for `callees` |
+| 2 | A usage refused, the reviewer role or a clone under review among them, before any read |
+| 3 | A clone or commit that cannot be read, an answer left incomplete by a missing object or a file that did not parse, named by its path and line alone, or no usable interpreter |
+
+`--root` names the folder the clones sit in and is for tests, `scripts/tests/test_kdf_repo_map.py` making its clones
+with `git init` in a temp folder and the wrapper's interpreter a stand in.
 
 ## The compaction hook
 
