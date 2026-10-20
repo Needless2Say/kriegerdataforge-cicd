@@ -4408,3 +4408,69 @@ reading the note.
 **Consequences.** The watch's issue clears when nothing needs a pull request, a newer pinned version still opens it,
 and an image with no version in its config is still judged by its version. What reopens this is a publisher that tags
 no release, or the owner wanting a new runtime to hold the issue open. VERSION 0.2.164.
+
+## D-082. The repo map, a bounded ast lookup over named Python clones, read from git's objects and writing nothing
+
+- **Date.** 2026-10-20
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Follows.** D-052 and D-072, the machine's tools it sits beside, and D-068, the guard that runs a script by its path.
+- **Tier / scope:** Epic, two repos · `tools/claude-code/kdf-repo-map.sh`, `tools/claude-code/kdf_repo_map.py` and
+  `scripts/tests/test_kdf_repo_map.py`, kdf-fmt's roots · no workflow, input, kit page or guard rule changed
+
+**Context.** A session that needs to know who uses a name briefs a search worker, which reads tens of thousands of
+tokens and goes repo by repo, and a text search blurs an import with a mention, an alias with another name and a facade
+with its origin. A trial of an outside code graph saved too little to keep, so the owner chose a bounded lookup on the
+standard library, parsed afresh on each query with no cache.
+
+**Decision.**
+
+1. One wrapper, `kdf-repo-map.sh`, refuses `KDF_ROLE=reviewer` before anything, `--help` included, finds cicd's own
+   venv interpreter, checks that it starts and is Python 3.14 or newer, and runs the module with `-I -B`. It never
+   builds a venv, and exits 3 naming `make venv` when the interpreter is missing.
+2. The module answers `defs`, `imports`, `callers`, `callees` and `test-importers` over clones named one by one with
+   `--repo`, each a folder beside the cicd clone's main checkout, never a walk and never a link that leads outside.
+   Each clone is read at one commit resolved once, `refs/remotes/origin/main` as last fetched unless
+   `--at <clone>=<rev>` names another, through `git ls-tree` and `git cat-file --batch` alone, every inherited `GIT_`
+   variable dropped and `GIT_NO_LAZY_FETCH=1` set, so the working tree is never read, nothing is written and nothing
+   is fetched. A path named like a secret file, the names `kdf-ask-codex.sh` closes, or anything under `keys/` is
+   dropped before any read, a backslash read as a separator.
+3. A clone whose git dir, common dir or any registered worktree holds `kdf-review/open` is refused before any of its
+   files is read, and the module refuses a reviewer as the wrapper does.
+4. A name resolves by Python's scopes and only where they can be followed for certain, a class body skipped by its
+   methods, comprehensions and lambdas as scopes, `global` and `nonlocal` honoured, explicit re-exports followed inside
+   one clone, a dotted module receiver only when every package on the way is read and clean, a submodule only where
+   an import loads it, a use inside the statement that binds its name never, and `self.m()` only when its class
+   defines `m`. Anything else is kept among the unchecked matches with its label, never resolved on a guess.
+5. An answer prints resolved static targets, uses that are not calls, and unchecked matches apart, each line
+   `<clone>@<short hash> <path>:<line>`, each group capped at 40 lines spread across clones with every clone's count,
+   and ends saying an empty group proves no absence and naming what the map cannot see.
+6. `callees` reads the one body the module resolution selects for a function or method, never a file a package
+   shadows, and lists every call in it whatever it calls through, resolved as `callers` resolves, with its target's
+   kind. A call inside a lambda or a generator expression runs later and is unchecked with that label, a nested class
+   body runs with the function, a call in an annotation is never run with the code around it, a def nested in it is
+   its own query, and a name with several bodies, or whose name or class is bound more than once, keeps every line
+   unchecked. A module built into the interpreter or frozen in it is outside the clone whatever file bears its name. A
+   trial lookup lost one fact for the want of it.
+7. The module is one file past kdf-fmt's advisory line count, its KDF-605 turned off for it alone in `kdf-fmt.toml`,
+   since the wrapper runs it isolated, which keeps its own folder off the import path, so a second module would be
+   loaded by its path. The owner's answer, "One file, KDF-605 off (Recommended)".
+
+**Alternatives considered.**
+
+- *An outside code graph through a wrapper.* It saved a search worker too little, scored lower, and links no Python
+  call across repos.
+- *A `git grep` wrapper across repos.* Far less code, but text matches blur aliases, facades and mentions.
+- *An index with a cache.* A cache needs a contract, atomic writes and pruning, and a query parses in seconds without
+  one.
+- *A call through a base resolved to the base's method.* It loses the call when the method lives a level higher, so
+  the call stays unchecked with its base named.
+- *Two modules.* Under the line count each, but the isolated run would load the second by its path.
+
+**Trade-offs.** A floor and not a whole, by design. A method called on an instance whose class the `ast` cannot know
+lands by name, and a name in a string, `importlib`, `getattr` and a star import are unseen and said so. Each query
+parses every named clone again.
+
+**Consequences.** A session and the workers it briefs get a lookup across the clones they name in one call, each line
+read at its commit. A reviewer never runs it. A machine needs cicd's `.venv`, made once by `make venv`. What reopens
+this is a query that proves slow, which brings the cache back to the table, or a false resolved line the rules let
+through. VERSION 0.2.166.

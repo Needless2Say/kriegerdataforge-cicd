@@ -863,7 +863,7 @@ owner gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for 
 
 | Workflow | Trigger(s) | What it does | Owner gate |
 |---|---|---|---|
-| `ci.yml` | `pull_request` → `main` | actionlint + pytest (`scripts/tests/`) + calls `bump-version-check.yml`, and D-075's skip and cancel probes, no required check, `skip-probe-nested` calling `probe-nested.yml`, a `workflow_call` only `ci.yml` calls, the scan beside a lane called with `skip: true`, and D-077's `postgres-lane-proof`, the integration lane by a local reference holding its service's `server_version_num`, no required check | n/a |
+| `ci.yml` | `pull_request` → `main` | actionlint + kdf-fmt over `scripts/` and `tools/claude-code/`, the roots `kdf-fmt.toml` names (D-082) + pytest (`scripts/tests/`) + calls `bump-version-check.yml`, and D-075's skip and cancel probes, no required check, `skip-probe-nested` calling `probe-nested.yml`, a `workflow_call` only `ci.yml` calls, the scan beside a lane called with `skip: true`, and D-077's `postgres-lane-proof`, the integration lane by a local reference holding its service's `server_version_num`, no required check | n/a |
 | `release.yml` | `push` `main`, `paths: [VERSION]` | calls `create-github-release.yml` (`contents:write`) | n/a |
 | `issue-create-repo.yml` | `issues: labeled` (`new-repo`) | provisions a repo from a template. Creates `prod`+`dev` Environments (owner reviewer, `main` only). Branch protection. Uses **repo level** `CICD_PAT` (Administration/Contents/Environments/Secrets/Variables/Actions R-W + Members: Read) | inline owner check |
 | `ops-rotate-secrets.yml` | `issues: labeled` (`ops:rotate-secrets`) | issue form front end for `rotate_secret.py` (`check`/`generate`/`paste`) | `_authorize-owner` |

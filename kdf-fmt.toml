@@ -9,8 +9,8 @@ max_module_lines = 1000
 
 quiet_degenerate_sections = true
 
-# this repo's Python IS scripts/ — it is the src tree and stays strict
-roots = ["scripts"]
+# this repo's Python is scripts/, its src tree, and the repo map's module beside the machine's tools (D-082), all strict
+roots = ["scripts", "tools/claude-code"]
 
 # backup snapshots are frozen artifacts, not living code
 exclude = ["scripts/backups/"]
@@ -26,3 +26,6 @@ exclude = ["scripts/backups/"]
 "scripts/tests/**" = { "KDF-104" = "off", "KDF-403" = "off", "KDF-404" = "off", "KDF-405" = "off", "KDF-406" = "off", "KDF-602" = "off" }
 # the mutation engine is one file, so a repo vendors it whole and its worktree rules read in one place (D-040)
 "scripts/common/mutation_runner.py" = { "KDF-605" = "off" }
+# the repo map is one file the wrapper runs isolated, which keeps its own folder off the import path, so a second module
+# would be loaded by its path, and it stays whole past the advisory line count, the owner's word (D-082)
+"tools/claude-code/kdf_repo_map.py" = { "KDF-605" = "off" }
