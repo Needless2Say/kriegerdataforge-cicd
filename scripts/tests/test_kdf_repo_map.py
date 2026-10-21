@@ -907,6 +907,91 @@ WRITES = {
         """,
 }
 
+CANDIDATES = {
+    "cand/__init__.py": "",
+    "cand/service.py": """
+        class Lockout:
+            def register(self):
+                return 1
+
+
+        def helper():
+            return Lockout()
+        """,
+    "cand/facade/__init__.py": "from cand.service import Lockout\n",
+    "tests/__init__.py": "",
+    "tests/conftest.py": """
+        from cand.service import Lockout
+
+
+        def test_in_conftest():
+            return Lockout()
+        """,
+    "tests/test_lockout.py": """
+        from cand.facade import Lockout
+        from cand.service import helper
+
+
+        def test_module_level():
+            return Lockout()
+
+
+        def test_nested():
+            def inner():
+                return Lockout
+
+            later = lambda: Lockout
+
+            class Holder:
+                kept = Lockout
+
+            return inner, later, Holder
+
+
+        def test_by_name(service):
+            return service.register()
+
+
+        def test_through_helper():
+            return helper()
+
+
+        def test_fixture(lockout):
+            return lockout
+
+
+        def test_twice():
+            return Lockout()
+
+
+        def test_twice():
+            return Lockout()
+
+
+        class TestKept:
+            def test_method(self):
+                return Lockout.register
+
+            def helper_method(self):
+                return Lockout()
+
+
+        class TestLock:
+            def test_first(self):
+                return Lockout()
+
+
+        class TestLock:
+            def test_again(self):
+                return Lockout()
+
+
+        class Other:
+            def test_not_a_candidate(self):
+                return Lockout()
+        """,
+}
+
 pytestmark = pytest.mark.skipif(GIT is None and not os.environ.get("CI"), reason = "the repo map needs git")
 
 # ======================================================================================================================
@@ -1289,7 +1374,7 @@ def test_vercel_api_is_left_out_and_tests_only_with_tests(tmp_path: Path) -> Non
         "unit_tests/auth/check.py:3",
     ]
     assert "Left out, vercel_api/." in done.stdout
-    found, _, _ = _groups(_run(tmp_path, "test-importers", "api.core", "--repo", "app").stdout, "test-importers")
+    found, _, _, _ = _groups(_run(tmp_path, "test-importers", "api.core", "--repo", "app").stdout, "test-importers")
     assert sorted(line.split(" ")[1] for line in found) == ["tests/test_core.py:1", "unit_tests/auth/check.py:1"]
 
 
@@ -1984,7 +2069,7 @@ def test_a_value_under_the_rule_moves_callers_imports_and_test_importers_toward_
     for name in ("DELETED", "DOUBLE", "GUARDED_RELAY"):
         assert _has(unchecked, line("import DELETED") + f"imports val.relay.{name} {relay}, {SHAKY}"), name
     done = _run(tmp_path, "test-importers", "val.limits", "--repo", "app")
-    _, through, unchecked = _groups(done.stdout, "test-importers")
+    _, through, unchecked, _ = _groups(done.stdout, "test-importers")
     assert _has(through, f"tests/test_values.py:2 imports val.relay.MAX {relay}")
     assert _has(unchecked, f"tests/test_values.py:1 imports val.relay.GUARDED_RELAY {relay}, {SHAKY}")
 
@@ -2152,6 +2237,61 @@ def test_a_write_in_a_nested_class_or_a_generator_takes_the_labels_the_other_gro
     assert _has(writes, line("user.later") + later)
     inner = f"user.inner written, on user, {UNKNOWN}, in class Store.plain.Inner, whose body runs as the function does"
     assert _has(writes, line("user.inner") + inner)
+
+
+# ======================================================================================================================
+# the test candidates that use a name, test-importers' fourth group
+# ======================================================================================================================
+
+def _defs(path: str, needle: str) -> list[str]:
+    """
+    The path and line of every line of a CANDIDATES file holding the needle, as an answer names them.
+    """
+    lines = textwrap.dedent(CANDIDATES[path]).splitlines()
+    return [f"{path}:{number} " for number, text in enumerate(lines, 1) if needle in text]
+
+
+def test_test_importers_names_the_test_candidates_that_use_a_name_in_a_fourth_group(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", CANDIDATES)
+    done = _run(tmp_path, "test-importers", "cand.service.Lockout", "--repo", "app")
+    assert done.returncode == 0, done.stderr
+    found, through, unchecked, candidates = _groups(done.stdout, "test-importers")
+    test  = "tests/test_lockout.py"
+    relay = "imports cand.facade.Lockout at module level, through a re-export to cand.service.Lockout"
+    assert _has(found, "tests/conftest.py:1 imports cand.service.Lockout at module level")
+    assert _has(through, f"{test}:1 {relay}"), "a test reaching the name through a package that re-exports it"
+    for path, qual, words in (
+        ("tests/conftest.py", "test_in_conftest", "test_in_conftest uses Lockout"),
+        (test, "test_module_level", "test_module_level uses Lockout"),
+        (test, "test_nested", "test_nested uses Lockout"),
+        (test, "test_method", "TestKept.test_method uses Lockout.register"),
+    ):
+        assert _has(candidates, _defs(path, f"def {qual}")[0] + words), qual
+    assert len(candidates) == 4
+    rebound = "its name or a class holding it bound more than once, unchecked"
+    for place in _defs(test, "def test_twice"):
+        assert _has(unchecked, place + f"test_twice uses Lockout, {rebound}"), place
+    for qual in ("test_first", "test_again"):
+        assert _has(unchecked, _defs(test, f"def {qual}")[0] + f"TestLock.{qual} uses Lockout, {rebound}"), qual
+    for name in ("test_by_name", "test_through_helper", "test_fixture", "helper_method", "test_not_a_candidate"):
+        assert name not in done.stdout, name
+    for words in (
+        "a place to look and not proof",
+        "a fixture, a helper, conftest.py or a string is not named",
+        "unittest.TestCase",
+    ):
+        assert words in done.stdout, words
+
+
+def test_a_test_candidate_reaching_a_name_by_name_alone_is_unchecked(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", CANDIDATES)
+    done = _run(tmp_path, "test-importers", "cand.service.Lockout.register", "--repo", "app")
+    found, through, unchecked, candidates = _groups(done.stdout, "test-importers")
+    test = "tests/test_lockout.py"
+    assert found == [] and through == []
+    assert _has(candidates, _defs(test, "def test_method")[0] + "TestKept.test_method uses Lockout.register")
+    words = "test_by_name uses service.register, by name alone, unchecked"
+    assert _has(unchecked, _defs(test, "def test_by_name")[0] + words)
 
 
 def test_the_wrapper_usage_and_the_readme_name_every_command() -> None:
