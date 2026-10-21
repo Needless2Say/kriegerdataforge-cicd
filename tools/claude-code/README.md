@@ -610,6 +610,9 @@ here loads it, before the use in a module or class body. A member a module of th
 annotates with no value, is unchecked. `self.m()` resolves to its class's `m` when the class defines it, an import in
 the class body leading to its origin, and stays unchecked through its base otherwise. A file's module is named from
 the clone's top folder, from `src/` when the clone keeps its packages there, and from any `--package-root`.
+`vercel_api/` and every `--skip` folder are left out. A test file is `test_*.py`, `*_test.py` or `conftest.py`, or any
+file under a folder named `tests` or ending in `_tests`, left out of `imports` and `callers` unless `--tests` keeps
+them.
 
 **Three rules that only ever move a line toward unchecked** (D-084), in every command. A value, a module's or a class's
 member, resolves only when its name is bound by exactly one statement, so `V = V = 1` is one, and that statement is an
@@ -619,16 +622,14 @@ comprehension, a `del`, an augmented assignment, a `for`, `with` or `except` tar
 through a module or a class, `cfg.V` or `K.V`, is unchecked when a binding of that receiver in the reader's scope or on
 its way is no import or def standing directly in its scope, several `import pkg.x` binding `pkg` to the same package
 counting as one, and so is a value read through `self` or `cls` past the member itself, `self.K.V`, since an instance
-may hold its own. A private name, two leading underscores and no
-trailing pair, used inside a class or read through one, is unchecked as mangled, since Python reads it there as
-`_Class__name`. A binding a star import in its scope may replace, a star after it or either inside a compound
+may hold its own. A private name, two leading underscores and no trailing pair, used, bound or imported inside a class
+or read through one, is unchecked as mangled, since Python reads it there as `_Class__name`, an import line of it in
+`imports` among them. A binding a star import in its scope may replace, a star after it or either inside a compound
 statement, is unchecked, a def as well as a value. An unchecked path keeps its origin, so an alias of the asked name
-moves to the unchecked matches and never drops out. So a resolved call or use of `callers`, an import through a
-re-export of `imports` and `test-importers`, and a definition or an import binding of `defs` may move to the unchecked
-matches by these rules, each with its label, and nothing moves the other way.
-`vercel_api/` and every `--skip` folder are left out. A test file is `test_*.py`, `*_test.py` or `conftest.py`, or any
-file under a folder named `tests` or ending in `_tests`, left out of `imports` and `callers` unless `--tests` keeps
-them.
+moves to the unchecked matches and never drops out. So a resolved call or use of `callers`, an import or an import
+through a re-export of `imports` and `test-importers`, and a definition or an import binding of `defs` may move to the
+unchecked matches by these rules, each with its label, and nothing moves the other way. `defs` also names every binding
+on the way from a dotted name to its definition.
 
 **What a body calls.** `callees` takes the dotted name of a function or method the clone defines and reads the one
 body that name selects, the module resolution picks and never a file it shadows, a test file included whatever `--tests`
@@ -660,9 +661,9 @@ class body, bound once there, is worded from the source, "self, the first parame
 whatever its decorators, with no claim that it is an instance or the class. A class the clone defines is "class K", a
 module whose identity is established "module M", the write landing on M even when M imports the name from elsewhere,
 which is added, and a name outside the clone is named as imported. Any other receiver, a chain through `self` or
-`cls`, a parameter, a local, a rebound first parameter, a call's result or a subscript, is named with its type unknown
-to the `ast`. An annotated attribute with no value writes nothing, though its receiver still runs, and a write through
-`setattr`, `vars()` or `__dict__` is never seen.
+`cls`, a parameter, a local, a rebound first parameter, a call's result, a subscript, or a class or module the clone's
+code replaces anywhere, is named with its type unknown to the `ast`. An annotated attribute with no value writes
+nothing, though its receiver still runs, and a write through `setattr`, `vars()` or `__dict__` is never seen.
 
 **The tests that use a name.** `test-importers` scans every test file and adds "Test candidates that use it", the
 `test*` functions at module level and the `test*` methods of `Test*` classes at module level, pytest's default names,

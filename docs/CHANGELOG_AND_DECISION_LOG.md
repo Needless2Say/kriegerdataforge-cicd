@@ -4545,17 +4545,18 @@ later star import replaces, which `follow` read only when no explicit binding ex
    import or a def standing so, several imports binding one package counting as one, the owner's answer "Direct
    import, origin counted (Recommended)", and never through `self` or `cls` past the member itself. Any other binding
    leaves it unchecked and labelled so, in every command.
-2. A private name used inside a class or read through one is unchecked as mangled, and a binding a star import in its
-   scope may replace, a def as well as a value, is unchecked, the two false lines closed. An unchecked path keeps its
-   origin, so an alias of the asked name moves to the unchecked matches and never drops out.
+2. A private name used, bound or imported inside a class or read through one is unchecked as mangled, and a binding a
+   star import in its scope may replace, a def as well as a value, is unchecked, the two false lines closed. An
+   unchecked path keeps its origin, so an alias of the asked name moves to the unchecked matches and never drops out,
+   and `defs` names every binding on the way from a dotted name to its definition.
 3. `callees` lists a class's member read through its class and a module's value read through an import, an
    established module or bare in its own module, a chain at its longest receiver that is one, a `self` or `cls` read of
    a member unchecked and one of a name the class body does not bind left out, and a member or value the clone's code
    writes elsewhere through its class or module unchecked with the write's place.
 4. `callees` adds a fourth group, "Attributes written", every attribute the body assigns or deletes, its receiver named
    only when the receiver itself is the first parameter of a def written in a class body, worded from the source with
-   no claim that it is an instance or the class, a class, an established module or a name outside the clone, and else
-   with its type unknown to the `ast`.
+   no claim that it is an instance or the class, a class, an established module or a name outside the clone, none of
+   them one the clone's code replaces, and else with its type unknown to the `ast`.
 5. `test-importers` adds a fourth group, "Test candidates that use it", the `test*` functions and the `test*` methods
    of `Test*` classes at module level whose own bodies use the asked name or a name under it, one reaching it by name
    alone or bound more than once unchecked, and closes saying a candidate is a place to look and not proof.

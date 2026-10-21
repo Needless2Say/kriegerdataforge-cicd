@@ -245,7 +245,7 @@ class Module:
     scope:     Scope
     uses:      list[tuple[Scope, ast.expr, bool, str]] = field(default_factory = list)
     writes:    list[tuple[Scope, ast.Attribute, str, str]] = field(default_factory = list)
-    imports:   list[tuple[int, str, str]] = field(default_factory = list)
+    imports:   list[tuple[int, str, str, str]] = field(default_factory = list)
     defs:      list[tuple[int, str, str]] = field(default_factory = list)
     decorated: list[tuple[int, str, str, str]] = field(default_factory = list)
     classes:   dict[str, Scope] = field(default_factory = dict)
@@ -612,12 +612,15 @@ class Collector(ast.NodeVisitor):
             node: the import
         """
         for alias in node.names:
+            # inside a class Python imports a private name under its mangled name, which the map never forms
+            hidden = inside_class(self.scope) and "." not in alias.name and private(alias.name)
+            form   = "mangled" if hidden else "import"
             if alias.asname:
-                self.bind(alias.asname, node, "module", alias.name, alias.name, "import")
+                self.bind(alias.asname, node, "module", alias.name, alias.name, form)
             else:
                 top = alias.name.partition(".")[0]
-                self.bind(top, node, "module", top, alias.name, "import")
-            self.module.imports.append((node.lineno, alias.name, self.where()))
+                self.bind(top, node, "module", top, alias.name, form)
+            self.module.imports.append((node.lineno, alias.name, self.where(), MANGLED if hidden else ""))
 
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
@@ -628,7 +631,11 @@ class Collector(ast.NodeVisitor):
             node: the import
         """
         base = self.absolute(node.module or "", node.level)
+        # inside a class Python imports a private name, or from a private module, under its mangled name
+        module = node.module or ""
+        hiding = inside_class(self.scope) and not node.level and "." not in module and private(module)
         for alias in node.names:
+            hidden = hiding or (inside_class(self.scope) and private(alias.name))
             if alias.name == "*":
                 self.scope.star = True
                 self.scope.stars.append(((node.lineno, node.col_offset), not self.nested))
@@ -637,9 +644,10 @@ class Collector(ast.NodeVisitor):
                 origin = f"{base}.{alias.name}".lstrip(".") if base is not None else ""
                 # a relative import climbing out of the clone binds a name the map cannot follow, never a value here
                 kind = "from" if origin else "local"
-                self.bind(alias.asname or alias.name, node, kind, origin, form = "import" if origin else "other")
+                form = "mangled" if hidden else ("import" if origin else "other")
+                self.bind(alias.asname or alias.name, node, kind, origin, form = form)
             if origin:
-                self.module.imports.append((node.lineno, origin, self.where()))
+                self.module.imports.append((node.lineno, origin, self.where(), MANGLED if hidden else ""))
 
 
     def absolute(self, module: str, level: int) -> str | None:
@@ -1005,9 +1013,11 @@ class Resolver:
         if kind == "def":
             doubt   = self.doubt(scope, bindings, False)
             pending = self.receiver_doubt(bindings)
+            # the name its module binds stays on the path, so a write replacing it reaches a value read through it
+            via = (own,) if own else ()
             if doubt:
-                return Place(origin, "candidate", label = doubt, holds = "def", pending = pending)
-            return Place(origin, "def", pending = pending)
+                return Place(origin, "candidate", label = doubt, holds = "def", pending = pending, via = via)
+            return Place(origin, "def", pending = pending, via = via)
         canon, nature, label, via, held = self.follow(origin)
         if nature is None:
             return Place("", "unresolved", label = f"through {origin}, unchecked")
@@ -1134,8 +1144,9 @@ class Resolver:
             elif place.label == "bound more than once, unchecked":
                 return Place("", "unresolved", label = "bound more than once in its class, unchecked")
             if private(attr):
+                # the member keeps where it leads, an import's origin among it, so a use of that origin never drops out
                 holds = place.holds or (place.nature if place.nature in RESOLVED else "")
-                return Place(member, "candidate", label = MANGLED, holds = holds, via = (member,))
+                return Place(place.origin or member, "candidate", label = MANGLED, holds = holds, via = (member,))
             return place
         # a private name read through a class is read as its mangled name, which the class body never binds as written
         if private(attr):
@@ -1200,7 +1211,8 @@ class Resolver:
         if not place.origin:
             return Place("", "unresolved", label = MANGLED)
         holds = place.holds or (place.nature if place.nature in RESOLVED else "")
-        return Place(place.origin, "candidate", label = MANGLED, holds = holds, via = place.via)
+        # a module keeps its identity and what loaded it, so an attribute read through it still leads to its origin
+        return replace(place, nature = "candidate", label = MANGLED, holds = holds)
 
 
     def inside_own_statement(self, module: Module, scope: Scope, origin: str, node: ast.expr) -> bool:
@@ -1505,11 +1517,13 @@ class Resolver:
             where = f"the first parameter of a def in the body of class {module.name}.{holder.qual}"
             return f"{head}, on {receiver.id}, {where}{mangled}"
         # a chain through self, cls or a method's first parameter is never resolved, its type is the instance's
-        through = isinstance(
-            root,
-            ast.Name,
-        ) and (root.id in ("self", "cls") or self.lead_of(scope, root.id) is not None)
+        named   = isinstance(root, ast.Name)
+        through = named and (root.id in ("self", "cls") or self.lead_of(scope, root.id) is not None)
         place   = Place("", "unresolved") if through else self.resolve(module, scope, receiver)
+        # a receiver the clone's code replaces anywhere is no longer surely the class or module its source names
+        swapped, hidden = self.marks()
+        if any(step in swapped or step in hidden for step in (place.origin, *place.via)):
+            place = Place("", "unresolved")
         if place.nature == "def" and place.origin in self.clone.classes:
             return f"{head}, on class {place.origin}{mangled}"
         if place.nature == "module" and place.established:
@@ -1812,10 +1826,11 @@ class Resolver:
                 if f"{module.name}.{qual}" == self.target:
                     found.append((1, line, f"{qual} decorated by {names} {where}, its own definition"))
             return found
-        for line, origin, where in module.imports:
+        for line, origin, where, label in module.imports:
             placed = self.import_line(origin, where)
+            # an import Python makes under a mangled name never names its origin for certain
             if placed is not None:
-                found.append((placed[0], line, placed[1]))
+                found.append((2, line, f"{placed[1]}, {label}") if label else (placed[0], line, placed[1]))
         if command == "test-importers":
             found.extend(self.candidate_lines(module))
         return found
@@ -1897,6 +1912,9 @@ class Resolver:
             return (False, text, f"{ANNOTATION}, unchecked") if id(node) in module.annotated else (True, text, "")
         if under and place.nature == "candidate":
             return False, text, place.label
+        # a value its own test module binds, read bare, as callees reads it
+        if under and place.nature == "local" and place.holds == "value":
+            return (False, text, place.label) if place.label else (True, text, "")
         if place.nature in (*RESOLVED, "candidate") and self.through_package(place.origin):
             return False, text, "through a package, unchecked"
         if place.nature in (*RESOLVED, "candidate", "local"):

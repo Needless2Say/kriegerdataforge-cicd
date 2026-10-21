@@ -2331,7 +2331,10 @@ def test_a_private_name_an_import_inside_a_class_takes_is_unchecked_as_mangled(t
     place = _line(RECEIVERS, "pv/read.py", "return K.V")
     _, values, unchecked, _ = _callees(tmp_path, "pv.read.read")
     assert values == [] and _has(unchecked, place + f"K.V used, {MANGLED}, pv.cfg.__value")
-    resolved, values, unchecked = _groups(_run(tmp_path, "callers", "pv.cfg.__value", "--repo", "app").stdout, "callers")
+    resolved, values, unchecked = _groups(
+        _run(tmp_path, "callers", "pv.cfg.__value", "--repo", "app").stdout,
+        "callers",
+    )
     assert resolved == [] and values == [] and _has(unchecked, place + f"K.V used in read, {MANGLED}")
     found, _, unchecked = _groups(_run(tmp_path, "imports", "pv.cfg", "--repo", "app").stdout, "imports")
     imported = _line(RECEIVERS, "pv/read.py", "import __value")
@@ -2345,7 +2348,7 @@ def test_a_class_read_by_its_bare_name_and_replaced_elsewhere_is_unchecked_and_n
     line    = lambda needle: _line(RECEIVERS, "pv/lib.py", needle)
     written = line("pv.lib.K = other").strip()
     _, values, unchecked, _ = _callees(tmp_path, "pv.lib.read")
-    words   = f"K.V used, written elsewhere at {written}, unchecked, pv.lib.K.V"
+    words = f"K.V used, written elsewhere at {written}, unchecked, pv.lib.K.V"
     assert values == [] and _has(unchecked, line("return K.V") + words)
     *_, writes = _callees(tmp_path, "pv.lib.change")
     assert _has(writes, line("pv.lib.K.x = 1") + f"pv.lib.K.x written, on pv.lib.K, {UNKNOWN}")
@@ -2359,12 +2362,16 @@ def test_a_private_alias_of_a_name_keeps_its_origin_and_stays_in_the_unchecked_m
     assert not _has(resolved, line("self.__alias()"))
     assert _has(unchecked, line("self.__alias()") + f"self.__alias called in K.run, {MANGLED}")
     _, values, unchecked, _ = _callees(tmp_path, "pv.alias.K.run")
-    assert values == [] and _has(unchecked, line("return __lib.target") + f"__lib.target used, {MANGLED}, pv.alias.target")
+    assert values == [
+    ] and _has(unchecked, line("return __lib.target") + f"__lib.target used, {MANGLED}, pv.alias.target")
 
 
 def test_a_test_candidate_reading_a_value_bare_in_its_own_file_is_named(tmp_path: Path) -> None:
     _clone(tmp_path, "app", RECEIVERS)
-    *_, candidates = _groups(_run(tmp_path, "test-importers", "tests.test_values.V", "--repo", "app").stdout, "test-importers")
+    *_, candidates = _groups(
+        _run(tmp_path, "test-importers", "tests.test_values.V", "--repo", "app").stdout,
+        "test-importers",
+    )
     assert _has(candidates, "tests/test_values.py:4 test_read uses V")
 
 
