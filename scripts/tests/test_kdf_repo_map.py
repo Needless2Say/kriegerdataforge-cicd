@@ -27,6 +27,10 @@ MODULE  = TOOLS / "kdf_repo_map.py"
 WRAPPER = TOOLS / "kdf-repo-map.sh"
 GIT     = shutil.which("git")
 BASH    = os.environ.get("KDF_TEST_BASH") or shutil.which("bash")
+# the labels the binding rule, a private name and a star import leave on a line they move to unchecked
+SHAKY   = "bound more than once, or in a form the map does not take as certain, unchecked"
+MANGLED = "a private name, which Python mangles inside a class, unchecked"
+STARRED = "a star import in its scope may replace it, unchecked"
 # a stand in for cicd's venv interpreter, it logs each call and runs this interpreter, or plays one that cannot start
 STAND_IN = """#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "{log}"
@@ -519,6 +523,291 @@ DUPLICATE = {
     "dup/pkg.py": "from dup.real import run as again\n\n\ndef run():\n    return again()\n",
     "dup/pkg/__init__.py": "from dup.real import run\n",
     "dup/use.py": "from dup.pkg import run\n\nrun()\n",
+}
+
+VALUES = {
+    "val/__init__.py": "",
+    "val/enums.py": """
+        import os
+
+        FLAG = True
+
+
+        class Status:
+            active = "active"
+            same = same = "same"
+            twice = 1
+            twice = 2
+            dropped = 1
+            del dropped
+            if FLAG:
+                guarded = 1
+            try:
+                tried = 1
+            except ValueError:
+                pass
+            try:
+                grouped = 1
+            except* ValueError:
+                pass
+            for _ in range(1):
+                looped = 1
+            with os.scandir(".") as entries:
+                held = 1
+            FLAG and (walrus := 1)
+            written = 1
+
+            def describe(self):
+                return 1
+
+
+        class Child(Status):
+            pass
+
+
+        Status.written = 2
+        """,
+    "val/limits.py": """
+        import os
+
+        MAX = 3
+        SAME = SAME = 4
+        TWICE = 1
+        TWICE = 2
+        GONE = 1
+        del GONE
+        CHANGED = 1
+        FLAG = True
+        FLAG and (WALRUS := 1)
+        COMPREHENDED = [(LEAKED := item) for item in range(2)]
+        if os.sep:
+            GUARDED = 1
+
+
+        def setter():
+            global GLOBALLED
+            GLOBALLED = 1
+
+
+        def own():
+            return MAX, SAME, TWICE, CHANGED, LEAKED, GLOBALLED
+        """,
+    "val/relay.py": """
+        import os
+
+        from val.limits import MAX
+        from val.limits import MAX as DOUBLE
+        from val.limits import MAX as DOUBLE
+        from val.limits import MAX as DELETED
+        del DELETED
+        if os.sep:
+            from val.limits import MAX as GUARDED_RELAY
+        """,
+    "val/reader.py": """
+        import os
+
+        import val.enums
+        import val.limits
+        from val.enums import Child, Status
+        from val.limits import CHANGED, GLOBALLED, GONE, GUARDED, LEAKED, MAX, SAME, TWICE, WALRUS
+        from val.limits import MAX as ALIASED
+        from val.relay import DELETED, DOUBLE, GUARDED_RELAY
+        from val.relay import MAX as RELAYED
+
+        val.limits.CHANGED = 5
+
+        if os.sep:
+            from val.limits import MAX as CONDITIONAL
+
+
+        def members(user):
+            user.reason = Status.active
+            user.text = Status.active.value
+            user.full = val.enums.Status.active
+            user.same = Status.same
+            return Status.describe
+
+
+        def doubtful():
+            return (
+                Status.twice,
+                Status.dropped,
+                Status.guarded,
+                Status.tried,
+                Status.grouped,
+                Status.looped,
+                Status.held,
+                Status.walrus,
+                Status.written,
+                Child.active,
+            )
+
+
+        def values():
+            return MAX, ALIASED, val.limits.MAX, SAME, RELAYED
+
+
+        def doubtful_values():
+            return TWICE, GONE, WALRUS, LEAKED, GUARDED, GLOBALLED, CHANGED, val.limits.CHANGED, val.limits.TWICE
+
+
+        def relayed():
+            return DOUBLE, DELETED, GUARDED_RELAY
+
+
+        def imported_inside():
+            from val.limits import MAX as INSIDE
+            return INSIDE
+
+
+        def imported_conditionally():
+            return CONDITIONAL
+
+
+        def labelled():
+            later = lambda: Status.active
+            note: Status.active = None
+            return later, note
+
+
+        class Lockout:
+            limit = 3
+
+            def register(self):
+                first = self.limit
+                second = self.unbound
+                return first, second, self.limit.real
+
+            @classmethod
+            def build(cls):
+                return cls.limit
+
+
+        class Twice:
+            @property
+            def size(self):
+                return Status.active
+
+            @size.setter
+            def size(self, value):
+                return SAME
+        """,
+}
+
+PRIVATE = {
+    "priv/__init__.py": "",
+    "priv/lib.py": """
+        __value = 1
+        __hidden = 2
+
+
+        class Keeper:
+            __member = 1
+
+            def read(self):
+                return self.__member
+
+            def write(self):
+                global __hidden
+                __hidden = 3
+
+            def touch(self):
+                import priv.lib
+                priv.lib.__value = 4
+                return priv.lib.__value
+        """,
+    "priv/use.py": """
+        import priv.lib
+        from priv.lib import Keeper
+
+
+        def outside():
+            return Keeper.__member
+
+
+        def plain():
+            return priv.lib.__value
+
+
+        def hidden():
+            return priv.lib.__hidden
+        """,
+}
+
+STARS = {
+    "star/__init__.py": "",
+    "star/source.py": "def target():\n    return 1\n\n\ndef helper():\n    return 2\n\n\nVALUE = 1\n",
+    "star/early.py": """
+        from star.source import *
+
+
+        def target():
+            return helper()
+
+
+        VALUE = 2
+        """,
+    "star/late.py": """
+        from star.source import helper
+
+
+        def target():
+            return helper()
+
+
+        VALUE = 3
+
+        from star.source import *
+        """,
+    "star/looped.py": """
+        for _ in range(1):
+            from star.source import *
+
+        from star.source import VALUE, target
+        """,
+    "star/use.py": """
+        from star.early import VALUE as EARLY
+        from star.early import target as early_target
+        from star.late import VALUE as LATE
+        from star.late import target as late_target
+        from star.looped import VALUE as LOOPED
+        from star.looped import target as looped_target
+
+
+        def run():
+            early_target()
+            late_target()
+            looped_target()
+            return EARLY, LATE, LOOPED
+        """,
+}
+
+REGRESSION = {
+    "reg/__init__.py": "",
+    "reg/lib.py": "def helper():\n    return 1\n\n\nclass Thing:\n    def run(self):\n        return 1\n",
+    "reg/relay.py": "import os\n\nif os.sep:\n    from reg.lib import helper\n\nfrom reg.lib import Thing\nfrom reg.lib import Thing\n",
+    "reg/use.py": """
+        import os
+
+        from reg.relay import Thing, helper
+
+        if os.sep:
+            from reg.lib import helper as guarded
+
+
+        def work():
+            helper()
+            guarded()
+            made = Thing()
+            made.run()
+            return Thing
+
+
+        def inside():
+            if os.sep:
+                from reg.lib import helper as nested
+            return nested()
+        """,
 }
 
 pytestmark = pytest.mark.skipif(GIT is None and not os.environ.get("CI"), reason = "the repo map needs git")
@@ -1449,6 +1738,221 @@ def test_callers_labels_a_call_in_an_annotation_whatever_it_resolves_to(tmp_path
     _, _, unchecked = _groups(_run(tmp_path, "callers", "cal.annotated.late", "--repo", "app").stdout, "callers")
     assert _has(unchecked, "cal/annotated.py:1 late called by name at module level, used before its binding")
     assert all(entry.endswith("in an annotation, never run with the code around it") for entry in unchecked)
+
+# ======================================================================================================================
+# the binding rule, a class's members and a module's values in callees, and the two false lines closed
+# ======================================================================================================================
+
+def _callees(root: Path, name: str) -> list[list[str]]:
+    """
+    The groups of a callees answer for one name in the clone app.
+    """
+    done = _run(root, "callees", name, "--repo", "app")
+    assert done.returncode in (0, 1), done.stderr
+    return _groups(done.stdout, "callees")
+
+
+def test_callees_names_a_class_member_read_through_its_class(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", VALUES)
+    resolved, values, unchecked = _callees(tmp_path, "val.reader.members")
+    line   = lambda needle: _line(VALUES, "val/reader.py", needle)
+    member = "resolves to val.enums.Status.active, a member bound in the body of class val.enums.Status"
+    assert _has(values, line("user.reason = Status.active") + f"Status.active used, {member}")
+    assert _has(values, line("Status.active.value") + f"Status.active used, {member}")
+    assert _has(values, line("val.enums.Status.active") + f"val.enums.Status.active used, {member}")
+    same = "resolves to val.enums.Status.same, a member bound in the body of class val.enums.Status"
+    assert _has(values, line("Status.same") + f"Status.same used, {same}"), "V = V = 1 is one statement"
+    assert _has(values, line("Status.describe") + "Status.describe used, resolves to val.enums.Status.describe, a def")
+    assert not any("Status.active.value" in entry for entry in resolved + values + unchecked)
+
+
+def test_a_self_or_cls_read_of_a_member_is_unchecked_and_of_a_name_its_class_does_not_bind_left_out(
+    tmp_path: Path,
+) -> None:
+    _clone(tmp_path, "app", VALUES)
+    words = "bound in the body of class val.reader.Lockout, an instance or a subclass may hold its own, unchecked"
+    line  = lambda needle: _line(VALUES, "val/reader.py", needle)
+    resolved, values, unchecked = _callees(tmp_path, "val.reader.Lockout.register")
+    assert resolved == [] and values == []
+    assert _has(unchecked, line("first = self.limit") + f"self.limit used, {words}")
+    assert _has(unchecked, line("self.limit.real") + f"self.limit used, {words}")
+    assert not any("self.unbound" in entry for entry in unchecked)
+    _, values, unchecked = _callees(tmp_path, "val.reader.Lockout.build")
+    assert values == [] and _has(unchecked, line("return cls.limit") + f"cls.limit used, {words}")
+
+
+def test_a_member_bound_in_a_form_the_map_does_not_take_as_certain_is_unchecked(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", VALUES)
+    resolved, values, unchecked = _callees(tmp_path, "val.reader.doubtful")
+    line = lambda needle: _line(VALUES, "val/reader.py", needle)
+    assert resolved == [] and values == []
+    for member in ("twice", "dropped", "guarded", "tried", "grouped", "looped", "held", "walrus"):
+        assert _has(unchecked, line(f"Status.{member},") + f"Status.{member} used, {SHAKY}, val.enums.Status.{member}"), (
+            member
+        )
+    written = _line(VALUES, "val/enums.py", "Status.written = 2").strip()
+    assert _has(
+        unchecked,
+        line("Status.written,") + f"Status.written used, written elsewhere at {written}, unchecked, val.enums.Status.written",
+    )
+    assert _has(unchecked, line("Child.active,") + "Child.active used, through its base val.enums.Status, unchecked")
+
+
+def test_a_module_value_resolves_through_an_import_an_established_module_and_bare_in_its_own_module(
+    tmp_path: Path,
+) -> None:
+    _clone(tmp_path, "app", VALUES)
+    value = "resolves to val.limits.MAX, a value bound at module level in val.limits"
+    _, values, unchecked = _callees(tmp_path, "val.reader.values")
+    place = _line(VALUES, "val/reader.py", "return MAX, ALIASED")
+    for text in ("MAX", "ALIASED", "val.limits.MAX", "RELAYED"):
+        assert _has(values, place + f"{text} used, {value}"), text
+    assert _has(values, place + "SAME used, resolves to val.limits.SAME, a value bound at module level in val.limits")
+    assert unchecked == []
+    _, values, _ = _callees(tmp_path, "val.reader.imported_inside")
+    assert _has(values, _line(VALUES, "val/reader.py", "return INSIDE") + f"INSIDE used, {value}")
+    _, values, _ = _callees(tmp_path, "val.limits.own")
+    assert _has(values, _line(VALUES, "val/limits.py", "return MAX, SAME") + f"MAX used, {value}")
+
+
+def test_a_module_value_bound_or_written_uncertainly_is_unchecked_in_every_form(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", VALUES)
+    line    = lambda needle: _line(VALUES, "val/reader.py", needle)
+    written = line("val.limits.CHANGED = 5").strip()
+    changed = f"written elsewhere at {written}, unchecked, val.limits.CHANGED"
+    _, values, unchecked = _callees(tmp_path, "val.reader.doubtful_values")
+    place = line("return TWICE, GONE")
+    assert values == []
+    for name in ("TWICE", "GONE", "WALRUS", "LEAKED", "GUARDED", "GLOBALLED"):
+        assert _has(unchecked, place + f"{name} used, {SHAKY}, val.limits.{name}"), name
+    assert _has(unchecked, place + f"val.limits.TWICE used, {SHAKY}, val.limits.TWICE")
+    for text in ("CHANGED", "val.limits.CHANGED"):
+        assert _has(unchecked, place + f"{text} used, {changed}"), text
+    _, values, unchecked = _callees(tmp_path, "val.limits.own")
+    place = _line(VALUES, "val/limits.py", "return MAX, SAME")
+    assert _has(unchecked, place + f"TWICE used, {SHAKY}, val.limits.TWICE")
+    assert _has(unchecked, place + f"CHANGED used, {changed}")
+    _, values, unchecked = _callees(tmp_path, "val.reader.relayed")
+    assert values == []
+    for name in ("DOUBLE", "DELETED", "GUARDED_RELAY"):
+        assert _has(unchecked, line("return DOUBLE") + f"{name} used, {SHAKY}, val.limits.MAX"), name
+    _, values, unchecked = _callees(tmp_path, "val.reader.imported_conditionally")
+    assert values == [] and _has(unchecked, line("return CONDITIONAL") + f"CONDITIONAL used, {SHAKY}, val.limits.MAX")
+
+
+def test_a_value_under_the_rule_moves_callers_imports_and_test_importers_toward_unchecked_alone(
+    tmp_path: Path,
+) -> None:
+    files = dict(VALUES, **{"tests/test_values.py": "from val.relay import GUARDED_RELAY\nfrom val.relay import MAX\n"})
+    _clone(tmp_path, "app", files)
+    line = lambda needle: _line(VALUES, "val/reader.py", needle)
+    resolved, values, unchecked = _groups(_run(tmp_path, "callers", "val.limits.MAX", "--repo", "app").stdout, "callers")
+    for text in ("MAX", "ALIASED", "val.limits.MAX", "RELAYED"):
+        assert _has(values, line("return MAX, ALIASED") + f"{text} used in values"), text
+    assert _has(values, line("return INSIDE") + "INSIDE used in imported_inside")
+    for text in ("DOUBLE", "DELETED", "GUARDED_RELAY"):
+        assert _has(unchecked, line("return DOUBLE") + f"{text} used in relayed, {SHAKY}"), text
+    assert _has(unchecked, line("return CONDITIONAL") + f"CONDITIONAL used in imported_conditionally, {SHAKY}")
+    assert not any(_has(group, line("return DOUBLE")) for group in (resolved, values))
+    _, through, unchecked = _groups(_run(tmp_path, "imports", "val.limits", "--repo", "app").stdout, "imports")
+    relay = "at module level, through a re-export to val.limits.MAX"
+    assert _has(through, line("import MAX as RELAYED") + f"imports val.relay.MAX {relay}")
+    for name in ("DELETED", "DOUBLE", "GUARDED_RELAY"):
+        assert _has(unchecked, line("import DELETED") + f"imports val.relay.{name} {relay}, {SHAKY}"), name
+    done = _run(tmp_path, "test-importers", "val.limits", "--repo", "app")
+    _, through, unchecked = _groups(done.stdout, "test-importers")
+    assert _has(through, f"tests/test_values.py:2 imports val.relay.MAX {relay}")
+    assert _has(unchecked, f"tests/test_values.py:1 imports val.relay.GUARDED_RELAY {relay}, {SHAKY}")
+
+
+def test_a_new_line_carries_the_annotation_deferred_and_several_bodies_labels(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", VALUES)
+    line   = lambda needle: _line(VALUES, "val/reader.py", needle)
+    member = "Status.active used, resolves to val.enums.Status.active, a member bound in the body of class val.enums.Status"
+    _, values, unchecked = _callees(tmp_path, "val.reader.labelled")
+    assert values == []
+    assert _has(unchecked, line("lambda: Status.active") + f"{member}, inside a lambda, runs when it is called")
+    assert _has(unchecked, line("note: Status.active") + f"{member}, in an annotation, never run with the code around it")
+    _, values, unchecked = _callees(tmp_path, "val.reader.Twice.size")
+    assert values == []
+    assert _has(unchecked, line("return Status.active") + f"{member}, one of 2 bodies of this name, unchecked")
+    same = "SAME used, resolves to val.limits.SAME, a value bound at module level in val.limits"
+    assert _has(unchecked, line("return SAME") + f"{same}, one of 2 bodies of this name, unchecked")
+
+
+def test_a_private_name_is_unchecked_as_mangled_in_callees_and_callers(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", PRIVATE)
+    use  = lambda needle: _line(PRIVATE, "priv/use.py", needle)
+    lib  = lambda needle: _line(PRIVATE, "priv/lib.py", needle)
+    _, values, unchecked = _callees(tmp_path, "priv.use.outside")
+    assert values == [] and _has(unchecked, use("Keeper.__member") + f"Keeper.__member used, {MANGLED}")
+    _, values, unchecked = _callees(tmp_path, "priv.lib.Keeper.read")
+    assert values == [] and _has(unchecked, lib("self.__member") + f"self.__member used, {MANGLED}")
+    resolved, values, unchecked = _groups(
+        _run(tmp_path, "callers", "priv.lib.Keeper.__member", "--repo", "app").stdout,
+        "callers",
+    )
+    assert resolved == [] and values == []
+    assert _has(unchecked, use("Keeper.__member") + f"Keeper.__member used in outside, {MANGLED}")
+    assert _has(unchecked, lib("self.__member") + f"self.__member used in Keeper.read, {MANGLED}")
+    for name, function in (("__hidden", "hidden"), ("__value", "plain")):
+        _, values, unchecked = _callees(tmp_path, f"priv.use.{function}")
+        assert values == [] and _has(unchecked, use(f"priv.lib.{name}") + f"priv.lib.{name} used, {MANGLED}"), name
+        resolved, values, unchecked = _groups(
+            _run(tmp_path, "callers", f"priv.lib.{name}", "--repo", "app").stdout,
+            "callers",
+        )
+        assert resolved == [] and values == [], name
+        assert _has(unchecked, use(f"priv.lib.{name}") + f"priv.lib.{name} used in {function}, {MANGLED}"), name
+    _, _, unchecked = _groups(_run(tmp_path, "callers", "priv.lib.__value", "--repo", "app").stdout, "callers")
+    assert _has(unchecked, lib("return priv.lib.__value") + f"priv.lib.__value used in Keeper.touch, {MANGLED}")
+
+
+def test_a_binding_a_star_import_may_replace_is_unchecked_in_every_command(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", STARS)
+    line = lambda needle: _line(STARS, "star/use.py", needle)
+    resolved, values, unchecked = _callees(tmp_path, "star.use.run")
+    assert _has(resolved, line("early_target()") + "early_target called, resolves to star.early.target, a def")
+    early = "EARLY used, resolves to star.early.VALUE, a value bound at module level in star.early"
+    assert _has(values, line("return EARLY") + early)
+    for text, origin in (("late_target", "star.late.target"), ("looped_target", "star.source.target")):
+        assert _has(unchecked, line(f"    {text}()") + f"{text} called, {STARRED}, {origin}"), text
+    for text, origin in (("LATE", "star.late.VALUE"), ("LOOPED", "star.source.VALUE")):
+        assert _has(unchecked, line("return EARLY") + f"{text} used, {STARRED}, {origin}"), text
+    resolved, _, unchecked = _groups(_run(tmp_path, "callers", "star.late.target", "--repo", "app").stdout, "callers")
+    assert resolved == [] and _has(unchecked, line("    late_target()") + f"late_target called in run, {STARRED}")
+    resolved, _, _ = _groups(_run(tmp_path, "callers", "star.early.target", "--repo", "app").stdout, "callers")
+    assert _has(resolved, line("    early_target()") + "early_target called in run")
+    _, through, unchecked = _groups(_run(tmp_path, "imports", "star.source", "--repo", "app").stdout, "imports")
+    relay = "imports star.looped.target at module level, through a re-export to star.source.target"
+    assert _has(unchecked, line("import target as looped_target") + f"{relay}, {STARRED}")
+    assert not _has(through, line("import target as looped_target"))
+    found, _, unchecked = _groups(_run(tmp_path, "defs", "target", "--repo", "app").stdout, "defs")
+    assert _has(found, _line(STARS, "star/early.py", "def target") + "def star.early.target")
+    assert _has(unchecked, _line(STARS, "star/late.py", "def target") + f"def star.late.target, {STARRED}")
+    bound = "star.looped.target bound by an import of star.source.target"
+    assert _has(unchecked, _line(STARS, "star/looped.py", "import VALUE, target") + f"{bound}, {STARRED}")
+    done = _run(tmp_path, "callees", "star.late.target", "--repo", "app")
+    resolved, values, unchecked = _groups(done.stdout, "callees")
+    assert "a star import in its scope may replace it, so every line is unchecked." in done.stdout
+    assert resolved == [] and values == [] and unchecked
+    assert all(entry.endswith(STARRED) for entry in unchecked)
+
+
+def test_a_def_and_a_class_answer_as_before_in_every_other_form(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", REGRESSION)
+    line = lambda needle: _line(REGRESSION, "reg/use.py", needle)
+    resolved, _, unchecked = _groups(_run(tmp_path, "callers", "reg.lib.helper", "--repo", "app").stdout, "callers")
+    for needle, words in (("    helper()", "helper called in work"), ("guarded()", "guarded called in work")):
+        assert _has(resolved, line(needle) + words), needle
+    assert _has(resolved, line("return nested()") + "nested called in inside") and unchecked == []
+    resolved, values, _ = _groups(_run(tmp_path, "callers", "reg.lib.Thing", "--repo", "app").stdout, "callers")
+    assert _has(resolved, line("Thing()") + "Thing called in work")
+    assert _has(values, line("return Thing") + "Thing used in work")
+    resolved, values, _ = _callees(tmp_path, "reg.use.work")
+    assert _has(resolved, line("    helper()") + "helper called, resolves to reg.lib.helper, a def")
+    assert _has(resolved, line("Thing()") + "Thing called, resolves to reg.lib.Thing, a class")
+    assert _has(values, line("return Thing") + "Thing used, resolves to reg.lib.Thing, a class")
 
 
 def test_the_wrapper_usage_and_the_readme_name_every_command() -> None:
