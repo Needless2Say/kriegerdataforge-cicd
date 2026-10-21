@@ -4,8 +4,8 @@ The repo map, a read only lookup over named Python clones, each parsed with ast 
 Run it through kdf-repo-map.sh beside it, which refuses a reviewer and finds cicd's venv interpreter. A session names
 its clones one by one, each a folder under the workspace, and asks where a name is defined (defs), who imports a module
 or a name in it (imports), the resolved static callers of a name and its other uses (callers), what a function's own
-body calls and uses (callees), or the test files that import a module (test-importers). Each clone is read at one
-commit, origin/main as it was last fetched unless --at names
+body calls, uses and writes (callees), or the test files that import a module and the test candidates that use a name
+(test-importers). Each clone is read at one commit, origin/main as it was last fetched unless --at names
 another, through git ls-tree and git cat-file alone, so the working tree and every untracked or ignored file stay
 unread, and nothing is written anywhere. Every git call drops the inherited GIT_ variables and sets
 GIT_NO_LAZY_FETCH=1, so a partial clone's missing object leaves the answer incomplete and is never fetched. A clone
@@ -86,7 +86,9 @@ TITLES     = {
 REBOUND    = "its name or a class holding it bound more than once"
 ANNOTATION = "in an annotation, never run with the code around it"
 NOT_SEEN = ("Not seen, uncommitted edits, importlib and getattr, a name held in a string such as a mock.patch target, "
-            "a star import, and a method on an instance whose class the ast cannot know, which lands by name.")
+            "a star import, a method on an instance whose class the ast cannot know, which lands by name, a class "
+            "decorator's or a metaclass's change to a class, a value replaced by code the clone does not hold, and a "
+            "write through setattr, vars() or __dict__.")
 HELP = """\
 commands
   defs <name>              where a name is defined, a bare name or a dotted one
@@ -95,8 +97,10 @@ commands
                            unchecked matches, calls kept by name, through a base, a module or a package
   callees <dotted>         what a function or method the clone defines calls and uses in its own body, its lambdas
                            and comprehensions among it and a def nested in it apart, resolved as callers resolves,
-                           what the function does read in its body at the commit
-  test-importers <dotted>  the test files that import a module, never the tests that reach it
+                           the clone's class members and module values it reads among its uses, then Attributes
+                           written, what the function does read in its body at the commit
+  test-importers <dotted>  the test files that import a module or a name, then Test candidates that use it, the
+                           test* functions and the test* methods of Test* classes whose own bodies use it, never proof
 
 Each clone is a folder under the root, the workspace the cicd checkout this file sits in belongs to. --root names
 another and is for tests. A test file is test_*.py, *_test.py or conftest.py, or any file under a folder named tests or
@@ -104,10 +108,37 @@ ending in _tests. Tests are left out of imports and callers unless --tests keeps
 folder are left out always. Each group prints every clone's count and at most 40 lines spread across the clones, by
 clone in the order --repo names them, then path, then line, and --full prints every line.
 
+Each answer prints its resolved lines, the uses or imports beside them and the unchecked matches, and callees and
+test-importers add a fourth group, Attributes written and Test candidates that use it. A value, a class's member or a
+module's, resolves only when its name is bound once, by an assignment or an import standing directly in the scope that
+runs it, at every step of its path, and one read through a module only when every import of that module stands so. A
+private name used inside a class or read through one is unchecked as mangled, and a binding a star import may replace
+is unchecked, so a line of callers, imports, test-importers or defs moves toward unchecked by these rules, never away.
+
 What it cannot see. Uncommitted edits, importlib and getattr, a name held in a string such as a mock.patch target, a
-star import, and a method on an instance whose class the ast cannot know, which lands by name. A use through a package
-the clone does not hold is listed unchecked. Read each line it names at its commit, git -C <clone> show <hash>:<path>,
-and search text for what it cannot see.
+star import, a method on an instance whose class the ast cannot know, which lands by name, a class decorator's or a
+metaclass's change to a class, a value replaced by code the clone does not hold, and a write through setattr, vars()
+or __dict__. A use through a package the clone does not hold is listed unchecked. Read each line it names at its
+commit, git -C <clone> show <hash>:<path>, and search text for what it cannot see.
+
+A worker's brief. A session hands a worker these words under the repos and commits its lookup names, <the wrapper>
+being the path of kdf-repo-map.sh.
+
+Start with the repo map, a lookup over the repos' Python at the commits above, read from git's objects. Run it in
+Bash on one line with single quotes, since the guard refuses a $ or a backtick inside double quotes, as
+bash <the wrapper> <command> <name> --repo <clone> --at <clone>=<commit>
+with a --repo and an --at for each repo the lookup names. Its commands are defs <name> (where a bare or dotted name
+is defined), imports <dotted module> (who imports it or a name in it), callers <dotted name> (resolved calls, uses
+that are not calls, and unchecked matches kept by name), callees <dotted function> (what that function's own body
+calls and uses, the repo's class members and module values among them, then the attributes it writes, a def nested
+in it apart), and test-importers <dotted> (test files that import it, those through a re-export, the unchecked
+matches, then the test candidates that use it). What a function does, its conditions and its values, is read in its
+body. Add --tests to keep tests in imports and callers, and --full to print a group past its 40 lines. Each answer
+gives its resolved lines first, each line <clone>@<hash> <path>:<line>. An empty group proves no absence, so search
+before you say there is none. Read a line at the answer's commit, with git -C <clone> show <hash>:<path>, or with
+Read in a checkout you know is clean at that commit, and search for a name the map was not given or what it names
+as unseen with git -C <clone> grep -n '<pattern>' <hash>, or with Grep in such a checkout. The guard refuses grep
+-r, and an awk program that runs a command, reads the environment or writes a file, so use neither.
 
 Exit codes. 0 an answer, 1 nothing found, 2 a usage refused, a reviewer's call or a clone under review among them, 3 a
 clone or commit that cannot be read or an answer left incomplete.
