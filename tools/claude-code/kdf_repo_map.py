@@ -75,7 +75,7 @@ TITLES     = {
     "defs": ("Definitions", "Bound by an import", "Unchecked matches"),
     "imports": ("Imports", "Imports through a re-export", "Unchecked matches"),
     "callers": ("Resolved calls", "Uses that are not calls", "Unchecked matches"),
-    "callees": ("Resolved calls", "Uses that are not calls", "Unchecked matches"),
+    "callees": ("Resolved calls", "Uses that are not calls", "Unchecked matches", "Attributes written"),
     "test-importers": ("Test imports", "Test imports through a re-export", "Unchecked matches"),
 }
 REBOUND    = "its name or a class holding it bound more than once"
@@ -163,8 +163,11 @@ class Scope:
     stars:          list[tuple[tuple[int, int], bool]] = field(default_factory = list)
     method_of:      Scope | None = None
     first:          str = ""
-    bases:          list[ast.expr] = field(default_factory = list)
-    deferred:       str = ""
+    # the class body a def is written in and its first positional parameter, whatever its decorators say
+    holder:   Scope | None = None
+    lead:     str = ""
+    bases:    list[ast.expr] = field(default_factory = list)
+    deferred: str = ""
 
 
 @dataclass(frozen = True)
@@ -627,9 +630,12 @@ class Collector(ast.NodeVisitor):
         parameters.extend(arg for arg in (arguments.vararg, arguments.kwarg) if arg is not None)
         self.walk_all([*node.decorator_list, *arguments.defaults, *arguments.kw_defaults])
         self.walk_annotations([*(parameter.annotation for parameter in parameters), node.returns])
-        scope = Scope("function", self.scope, self.define(node, "def"))
+        scope      = Scope("function", self.scope, self.define(node, "def"))
+        positional = [*arguments.posonlyargs, *arguments.args]
+        if self.scope.kind == "class":
+            scope.holder = self.scope
+            scope.lead   = positional[0].arg if positional else ""
         if self.scope.kind == "class" and "staticmethod" not in map(dotted_text, node.decorator_list):
-            positional      = [*arguments.posonlyargs, *arguments.args]
             scope.method_of = self.scope
             scope.first     = positional[0].arg if positional else ""
         self.module.functions.setdefault(f"{self.module.name}.{scope.qual}", []).append(scope)
@@ -1331,7 +1337,7 @@ class Resolver:
 
     def callee_lines(self, module: Module) -> list[tuple[int, int, str]]:
         """
-        Find what the asked function uses in its own body, a def nested in it left to its own query.
+        Find what the asked function calls, uses and writes in its own body, a def nested in it left to its own query.
 
         Args:
             module: the module
@@ -1364,7 +1370,82 @@ class Resolver:
             if several:
                 group, text = 2, f"{text}, {several}"
             found.append((group, node.lineno, text))
+        # every attribute the body assigns or deletes, in a group of its own, labelled as the other groups are
+        for scope, node, verb, _ in module.writes:
+            inside = self.inside_body(scope, bodies)
+            if inside is not None:
+                text = self.write_words(module, scope, node, verb)
+                found.append((3, node.lineno, ", ".join(filter(None, [text, inside[0], several]))))
         return found
+
+
+    def write_words(self, module: Module, scope: Scope, node: ast.Attribute, verb: str) -> str:
+        """
+        Word one attribute a body writes or deletes, its receiver named only when the receiver itself is known.
+
+        Args:
+            module: the module the body stands in
+            scope: the scope the write stands in
+            node: the attribute written
+            verb: written or deleted
+
+        Returns:
+            str: the words, a first parameter, a class, a module or a name outside the clone, else its type unknown
+        """
+        receiver = node.value
+        head     = f"{dotted_text(node)} {verb}"
+        mangled  = f", {MANGLED}" if private(node.attr) and inside_class(scope) else ""
+        root     = receiver
+        while isinstance(root, ast.Attribute):
+            root = root.value
+        holder = self.lead_of(scope, receiver.id) if isinstance(receiver, ast.Name) else None
+        if holder is not None:
+            where = f"the first parameter of a def in the body of class {module.name}.{holder.qual}"
+            return f"{head}, on {receiver.id}, {where}{mangled}"
+        # a chain through self, cls or a method's first parameter is never resolved, its type is the instance's
+        through = isinstance(
+            root,
+            ast.Name,
+        ) and (root.id in ("self", "cls") or self.lead_of(scope, root.id) is not None)
+        place   = Place("", "unresolved") if through else self.resolve(module, scope, receiver)
+        if place.nature == "def" and place.origin in self.clone.classes:
+            return f"{head}, on class {place.origin}{mangled}"
+        if place.nature == "module" and place.established:
+            bound    = self.clone.modules[place.origin].scope.bindings.get(node.attr, [])
+            imported = next((binding.origin for binding in bound if binding.kind in ("from", "module")), "")
+            other    = f", which {place.origin} imports from {imported}" if imported else ""
+            return f"{head}, on module {place.origin}{other}{mangled}"
+        if place.nature == "external":
+            return f"{head}, on {place.origin}, outside the clone, as imported{mangled}"
+        return f"{head}, on {dotted_text(receiver)}, its type unknown to the ast{mangled}"
+
+
+    def lead_of(self, scope: Scope, name: str) -> Scope | None:
+        """
+        Find the class whose body holds the def a bare name is the first parameter of, bound there once.
+
+        Args:
+            scope: the scope the name is read in
+            name: the name
+
+        Returns:
+            Scope | None: the class body, or None when the nearest scope binding the name binds it otherwise
+        """
+        own = scope
+        while scope is not None and scope.kind != "module":
+            # a class body is skipped by the scopes inside it, as Python resolves a name
+            if scope.kind == "class" and scope is not own:
+                scope = scope.parent
+                continue
+            if name in scope.global_names or name in scope.nonlocal_names:
+                return None
+            if name in scope.bindings:
+                lone = len(scope.bindings[name]) == 1
+                if scope.kind == "function" and scope.holder is not None and scope.lead == name and lone:
+                    return scope.holder
+                return None
+            scope = scope.parent
+        return None
 
 
     def callee_note(self) -> str:
@@ -1932,12 +2013,13 @@ def spread(entries: list[tuple[int, str, int, str]], count: int) -> list[tuple[i
 
 def render(clones: list[Clone], command: str, groups: list[list], args: argparse.Namespace) -> list[str]:
     """
-    Write the answer, each clone's first line, the three groups, any file left unread and the floor's warning.
+    Write the answer, each clone's first line, its groups, any file left unread and the floor's warning.
 
     Args:
         clones: the clones read
         command: the command asked
-        groups: the three groups' lines, each its clone's index, path, line and words
+        groups: the groups' lines, three, or four for callees and test-importers, each its clone's index, path, line
+            and words
         args: the parsed arguments, for --tests, --skip and --full
 
     Returns:
@@ -2053,7 +2135,7 @@ def run(args: argparse.Namespace) -> int:
     clones = [open_clone(root, name, ats.get(name)) for name in args.repo]
     for clone in clones:
         read(clone, skips, roots)
-    groups = [[], [], []]
+    groups = [[] for _ in TITLES[args.command]]
     for index, clone in enumerate(clones):
         resolver = Resolver(clone, args.name)
         before   = sum(map(len, groups))
@@ -2065,7 +2147,7 @@ def run(args: argparse.Namespace) -> int:
         if args.command == "callees":
             note = resolver.callee_note()
             if note.startswith("the body of ") and sum(map(len, groups)) == before:
-                note = f"{note}, which makes no call or use the ast sees"
+                note = f"{note}, which makes no call, use or write the ast sees"
             clone.notes.append(note)
     for line in render(clones, args.command, groups, args):
         print(line)

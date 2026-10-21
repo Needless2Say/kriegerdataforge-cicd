@@ -1818,7 +1818,10 @@ def test_callees_names_a_self_call_its_static_target_or_an_override(tmp_path: Pa
 
 def test_callees_skips_a_class_scope_and_its_global_for_a_method_inside(tmp_path: Path) -> None:
     _clone(tmp_path, "app", CALLEES)
-    resolved, _, _, _ = _groups(_run(tmp_path, "callees", "cal.scoped.outer.Box.work", "--repo", "app").stdout, "callees")
+    resolved, _, _, _ = _groups(
+        _run(tmp_path, "callees", "cal.scoped.outer.Box.work", "--repo", "app").stdout,
+        "callees",
+    )
     place = _line(CALLEES, "cal/scoped.py", "        target()")
     assert len(resolved) == 1 and _has(resolved, place + "target called, resolves to cal.scoped.outer.target, a def")
 
@@ -2078,7 +2081,6 @@ def test_a_def_and_a_class_answer_as_before_in_every_other_form(tmp_path: Path) 
     assert _has(resolved, line("    helper()") + "helper called, resolves to reg.lib.helper, a def")
     assert _has(resolved, line("Thing()") + "Thing called, resolves to reg.lib.Thing, a class")
     assert _has(values, line("return Thing") + "Thing used, resolves to reg.lib.Thing, a class")
-
 
 # ======================================================================================================================
 # the attributes a body writes, callees' fourth group
