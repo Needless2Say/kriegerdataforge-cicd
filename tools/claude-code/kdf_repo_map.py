@@ -80,9 +80,14 @@ TITLES     = {
 }
 REBOUND    = "its name or a class holding it bound more than once"
 ANNOTATION = "in an annotation, never run with the code around it"
+SHAKY      = "bound more than once, or in a form the map does not take as certain, unchecked"
+MANGLED    = "a private name, which Python mangles inside a class, unchecked"
+STAR       = "a star import in its scope may replace it"
+# the statements whose bodies run only on a condition, in a loop or under a handler, so a binding in them is not direct
+COMPOUND = (ast.If, ast.For, ast.AsyncFor, ast.While, ast.With, ast.AsyncWith, ast.Try, ast.TryStar, ast.Match)
 NOT_SEEN = ("Not seen, uncommitted edits, importlib and getattr, a name held in a string such as a mock.patch target, "
             "a star import, and a method on an instance whose class the ast cannot know, which lands by name.")
-HELP = """\
+HELP     = """\
 commands
   defs <name>              where a name is defined, a bare name or a dotted one
   imports <dotted>         the imports of a module, of a name in it, and of every module under it
@@ -128,13 +133,19 @@ class Refusal(Exception):
 @dataclass(frozen = True)
 class Binding:
     """
-    One statement binding a name in a scope, where it stands, what kind of binding it is and what it binds.
+    One statement binding a name in a scope, where it stands, what kind of binding it is and what it binds, and the
+    statement, form and directness the binding rule for a value reads.
     """
     position: tuple[int, int]
     kind:     str
     origin:   str
     start: tuple[int, int] = (0, 0)
     loads: str = ""
+    # the statement that binds it, so V = V = 1 counts once, its form, assign, import, def, del, mangled or other, and
+    # whether the scope that runs it is the scope it lands in and it stands directly in that scope's body
+    statement: tuple[int, int] = (0, 0)
+    form:      str = "other"
+    direct:    bool = False
 
 
 @dataclass(eq = False)
@@ -149,6 +160,7 @@ class Scope:
     global_names:   set[str] = field(default_factory = set)
     nonlocal_names: set[str] = field(default_factory = set)
     star:           bool = False
+    stars:          list[tuple[tuple[int, int], bool]] = field(default_factory = list)
     method_of:      Scope | None = None
     first:          str = ""
     bases:          list[ast.expr] = field(default_factory = list)
@@ -165,6 +177,11 @@ class Place:
     established: bool = False
     label:       str = ""
     loaded:      tuple[str, ...] = ()
+    # what an unchecked place would hold, the doubt a module's value takes from the import that reached the module, and
+    # the names the path passed through, which a write elsewhere may rebind
+    holds:   str = ""
+    pending: str = ""
+    via:     tuple[str, ...] = ()
 
 
 @dataclass(eq = False)
@@ -178,6 +195,7 @@ class Module:
     test:      bool
     scope:     Scope
     uses:      list[tuple[Scope, ast.expr, bool, str]] = field(default_factory = list)
+    writes:    list[tuple[Scope, ast.Attribute, str, str]] = field(default_factory = list)
     imports:   list[tuple[int, str, str]] = field(default_factory = list)
     defs:      list[tuple[int, str, str]] = field(default_factory = list)
     decorated: list[tuple[int, str, str, str]] = field(default_factory = list)
@@ -223,6 +241,49 @@ def dotted_text(node: ast.expr) -> str:
     return "(an expression)"
 
 
+def private(name: str) -> bool:
+    """
+    Say whether a name is one Python mangles inside a class, two leading underscores and no trailing pair.
+
+    Args:
+        name: the name
+
+    Returns:
+        bool: True for __name, never for __name__
+    """
+    return name.startswith("__") and not name.endswith("__")
+
+
+def inside_class(scope: Scope | None) -> bool:
+    """
+    Say whether a scope stands lexically inside a class, its body or any scope nested in it, where Python mangles.
+
+    Args:
+        scope: the scope
+
+    Returns:
+        bool: True when the scope or any scope holding it is a class body
+    """
+    while scope is not None:
+        if scope.kind == "class":
+            return True
+        scope = scope.parent
+    return False
+
+
+def self_receiver(node: ast.expr) -> bool:
+    """
+    Say whether an attribute is read through self or cls.
+
+    Args:
+        node: the use
+
+    Returns:
+        bool: True for self.name or cls.name
+    """
+    return isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id in ("self", "cls")
+
+
 class Collector(ast.NodeVisitor):
     """
     Walk one module once, building its scopes and recording each binding, use, import and definition in them.
@@ -237,6 +298,28 @@ class Collector(ast.NodeVisitor):
         self.module            = module
         self.scope             = module.scope
         self.nonlocal_bindings = []
+        self.statement         = None
+        self.nested            = 0
+
+
+    def visit(self, node: ast.AST) -> None:
+        """
+        Visit a node, keeping the statement the walk stands in and how many compound statements hold it in its scope.
+
+        Args:
+            node: the node
+        """
+        if not isinstance(node, ast.stmt):
+            super().visit(node)
+            return
+        saved, self.statement = self.statement, node
+        compound = isinstance(node, COMPOUND)
+        self.nested           += compound
+        try:
+            super().visit(node)
+        finally:
+            self.statement = saved
+            self.nested    -= compound
 
 
     def where(self) -> str:
@@ -256,7 +339,7 @@ class Collector(ast.NodeVisitor):
         return "at module level"
 
 
-    def bind(self, name: str, node: ast.AST, kind: str, origin: str = "", loads: str = "") -> None:
+    def bind(self, name: str, node: ast.AST, kind: str, origin: str = "", loads: str = "", form: str = "other") -> None:
         """
         Record a binding where Python makes it, a global or nonlocal declaration honoured.
 
@@ -266,19 +349,26 @@ class Collector(ast.NodeVisitor):
             kind: module or from for an import, def for a def or class, local for anything else
             origin: the dotted origin an import or a definition binds
             loads: the dotted module an import statement loads, which import a.b binds as a
+            form: assign, import, def, del or other, what the binding rule for a value reads
         """
-        scope = self.scope
-        start = (getattr(node, "lineno", 0), getattr(node, "col_offset", 0))
-        # a def or class binds its name once the statement ends, after its decorators, defaults, bases and body run
-        end     = (getattr(node, "end_lineno", 0) or 0, getattr(node, "end_col_offset", 0) or 0)
-        binding = Binding(end if kind == "def" else start, kind, origin, start, loads)
-        if name in scope.nonlocal_names and scope.parent is not None:
-            # placed once the walk ends, since the enclosing function may bind the name later in its body than this
-            self.nonlocal_bindings.append((scope, name, binding))
-            return
-        if name in scope.global_names:
+        scope    = self.scope
+        deferred = name in scope.nonlocal_names and scope.parent is not None
+        if not deferred and name in scope.global_names:
             while scope.parent is not None:
                 scope = scope.parent
+        # a private name a class's code binds in another scope lands under its mangled name, which the map never forms
+        if private(name) and (deferred or scope is not self.scope) and inside_class(self.scope):
+            form = "mangled"
+        start     = (getattr(node, "lineno", 0), getattr(node, "col_offset", 0))
+        statement = (self.statement.lineno, self.statement.col_offset) if self.statement is not None else start
+        direct    = scope is self.scope and not deferred and not self.nested
+        # a def or class binds its name once the statement ends, after its decorators, defaults, bases and body run
+        end     = (getattr(node, "end_lineno", 0) or 0, getattr(node, "end_col_offset", 0) or 0)
+        binding = Binding(end if kind == "def" else start, kind, origin, start, loads, statement, form, direct)
+        if deferred:
+            # placed once the walk ends, since the enclosing function may bind the name later in its body than this
+            self.nonlocal_bindings.append((self.scope, name, binding))
+            return
         scope.bindings.setdefault(name, []).append(binding)
 
 
@@ -332,12 +422,14 @@ class Collector(ast.NodeVisitor):
             body: the statements or the expression evaluated inside it
         """
         saved, self.scope = self.scope, scope
+        nested, self.nested = self.nested, 0
         try:
             for name in names:
                 self.bind(getattr(name, "arg", None) or name.name, name, "local")
             self.walk_all(body)
         finally:
-            self.scope = saved
+            self.scope  = saved
+            self.nested = nested
 
 
     def define(self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef, kind: str) -> str:
@@ -352,7 +444,7 @@ class Collector(ast.NodeVisitor):
             str: its dotted name inside the module
         """
         qual = f"{self.scope.qual}.{node.name}" if self.scope.qual else node.name
-        self.bind(node.name, node, "def", f"{self.module.name}.{qual}")
+        self.bind(node.name, node, "def", f"{self.module.name}.{qual}", form = "def")
         self.module.defs.append((node.lineno, qual, kind))
         if node.decorator_list:
             names = ", ".join(dotted_text(decorator) for decorator in node.decorator_list)
@@ -369,8 +461,14 @@ class Collector(ast.NodeVisitor):
         """
         if isinstance(node.ctx, ast.Load):
             self.module.uses.append((self.scope, node, False, self.where()))
+            return
+        if isinstance(node.ctx, ast.Del):
+            form = "del"
+        elif isinstance(self.statement, (ast.Assign, ast.AnnAssign)) and self.scope.kind != "comprehension":
+            form = "assign"
         else:
-            self.bind(node.id, node, "local")
+            form = "other"
+        self.bind(node.id, node, "local", form = form)
 
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
@@ -380,7 +478,10 @@ class Collector(ast.NodeVisitor):
         Args:
             node: the annotated assignment
         """
-        if node.value is not None or self.scope.kind not in (
+        if node.value is None and isinstance(node.target, ast.Attribute):
+            # an annotated attribute with no value writes nothing, though Python still runs its receiver
+            self.visit(node.target.value)
+        elif node.value is not None or self.scope.kind not in (
             "module",
             "class",
         ) or not isinstance(node.target, ast.Name):
@@ -391,13 +492,16 @@ class Collector(ast.NodeVisitor):
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
         """
-        Record an attribute load as a use, then walk its receiver.
+        Record an attribute load as a use and an assigned or deleted one as a write, then walk its receiver.
 
         Args:
             node: the attribute
         """
         if isinstance(node.ctx, ast.Load):
             self.module.uses.append((self.scope, node, False, self.where()))
+        else:
+            verb = "deleted" if isinstance(node.ctx, ast.Del) else "written"
+            self.module.writes.append((self.scope, node, verb, self.where()))
         self.visit(node.value)
 
 
@@ -460,10 +564,10 @@ class Collector(ast.NodeVisitor):
         """
         for alias in node.names:
             if alias.asname:
-                self.bind(alias.asname, node, "module", alias.name, alias.name)
+                self.bind(alias.asname, node, "module", alias.name, alias.name, "import")
             else:
                 top = alias.name.partition(".")[0]
-                self.bind(top, node, "module", top, alias.name)
+                self.bind(top, node, "module", top, alias.name, "import")
             self.module.imports.append((node.lineno, alias.name, self.where()))
 
 
@@ -478,10 +582,13 @@ class Collector(ast.NodeVisitor):
         for alias in node.names:
             if alias.name == "*":
                 self.scope.star = True
-                origin          = f"{base}.*" if base else ""
+                self.scope.stars.append(((node.lineno, node.col_offset), not self.nested))
+                origin = f"{base}.*" if base else ""
             else:
                 origin = f"{base}.{alias.name}".lstrip(".") if base is not None else ""
-                self.bind(alias.asname or alias.name, node, "from" if origin else "local", origin)
+                # a relative import climbing out of the clone binds a name the map cannot follow, never a value here
+                kind = "from" if origin else "local"
+                self.bind(alias.asname or alias.name, node, kind, origin, form = "import" if origin else "other")
             if origin:
                 self.module.imports.append((node.lineno, origin, self.where()))
 
@@ -633,11 +740,12 @@ class Resolver:
         """
         self.clone  = clone
         self.query  = query
+        self.marked = None
         self.target = self.canonical(query) if "." in query else query
         self.parent, _, self.name = self.target.rpartition(".")
 
 
-    def follow(self, origin: str) -> tuple[str, str | None]:
+    def follow(self, origin: str) -> tuple[str, str | None, str, tuple[str, ...]]:
         """
         Follow a module level name through the clone's explicit imports to where it is defined.
 
@@ -645,31 +753,112 @@ class Resolver:
             origin: a dotted name, a module or a name in one
 
         Returns:
-            tuple[str, str | None]: the origin reached and what lies there, one of RESOLVED or missing, or None when a
-                star import, a __getattr__, a competing binding or a cycle stops the walk
+            tuple[str, str | None, str, tuple[str, ...]]: the origin reached and what lies there, one of RESOLVED or
+                missing, or None when a star import, a __getattr__, a competing binding or a cycle stops the walk, then
+                the label that leaves it unchecked, empty when it is certain, and the names the walk passed through
         """
-        seen = set()
+        seen = []
+        # a star or a mangled name unsettles any path, and the binding rule only a path that ends at a value
+        hard = soft = ""
         while origin not in seen:
-            seen.add(origin)
+            seen.append(origin)
             if origin.partition(".")[0] in UNSHADOWED:
-                return origin, "external"
+                return origin, "external", hard, tuple(seen)
             parent, _, name = origin.rpartition(".")
             module = self.clone.modules.get(parent)
             if module is None:
-                return origin, ("module" if origin in self.clone.modules else "external")
+                return origin, ("module" if origin in self.clone.modules else "external"), hard, tuple(seen)
             bindings = module.scope.bindings.get(name)
             if not bindings:
                 if module.scope.star or "__getattr__" in module.scope.bindings:
-                    return origin, None
-                return origin, ("module" if origin in self.clone.modules else "missing")
-            kinds = {(binding.kind, binding.origin) for binding in bindings}
-            if len(kinds) > 1:
-                return origin, None
+                    return origin, None, "", tuple(seen)
+                return origin, ("module" if origin in self.clone.modules else "missing"), hard, tuple(seen)
+            # a del competes with nothing, it leaves the one binding beside it unchecked
+            kinds = {(binding.kind, binding.origin) for binding in bindings if binding.form != "del"}
+            if len(kinds) != 1:
+                return origin, None, "", tuple(seen)
+            hard = hard or self.doubt(module.scope, bindings, False)
+            soft = soft or self.doubt(module.scope, bindings, True)
+            if not soft and private(name) and origin in self.marks()[1]:
+                soft = MANGLED
             kind, bound = kinds.pop()
-            if kind in ("def", "local"):
-                return origin, ("def" if kind == "def" else "value")
+            if kind == "def":
+                return origin, "def", hard, tuple(seen)
+            if kind == "local":
+                return origin, "value", soft, tuple(seen)
             origin = bound
-        return origin, None
+        return origin, None, "", tuple(seen)
+
+
+    def doubt(self, scope: Scope, bindings: list[Binding], value: bool) -> str:
+        """
+        Say why the bindings a scope holds for a name leave it unchecked, or that they do not.
+
+        Args:
+            scope: the scope they land in
+            bindings: every binding of the name there
+            value: whether the name holds a value, so the binding rule applies
+
+        Returns:
+            str: the label, mangled, a star that may replace it, or bound in a form the map does not take as certain,
+                empty when certain
+        """
+        if any(binding.form == "mangled" for binding in bindings):
+            return MANGLED
+        if self.displaced(scope, bindings):
+            return f"{STAR}, unchecked"
+        # one statement, an assignment or an import made directly in the body of the scope that runs it
+        lone = len({binding.statement for binding in bindings}) == 1
+        sure = lone and bindings[0].form in ("assign", "import") and bindings[0].direct
+        if (value and not sure) or any(binding.form == "del" for binding in bindings):
+            return SHAKY
+        return ""
+
+
+    def displaced(self, scope: Scope, bindings: list[Binding]) -> bool:
+        """
+        Say whether a star import in the scope may replace a binding, run after it or the order unknown.
+
+        Args:
+            scope: the scope the bindings land in
+            bindings: the bindings of one name there
+
+        Returns:
+            bool: True unless every star and every binding stand directly in the scope's body, each star before them
+        """
+        return any(
+            not (direct and binding.direct and position < binding.start)
+            for position, direct in scope.stars
+            for binding in bindings
+        )
+
+
+    def marks(self) -> tuple[dict[str, str], set[str]]:
+        """
+        Read every attribute the clone's code writes through a class it defines or a module whose identity is known.
+
+        Returns:
+            tuple[dict[str, str], set[str]]: each member or value written elsewhere with the label naming where, and
+                each private name written inside a class, which Python writes under its mangled name
+        """
+        if self.marked is not None:
+            return self.marked
+        # empty while the writes are read, so a path followed for one of them never asks for the marks again
+        self.marked = ({}, set())
+        written, mangled = {}, set()
+        for module in self.clone.files:
+            for scope, node, verb, _ in module.writes:
+                place = self.resolve(module, scope, node.value)
+                known = place.nature == "def" and place.origin in self.clone.classes
+                if not known and not (place.nature == "module" and place.established):
+                    continue
+                origin = f"{place.origin}.{node.attr}"
+                if private(node.attr) and inside_class(scope):
+                    mangled.add(origin)
+                else:
+                    written.setdefault(origin, f"{verb} elsewhere at {module.path}:{node.lineno}, unchecked")
+        self.marked = (written, mangled)
+        return self.marked
 
 
     def canonical(self, dotted: str) -> str:
@@ -682,7 +871,7 @@ class Resolver:
         Returns:
             str: the name its definition carries, or the name as given when the clone cannot lead it further
         """
-        origin, nature = self.follow(dotted)
+        origin, nature, _, _ = self.follow(dotted)
         parent, _, name = dotted.rpartition(".")
         if nature == "external" and "." in parent:
             return f"{self.canonical(parent)}.{name}"
@@ -715,40 +904,56 @@ class Resolver:
         return True
 
 
-    def settle(self, bindings: list[Binding], position: tuple[int, int] | None) -> Place:
+    def settle(self, bindings: list[Binding], position: tuple[int, int] | None, scope: Scope, own: str = "") -> Place:
         """
         Turn the bindings a scope holds for a name into the place the name leads.
 
         Args:
             bindings: every binding of the name in that scope
             position: the use's position when that scope is a module or class body the use stands in, else None
+            scope: that scope, whose star imports and binding rule a value reads
+            own: the dotted name a value bound there carries, for a module or class body, else empty
 
         Returns:
             Place: the place, unresolved with a label when the name is bound twice to different things or used
-                before its binding
+                before its binding, and unchecked with its origin kept when a star, a mangled name or the binding
+                rule leaves it so
         """
         if position is not None and all(binding.position > position for binding in bindings):
             return Place("", "unresolved", label = "used before its binding, unchecked")
-        kinds = {(binding.kind, binding.origin) for binding in bindings}
+        # a del competes with nothing, it leaves the one binding beside it unchecked, and a name only deleted is local
+        kinds = {(binding.kind, binding.origin) for binding in bindings if binding.form != "del"} or {("local", "")}
         if len(kinds) > 1:
             return Place("", "unresolved", label = "bound more than once, unchecked")
         kind, origin = kinds.pop()
         if kind == "local":
-            return Place("", "local")
+            # a value the module or class body binds, which callees reads and every other command leaves a local
+            if not own:
+                return Place("", "local")
+            return Place(own, "local", label = self.doubt(scope, bindings, True), holds = "value", via = (own,))
         if kind == "def":
-            return Place(origin, "def")
-        canon, nature = self.follow(origin)
+            doubt = self.doubt(scope, bindings, False)
+            return Place(origin, "candidate", label = doubt, holds = "def") if doubt else Place(origin, "def")
+        canon, nature, label, via = self.follow(origin)
         if nature is None:
             return Place("", "unresolved", label = f"through {origin}, unchecked")
         if nature == "missing":
             return Place(canon, "candidate", label = f"not bound in {canon.rpartition('.')[0]}, unchecked")
+        via   = (own, *via) if own else via
+        doubt = self.doubt(scope, bindings, nature == "value") or label
+        if doubt:
+            return Place(canon, "candidate", label = doubt, holds = nature, via = via)
         top_level   = kind == "module" and "." not in origin
         established = top_level or (nature == "module" and self.established(canon))
         # in a module or class body an import loads its module only for the statements after it
         loaded = tuple(
             binding.loads for binding in bindings if binding.loads and (position is None or binding.position < position)
         )
-        return Place(canon, nature, established = established, loaded = loaded)
+        # a value read through this module is certain only when every import of it stands directly in the scope's
+        # body, however many statements bind the same package
+        sure    = all(binding.direct and binding.form == "import" for binding in bindings)
+        pending = SHAKY if nature == "module" and not sure else ""
+        return Place(canon, nature, established = established, loaded = loaded, pending = pending, via = via)
 
 
     def lookup(self, module: Module, scope: Scope, name: str, position: tuple[int, int]) -> Place:
@@ -787,7 +992,8 @@ class Resolver:
                 ):
                     return Place("", "unresolved", label = "used before its binding, unchecked")
                 ordered = scope is own and scope.kind in ("module", "class")
-                return self.settle(bindings, position if ordered else None)
+                value   = f"{module.name}.{name}" if scope.kind == "module" else ""
+                return self.settle(bindings, position if ordered else None, scope, value)
             if scope.star:
                 return Place("", "unresolved", label = "a star import, unchecked")
             scope, deferred = scope.parent, leaving
@@ -831,17 +1037,27 @@ class Resolver:
             attr: the attribute
 
         Returns:
-            Place: the member, or unresolved with the bases named
+            Place: the member, unchecked with its origin when it is a private name or the binding rule leaves it so,
+                or unresolved with the bases named
         """
         bindings = klass.bindings.get(attr)
+        member   = f"{origin}.{attr}"
         if bindings:
             # settled as a module's names are, so an import in the class body leads to its origin
-            place = self.settle(bindings, None)
-            if place.nature == "local":
-                return Place(f"{origin}.{attr}", "value")
-            if place.label == "bound more than once, unchecked":
+            place = self.settle(bindings, None, klass, member)
+            if place.nature == "local" and place.label:
+                place = Place(member, "candidate", label = place.label, holds = "value", via = (member,))
+            elif place.nature == "local":
+                place = Place(member, "value", via = (member,))
+            elif place.label == "bound more than once, unchecked":
                 return Place("", "unresolved", label = "bound more than once in its class, unchecked")
+            if private(attr):
+                holds = place.holds or (place.nature if place.nature in RESOLVED else "")
+                return Place(member, "candidate", label = MANGLED, holds = holds, via = (member,))
             return place
+        # a private name read through a class is read as its mangled name, which the class body never binds as written
+        if private(attr):
+            return Place(member, "candidate", label = MANGLED, via = (member,))
         names = []
         for base in klass.bases:
             place = self.resolve(owner, klass.parent, base)
@@ -864,7 +1080,7 @@ class Resolver:
             Place: where it leads
         """
         if isinstance(node, ast.Name):
-            return self.lookup(module, scope, node.id, (node.lineno, node.col_offset))
+            return self.mangled(scope, node.id, self.lookup(module, scope, node.id, (node.lineno, node.col_offset)))
         if not isinstance(node, ast.Attribute):
             return Place("", "unresolved")
         value = node.value
@@ -876,7 +1092,29 @@ class Resolver:
         place = self.attribute(self.resolve(module, scope, value), node.attr)
         if place.nature == "def" and self.inside_own_statement(module, scope, place.origin, node):
             return Place("", "unresolved", label = "used before its binding, unchecked")
-        return place
+        return self.mangled(scope, node.attr, place)
+
+
+    def mangled(self, scope: Scope, name: str, place: Place) -> Place:
+        """
+        Leave a private name used lexically inside a class unchecked, since Python reads it there as _Class__name.
+
+        Args:
+            scope: the scope the use stands in
+            name: the bare name or the attribute's name
+            place: where the map would lead it
+
+        Returns:
+            Place: the place, or unchecked as mangled with its origin kept, a function's own local left as it is
+        """
+        if not private(name) or not inside_class(scope) or place.label == MANGLED:
+            return place
+        if place.nature == "local" and not place.origin:
+            return place
+        if not place.origin:
+            return Place("", "unresolved", label = MANGLED)
+        holds = place.holds or (place.nature if place.nature in RESOLVED else "")
+        return Place(place.origin, "candidate", label = MANGLED, holds = holds, via = place.via)
 
 
     def inside_own_statement(self, module: Module, scope: Scope, origin: str, node: ast.expr) -> bool:
@@ -925,7 +1163,7 @@ class Resolver:
                 return self.member_of_class(found[0], found[1], place.origin, attr)
             return Place(joined, "candidate", label = f"through {place.origin}, unchecked")
         if place.nature == "module" and place.established:
-            canon, nature = self.follow(joined)
+            canon, nature, label, via = self.follow(joined)
             if nature is None:
                 return Place("", "unresolved", label = f"through {joined}, unchecked")
             if nature == "missing":
@@ -937,15 +1175,20 @@ class Resolver:
                 load == joined or load.startswith(f"{joined}.") for load in place.loaded
             ):
                 return Place(joined, "candidate", label = "a submodule no import of it here loads, unchecked")
+            label = label or (place.pending if nature == "value" else "")
+            if label:
+                return Place(canon, "candidate", label = label, holds = nature, via = via)
             established = nature == "module" and self.established(canon)
-            return Place(canon, nature, established = established, loaded = place.loaded)
+            pending     = place.pending if nature == "module" else ""
+            return Place(canon, nature, established = established, loaded = place.loaded, pending = pending, via = via)
         if place.nature == "external" and place.established:
             return Place(joined, "external")
         if place.nature in ("module", "external", "missing"):
             return Place(joined, "candidate", label = f"through a module unchecked, {place.origin}")
         if place.nature == "value":
             return Place(joined, "candidate", label = f"through {place.origin}, unchecked")
-        return Place("", "unresolved", label = place.label)
+        # a value the module binds stays a local here, so a method on it is matched by name as before
+        return Place("", "unresolved", label = "" if place.nature == "local" else place.label)
 
 
     def through_package(self, origin: str) -> bool:
@@ -1019,6 +1262,9 @@ class Resolver:
             return (2, f"{text}, a star import, unchecked") if base == self.parent else None
         canon = self.canonical(base)
         if canon != base and (canon == self.target or canon.startswith(f"{self.target}.")):
+            label = self.follow(base)[2]
+            if label:
+                return 2, f"{text}, through a re-export to {canon}, {label}"
             return 1, f"{text}, through a re-export to {canon}"
         if self.through_package(base):
             return 2, f"{text}, through a package"
@@ -1040,7 +1286,8 @@ class Resolver:
         for line, qual, kind in module.defs:
             full = f"{module.name}.{qual}"
             if (full in (self.query, self.target)) if dotted else qual.rpartition(".")[2] == self.query:
-                found.append((0, line, f"{kind} {full}"))
+                reason = self.defined_doubt(module, qual)
+                found.append((2 if reason else 0, line, f"{kind} {full}, {reason}" if reason else f"{kind} {full}"))
         scopes = [(module.name, module.scope), *module.classes.items()]
         for prefix, scope in scopes:
             for name, bindings in scope.bindings.items():
@@ -1050,10 +1297,36 @@ class Resolver:
                     named    = full in (self.query, self.target) if dotted else name == self.query
                     leads    = dotted and imported and self.canonical(binding.origin) == self.target
                     if imported and (named or leads):
-                        found.append((1, binding.position[0], f"{full} bound by an import of {binding.origin}"))
+                        words = f"{full} bound by an import of {binding.origin}"
+                        if scope.kind == "class" and private(name):
+                            reason = MANGLED
+                        else:
+                            _, nature, label, _ = self.follow(binding.origin)
+                            reason = self.doubt(scope, bindings, nature == "value") or label
+                        group = 2 if reason else 1
+                        found.append((group, binding.position[0], f"{words}, {reason}" if reason else words))
                     elif binding.kind == "local" and named:
                         found.append((2, binding.position[0], f"{full} bound by assignment, unchecked"))
         return found
+
+
+    def defined_doubt(self, module: Module, qual: str) -> str:
+        """
+        Say why a definition's own line is unchecked, a private name in a class body or a star that may replace it.
+
+        Args:
+            module: the module that defines it
+            qual: its dotted name inside the module
+
+        Returns:
+            str: the label, empty when certain
+        """
+        parts = qual.split(".")
+        for index in range(1, len(parts)):
+            if f"{module.name}.{'.'.join(parts[:index])}" in module.classes and private(parts[index]):
+                return MANGLED
+        bindings = module.scope.bindings.get(parts[0], [])
+        return f"{STAR}, unchecked" if bindings and self.displaced(module.scope, bindings) else ""
 
 
     def callee_lines(self, module: Module) -> list[tuple[int, int, str]]:
@@ -1073,7 +1346,8 @@ class Resolver:
         if len(bodies) > 1:
             several = f"one of {len(bodies)} bodies of this name, unchecked"
         else:
-            several = f"{REBOUND}, unchecked" if self.rebound(bodies[0]) else ""
+            reason  = self.rebound(bodies[0])
+            several = f"{reason}, unchecked" if reason else ""
         # a receiver in a chain, svc in svc.core.target(), is part of its outermost name and never a use of its own
         chained = {id(node.value) for _, node, _, _ in module.uses if isinstance(node, ast.Attribute)}
         found   = []
@@ -1109,8 +1383,9 @@ class Resolver:
                 continue
             places = [f"{module.path}:{line}" for line, qual, kind in module.defs
                       if kind == "def" and f"{module.name}.{qual}" == self.target]
-            if len(places) == 1 and self.rebound(module.functions[self.target][0]):
-                return f"the body of {self.target} at {places[0]}, {REBOUND}, so every line is unchecked"
+            reason = self.rebound(module.functions[self.target][0]) if len(places) == 1 else ""
+            if reason:
+                return f"the body of {self.target} at {places[0]}, {reason}, so every line is unchecked"
             if len(places) == 1:
                 return f"the body of {self.target} at {places[0]}"
             if places:
@@ -1164,26 +1439,30 @@ class Resolver:
         return (", ".join(reversed(labels)), later) if scope is not None else None
 
 
-    def rebound(self, body: Scope) -> bool:
+    def rebound(self, body: Scope) -> str:
         """
-        Say whether a function's name, or a class's holding it, is bound more than once, so no body is certain.
+        Say why no body is certain for a function, its name or a class's holding it bound more than once or a star
+        import that may replace it.
 
         Args:
             body: the function's scope
 
         Returns:
-            bool: True when any scope on the way binds the name it holds in more than one statement
+            str: the reason, empty when the body is certain
         """
         scope = body
         while scope.parent is not None and scope.kind in ("function", "class"):
-            name = scope.qual.rpartition(".")[2]
+            name     = scope.qual.rpartition(".")[2]
+            bindings = scope.parent.bindings.get(name, [])
             # a name declared global or nonlocal is bound in another scope, so its body is never taken as certain
             if name in scope.parent.global_names or name in scope.parent.nonlocal_names:
-                return True
-            if len({binding.start for binding in scope.parent.bindings.get(name, [])}) > 1:
-                return True
+                return REBOUND
+            if len({binding.statement for binding in bindings}) > 1:
+                return REBOUND
+            if self.displaced(scope.parent, bindings):
+                return STAR
             scope = scope.parent
-        return False
+        return ""
 
 
     def callee_words(
@@ -1211,6 +1490,9 @@ class Resolver:
         text  = dotted_text(node)
         verb  = "called" if is_call else "used"
         where = f", {inside[0]}" if inside[0] else ""
+        found = self.value_words(node, place, is_call)
+        if found is not None:
+            return (2 if inside[1] else found[0]), found[1] + where
         if place.nature in RESOLVED and (is_call or place.nature in ("def", "external")):
             kind = {"module": "a module", "value": "a value", "external": "outside the clone, as imported"}
             what = "a class" if place.origin in self.clone.classes else kind.get(place.nature, "a def")
@@ -1222,7 +1504,13 @@ class Resolver:
             group = 2 if inside[1] else (0 if is_call else 1)
             return group, f"{text} {verb}, resolves to {place.origin}, {what}{where}"
         if not is_call:
-            return None
+            if place.nature == "candidate" and place.holds in ("def", "external"):
+                return 2, f"{text} used, {place.label}, {place.origin}{where}"
+            # a member read through a class that leaves it to a base, never one read through self or cls
+            if place.label.startswith("through its base ") and not self_receiver(node):
+                return 2, f"{text} used, {place.label}{where}"
+            found = self.receiver_words(module, scope, node)
+            return None if found is None else ((2 if inside[1] else found[0]), found[1] + where)
         if place.nature == "candidate":
             return 2, f"{text} called, {place.label}, {place.origin}{where}"
         label = place.label
@@ -1235,6 +1523,66 @@ class Resolver:
         elif not label and isinstance(node, ast.Attribute):
             label = "a method of a value whose type the ast cannot know, unchecked"
         return 2, f"{text} called by name" + (f", {label}" if label else "") + where
+
+
+    def value_words(self, node: ast.expr, place: Place, is_call: bool) -> tuple[int, str] | None:
+        """
+        Word a use that leads to a value the clone binds, a class's member or a module's value, for callees.
+
+        Args:
+            node: the use
+            place: where it leads
+            is_call: whether the use is a call
+
+        Returns:
+            tuple[int, str] | None: the group and the words, or None when the place holds no such value, or the use
+                calls a value its own module binds, which stays a local as before
+        """
+        holds = place.holds if place.nature in ("candidate", "local") else place.nature
+        if holds != "value" or (is_call and place.nature == "local"):
+            return None
+        text  = dotted_text(node)
+        verb  = "called" if is_call else "used"
+        owner = place.origin.rpartition(".")[0]
+        if place.label:
+            return 2, f"{text} {verb}, {place.label}, {place.origin}"
+        if not is_call and self_receiver(node):
+            hedge = "an instance or a subclass may hold its own, unchecked"
+            return 2, f"{text} {verb}, bound in the body of class {owner}, {hedge}"
+        written = self.marks()[0]
+        marked  = next((written[step] for step in (place.origin, *place.via) if step in written), "")
+        if marked:
+            return 2, f"{text} {verb}, {marked}, {place.origin}"
+        if owner in self.clone.classes:
+            what = f"a member bound in the body of class {owner}"
+        else:
+            what = f"a value bound at module level in {owner}"
+        if self_receiver(node):
+            what = f"{what}, its class's own as the static target, or an override"
+        return (0 if is_call else 1), f"{text} {verb}, resolves to {place.origin}, {what}"
+
+
+    def receiver_words(self, module: Module, scope: Scope, node: ast.expr) -> tuple[int, str] | None:
+        """
+        Find the longest receiver in a chain that leads to a value the clone binds, its unresolved rest never promoted.
+
+        Args:
+            module: the module the use stands in
+            scope: the scope the use stands in
+            node: the chain, such as Status.active.value
+
+        Returns:
+            tuple[int, str] | None: the group and the words for that receiver, or None when none leads to such a value
+        """
+        receiver = node
+        while isinstance(receiver, ast.Attribute):
+            receiver = receiver.value
+            if not isinstance(receiver, (ast.Name, ast.Attribute)):
+                return None
+            found = self.value_words(receiver, self.resolve(module, scope, receiver), False)
+            if found is not None:
+                return found
+        return None
 
 
     def lines(self, module: Module, command: str) -> list[tuple[int, int, str]]:

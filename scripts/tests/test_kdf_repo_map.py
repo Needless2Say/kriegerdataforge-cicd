@@ -1863,7 +1863,10 @@ def test_a_value_through_a_module_imported_conditionally_is_unchecked_and_throug
     _, values, _ = _callees(tmp_path, "val.reader.values")
     place = _line(VALUES, "val/reader.py", "return MAX, ALIASED")
     assert _has(values, place + f"val.limits.MAX used, {value}"), "import val.enums and import val.limits bind val once"
-    resolved, values, unchecked = _groups(_run(tmp_path, "callers", "val.limits.MAX", "--repo", "app").stdout, "callers")
+    resolved, values, unchecked = _groups(
+        _run(tmp_path, "callers", "val.limits.MAX", "--repo", "app").stdout,
+        "callers",
+    )
     place = _line(VALUES, "val/reader.py", "return inner_limits.MAX")
     assert _has(values, place + "inner_limits.MAX used in through_modules")
     assert _has(unchecked, place + f"maybe_limits.MAX used in through_modules, {SHAKY}")
