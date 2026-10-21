@@ -980,6 +980,47 @@ CROSSINGS = {
         """,
 }
 
+RECEIVERS = {
+    "pv/__init__.py": "",
+    "pv/cfg.py": "__value = 1\n_K__value = 2\n",
+    "pv/read.py": """
+        class K:
+            from pv.cfg import __value as V
+
+
+        def read():
+            return K.V
+        """,
+    "pv/lib.py": """
+        class K:
+            V = 1
+
+
+        def read():
+            return K.V
+
+
+        def change(other):
+            import pv.lib
+            pv.lib.K = other
+            pv.lib.K.x = 1
+        """,
+    "pv/alias.py": """
+        def target():
+            return 1
+
+
+        class K:
+            from pv.alias import target as __alias
+
+            def run(self):
+                self.__alias()
+                import pv.alias as __lib
+                return __lib.target
+        """,
+    "tests/test_values.py": "V = 1\n\n\ndef test_read():\n    return V\n",
+}
+
 CANDIDATES = {
     "cand/__init__.py": "",
     "cand/service.py": """
@@ -2283,6 +2324,48 @@ def test_a_use_through_a_receiver_a_star_may_replace_stays_in_the_unchecked_matc
     resolved, _, unchecked = _groups(_run(tmp_path, "callers", "cx.lib.target", "--repo", "app").stdout, "callers")
     place = _line(CROSSINGS, "cx/starred.py", "api.alias()")
     assert not _has(resolved, place) and _has(unchecked, place + f"api.alias called in run, {STARRED}")
+
+
+def test_a_private_name_an_import_inside_a_class_takes_is_unchecked_as_mangled(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", RECEIVERS)
+    place = _line(RECEIVERS, "pv/read.py", "return K.V")
+    _, values, unchecked, _ = _callees(tmp_path, "pv.read.read")
+    assert values == [] and _has(unchecked, place + f"K.V used, {MANGLED}, pv.cfg.__value")
+    resolved, values, unchecked = _groups(_run(tmp_path, "callers", "pv.cfg.__value", "--repo", "app").stdout, "callers")
+    assert resolved == [] and values == [] and _has(unchecked, place + f"K.V used in read, {MANGLED}")
+    found, _, unchecked = _groups(_run(tmp_path, "imports", "pv.cfg", "--repo", "app").stdout, "imports")
+    imported = _line(RECEIVERS, "pv/read.py", "import __value")
+    assert not _has(found, imported) and _has(unchecked, imported + f"imports pv.cfg.__value in class K, {MANGLED}")
+
+
+def test_a_class_read_by_its_bare_name_and_replaced_elsewhere_is_unchecked_and_names_no_written_receiver(
+    tmp_path: Path,
+) -> None:
+    _clone(tmp_path, "app", RECEIVERS)
+    line    = lambda needle: _line(RECEIVERS, "pv/lib.py", needle)
+    written = line("pv.lib.K = other").strip()
+    _, values, unchecked, _ = _callees(tmp_path, "pv.lib.read")
+    words   = f"K.V used, written elsewhere at {written}, unchecked, pv.lib.K.V"
+    assert values == [] and _has(unchecked, line("return K.V") + words)
+    *_, writes = _callees(tmp_path, "pv.lib.change")
+    assert _has(writes, line("pv.lib.K.x = 1") + f"pv.lib.K.x written, on pv.lib.K, {UNKNOWN}")
+    assert _has(writes, line("pv.lib.K = other") + "pv.lib.K written, on module pv.lib")
+
+
+def test_a_private_alias_of_a_name_keeps_its_origin_and_stays_in_the_unchecked_matches(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", RECEIVERS)
+    line = lambda needle: _line(RECEIVERS, "pv/alias.py", needle)
+    resolved, _, unchecked = _groups(_run(tmp_path, "callers", "pv.alias.target", "--repo", "app").stdout, "callers")
+    assert not _has(resolved, line("self.__alias()"))
+    assert _has(unchecked, line("self.__alias()") + f"self.__alias called in K.run, {MANGLED}")
+    _, values, unchecked, _ = _callees(tmp_path, "pv.alias.K.run")
+    assert values == [] and _has(unchecked, line("return __lib.target") + f"__lib.target used, {MANGLED}, pv.alias.target")
+
+
+def test_a_test_candidate_reading_a_value_bare_in_its_own_file_is_named(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", RECEIVERS)
+    *_, candidates = _groups(_run(tmp_path, "test-importers", "tests.test_values.V", "--repo", "app").stdout, "test-importers")
+    assert _has(candidates, "tests/test_values.py:4 test_read uses V")
 
 
 def test_defs_keeps_every_binding_on_the_way_to_a_name_a_del_leaves_unchecked(tmp_path: Path) -> None:
