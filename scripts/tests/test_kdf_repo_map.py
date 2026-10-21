@@ -812,6 +812,7 @@ STARS = {
             looped_target()
             return EARLY, LATE, LOOPED
         """,
+    "tests/test_star.py": "from star.looped import target\n",
 }
 
 REGRESSION = {
@@ -927,6 +928,55 @@ WRITES = {
 
             def bare(*args):
                 self.value = 2
+        """,
+}
+
+CROSSINGS = {
+    "cx/__init__.py": "",
+    "cx/cfg.py": "V = 1\n",
+    "cx/lib.py": "def target():\n    return 1\n\n\nclass K:\n    V = 1\n",
+    "cx/facade.py": "import os\n\nif os.sep:\n    from cx import cfg\n",
+    "cx/plain.py": "from cx import cfg\n",
+    "cx/alias.py": "from cx.lib import target as alias\n",
+    "cx/relay.py": "from cx.cfg import V as X\n\ndel X\n",
+    "cx/aliasuse.py": "from cx.relay import X as Alias\n",
+    "cx/reader.py": """
+        import os
+
+        import cx.facade
+        import cx.lib
+        import cx.plain
+
+        if os.sep:
+            from cx.lib import K
+
+
+        def through_conditional():
+            return cx.facade.cfg.V, K.V
+
+
+        class Reader:
+            from cx.lib import K
+
+            def run(self):
+                return self.K.V
+
+
+        def change(other):
+            cx.plain.cfg = other
+            cx.lib.K = other
+
+
+        def through_written():
+            return cx.plain.cfg.V, cx.lib.K.V
+        """,
+    "cx/starred.py": """
+        import cx.alias as api
+        from cx.cfg import *
+
+
+        def run():
+            return api.alias()
         """,
 }
 
@@ -2169,6 +2219,9 @@ def test_a_binding_a_star_import_may_replace_is_unchecked_in_every_command(tmp_p
     relay = "imports star.looped.target at module level, through a re-export to star.source.target"
     assert _has(unchecked, line("import target as looped_target") + f"{relay}, {STARRED}")
     assert not _has(through, line("import target as looped_target"))
+    done = _run(tmp_path, "test-importers", "star.source", "--repo", "app")
+    _, through, unchecked, _ = _groups(done.stdout, "test-importers")
+    assert _has(unchecked, f"tests/test_star.py:1 {relay}, {STARRED}") and not _has(through, "tests/test_star.py:1 ")
     found, _, unchecked = _groups(_run(tmp_path, "defs", "target", "--repo", "app").stdout, "defs")
     assert _has(found, _line(STARS, "star/early.py", "def target") + "def star.early.target")
     assert _has(unchecked, _line(STARS, "star/late.py", "def target") + f"def star.late.target, {STARRED}")
@@ -2195,6 +2248,44 @@ def test_a_def_and_a_class_answer_as_before_in_every_other_form(tmp_path: Path) 
     assert _has(resolved, line("    helper()") + "helper called, resolves to reg.lib.helper, a def")
     assert _has(resolved, line("Thing()") + "Thing called, resolves to reg.lib.Thing, a class")
     assert _has(values, line("return Thing") + "Thing used, resolves to reg.lib.Thing, a class")
+
+def test_a_value_through_a_receiver_bound_on_a_condition_or_through_self_is_unchecked(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", CROSSINGS)
+    line = lambda needle: _line(CROSSINGS, "cx/reader.py", needle)
+    _, values, unchecked, _ = _callees(tmp_path, "cx.reader.through_conditional")
+    place = line("return cx.facade.cfg.V")
+    assert values == []
+    assert _has(unchecked, place + f"cx.facade.cfg.V used, {SHAKY}, cx.cfg.V"), "a module a module on the way imports on a condition"
+    assert _has(unchecked, place + f"K.V used, {SHAKY}, cx.lib.K.V"), "a class the reader imports on a condition"
+    _, values, unchecked, _ = _callees(tmp_path, "cx.reader.Reader.run")
+    hedge = "through self or cls, which an instance or a subclass may replace, unchecked"
+    assert values == [] and _has(unchecked, line("return self.K.V") + f"self.K.V used, {hedge}, cx.lib.K.V")
+
+
+def test_a_write_to_a_receiver_on_the_way_leaves_the_value_read_through_it_unchecked(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", CROSSINGS)
+    line = lambda needle: _line(CROSSINGS, "cx/reader.py", needle)
+    _, values, unchecked, _ = _callees(tmp_path, "cx.reader.through_written")
+    place = line("return cx.plain.cfg.V")
+    cfg   = line("cx.plain.cfg = other").strip()
+    klass = line("cx.lib.K = other").strip()
+    assert values == []
+    assert _has(unchecked, place + f"cx.plain.cfg.V used, written elsewhere at {cfg}, unchecked, cx.cfg.V")
+    assert _has(unchecked, place + f"cx.lib.K.V used, written elsewhere at {klass}, unchecked, cx.lib.K.V")
+
+
+def test_a_use_through_a_receiver_a_star_may_replace_stays_in_the_unchecked_matches(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", CROSSINGS)
+    resolved, _, unchecked = _groups(_run(tmp_path, "callers", "cx.lib.target", "--repo", "app").stdout, "callers")
+    place = _line(CROSSINGS, "cx/starred.py", "api.alias()")
+    assert not _has(resolved, place) and _has(unchecked, place + f"api.alias called in run, {STARRED}")
+
+
+def test_defs_keeps_every_binding_on_the_way_to_a_name_a_del_leaves_unchecked(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", CROSSINGS)
+    _, _, unchecked = _groups(_run(tmp_path, "defs", "cx.aliasuse.Alias", "--repo", "app").stdout, "defs")
+    assert _has(unchecked, "cx/relay.py:3 cx.relay.X bound by assignment, unchecked")
+    assert _has(unchecked, f"cx/relay.py:1 cx.relay.X bound by an import of cx.cfg.V, {SHAKY}")
 
 # ======================================================================================================================
 # the attributes a body writes, callees' fourth group
