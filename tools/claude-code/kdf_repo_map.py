@@ -1632,10 +1632,7 @@ class Resolver:
         if not is_call:
             if place.nature == "candidate" and place.holds in ("def", "external"):
                 return 2, f"{text} used, {place.label}, {place.origin}{where}"
-            # a member read through a class that leaves it to a base, never one read through self or cls
-            if place.label.startswith("through its base ") and not self_receiver(node):
-                return 2, f"{text} used, {place.label}{where}"
-            found = self.receiver_words(module, scope, node)
+            found = self.base_words(module, scope, node, place) or self.receiver_words(module, scope, node)
             return None if found is None else ((2 if inside[1] else found[0]), found[1] + where)
         if place.nature == "candidate":
             return 2, f"{text} called, {place.label}, {place.origin}{where}"
@@ -1705,10 +1702,32 @@ class Resolver:
             receiver = receiver.value
             if not isinstance(receiver, (ast.Name, ast.Attribute)):
                 return None
-            found = self.value_words(receiver, self.resolve(module, scope, receiver), False)
+            place = self.resolve(module, scope, receiver)
+            found = self.value_words(receiver, place, False) or self.base_words(module, scope, receiver, place)
             if found is not None:
                 return found
         return None
+
+
+    def base_words(self, module: Module, scope: Scope, node: ast.expr, place: Place) -> tuple[int, str] | None:
+        """
+        Word a member read through a class that leaves it to a base, never one read through self, cls or a chain.
+
+        Args:
+            module: the module the use stands in
+            scope: the scope the use stands in
+            node: the use
+            place: where it leads
+
+        Returns:
+            tuple[int, str] | None: the unchecked group and the words, or None when the use is no such read
+        """
+        if not place.label.startswith("through its base ") or not isinstance(node, ast.Attribute):
+            return None
+        receiver = self.resolve(module, scope, node.value)
+        if receiver.nature != "def" or receiver.origin not in self.clone.classes:
+            return None
+        return 2, f"{dotted_text(node)} used, {place.label}"
 
 
     def lines(self, module: Module, command: str) -> list[tuple[int, int, str]]:
