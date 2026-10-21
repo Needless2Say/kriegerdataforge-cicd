@@ -618,6 +618,7 @@ VALUES = {
 
         if os.sep:
             from val.limits import MAX as CONDITIONAL
+            import val.limits as maybe_limits
 
 
         def members(user):
@@ -662,6 +663,11 @@ VALUES = {
 
         def imported_conditionally():
             return CONDITIONAL
+
+
+        def through_modules():
+            import val.limits as inner_limits
+            return inner_limits.MAX, maybe_limits.MAX
 
 
         def labelled():
@@ -785,7 +791,15 @@ STARS = {
 REGRESSION = {
     "reg/__init__.py": "",
     "reg/lib.py": "def helper():\n    return 1\n\n\nclass Thing:\n    def run(self):\n        return 1\n",
-    "reg/relay.py": "import os\n\nif os.sep:\n    from reg.lib import helper\n\nfrom reg.lib import Thing\nfrom reg.lib import Thing\n",
+    "reg/relay.py": """
+        import os
+
+        if os.sep:
+            from reg.lib import helper
+
+        from reg.lib import Thing
+        from reg.lib import Thing
+        """,
     "reg/use.py": """
         import os
 
@@ -1787,14 +1801,11 @@ def test_a_member_bound_in_a_form_the_map_does_not_take_as_certain_is_unchecked(
     line = lambda needle: _line(VALUES, "val/reader.py", needle)
     assert resolved == [] and values == []
     for member in ("twice", "dropped", "guarded", "tried", "grouped", "looped", "held", "walrus"):
-        assert _has(unchecked, line(f"Status.{member},") + f"Status.{member} used, {SHAKY}, val.enums.Status.{member}"), (
-            member
-        )
+        words = f"Status.{member} used, {SHAKY}, val.enums.Status.{member}"
+        assert _has(unchecked, line(f"Status.{member},") + words), member
     written = _line(VALUES, "val/enums.py", "Status.written = 2").strip()
-    assert _has(
-        unchecked,
-        line("Status.written,") + f"Status.written used, written elsewhere at {written}, unchecked, val.enums.Status.written",
-    )
+    words   = f"Status.written used, written elsewhere at {written}, unchecked, val.enums.Status.written"
+    assert _has(unchecked, line("Status.written,") + words)
     assert _has(unchecked, line("Child.active,") + "Child.active used, through its base val.enums.Status, unchecked")
 
 
@@ -1840,13 +1851,34 @@ def test_a_module_value_bound_or_written_uncertainly_is_unchecked_in_every_form(
     assert values == [] and _has(unchecked, line("return CONDITIONAL") + f"CONDITIONAL used, {SHAKY}, val.limits.MAX")
 
 
+def test_a_value_through_a_module_imported_conditionally_is_unchecked_and_through_one_imported_twice_is_not(
+    tmp_path: Path,
+) -> None:
+    _clone(tmp_path, "app", VALUES)
+    value = "resolves to val.limits.MAX, a value bound at module level in val.limits"
+    place = _line(VALUES, "val/reader.py", "return inner_limits.MAX")
+    _, values, unchecked = _callees(tmp_path, "val.reader.through_modules")
+    assert _has(values, place + f"inner_limits.MAX used, {value}")
+    assert _has(unchecked, place + f"maybe_limits.MAX used, {SHAKY}, val.limits.MAX")
+    _, values, _ = _callees(tmp_path, "val.reader.values")
+    place = _line(VALUES, "val/reader.py", "return MAX, ALIASED")
+    assert _has(values, place + f"val.limits.MAX used, {value}"), "import val.enums and import val.limits bind val once"
+    resolved, values, unchecked = _groups(_run(tmp_path, "callers", "val.limits.MAX", "--repo", "app").stdout, "callers")
+    place = _line(VALUES, "val/reader.py", "return inner_limits.MAX")
+    assert _has(values, place + "inner_limits.MAX used in through_modules")
+    assert _has(unchecked, place + f"maybe_limits.MAX used in through_modules, {SHAKY}")
+
+
 def test_a_value_under_the_rule_moves_callers_imports_and_test_importers_toward_unchecked_alone(
     tmp_path: Path,
 ) -> None:
     files = dict(VALUES, **{"tests/test_values.py": "from val.relay import GUARDED_RELAY\nfrom val.relay import MAX\n"})
     _clone(tmp_path, "app", files)
     line = lambda needle: _line(VALUES, "val/reader.py", needle)
-    resolved, values, unchecked = _groups(_run(tmp_path, "callers", "val.limits.MAX", "--repo", "app").stdout, "callers")
+    resolved, values, unchecked = _groups(
+        _run(tmp_path, "callers", "val.limits.MAX", "--repo", "app").stdout,
+        "callers",
+    )
     for text in ("MAX", "ALIASED", "val.limits.MAX", "RELAYED"):
         assert _has(values, line("return MAX, ALIASED") + f"{text} used in values"), text
     assert _has(values, line("return INSIDE") + "INSIDE used in imported_inside")
@@ -1868,11 +1900,15 @@ def test_a_value_under_the_rule_moves_callers_imports_and_test_importers_toward_
 def test_a_new_line_carries_the_annotation_deferred_and_several_bodies_labels(tmp_path: Path) -> None:
     _clone(tmp_path, "app", VALUES)
     line   = lambda needle: _line(VALUES, "val/reader.py", needle)
-    member = "Status.active used, resolves to val.enums.Status.active, a member bound in the body of class val.enums.Status"
+    member = "resolves to val.enums.Status.active, a member bound in the body of class val.enums.Status"
+    member = f"Status.active used, {member}"
     _, values, unchecked = _callees(tmp_path, "val.reader.labelled")
     assert values == []
     assert _has(unchecked, line("lambda: Status.active") + f"{member}, inside a lambda, runs when it is called")
-    assert _has(unchecked, line("note: Status.active") + f"{member}, in an annotation, never run with the code around it")
+    assert _has(
+        unchecked,
+        line("note: Status.active") + f"{member}, in an annotation, never run with the code around it",
+    )
     _, values, unchecked = _callees(tmp_path, "val.reader.Twice.size")
     assert values == []
     assert _has(unchecked, line("return Status.active") + f"{member}, one of 2 bodies of this name, unchecked")
@@ -1882,8 +1918,8 @@ def test_a_new_line_carries_the_annotation_deferred_and_several_bodies_labels(tm
 
 def test_a_private_name_is_unchecked_as_mangled_in_callees_and_callers(tmp_path: Path) -> None:
     _clone(tmp_path, "app", PRIVATE)
-    use  = lambda needle: _line(PRIVATE, "priv/use.py", needle)
-    lib  = lambda needle: _line(PRIVATE, "priv/lib.py", needle)
+    use = lambda needle: _line(PRIVATE, "priv/use.py", needle)
+    lib = lambda needle: _line(PRIVATE, "priv/lib.py", needle)
     _, values, unchecked = _callees(tmp_path, "priv.use.outside")
     assert values == [] and _has(unchecked, use("Keeper.__member") + f"Keeper.__member used, {MANGLED}")
     _, values, unchecked = _callees(tmp_path, "priv.lib.Keeper.read")
