@@ -1124,13 +1124,13 @@ def test_the_second_retrospective_s_changes_are_in_the_kit() -> None:
     )
     for line in standing:
         assert line in brief, f"the brief template lost {line!r}"
-    assert "Keep the eight standing bullets after the areas, word for word" in brief
+    assert "Keep the twelve standing bullets after the areas, word for word" in brief
     assert "a loopback peer a probe needs, started inside a test" in brief
     assert brief.index("**Two parsers of one string.**") < brief.index("**What pins a constant.**")
     assert brief.index("**What pins a constant.**") < brief.index("**Whose text a message carries.**")
     assert brief.index("**Whose text a message carries.**") < brief.index("**The new tests.**")
     for words in (
-        "Eight standing questions close every list, word for word from the template",
+        "Twelve standing questions close every list, word for word from the template",
         "two parsers of one string, what pins a constant, whose text a message carries,",
         "with a pair for every number a rule reads, its value moved up and down by the smallest step its unit takes.",
         "Every number a rule reads, a bound, a limit or a default, gets the pair of step 0,",
@@ -1194,7 +1194,7 @@ def test_the_third_retrospective_s_changes_are_in_the_kit() -> None:
         outcome,
         hop,
         secret,
-        "Keep the eight standing bullets after the areas, word for word",
+        "Keep the twelve standing bullets after the areas, word for word",
         "a server a consumer runs, already installed in an environment the orchestrator names by its path, started",
         "inside a test on loopback, never the running stack",
         "a probe that needs what no environment holds goes under Could not settle.",
@@ -1212,9 +1212,9 @@ def test_the_third_retrospective_s_changes_are_in_the_kit() -> None:
     )
     assert [brief.index(lead) for lead in order] == sorted(brief.index(lead) for lead in order)
     for words in (
-        "Eight standing questions close every list",
-        "what a success test reads of its outcome, a hop to another thread or loop, and what a stored secret holds.",
-        "and its second retrospective added the next two, and its third the last three.",
+        "Twelve standing questions close every list",
+        "what a success test reads of its outcome, a hop to another thread or loop, what a stored secret holds,",
+        "and its second retrospective added the next two, its third the next three,",
         "**Step 3b. The fix check**, when step 3 landed a fix of code.",
         "Is every other door of its class in the slice's scope closed, at any severity,",
         "and does the fix change the rule, an allowlist or a grammar, rather than refuse the one input found.",
@@ -1272,6 +1272,103 @@ def test_the_third_retrospective_s_changes_are_in_the_kit() -> None:
         "and never the other fix check reader's report or the rows about it.",
     ):
         assert words in roles, f"the roles page lost {words!r}"
+
+
+def test_the_fourth_retrospective_s_changes_are_in_the_kit() -> None:
+    """
+    The owner approved the kdf-sdk's S4 retrospective (D-083). Every brief closes its look for list with twelve standing
+    questions, the four new ones asking what a value of the right type can hold, what a setting applied once leaves
+    open, what shape a callable is read for and which boundaries a line's consumer honours. The Now block holds two
+    steps of prose by a rule outside the template's braces, so it survives the fill, and a closed step's prose moves to
+    the adjudication log's last section. Every commit of a fix runs the floors and extras lanes, a sentence of step 1
+    itself. The templates and the process name each, so they cannot drift apart in silence.
+    """
+    agent     = KIT / "docs" / "agent"
+    process   = " ".join((agent / "CODE_REVIEW_PROCESS.md").read_text(encoding = "utf-8").split())
+    templates = agent / "templates"
+    brief     = " ".join((templates / "review-brief.template.md").read_text(encoding = "utf-8").split())
+    readme    = " ".join((templates / "review-readme.template.md").read_text(encoding = "utf-8").split())
+    log_text  = (templates / "review-adjudication.template.md").read_text(encoding = "utf-8")
+    value     = " ".join((
+        "- **What a value of the right type can hold.** Every value a check accepts once its type is right,",
+        "a string, a number, a URL or a name, and what the type still lets it hold that its consumer refuses or",
+        "cannot carry, a character the grammar of the header line it lands in forbids, one its encoder cannot write,",
+        "a size past the interpreter's own limits, a label whose own decoding fails. Probe each at its consumer, fed",
+        "where the consumer reads it, and measure there, never at the type, since a check of the type alone passes",
+        "the value the consumer breaks on.",
+    ))
+    setting   = " ".join((
+        "- **A setting applied once.** Every setting the code applies at one point, a logging posture, a filter, a",
+        "handler or a default, and each window before and after that point where a caller's own code can undo it or",
+        "run without it, the caller's startup and shutdown code, a part registered after it, a layer that writes",
+        "before the setting stands. Probe each window with the caller's code in it, and what the setting's own",
+        "author does inside it.",
+    ))
+    shape     = " ".join((
+        "- **A callable read for its shape.** Every place the code decides what kind of callable or container it was",
+        "given before it uses it, whether it reads the shape through the call, so a wrapper is judged as the call",
+        "will run it, in Python an instance whose `__call__` is that kind or a partial over one, in JavaScript a",
+        "bound function or an async function behind a plain one, and whether a container's shape is read before its",
+        "first use, not after.",
+    ))
+    boundary  = " ".join((
+        "- **Every boundary a line's consumer honours.** Wherever the code escapes, splits or filters text that ends",
+        "up as a line, a log line, a header or a record, every boundary that line's own consumer honours, read from",
+        "the consumer's grammar and not the line feed alone, such as all that Python's `str.splitlines` splits on",
+        "where it reads the line, or the line terminators a JavaScript pattern's anchors match, and every conversion",
+        "the format's grammar permits, read from the grammar and not from its examples, since a conversion can write",
+        "a character after the filter ran.",
+    ))
+    for line in (value, setting, shape, boundary, "Keep the twelve standing bullets after the areas, word for word"):
+        assert line in brief, f"the brief template lost {line!r}"
+    order = (
+        "**What a stored secret holds.**",
+        "**What a value of the right type can hold.**",
+        "**A setting applied once.**",
+        "**A callable read for its shape.**",
+        "**Every boundary a line's consumer honours.**",
+        "**The new tests.**",
+    )
+    assert [brief.index(lead) for lead in order] == sorted(brief.index(lead) for lead in order)
+
+    now_rule = " ".join((
+        "Its first bullet holds the open step and the step before it, no more, and every other bullet holds what",
+        "stands now, each open Pending line, owner wait and Do not line kept whatever step it came from. When a step",
+        "closes, the commit that closes it, outside every freeze, moves the prose of the step before it word for word",
+        "into the open slice's adjudication log, its section \"Closed steps\", and the plan's progress row, or at spot",
+        "scale the timeline's row, gains one line saying where it went.",
+    ))
+    at       = readme.index(now_rule)
+    # the rule stands outside every hint in braces, since a filled README deletes them
+    assert readme.rfind("{", 0, at) < readme.rfind("}", 0, at)
+    assert "A resume opens that section only where a line here points to it." in readme
+    assert "rewrites its Now block at every step by the rule under its Now heading" in readme
+    headings = [line for line in log_text.splitlines() if line.startswith("## ")]
+    assert headings[-1] == "## 12. Closed steps"
+    assert "A resume opens this section only where a line of the Now block points here" in " ".join(log_text.split())
+
+    start  = process.index("**Step 1. The orchestrator's review, then its fixes.**")
+    step_1 = process[start:process.index("**Step 1b. The common code**")]
+    floors = " ".join((
+        "Every commit of a fix, step 1's and each later step's, runs the repo's local gate, `make ci` where it has",
+        "one, and beside it, where the repo has them, its lanes at the lowest versions it supports and with its",
+        "optional extras installed, by the repo's own targets, so a test that holds at the pinned versions and not at",
+        "the floor is found where it was written, not at step 6. A lane with no local target is left to the pull",
+        "request's checks.",
+    ))
+    assert floors in step_1, "step 1 lost the floors and extras sentence"
+    for words in (
+        now_rule,
+        "The orchestrator rewrites it at each step, outside a pin's freeze. Its first bullet holds the open step",
+        "then the open slice's adjudication log, its Closed steps section only where a Now line points there,",
+        "what a stored secret holds, what a value of the right type can hold, a setting applied once, a callable read",
+        "for its shape, and every boundary a line's consumer honours.",
+        "and its second retrospective added the next two, its third the next three, and its fourth the last four.",
+        "since v1.26.0 the fourth retrospective's changes",
+        "**The fourth retrospective**, the kdf-sdk's S4",
+        "They are kit v1.26.0, cicd ADR D-083.",
+    ):
+        assert words in process, f"the process lost {words!r}"
 
 
 def test_a_worker_keeps_its_session_s_role_and_never_reads_as_a_reviewer() -> None:

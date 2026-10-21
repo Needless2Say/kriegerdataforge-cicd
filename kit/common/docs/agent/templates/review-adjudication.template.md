@@ -107,3 +107,9 @@ owner answers its proposals, the process's section 14.
 
 The verdict on every finding is one of **Agreed**, **Agreed in part** with what was and was not taken, **Declined**
 with the measurement that shows why, **Measured false**, or **Deferred** with the register row it became.
+
+## 12. Closed steps
+
+{The README's Now prose of each closed step, word for word, oldest first, each under the step's name and the commit
+that moved it, the commit that closed the step after it. Process state alone, never a finding. A resume opens this
+section only where a line of the Now block points here, the process's section 11.}
