@@ -564,8 +564,8 @@ bash kdf-repo-map.sh callees pkg.module.name --repo <clone>                     
 bash kdf-repo-map.sh test-importers pkg.module --repo <clone>                   # the test files and tests using it
 ```
 
-A lookup a search worker would make, in one call (D-082, D-084). A session names its clones one by one, each a folder beside
-the cicd clone and never a link that leads outside, and the tool reads each clone's tracked `*.py` files at one
+A lookup a search worker would make, in one call (D-082, D-084). A session names its clones one by one, each a folder
+beside the cicd clone and never a link that leads outside, and the tool reads each clone's tracked `*.py` files at one
 commit, `refs/remotes/origin/main` as the clone last fetched it unless `--at <clone>=<rev>` names another, through
 `git ls-tree` and `git cat-file` alone. It parses them with Python's own `ast` on every query and keeps nothing, so
 the working tree, an untracked file and an ignored one are never read and nothing is written in a clone or anywhere
@@ -615,9 +615,11 @@ the clone's top folder, from `src/` when the clone keeps its packages there, and
 member, resolves only when its name is bound by exactly one statement, so `V = V = 1` is one, and that statement is an
 assignment or an import standing directly in the body of the scope that runs it, never through `global`, a walrus, a
 comprehension, a `del`, an augmented assignment, a `for`, `with` or `except` target, or inside an `if`, `try`, loop,
-`with` or `match`. That holds at every step of the value's path, the reader's own import among them, and a value read
-through a module, `cfg.V`, is unchecked when any import of that module in the reader's scope stands otherwise, several
-`import pkg.x` binding `pkg` to the same package counting as one. A private name, two leading underscores and no
+`with` or `match`. That holds at every step of the value's path, the reader's own import among them. A value read
+through a module or a class, `cfg.V` or `K.V`, is unchecked when a binding of that receiver in the reader's scope or on
+its way is no import or def standing directly in its scope, several `import pkg.x` binding `pkg` to the same package
+counting as one, and so is a value read through `self` or `cls` past the member itself, `self.K.V`, since an instance
+may hold its own. A private name, two leading underscores and no
 trailing pair, used inside a class or read through one, is unchecked as mangled, since Python reads it there as
 `_Class__name`. A binding a star import in its scope may replace, a star after it or either inside a compound
 statement, is unchecked, a def as well as a value. An unchecked path keeps its origin, so an alias of the asked name

@@ -2249,13 +2249,17 @@ def test_a_def_and_a_class_answer_as_before_in_every_other_form(tmp_path: Path) 
     assert _has(resolved, line("Thing()") + "Thing called, resolves to reg.lib.Thing, a class")
     assert _has(values, line("return Thing") + "Thing used, resolves to reg.lib.Thing, a class")
 
+
 def test_a_value_through_a_receiver_bound_on_a_condition_or_through_self_is_unchecked(tmp_path: Path) -> None:
     _clone(tmp_path, "app", CROSSINGS)
     line = lambda needle: _line(CROSSINGS, "cx/reader.py", needle)
     _, values, unchecked, _ = _callees(tmp_path, "cx.reader.through_conditional")
     place = line("return cx.facade.cfg.V")
     assert values == []
-    assert _has(unchecked, place + f"cx.facade.cfg.V used, {SHAKY}, cx.cfg.V"), "a module a module on the way imports on a condition"
+    assert _has(
+        unchecked,
+        place + f"cx.facade.cfg.V used, {SHAKY}, cx.cfg.V",
+    ), "a module a module on the way imports on a condition"
     assert _has(unchecked, place + f"K.V used, {SHAKY}, cx.lib.K.V"), "a class the reader imports on a condition"
     _, values, unchecked, _ = _callees(tmp_path, "cx.reader.Reader.run")
     hedge = "through self or cls, which an instance or a subclass may replace, unchecked"

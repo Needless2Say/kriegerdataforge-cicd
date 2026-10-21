@@ -4541,8 +4541,9 @@ later star import replaces, which `follow` read only when no explicit binding ex
 
 1. A value resolves only when its name is bound by one statement, an assignment or an import standing directly in the
    body of the scope that runs it, at every step of its path, the reader's own import among them, and a value read
-   through a module only when every import of that module in the reader's scope stands so, several imports binding
-   one package counting as one, the owner's answer "Direct import, origin counted (Recommended)". Any other binding
+   through a module or a class only when every binding of that receiver in the reader's scope and on its way is an
+   import or a def standing so, several imports binding one package counting as one, the owner's answer "Direct
+   import, origin counted (Recommended)", and never through `self` or `cls` past the member itself. Any other binding
    leaves it unchecked and labelled so, in every command.
 2. A private name used inside a class or read through one is unchecked as mangled, and a binding a star import in its
    scope may replace, a def as well as a value, is unchecked, the two false lines closed. An unchecked path keeps its

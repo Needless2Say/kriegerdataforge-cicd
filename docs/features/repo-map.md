@@ -47,18 +47,18 @@ workflow, input, kit page or guard rule changed, so no consumer of this repo see
                                          test-importers, capped at 40 lines across clones
 ```
 
-- **The fence.** `fence` (`kdf_repo_map.py:1936`) looks for `kdf-review/open`, the folder `kdf-review.sh` makes while a
+- **The fence.** `fence` (`kdf_repo_map.py:2012`) looks for `kdf-review/open`, the folder `kdf-review.sh` makes while a
   review is open, in the clone's git dir, its common dir and every worktree administration folder registered there,
   and refuses before any file of the clone is read, and `open_clone` refuses a name that leads outside the root
-  through a link. `main` (`:2292`) refuses `KDF_ROLE=reviewer` before it parses anything, `--help` included, and the
+  through a link. `main` (`:2368`) refuses `KDF_ROLE=reviewer` before it parses anything, `--help` included, and the
   wrapper does the same before it looks for an interpreter.
-- **The read.** `git` (`:1832`) drops every inherited `GIT_` variable and sets `GIT_NO_LAZY_FETCH=1` and
-  `GIT_TERMINAL_PROMPT=0`. `listing` (`:2026`) keeps tracked regular blobs ending in `.py`, and `closed` (`:1868`)
+- **The read.** `git` (`:1908`) drops every inherited `GIT_` variable and sets `GIT_NO_LAZY_FETCH=1` and
+  `GIT_TERMINAL_PROMPT=0`. `listing` (`:2102`) keeps tracked regular blobs ending in `.py`, and `closed` (`:1944`)
   drops a secret file's name in any case, a backslash read as a separator, and anything under `keys/`, the list
-  `SECRET_GLOBS` (`:40`) held to `kdf-ask-codex.sh`'s and `kdf-preflight.sh`'s by a test. `contents` (`:2056`) reads
+  `SECRET_GLOBS` (`:40`) held to `kdf-ask-codex.sh`'s and `kdf-preflight.sh`'s by a test. `contents` (`:2132`) reads
   every blob in one call with no text conversion or filter, and a missing object is named in the answer as not
   fetched. Every file read is scanned, and where a package and a module file share a name, the package resolves it.
-- **The scopes.** `Collector` (`:335`) builds module, function, lambda, comprehension and class scopes, a lambda and a
+- **The scopes.** `Collector` (`:336`) builds module, function, lambda, comprehension and class scopes, a lambda and a
   generator expression marked as running later. A def's decorators, defaults and annotations and a class's bases are
   walked in the enclosing scope, a comprehension's first iterable too, and `global`, `nonlocal` and a walrus bind where
   Python binds them. Each binding keeps the statement that made it, its form, an assignment, an import, a def, a
@@ -66,51 +66,54 @@ workflow, input, kit page or guard rule changed, so no consumer of this repo see
   `if`, `try`, loop, `with` or `match`, or made through `global`, does. Every call is recorded, whatever it calls
   through, every attribute assigned or deleted as a write, each star import with its place, and every node of an
   annotation is marked, since Python 3.14 never runs one with the code around it, so a call there is unchecked.
-- **The resolution.** `lookup` (`:1010`) climbs the scopes nearest first, skipping a class body for the scopes inside
+- **The resolution.** `lookup` (`:1041`) climbs the scopes nearest first, skipping a class body for the scopes inside
   it, its `global` and `nonlocal` declarations with it. A module built into the interpreter or frozen in it, the set
-  `UNSHADOWED`, is outside the clone even where a file bears its name. `settle` (`:958`) leaves a name unchecked when
+  `UNSHADOWED`, is outside the clone even where a file bears its name. `settle` (`:978`) leaves a name unchecked when
   it is bound twice to different things, or used in a module or class body before its binding, a def's name bound
-  only once its statement ends, and settles a class's members the same way in `member_of_class` (`:1080`), so a member
-  bound twice to different things is unchecked and one imported leads to its origin. `follow` (`:799`) leads a module
+  only once its statement ends, and settles a class's members the same way in `member_of_class` (`:1111`), so a member
+  bound twice to different things is unchecked and one imported leads to its origin. `follow` (`:802`) leads a module
   level name through explicit imports to its definition, stopping at a star import with no explicit binding, a
   `__getattr__`, a competing binding or a cycle, a `del` competing with nothing but leaving the binding beside it
-  unchecked. `established` (`:932`) lets a dotted module receiver resolve only when every package on the way is read
-  and binds no other object under the next name. `attribute` (`:1197`) resolves an attribute only on an established
-  module or a class the clone defines, and keeps any other as a candidate with its label. `through_package` (`:1245`)
+  unchecked. `established` (`:952`) lets a dotted module receiver resolve only when every package on the way is read
+  and binds no other object under the next name. `attribute` (`:1232`) resolves an attribute only on an established
+  module or a class the clone defines, and keeps any other as a candidate with its label. `through_package` (`:1302`)
   lists, unchecked, a use of the asked name reached through a parent or child package the clone does not hold.
-- **The rules that move a line toward unchecked.** `doubt` (`:844`) reads a scope's bindings of a name. A private name
-  a class's code binds elsewhere is mangled, a binding `displaced` (`:869`) finds a star import may replace is
+- **The rules that move a line toward unchecked.** `doubt` (`:864`) reads a scope's bindings of a name. A private name
+  a class's code binds elsewhere is mangled, a binding `displaced` (`:889`) finds a star import may replace is
   unchecked, and a value bound by more than one statement, or by one that is no assignment or import standing directly
   in its scope, is unchecked. `follow` and `settle` apply it at every step of a path, a value's binding rule only
-  where the path ends at a value, and a module reached through an import that stands otherwise passes that doubt to
-  the values read through it. `mangled` (`:1149`) leaves a private name used inside a class unchecked, as
-  `member_of_class` does one read through a class, and `marks` (`:887`) reads every write the clone makes through a
+  where the path ends at a value, and a module or class reached through a binding that stands otherwise, here or on
+  the way, or through `self` or `cls`, passes a doubt to the values read through it, `receiver_doubt` (`:850`) saying
+  which. The names on a path stay on it, so a write to a receiver on the way reaches a value read through it, and an
+  attribute of a receiver a star may replace still leads to its origin, unchecked. `mangled` (`:1184`) leaves a
+  private name used inside a class unchecked, as
+  `member_of_class` does one read through a class, and `marks` (`:907`) reads every write the clone makes through a
   class it defines or an established module, the member or value written elsewhere and the private name written inside
   a class. An unchecked path keeps its origin, so a use reaching it moves to the unchecked matches and never drops out.
-  `def_lines` (`:1325`) with `defined_doubt` (`:1364`) and `import_line` (`:1296`) hold the same rules for a
+  `def_lines` (`:1382`) with `defined_doubt` (`:1421`) and `import_line` (`:1353`) hold the same rules for a
   definition, an import binding and a re-export.
-- **What a body calls, reads and writes.** `callee_lines` (`:1383`) reads only the module resolution selects for the
+- **What a body calls, reads and writes.** `callee_lines` (`:1440`) reads only the module resolution selects for the
   asked name, so a file a package shadows is never read, nor a file named like a module built into the interpreter,
-  and keeps every line unchecked when the name has several bodies or `rebound` (`:1568`) finds its name, or a class's
+  and keeps every line unchecked when the name has several bodies or `rebound` (`:1625`) finds its name, or a class's
   holding it, bound more than once, declared `global` or `nonlocal`, or open to a star import. `inside_body`
-  (`:1542`) stops at a nested def, labels a lambda or a generator expression as running later and a nested class body
-  as running with the function, and `callee_words` (`:1594`) words each use with its target's kind, a `self` or `cls`
+  (`:1599`) stops at a nested def, labels a lambda or a generator expression as running later and a nested class body
+  as running with the function, and `callee_words` (`:1651`) words each use with its target's kind, a `self` or `cls`
   call adding that an override may run, and labels a call through a parameter, a local, a subscript, a call's result,
   a builtin or a method of a value whose type the `ast` cannot know, and a use in an annotation. `value_words`
-  (`:1654`) words a class's member or a module's value, a `self` or `cls` read of one unchecked and one written
-  elsewhere unchecked with the write's place, and `receiver_words` (`:1691`) names a chain at its longest receiver
-  that is such a value. `write_words` (`:1427`) words each write by its receiver alone, a first parameter found by
-  `lead_of` (`:1468`) from the source, a class, an established module or a name outside the clone, and else its type
-  unknown. `callee_note` (`:1496`) heads each clone with the body read, or says the name is a class with its methods
+  (`:1708`) words a class's member or a module's value, a `self` or `cls` read of one unchecked and one written
+  elsewhere unchecked with the write's place, `receiver_words` (`:1745`) names a chain at its longest receiver
+  that is such a value, and `base_words` (`:1769`) a member read through a class that leaves it to a base. `write_words` (`:1484`) words each write by its receiver alone, a first parameter found by
+  `lead_of` (`:1525`) from the source, a class, an established module or a name outside the clone, and else its type
+  unknown. `callee_note` (`:1553`) heads each clone with the body read, or says the name is a class with its methods
   to ask, outside the clone or not defined, and a body with no line says it makes no call, use or write the `ast`
   sees.
-- **The test candidates.** `candidate_lines` (`:1748`) walks each test file's uses up their scopes to the candidate
-  holding them, `candidate` (`:1785`) taking `test*` functions at module level and `test*` methods of `Test*` classes
-  at module level, and `candidate_use` (`:1804`) keeping a use that resolves to the asked name or one under it, and
+- **The test candidates.** `candidate_lines` (`:1824`) walks each test file's uses up their scopes to the candidate
+  holding them, `candidate` (`:1861`) taking `test*` functions at module level and `test*` methods of `Test*` classes
+  at module level, and `candidate_use` (`:1880`) keeping a use that resolves to the asked name or one under it, and
   one by name alone unchecked. A candidate whose name or class is bound more than once is unchecked too.
-- **The answer.** `render` (`:2145`) prints each clone's first line from `heading` (`:1963`), the commit read, when
+- **The answer.** `render` (`:2221`) prints each clone's first line from `heading` (`:2039`), the commit read, when
   `origin/main` last moved by its reflog, and a checkout that differs, then its groups, each with every clone's count
-  and at most `CAP` (`:57`) lines chosen in turn from each clone by `spread` (`:2125`), then printed by clone, path
+  and at most `CAP` (`:57`) lines chosen in turn from each clone by `spread` (`:2201`), then printed by clone, path
   and line. Every line is `<clone>@<short hash> <path>:<line>` and its words. `test-importers` closes saying a
   candidate is a place to look and not proof, and what it does not read.
 

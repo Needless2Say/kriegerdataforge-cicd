@@ -31,7 +31,7 @@ import subprocess
 import sys
 import time
 import warnings
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 # module constants
@@ -147,6 +147,7 @@ clone or commit that cannot be read or an answer left incomplete.
 SHAKY   = "bound more than once, or in a form the map does not take as certain, unchecked"
 MANGLED = "a private name, which Python mangles inside a class, unchecked"
 STAR    = "a star import in its scope may replace it"
+SELF    = "through self or cls, which an instance or a subclass may replace, unchecked"
 # the statements whose bodies run only on a condition, in a loop or under a handler, so a binding in them is not direct
 COMPOUND = (ast.If, ast.For, ast.AsyncFor, ast.While, ast.With, ast.AsyncWith, ast.Try, ast.TryStar, ast.Match)
 # the closing words of test-importers, on the candidates it names and what it does not read
@@ -793,10 +794,12 @@ class Resolver:
         self.query  = query
         self.marked = None
         self.target = self.canonical(query) if "." in query else query
+        # every name on the way from the asked one to its definition, whose bindings defs still names
+        self.path = self.follow(query)[3] if "." in query else ()
         self.parent, _, self.name = self.target.rpartition(".")
 
 
-    def follow(self, origin: str) -> tuple[str, str | None, str, tuple[str, ...]]:
+    def follow(self, origin: str) -> tuple[str, str | None, str, tuple[str, ...], str]:
         """
         Follow a module level name through the clone's explicit imports to where it is defined.
 
@@ -804,41 +807,58 @@ class Resolver:
             origin: a dotted name, a module or a name in one
 
         Returns:
-            tuple[str, str | None, str, tuple[str, ...]]: the origin reached and what lies there, one of RESOLVED or
-                missing, or None when a star import, a __getattr__, a competing binding or a cycle stops the walk, then
-                the label that leaves it unchecked, empty when it is certain, and the names the walk passed through
+            tuple[str, str | None, str, tuple[str, ...], str]: the origin reached and what lies there, one of RESOLVED
+                or missing, or None when a star import, a __getattr__, a competing binding or a cycle stops the walk,
+                then the label that leaves it unchecked, empty when it is certain, the names the walk passed through,
+                and the doubt a value read through the module or class it reaches takes, empty when none
         """
         seen = []
-        # a star or a mangled name unsettles any path, and the binding rule only a path that ends at a value
-        hard = soft = ""
+        # a star or a mangled name unsettles any path, the binding rule only a path that ends at a value, and a binding
+        # on the way that is no import or def standing directly in its scope any value read through what it reaches
+        hard = soft = held = ""
         while origin not in seen:
             seen.append(origin)
             if origin.partition(".")[0] in UNSHADOWED:
-                return origin, "external", hard, tuple(seen)
+                return origin, "external", hard, tuple(seen), held
             parent, _, name = origin.rpartition(".")
             module = self.clone.modules.get(parent)
             if module is None:
-                return origin, ("module" if origin in self.clone.modules else "external"), hard, tuple(seen)
+                return origin, ("module" if origin in self.clone.modules else "external"), hard, tuple(seen), held
             bindings = module.scope.bindings.get(name)
             if not bindings:
                 if module.scope.star or "__getattr__" in module.scope.bindings:
-                    return origin, None, "", tuple(seen)
-                return origin, ("module" if origin in self.clone.modules else "missing"), hard, tuple(seen)
+                    return origin, None, "", tuple(seen), ""
+                return origin, ("module" if origin in self.clone.modules else "missing"), hard, tuple(seen), held
             # a del competes with nothing, it leaves the one binding beside it unchecked
             kinds = {(binding.kind, binding.origin) for binding in bindings if binding.form != "del"}
             if len(kinds) != 1:
-                return origin, None, "", tuple(seen)
+                return origin, None, "", tuple(seen), ""
             hard = hard or self.doubt(module.scope, bindings, False)
             soft = soft or self.doubt(module.scope, bindings, True)
+            held = held or self.receiver_doubt(bindings)
             if not soft and private(name) and origin in self.marks()[1]:
                 soft = MANGLED
             kind, bound = kinds.pop()
             if kind == "def":
-                return origin, "def", hard, tuple(seen)
+                return origin, "def", hard, tuple(seen), held
             if kind == "local":
-                return origin, "value", soft, tuple(seen)
+                return origin, "value", soft, tuple(seen), held
             origin = bound
-        return origin, None, "", tuple(seen)
+        return origin, None, "", tuple(seen), ""
+
+
+    def receiver_doubt(self, bindings: list[Binding]) -> str:
+        """
+        Say whether a module or class a name binds is certain enough to read a value through it.
+
+        Args:
+            bindings: every binding of the name in one scope
+
+        Returns:
+            str: empty when each is an import or a def standing directly in its scope, however many name the same
+                thing, else the label a value read through it takes
+        """
+        return "" if all(binding.direct and binding.form in ("import", "def") for binding in bindings) else SHAKY
 
 
     def doubt(self, scope: Scope, bindings: list[Binding], value: bool) -> str:
@@ -922,7 +942,7 @@ class Resolver:
         Returns:
             str: the name its definition carries, or the name as given when the clone cannot lead it further
         """
-        origin, nature, _, _ = self.follow(dotted)
+        origin, nature, *_ = self.follow(dotted)
         parent, _, name = dotted.rpartition(".")
         if nature == "external" and "." in parent:
             return f"{self.canonical(parent)}.{name}"
@@ -983,27 +1003,38 @@ class Resolver:
                 return Place("", "local")
             return Place(own, "local", label = self.doubt(scope, bindings, True), holds = "value", via = (own,))
         if kind == "def":
-            doubt = self.doubt(scope, bindings, False)
-            return Place(origin, "candidate", label = doubt, holds = "def") if doubt else Place(origin, "def")
-        canon, nature, label, via = self.follow(origin)
+            doubt   = self.doubt(scope, bindings, False)
+            pending = self.receiver_doubt(bindings)
+            if doubt:
+                return Place(origin, "candidate", label = doubt, holds = "def", pending = pending)
+            return Place(origin, "def", pending = pending)
+        canon, nature, label, via, held = self.follow(origin)
         if nature is None:
             return Place("", "unresolved", label = f"through {origin}, unchecked")
         if nature == "missing":
             return Place(canon, "candidate", label = f"not bound in {canon.rpartition('.')[0]}, unchecked")
-        via   = (own, *via) if own else via
-        doubt = self.doubt(scope, bindings, nature == "value") or label
-        if doubt:
-            return Place(canon, "candidate", label = doubt, holds = nature, via = via)
+        via         = (own, *via) if own else via
         top_level   = kind == "module" and "." not in origin
         established = top_level or (nature == "module" and self.established(canon))
         # in a module or class body an import loads its module only for the statements after it
         loaded = tuple(
             binding.loads for binding in bindings if binding.loads and (position is None or binding.position < position)
         )
-        # a value read through this module is certain only when every import of it stands directly in the scope's
-        # body, however many statements bind the same package
-        sure    = all(binding.direct and binding.form == "import" for binding in bindings)
-        pending = SHAKY if nature == "module" and not sure else ""
+        # a value read through a module or class is certain only when every import of it here and on the way stands
+        # directly in its scope's body, however many statements bind the same package
+        pending = (self.receiver_doubt(bindings) or held) if nature in ("module", "def") else ""
+        doubt   = self.doubt(scope, bindings, nature == "value") or label
+        if doubt:
+            return Place(
+                canon,
+                "candidate",
+                established = established,
+                label = doubt,
+                loaded = loaded,
+                holds = nature,
+                pending = pending,
+                via = via,
+            )
         return Place(canon, nature, established = established, loaded = loaded, pending = pending, via = via)
 
 
@@ -1139,7 +1170,11 @@ class Resolver:
             method = self.method_scope(scope, value.id)
             if method is not None and method.method_of is not None:
                 origin = f"{module.name}.{method.method_of.qual}"
-                return self.member_of_class(module, method.method_of, origin, node.attr)
+                place  = self.member_of_class(module, method.method_of, origin, node.attr)
+                # an instance or a subclass may hold its own object under the name, so no value read through it is sure
+                if place.nature in ("def", "module") or place.holds in ("def", "module"):
+                    place = replace(place, pending = SELF)
+                return place
         place = self.attribute(self.resolve(module, scope, value), node.attr)
         if place.nature == "def" and self.inside_own_statement(module, scope, place.origin, node):
             return Place("", "unresolved", label = "used before its binding, unchecked")
@@ -1207,14 +1242,25 @@ class Resolver:
         """
         joined = f"{place.origin}.{attr}"
         if place.nature == "candidate":
+            # a receiver a star or a mangled name leaves unchecked still leads somewhere, which keeps that label
+            if place.holds in ("module", "def") and place.origin:
+                certain = replace(place, nature = place.holds, label = "", holds = "")
+                inner   = self.attribute(certain, attr)
+                if inner.origin:
+                    holds = inner.holds or (inner.nature if inner.nature in RESOLVED else "")
+                    return replace(inner, nature = "candidate", label = place.label, holds = holds)
             return Place(joined, "candidate", label = place.label)
         if place.nature == "def":
             found = self.clone.classes.get(place.origin)
             if found is not None:
-                return self.member_of_class(found[0], found[1], place.origin, attr)
+                member = self.member_of_class(found[0], found[1], place.origin, attr)
+                via    = (*place.via, *member.via)
+                if member.nature == "value" and place.pending:
+                    return Place(member.origin, "candidate", label = place.pending, holds = "value", via = via)
+                return replace(member, pending = member.pending or place.pending, via = via)
             return Place(joined, "candidate", label = f"through {place.origin}, unchecked")
         if place.nature == "module" and place.established:
-            canon, nature, label, via = self.follow(joined)
+            canon, nature, label, via, held = self.follow(joined)
             if nature is None:
                 return Place("", "unresolved", label = f"through {joined}, unchecked")
             if nature == "missing":
@@ -1226,11 +1272,22 @@ class Resolver:
                 load == joined or load.startswith(f"{joined}.") for load in place.loaded
             ):
                 return Place(joined, "candidate", label = "a submodule no import of it here loads, unchecked")
-            label = label or (place.pending if nature == "value" else "")
-            if label:
-                return Place(canon, "candidate", label = label, holds = nature, via = via)
+            # the names on the way stay on the path, so a write to the receiver reaches a value read through it
+            via         = (*place.via, *via)
+            label       = label or (place.pending if nature == "value" else "")
+            pending     = (place.pending or held) if nature in ("module", "def") else ""
             established = nature == "module" and self.established(canon)
-            pending     = place.pending if nature == "module" else ""
+            if label:
+                return Place(
+                    canon,
+                    "candidate",
+                    established = established,
+                    label = label,
+                    loaded = place.loaded,
+                    holds = nature,
+                    pending = pending,
+                    via = via,
+                )
             return Place(canon, nature, established = established, loaded = place.loaded, pending = pending, via = via)
         if place.nature == "external" and place.established:
             return Place(joined, "external")
@@ -1345,14 +1402,14 @@ class Resolver:
                 full = f"{prefix}.{name}"
                 for binding in bindings:
                     imported = binding.kind in ("module", "from")
-                    named    = full in (self.query, self.target) if dotted else name == self.query
+                    named    = full in (self.query, self.target, *self.path) if dotted else name == self.query
                     leads    = dotted and imported and self.canonical(binding.origin) == self.target
                     if imported and (named or leads):
                         words = f"{full} bound by an import of {binding.origin}"
                         if scope.kind == "class" and private(name):
                             reason = MANGLED
                         else:
-                            _, nature, label, _ = self.follow(binding.origin)
+                            _, nature, label, *_ = self.follow(binding.origin)
                             reason = self.doubt(scope, bindings, nature == "value") or label
                         group = 2 if reason else 1
                         found.append((group, binding.position[0], f"{words}, {reason}" if reason else words))
