@@ -2238,7 +2238,6 @@ def test_a_write_in_a_nested_class_or_a_generator_takes_the_labels_the_other_gro
     inner = f"user.inner written, on user, {UNKNOWN}, in class Store.plain.Inner, whose body runs as the function does"
     assert _has(writes, line("user.inner") + inner)
 
-
 # ======================================================================================================================
 # the test candidates that use a name, test-importers' fourth group
 # ======================================================================================================================
@@ -2256,10 +2255,11 @@ def test_test_importers_names_the_test_candidates_that_use_a_name_in_a_fourth_gr
     done = _run(tmp_path, "test-importers", "cand.service.Lockout", "--repo", "app")
     assert done.returncode == 0, done.stderr
     found, through, unchecked, candidates = _groups(done.stdout, "test-importers")
-    test  = "tests/test_lockout.py"
-    relay = "imports cand.facade.Lockout at module level, through a re-export to cand.service.Lockout"
-    assert _has(found, "tests/conftest.py:1 imports cand.service.Lockout at module level")
-    assert _has(through, f"{test}:1 {relay}"), "a test reaching the name through a package that re-exports it"
+    test     = "tests/test_lockout.py"
+    relay    = "imports cand.facade.Lockout at module level, through a re-export to cand.service.Lockout"
+    found_at = _defs("tests/conftest.py", "import Lockout")[0]
+    assert _has(found, found_at + "imports cand.service.Lockout at module level")
+    assert _has(through, _defs(test, "import Lockout")[0] + relay), "through a package that re-exports it"
     for path, qual, words in (
         ("tests/conftest.py", "test_in_conftest", "test_in_conftest uses Lockout"),
         (test, "test_module_level", "test_module_level uses Lockout"),

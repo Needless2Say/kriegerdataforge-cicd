@@ -76,18 +76,18 @@ TITLES     = {
     "imports": ("Imports", "Imports through a re-export", "Unchecked matches"),
     "callers": ("Resolved calls", "Uses that are not calls", "Unchecked matches"),
     "callees": ("Resolved calls", "Uses that are not calls", "Unchecked matches", "Attributes written"),
-    "test-importers": ("Test imports", "Test imports through a re-export", "Unchecked matches"),
+    "test-importers": (
+        "Test imports",
+        "Test imports through a re-export",
+        "Unchecked matches",
+        "Test candidates that use it",
+    ),
 }
 REBOUND    = "its name or a class holding it bound more than once"
 ANNOTATION = "in an annotation, never run with the code around it"
-SHAKY      = "bound more than once, or in a form the map does not take as certain, unchecked"
-MANGLED    = "a private name, which Python mangles inside a class, unchecked"
-STAR       = "a star import in its scope may replace it"
-# the statements whose bodies run only on a condition, in a loop or under a handler, so a binding in them is not direct
-COMPOUND = (ast.If, ast.For, ast.AsyncFor, ast.While, ast.With, ast.AsyncWith, ast.Try, ast.TryStar, ast.Match)
 NOT_SEEN = ("Not seen, uncommitted edits, importlib and getattr, a name held in a string such as a mock.patch target, "
             "a star import, and a method on an instance whose class the ast cannot know, which lands by name.")
-HELP     = """\
+HELP = """\
 commands
   defs <name>              where a name is defined, a bare name or a dotted one
   imports <dotted>         the imports of a module, of a name in it, and of every module under it
@@ -112,6 +112,19 @@ and search text for what it cannot see.
 Exit codes. 0 an answer, 1 nothing found, 2 a usage refused, a reviewer's call or a clone under review among them, 3 a
 clone or commit that cannot be read or an answer left incomplete.
 """
+# the labels the binding rule, a private name and a star import leave on a line they move to unchecked
+SHAKY   = "bound more than once, or in a form the map does not take as certain, unchecked"
+MANGLED = "a private name, which Python mangles inside a class, unchecked"
+STAR    = "a star import in its scope may replace it"
+# the statements whose bodies run only on a condition, in a loop or under a handler, so a binding in them is not direct
+COMPOUND = (ast.If, ast.For, ast.AsyncFor, ast.While, ast.With, ast.AsyncWith, ast.Try, ast.TryStar, ast.Match)
+# the closing words of test-importers, on the candidates it names and what it does not read
+CANDIDATE_NOTE = (
+    "Test candidates by pytest's default names, the test* functions and the test* methods of Test* classes at module "
+    "level, a place to look and not proof of a behaviour. A test reaching it only through a fixture, a helper, "
+    "conftest.py or a string is not named, and pytest's settings, __test__, a constructor and a unittest.TestCase "
+    "subclass of another name are not read."
+)
 
 
 class Refusal(Exception):
@@ -163,11 +176,12 @@ class Scope:
     stars:          list[tuple[tuple[int, int], bool]] = field(default_factory = list)
     method_of:      Scope | None = None
     first:          str = ""
-    # the class body a def is written in and its first positional parameter, whatever its decorators say
-    holder:   Scope | None = None
-    lead:     str = ""
-    bases:    list[ast.expr] = field(default_factory = list)
-    deferred: str = ""
+    bases:          list[ast.expr] = field(default_factory = list)
+    deferred:       str = ""
+    # the class body a def is written in and its first positional parameter, whatever its decorators say, and its line
+    holder: Scope | None = None
+    lead:   str = ""
+    line:   int = 0
 
 
 @dataclass(frozen = True)
@@ -630,7 +644,7 @@ class Collector(ast.NodeVisitor):
         parameters.extend(arg for arg in (arguments.vararg, arguments.kwarg) if arg is not None)
         self.walk_all([*node.decorator_list, *arguments.defaults, *arguments.kw_defaults])
         self.walk_annotations([*(parameter.annotation for parameter in parameters), node.returns])
-        scope      = Scope("function", self.scope, self.define(node, "def"))
+        scope      = Scope("function", self.scope, self.define(node, "def"), line = node.lineno)
         positional = [*arguments.posonlyargs, *arguments.args]
         if self.scope.kind == "class":
             scope.holder = self.scope
@@ -1695,7 +1709,93 @@ class Resolver:
             placed = self.import_line(origin, where)
             if placed is not None:
                 found.append((placed[0], line, placed[1]))
+        if command == "test-importers":
+            found.extend(self.candidate_lines(module))
         return found
+
+
+    def candidate_lines(self, module: Module) -> list[tuple[int, int, str]]:
+        """
+        Find a test module's test candidates whose own bodies use the asked name or a name under it.
+
+        Args:
+            module: the test module
+
+        Returns:
+            list[tuple[int, int, str]]: each group, the candidate's def line and the names it uses, unchecked when it
+                reaches the name by name alone or its name or class is bound more than once
+        """
+        found = {
+            scope: ([], []) for scopes in module.functions.values() for scope in scopes if self.candidate(module, scope)
+        }
+        # the candidate's own walk down every scope nested in it, its defs, lambdas and classes among them
+        for scope, node, _, _ in module.uses:
+            holder = scope
+            while holder is not None and holder not in found:
+                holder = holder.parent
+            matched = None if holder is None else self.candidate_use(module, scope, node)
+            if matched is not None:
+                found[holder][0 if matched[0] else 1].append((matched[1], matched[2]))
+        lines = []
+        for scope, (sure, doubtful) in found.items():
+            uses  = sure or doubtful
+            texts = list(dict.fromkeys(text for text, _ in uses))
+            # a receiver is named once, at the longest name that uses it, Lockout.register over Lockout
+            texts = [text for text in texts if not any(other.startswith(f"{text}.") for other in texts)]
+            if not texts:
+                continue
+            reason = self.rebound(scope)
+            reason = f"{reason}, unchecked" if reason else ("" if sure else doubtful[0][1])
+            words  = f"{scope.qual} uses {', '.join(texts)}"
+            lines.append((2, scope.line, f"{words}, {reason}") if reason else (3, scope.line, words))
+        return lines
+
+
+    def candidate(self, module: Module, scope: Scope) -> bool:
+        """
+        Say whether a function is a test candidate by pytest's default names.
+
+        Args:
+            module: the test module
+            scope: the function's scope
+
+        Returns:
+            bool: True for a test* function at module level or a test* method of a Test* class at module level
+        """
+        parent = scope.parent
+        if not scope.qual.rpartition(".")[2].startswith("test") or parent is None:
+            return False
+        if parent is module.scope:
+            return True
+        return parent.kind == "class" and parent.parent is module.scope and parent.qual.startswith("Test")
+
+
+    def candidate_use(self, module: Module, scope: Scope, node: ast.expr) -> tuple[bool, str, str] | None:
+        """
+        Say whether one use in a candidate's body reaches the asked name or a name under it, and how surely.
+
+        Args:
+            module: the test module
+            scope: the scope the use stands in
+            node: the use
+
+        Returns:
+            tuple[bool, str, str] | None: whether it resolves there, its text and the label when it does not, or None
+                for a use of anything else
+        """
+        place = self.resolve(module, scope, node)
+        text  = dotted_text(node)
+        under = place.origin == self.target or place.origin.startswith(f"{self.target}.")
+        if under and place.nature in RESOLVED:
+            return (False, text, f"{ANNOTATION}, unchecked") if id(node) in module.annotated else (True, text, "")
+        if under and place.nature == "candidate":
+            return False, text, place.label
+        if place.nature in (*RESOLVED, "candidate") and self.through_package(place.origin):
+            return False, text, "through a package, unchecked"
+        if place.nature in (*RESOLVED, "candidate", "local"):
+            return None
+        final = node.id if isinstance(node, ast.Name) else getattr(node, "attr", "")
+        return (False, text, "by name alone, unchecked") if final == self.name else None
 
 
 def git(path: Path, *args: str, stdin: bytes | None = None) -> subprocess.CompletedProcess[bytes]:
@@ -2039,6 +2139,8 @@ def render(clones: list[Clone], command: str, groups: list[list], args: argparse
             lines.append(f"{clones[index].name}@{clones[index].commit[:7]} {path}:{line} {words}")
         if len(chosen) < len(entries):
             lines.append(f"{len(entries) - len(chosen)} more, --full prints them")
+    if command == "test-importers":
+        lines.append(CANDIDATE_NOTE)
     lines.extend(f"Incomplete, {clone.name} {note}." for clone in clones for note in clone.unread)
     lines.append(f"{sum(map(len, groups))} in all. A floor, an empty group proves no absence. {NOT_SEEN}")
     lines.append("Read a line at its commit, git -C <clone> show <hash>:<path>, never the checkout.")
