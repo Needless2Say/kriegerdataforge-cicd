@@ -31,6 +31,9 @@ BASH    = os.environ.get("KDF_TEST_BASH") or shutil.which("bash")
 SHAKY   = "bound more than once, or in a form the map does not take as certain, unchecked"
 MANGLED = "a private name, which Python mangles inside a class, unchecked"
 STARRED = "a star import in its scope may replace it, unchecked"
+# how a written attribute names a receiver the ast cannot type, and the first parameter of a method of WRITES' class
+UNKNOWN = "its type unknown to the ast"
+FIRST   = "the first parameter of a def in the body of class wr.body.Store"
 # a stand in for cicd's venv interpreter, it logs each call and runs this interpreter, or plays one that cannot start
 STAND_IN = """#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "{log}"
@@ -824,6 +827,86 @@ REGRESSION = {
         """,
 }
 
+WRITES = {
+    "wr/__init__.py": "",
+    "wr/real.py": "LIMIT = 1\n",
+    "wr/facade.py": "from wr.real import LIMIT\n",
+    "wr/settings.py": "FLAG = False\n",
+    "wr/body.py": """
+        import os
+
+        import wr.facade
+        import wr.settings
+
+        static = staticmethod
+
+
+        def make():
+            return Store()
+
+
+        def replace(item):
+            return item
+
+
+        class Store:
+            import wr.settings as settings
+
+            count = 0
+
+            def plain(self, user, items, handle):
+                self.count = 1
+                self.count += 1
+                for self.item in items:
+                    pass
+                with handle as self.held:
+                    pass
+                self.first, user.second = 1, 2
+                del self.held
+                user.name = "name"
+                local = object()
+                local.size = 2
+                make().attr = 3
+                items[0].attr = 4
+                self.settings.FLAG = True
+                Store.count = 5
+                wr.settings.FLAG = True
+                wr.facade.LIMIT = 6
+                os.environ.extra = 7
+                self.__secret = 8
+                make().hint: int
+                nested = [1 for user.slot in items]
+                lazy = (1 for user.later in items)
+
+                class Inner:
+                    user.inner = 1
+
+                return nested, lazy, Inner
+
+            @classmethod
+            def built(self):
+                self.made = 1
+
+            def swapped(cls):
+                cls.flag = 1
+
+            @staticmethod
+            def fixed(self):
+                self.fixed = 1
+
+            @static
+            def aliased(self):
+                self.aliased = 1
+
+            def rebound(self):
+                self = replace(self)
+                self.value = 1
+
+            def bare(*args):
+                self.value = 2
+        """,
+}
+
 pytestmark = pytest.mark.skipif(GIT is None and not os.environ.get("CI"), reason = "the repo map needs git")
 
 # ======================================================================================================================
@@ -908,10 +991,11 @@ def _run(root: Path, *args: str, env: dict[str, str] | None = None) -> subproces
 
 def _groups(answer: str, command: str) -> list[list[str]]:
     """
-    Split an answer's lines into its three groups, by the titles the module prints.
+    Split an answer's lines into its groups, by the titles the module prints, three, or four for callees and
+    test-importers.
     """
     titles  = _module().TITLES[command]
-    groups  = [[], [], []]
+    groups  = [[] for _ in titles]
     current = None
     for line in answer.splitlines():
         heading = next((index for index, title in enumerate(titles) if line.startswith(f"{title}, ")), None)
@@ -1624,7 +1708,7 @@ def test_callees_lists_a_body_within_its_bounds_and_every_call_it_makes(tmp_path
     done = _run(tmp_path, "callees", "cal.body.work", "--repo", "app")
     assert done.returncode == 0, done.stderr
     assert "app, the body of cal.body.work at " + _line(CALLEES, "cal/body.py", "def work").strip() in done.stdout
-    resolved, values, unchecked = _groups(done.stdout, "callees")
+    resolved, values, unchecked, _ = _groups(done.stdout, "callees")
     line = lambda needle: _line(CALLEES, "cal/body.py", needle)
     assert _has(resolved, line("    helper()") + "helper called, resolves to cal.lib.helper, a def")
     assert _has(resolved, line("[other()") + "other called, resolves to cal.lib.other, a def")
@@ -1679,16 +1763,16 @@ def test_callees_lists_one_line_for_every_call_its_body_makes(tmp_path: Path) ->
 def test_callees_of_a_name_with_several_bodies_keeps_every_line_unchecked(tmp_path: Path) -> None:
     _clone(tmp_path, "app", CALLEES)
     done = _run(tmp_path, "callees", "cal.body.Box.size", "--repo", "app")
-    resolved, values, unchecked = _groups(done.stdout, "callees")
+    resolved, values, unchecked, _ = _groups(done.stdout, "callees")
     assert "cal.body.Box.size has 2 bodies, at cal/body.py:" in done.stdout
     assert resolved == [] and values == []
     assert all(entry.endswith("one of 2 bodies of this name, unchecked") for entry in unchecked) and unchecked
     done = _run(tmp_path, "callees", "cal.body.twice", "--repo", "app")
-    resolved, values, unchecked = _groups(done.stdout, "callees")
+    resolved, values, unchecked, _ = _groups(done.stdout, "callees")
     rebound = "its name or a class holding it bound more than once"
     for name in ("cal.body.twice", "cal.body.shadowed", "cal.body.Crate.work", "cal.scoped.Registry.Kept.work"):
         done = _run(tmp_path, "callees", name, "--repo", "app")
-        resolved, values, unchecked = _groups(done.stdout, "callees")
+        resolved, values, unchecked, _ = _groups(done.stdout, "callees")
         assert f"app, the body of {name} at cal/" in done.stdout, name
         assert f"{rebound}, so every line is unchecked." in done.stdout, name
         assert resolved == [] and values == [], name
@@ -1699,7 +1783,7 @@ def test_callees_says_an_empty_body_a_missing_name_a_class_and_a_name_outside_ap
     _clone(tmp_path, "app", CALLEES)
     done = _run(tmp_path, "callees", "cal.body.empty", "--repo", "app")
     assert done.returncode == 1 and "app, the body of cal.body.empty at cal/body.py:" in done.stdout
-    assert ", which makes no call or use the ast sees." in done.stdout
+    assert ", which makes no call, use or write the ast sees." in done.stdout
     done = _run(tmp_path, "callees", "cal.body.absent", "--repo", "app")
     assert done.returncode == 1 and "app, the clone defines no function cal.body.absent." in done.stdout
     done = _run(tmp_path, "callees", "cal.lib.Thing", "--repo", "app")
@@ -1719,27 +1803,29 @@ def test_callees_says_an_empty_body_a_missing_name_a_class_and_a_name_outside_ap
 def test_callees_reads_the_body_resolution_selects_never_a_shadowed_file(tmp_path: Path) -> None:
     _clone(tmp_path, "app", DUPLICATE)
     done = _run(tmp_path, "callees", "dup.pkg.run", "--repo", "app")
-    assert "app, the body of dup.real.run at dup/real.py:1, which makes no call or use the ast sees." in done.stdout
+    assert "app, the body of dup.real.run at dup/real.py:1, which makes no call, use or write the ast sees." in (
+        done.stdout
+    )
     assert "again" not in done.stdout
 
 
 def test_callees_names_a_self_call_its_static_target_or_an_override(tmp_path: Path) -> None:
     _clone(tmp_path, "app", BASES)
-    resolved, _, _ = _groups(_run(tmp_path, "callees", "base.model.Own.store", "--repo", "app").stdout, "callees")
+    resolved, _, _, _ = _groups(_run(tmp_path, "callees", "base.model.Own.store", "--repo", "app").stdout, "callees")
     assert any(entry.endswith("self.save called, resolves to base.model.Own.save, a def, its class's own as the "
                               "static target, or an override") for entry in resolved)
 
 
 def test_callees_skips_a_class_scope_and_its_global_for_a_method_inside(tmp_path: Path) -> None:
     _clone(tmp_path, "app", CALLEES)
-    resolved, _, _ = _groups(_run(tmp_path, "callees", "cal.scoped.outer.Box.work", "--repo", "app").stdout, "callees")
+    resolved, _, _, _ = _groups(_run(tmp_path, "callees", "cal.scoped.outer.Box.work", "--repo", "app").stdout, "callees")
     place = _line(CALLEES, "cal/scoped.py", "        target()")
     assert len(resolved) == 1 and _has(resolved, place + "target called, resolves to cal.scoped.outer.target, a def")
 
 
 def test_callees_never_lets_a_clone_file_replace_a_builtin_module(tmp_path: Path) -> None:
     _clone(tmp_path, "app", CALLEES)
-    resolved, _, _ = _groups(_run(tmp_path, "callees", "cal.body.system", "--repo", "app").stdout, "callees")
+    resolved, _, _, _ = _groups(_run(tmp_path, "callees", "cal.body.system", "--repo", "app").stdout, "callees")
     assert any(entry.endswith("sys.target called, resolves to sys.target, outside the clone, as imported")
                for entry in resolved)
     assert not any("a def" in entry for entry in resolved)
@@ -1768,7 +1854,7 @@ def _callees(root: Path, name: str) -> list[list[str]]:
 
 def test_callees_names_a_class_member_read_through_its_class(tmp_path: Path) -> None:
     _clone(tmp_path, "app", VALUES)
-    resolved, values, unchecked = _callees(tmp_path, "val.reader.members")
+    resolved, values, unchecked, _ = _callees(tmp_path, "val.reader.members")
     line   = lambda needle: _line(VALUES, "val/reader.py", needle)
     member = "resolves to val.enums.Status.active, a member bound in the body of class val.enums.Status"
     assert _has(values, line("user.reason = Status.active") + f"Status.active used, {member}")
@@ -1786,18 +1872,18 @@ def test_a_self_or_cls_read_of_a_member_is_unchecked_and_of_a_name_its_class_doe
     _clone(tmp_path, "app", VALUES)
     words = "bound in the body of class val.reader.Lockout, an instance or a subclass may hold its own, unchecked"
     line  = lambda needle: _line(VALUES, "val/reader.py", needle)
-    resolved, values, unchecked = _callees(tmp_path, "val.reader.Lockout.register")
+    resolved, values, unchecked, _ = _callees(tmp_path, "val.reader.Lockout.register")
     assert resolved == [] and values == []
     assert _has(unchecked, line("first = self.limit") + f"self.limit used, {words}")
     assert _has(unchecked, line("self.limit.real") + f"self.limit used, {words}")
     assert not any("self.unbound" in entry for entry in unchecked)
-    _, values, unchecked = _callees(tmp_path, "val.reader.Lockout.build")
+    _, values, unchecked, _ = _callees(tmp_path, "val.reader.Lockout.build")
     assert values == [] and _has(unchecked, line("return cls.limit") + f"cls.limit used, {words}")
 
 
 def test_a_member_bound_in_a_form_the_map_does_not_take_as_certain_is_unchecked(tmp_path: Path) -> None:
     _clone(tmp_path, "app", VALUES)
-    resolved, values, unchecked = _callees(tmp_path, "val.reader.doubtful")
+    resolved, values, unchecked, _ = _callees(tmp_path, "val.reader.doubtful")
     line = lambda needle: _line(VALUES, "val/reader.py", needle)
     assert resolved == [] and values == []
     for member in ("twice", "dropped", "guarded", "tried", "grouped", "looped", "held", "walrus"):
@@ -1814,15 +1900,15 @@ def test_a_module_value_resolves_through_an_import_an_established_module_and_bar
 ) -> None:
     _clone(tmp_path, "app", VALUES)
     value = "resolves to val.limits.MAX, a value bound at module level in val.limits"
-    _, values, unchecked = _callees(tmp_path, "val.reader.values")
+    _, values, unchecked, _ = _callees(tmp_path, "val.reader.values")
     place = _line(VALUES, "val/reader.py", "return MAX, ALIASED")
     for text in ("MAX", "ALIASED", "val.limits.MAX", "RELAYED"):
         assert _has(values, place + f"{text} used, {value}"), text
     assert _has(values, place + "SAME used, resolves to val.limits.SAME, a value bound at module level in val.limits")
     assert unchecked == []
-    _, values, _ = _callees(tmp_path, "val.reader.imported_inside")
+    _, values, _, _ = _callees(tmp_path, "val.reader.imported_inside")
     assert _has(values, _line(VALUES, "val/reader.py", "return INSIDE") + f"INSIDE used, {value}")
-    _, values, _ = _callees(tmp_path, "val.limits.own")
+    _, values, _, _ = _callees(tmp_path, "val.limits.own")
     assert _has(values, _line(VALUES, "val/limits.py", "return MAX, SAME") + f"MAX used, {value}")
 
 
@@ -1831,7 +1917,7 @@ def test_a_module_value_bound_or_written_uncertainly_is_unchecked_in_every_form(
     line    = lambda needle: _line(VALUES, "val/reader.py", needle)
     written = line("val.limits.CHANGED = 5").strip()
     changed = f"written elsewhere at {written}, unchecked, val.limits.CHANGED"
-    _, values, unchecked = _callees(tmp_path, "val.reader.doubtful_values")
+    _, values, unchecked, _ = _callees(tmp_path, "val.reader.doubtful_values")
     place = line("return TWICE, GONE")
     assert values == []
     for name in ("TWICE", "GONE", "WALRUS", "LEAKED", "GUARDED", "GLOBALLED"):
@@ -1839,15 +1925,15 @@ def test_a_module_value_bound_or_written_uncertainly_is_unchecked_in_every_form(
     assert _has(unchecked, place + f"val.limits.TWICE used, {SHAKY}, val.limits.TWICE")
     for text in ("CHANGED", "val.limits.CHANGED"):
         assert _has(unchecked, place + f"{text} used, {changed}"), text
-    _, values, unchecked = _callees(tmp_path, "val.limits.own")
+    _, values, unchecked, _ = _callees(tmp_path, "val.limits.own")
     place = _line(VALUES, "val/limits.py", "return MAX, SAME")
     assert _has(unchecked, place + f"TWICE used, {SHAKY}, val.limits.TWICE")
     assert _has(unchecked, place + f"CHANGED used, {changed}")
-    _, values, unchecked = _callees(tmp_path, "val.reader.relayed")
+    _, values, unchecked, _ = _callees(tmp_path, "val.reader.relayed")
     assert values == []
     for name in ("DOUBLE", "DELETED", "GUARDED_RELAY"):
         assert _has(unchecked, line("return DOUBLE") + f"{name} used, {SHAKY}, val.limits.MAX"), name
-    _, values, unchecked = _callees(tmp_path, "val.reader.imported_conditionally")
+    _, values, unchecked, _ = _callees(tmp_path, "val.reader.imported_conditionally")
     assert values == [] and _has(unchecked, line("return CONDITIONAL") + f"CONDITIONAL used, {SHAKY}, val.limits.MAX")
 
 
@@ -1857,10 +1943,10 @@ def test_a_value_through_a_module_imported_conditionally_is_unchecked_and_throug
     _clone(tmp_path, "app", VALUES)
     value = "resolves to val.limits.MAX, a value bound at module level in val.limits"
     place = _line(VALUES, "val/reader.py", "return inner_limits.MAX")
-    _, values, unchecked = _callees(tmp_path, "val.reader.through_modules")
+    _, values, unchecked, _ = _callees(tmp_path, "val.reader.through_modules")
     assert _has(values, place + f"inner_limits.MAX used, {value}")
     assert _has(unchecked, place + f"maybe_limits.MAX used, {SHAKY}, val.limits.MAX")
-    _, values, _ = _callees(tmp_path, "val.reader.values")
+    _, values, _, _ = _callees(tmp_path, "val.reader.values")
     place = _line(VALUES, "val/reader.py", "return MAX, ALIASED")
     assert _has(values, place + f"val.limits.MAX used, {value}"), "import val.enums and import val.limits bind val once"
     resolved, values, unchecked = _groups(
@@ -1905,14 +1991,14 @@ def test_a_new_line_carries_the_annotation_deferred_and_several_bodies_labels(tm
     line   = lambda needle: _line(VALUES, "val/reader.py", needle)
     member = "resolves to val.enums.Status.active, a member bound in the body of class val.enums.Status"
     member = f"Status.active used, {member}"
-    _, values, unchecked = _callees(tmp_path, "val.reader.labelled")
+    _, values, unchecked, _ = _callees(tmp_path, "val.reader.labelled")
     assert values == []
     assert _has(unchecked, line("lambda: Status.active") + f"{member}, inside a lambda, runs when it is called")
     assert _has(
         unchecked,
         line("note: Status.active") + f"{member}, in an annotation, never run with the code around it",
     )
-    _, values, unchecked = _callees(tmp_path, "val.reader.Twice.size")
+    _, values, unchecked, _ = _callees(tmp_path, "val.reader.Twice.size")
     assert values == []
     assert _has(unchecked, line("return Status.active") + f"{member}, one of 2 bodies of this name, unchecked")
     same = "SAME used, resolves to val.limits.SAME, a value bound at module level in val.limits"
@@ -1923,9 +2009,9 @@ def test_a_private_name_is_unchecked_as_mangled_in_callees_and_callers(tmp_path:
     _clone(tmp_path, "app", PRIVATE)
     use = lambda needle: _line(PRIVATE, "priv/use.py", needle)
     lib = lambda needle: _line(PRIVATE, "priv/lib.py", needle)
-    _, values, unchecked = _callees(tmp_path, "priv.use.outside")
+    _, values, unchecked, _ = _callees(tmp_path, "priv.use.outside")
     assert values == [] and _has(unchecked, use("Keeper.__member") + f"Keeper.__member used, {MANGLED}")
-    _, values, unchecked = _callees(tmp_path, "priv.lib.Keeper.read")
+    _, values, unchecked, _ = _callees(tmp_path, "priv.lib.Keeper.read")
     assert values == [] and _has(unchecked, lib("self.__member") + f"self.__member used, {MANGLED}")
     resolved, values, unchecked = _groups(
         _run(tmp_path, "callers", "priv.lib.Keeper.__member", "--repo", "app").stdout,
@@ -1935,7 +2021,7 @@ def test_a_private_name_is_unchecked_as_mangled_in_callees_and_callers(tmp_path:
     assert _has(unchecked, use("Keeper.__member") + f"Keeper.__member used in outside, {MANGLED}")
     assert _has(unchecked, lib("self.__member") + f"self.__member used in Keeper.read, {MANGLED}")
     for name, function in (("__hidden", "hidden"), ("__value", "plain")):
-        _, values, unchecked = _callees(tmp_path, f"priv.use.{function}")
+        _, values, unchecked, _ = _callees(tmp_path, f"priv.use.{function}")
         assert values == [] and _has(unchecked, use(f"priv.lib.{name}") + f"priv.lib.{name} used, {MANGLED}"), name
         resolved, values, unchecked = _groups(
             _run(tmp_path, "callers", f"priv.lib.{name}", "--repo", "app").stdout,
@@ -1950,7 +2036,7 @@ def test_a_private_name_is_unchecked_as_mangled_in_callees_and_callers(tmp_path:
 def test_a_binding_a_star_import_may_replace_is_unchecked_in_every_command(tmp_path: Path) -> None:
     _clone(tmp_path, "app", STARS)
     line = lambda needle: _line(STARS, "star/use.py", needle)
-    resolved, values, unchecked = _callees(tmp_path, "star.use.run")
+    resolved, values, unchecked, _ = _callees(tmp_path, "star.use.run")
     assert _has(resolved, line("early_target()") + "early_target called, resolves to star.early.target, a def")
     early = "EARLY used, resolves to star.early.VALUE, a value bound at module level in star.early"
     assert _has(values, line("return EARLY") + early)
@@ -1972,7 +2058,7 @@ def test_a_binding_a_star_import_may_replace_is_unchecked_in_every_command(tmp_p
     bound = "star.looped.target bound by an import of star.source.target"
     assert _has(unchecked, _line(STARS, "star/looped.py", "import VALUE, target") + f"{bound}, {STARRED}")
     done = _run(tmp_path, "callees", "star.late.target", "--repo", "app")
-    resolved, values, unchecked = _groups(done.stdout, "callees")
+    resolved, values, unchecked, _ = _groups(done.stdout, "callees")
     assert "a star import in its scope may replace it, so every line is unchecked." in done.stdout
     assert resolved == [] and values == [] and unchecked
     assert all(entry.endswith(STARRED) for entry in unchecked)
@@ -1988,10 +2074,82 @@ def test_a_def_and_a_class_answer_as_before_in_every_other_form(tmp_path: Path) 
     resolved, values, _ = _groups(_run(tmp_path, "callers", "reg.lib.Thing", "--repo", "app").stdout, "callers")
     assert _has(resolved, line("Thing()") + "Thing called in work")
     assert _has(values, line("return Thing") + "Thing used in work")
-    resolved, values, _ = _callees(tmp_path, "reg.use.work")
+    resolved, values, _, _ = _callees(tmp_path, "reg.use.work")
     assert _has(resolved, line("    helper()") + "helper called, resolves to reg.lib.helper, a def")
     assert _has(resolved, line("Thing()") + "Thing called, resolves to reg.lib.Thing, a class")
     assert _has(values, line("return Thing") + "Thing used, resolves to reg.lib.Thing, a class")
+
+
+# ======================================================================================================================
+# the attributes a body writes, callees' fourth group
+# ======================================================================================================================
+
+def test_callees_lists_every_attribute_its_body_writes_in_a_fourth_group(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", WRITES)
+    done = _run(tmp_path, "callees", "wr.body.Store.plain", "--repo", "app")
+    assert done.returncode == 0, done.stderr
+    assert "Attributes written, " in done.stdout
+    *_, writes = _groups(done.stdout, "callees")
+    line = lambda needle: _line(WRITES, "wr/body.py", needle)
+    for needle, words in (
+        ("self.count = 1", f"self.count written, on self, {FIRST}"),
+        ("self.count += 1", f"self.count written, on self, {FIRST}"),
+        ("for self.item", f"self.item written, on self, {FIRST}"),
+        ("as self.held", f"self.held written, on self, {FIRST}"),
+        ("self.first, user.second", f"self.first written, on self, {FIRST}"),
+        ("self.first, user.second", f"user.second written, on user, {UNKNOWN}"),
+        ("del self.held", f"self.held deleted, on self, {FIRST}"),
+        ("self.__secret", f"self.__secret written, on self, {FIRST}, {MANGLED}"),
+    ):
+        assert _has(writes, line(needle) + words), needle
+    assert not any("an instance" in entry or "the class " in entry for entry in writes)
+
+
+def test_a_written_attribute_names_its_receiver_only_when_the_receiver_itself_is_known(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", WRITES)
+    resolved, _, _, writes = _callees(tmp_path, "wr.body.Store.plain")
+    line   = lambda needle: _line(WRITES, "wr/body.py", needle)
+    facade = "wr.facade.LIMIT written, on module wr.facade, which wr.facade imports from wr.real.LIMIT"
+    for needle, words in (
+        ("Store.count = 5", "Store.count written, on class wr.body.Store"),
+        ("wr.settings.FLAG", "wr.settings.FLAG written, on module wr.settings"),
+        ("wr.facade.LIMIT", facade),
+        ("os.environ.extra", "os.environ.extra written, on os.environ, outside the clone, as imported"),
+        ("user.name", f"user.name written, on user, {UNKNOWN}"),
+        ("local.size", f"local.size written, on local, {UNKNOWN}"),
+        ("make().attr", f"make().attr written, on make(), {UNKNOWN}"),
+        ("items[0].attr", f"items[].attr written, on items[], {UNKNOWN}"),
+        ("self.settings.FLAG", f"self.settings.FLAG written, on self.settings, {UNKNOWN}"),
+    ):
+        assert _has(writes, line(needle) + words), needle
+    hint = line("make().hint")
+    assert not _has(writes, hint), "an annotated attribute with no value writes nothing"
+    assert _has(resolved, hint + "make called, resolves to wr.body.make, a def"), "its receiver still runs"
+
+
+def test_a_first_parameter_is_worded_from_the_source_never_as_an_instance_or_the_class(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", WRITES)
+    for name, words in (
+        ("built", f"self.made written, on self, {FIRST}"),
+        ("swapped", f"cls.flag written, on cls, {FIRST}"),
+        ("fixed", f"self.fixed written, on self, {FIRST}"),
+        ("aliased", f"self.aliased written, on self, {FIRST}"),
+        ("rebound", f"self.value written, on self, {UNKNOWN}"),
+        ("bare", f"self.value written, on self, {UNKNOWN}"),
+    ):
+        *_, writes = _callees(tmp_path, f"wr.body.Store.{name}")
+        assert len(writes) == 1 and writes[0].endswith(words), (name, writes)
+
+
+def test_a_write_in_a_nested_class_or_a_generator_takes_the_labels_the_other_groups_take(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", WRITES)
+    *_, writes = _callees(tmp_path, "wr.body.Store.plain")
+    line = lambda needle: _line(WRITES, "wr/body.py", needle)
+    assert _has(writes, line("user.slot") + f"user.slot written, on user, {UNKNOWN}")
+    later = f"user.later written, on user, {UNKNOWN}, inside a generator expression, runs as it is consumed"
+    assert _has(writes, line("user.later") + later)
+    inner = f"user.inner written, on user, {UNKNOWN}, in class Store.plain.Inner, whose body runs as the function does"
+    assert _has(writes, line("user.inner") + inner)
 
 
 def test_the_wrapper_usage_and_the_readme_name_every_command() -> None:
