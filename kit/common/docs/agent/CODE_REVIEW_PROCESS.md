@@ -14,7 +14,9 @@
 > supporting session only on the owner's word, and since v1.24.0 the third retrospective's changes, three more
 > standing look for questions and the fix check as step 3b, with no fetch while a Claude read is open, and since
 > v1.25.0 a session's workers, a subagent for one job that keeps its session's role and limits and never reads a pin
-> as a reviewer. Kept byte identical across every KDF repo by the kit sync engine,
+> as a reviewer, and since v1.26.0 the fourth retrospective's changes, four more standing look for questions, a Now
+> block of the open step and the one before it, and every commit of a fix running the floors and extras lanes where a
+> repo has them. Kept byte identical across every KDF repo by the kit sync engine,
 > canonical source `kriegerdataforge-cicd/kit/common/docs/agent/CODE_REVIEW_PROCESS.md`. Never edit a synced copy,
 > change the canonical one. The tooling that keeps the process safe, the guard, the reviewer
 > launcher and the installer, is not synced. It lives in `kriegerdataforge-cicd/tools/claude-code/` and is installed on
@@ -276,7 +278,11 @@ a test whose input and expected answer are built from the constant move with it.
 contract change gets an ADR, and anything deferred gets a register row. Fix the class a finding belongs to, not the
 one instance. When a finding is the third of one class, turn the rule around, accept by a list or a grammar in place
 of refusing by one. A lane that will first run on another platform than the machine it was written on is run there
-once before the pull request, in a container on a clean export of the tree.
+once before the pull request, in a container on a clean export of the tree. Every commit of a fix, step 1's and each
+later step's, runs the repo's local gate, `make ci` where it has one, and beside it, where the repo has them, its
+lanes at the lowest versions it supports and with its optional extras installed, by the repo's own targets, so a test
+that holds at the pinned versions and not at the floor is found where it was written, not at step 6. A lane with no
+local target is left to the pull request's checks.
 
 What a finding shows about something `kriegerdataforge-cicd` owns, this kit, the reviewer tooling, a distributed
 script or a reusable workflow, is not deferred to a register row. When the review has a supporting session, the
@@ -476,12 +482,14 @@ One brief serves both reviewers. Its shape, in this order, is the template's.
    reviewer never starts, stops or resets it. It reads the stack with the tests, a script, `docker ps`, `docker logs`
    and `curl` to this machine, `AGENT_ROLES.md` section 5. It reads no secret file, rule 5 there, and prints no value.
 8. **Settled.** Numbered, with the reasons, so a reviewer does not re-derive a decision.
-9. **Look for.** A starting list, by area. A question becomes a finding only when a probe proves it. Eight standing
+9. **Look for.** A starting list, by area. A question becomes a finding only when a probe proves it. Twelve standing
    questions close every list, word for word from the template, the paths a tool acts on, the environment a child is
    handed, two parsers of one string, what pins a constant, whose text a message carries, what a success test reads
-   of its outcome, a hop to another thread or loop, and what a stored secret holds. The kdf-sdk's first
-   retrospective found 26 of its 43 escapes in the first three classes, each one read past by a step 2 brief that did
-   not ask, and its second retrospective added the next two, and its third the last three.
+   of its outcome, a hop to another thread or loop, what a stored secret holds, what a value of the right type can
+   hold, a setting applied once, a callable read for its shape, and every boundary a line's consumer honours. The
+   kdf-sdk's first retrospective found 26 of its 43 escapes in the first three classes, each one read past by a step
+   2 brief that did not ask, and its second retrospective added the next two, its third the next three, and its
+   fourth the last four.
 10. **Rules of evidence.** Probe, quote the line, reproduce, and put what cannot be settled under "Could not settle".
 11. **The report.** Section 8.
 
@@ -741,10 +749,15 @@ and goes on. Every step ends by updating them. The review is a work record
 - **The README's Now block** says where the review stands, the slice, the step and the pin, the launches planned or
   running and how to check each, what waits on the owner, and the next action. It holds process state alone, never a
   finding or a judgment of the code, since the reviewers read the pinned tree. The orchestrator rewrites it at each
-  step, outside a pin's freeze.
+  step, outside a pin's freeze. Its first bullet holds the open step and the step before it, no more, and every other
+  bullet holds what stands now, each open Pending line, owner wait and Do not line kept whatever step it came from.
+  When a step closes, the commit that closes it, outside every freeze, moves the prose of the step before it word for
+  word into the open slice's adjudication log, its section "Closed steps", and the plan's progress row, or at spot
+  scale the timeline's row, gains one line saying where it went.
 - **After a compaction or a takeover**, before any step, the orchestrator reads, in order, its role in
   [`AGENT_ROLES.md`](AGENT_ROLES.md), the README's Now block, the plan's goal and progress table, then the open
-  slice's adjudication log, and checks git, the pin and every open Pending line before doing anything again.
+  slice's adjudication log, its Closed steps section only where a Now line points there, and checks git, the pin and
+  every open Pending line before doing anything again.
 - **Launches are named before the pin.** The state commit before a pin names in the Now block each launch the pin
   will start, the reviewer, the planned command and the report's path, the pin being the commit its brief names, and
   how each is checked, a Claude run by its report and the report's `.usage.json`, a Codex run by its report in the
@@ -849,3 +862,9 @@ rule reads, section 4 steps 0 and 1. They are kit v1.20.0, cicd ADR D-061, and S
 what a success test reads of its outcome, a hop to another thread or loop and what a stored secret holds, section 7,
 the fix check as a step of its own, section 4 step 3b, and no fetch while a Claude read is open, section 11. They are
 kit v1.24.0, cicd ADR D-076.
+
+**The fourth retrospective**, the kdf-sdk's S4, the owner's yeses of 2026-10-21. Four standing look for questions,
+what a value of the right type can hold, a setting applied once, a callable read for its shape and every boundary a
+line's consumer honours, section 7, a Now block of the open step and the one before it, its closed steps kept in the
+adjudication log, section 11, and every commit of a fix running the floors and extras lanes where a repo has them,
+section 4 step 1. They are kit v1.26.0, cicd ADR D-083.

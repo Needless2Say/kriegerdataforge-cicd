@@ -4474,3 +4474,51 @@ parses every named clone again.
 read at its commit. A reviewer never runs it. A machine needs cicd's `.venv`, made once by `make venv`. What reopens
 this is a query that proves slow, which brings the cache back to the table, or a false resolved line the rules let
 through. VERSION 0.2.166.
+
+## D-083. The fourth retrospective's changes, four standing questions, a Now block of two steps and the floors lanes
+
+- **Date.** 2026-10-21
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Follows.** D-039, D-061 and D-076, the standing questions and the review's records before these.
+- **Tier / scope:** Standard · `kit/common/docs/agent/CODE_REVIEW_PROCESS.md`, the brief, README and adjudication
+  templates and their copies in `docs/agent/`, the tests · kit v1.26.0, synced by the Distribute
+
+**Context.** The kdf-sdk's fourth slice closed with a retrospective, and the owner approved its proposals, the kit's
+landing here and the rest sent to a backlog for a design session. Four are classes of defect a step 2 brief did not
+ask about. A value of the right type can hold what its consumer refuses, a setting applied once can be undone
+or outrun by a caller's own code before or after it, a callable read for its shape from the object and not through
+its call is judged wrong, and a filter that splits or escapes a line can miss a boundary or a conversion the line's
+consumer honours. A review's Now block grew with every closed step's prose until a resume read the history to find the
+state. And a test that held at the pinned versions failed at the lowest supported ones, first met at the slice's
+close, since that lane ran in CI alone.
+
+**Decision.**
+
+- **Four standing look for questions**, what a value of the right type can hold, a setting applied once, a callable
+  read for its shape and every boundary a line's consumer honours, after the eight of D-039, D-061 and D-076 and
+  before the brief's own two. Each is probed at the consumer, never by writing, and names both stacks or makes the
+  consumer's own grammar decisive. The process says twelve standing questions and names them, and the template keeps
+  all twelve word for word in every brief.
+- **The Now block keeps two steps.** Its first bullet holds the open step and the step before it, no more, and every
+  other bullet holds what stands now, each open Pending line, owner wait and Do not line kept whatever step it came
+  from. The commit that closes a step, outside every freeze, moves the prose of the step before it word for word into
+  the adjudication log's new section 12, "Closed steps", the plan's progress row gaining a line saying where. The rule
+  stands as a plain line under the template's Now heading, so it survives the fill, and in section 11. A resume opens
+  the closed steps only where a Now line points there.
+- **Every commit of a fix runs the floors and extras lanes** beside the repo's local gate, where the repo has them, by
+  its own targets, at step 1 and every later step. A lane with no local target is left to the pull request's checks.
+
+**Alternatives considered.**
+
+- *One bullet for a setting's windows and a callable's shape.* Declined, they are two classes with two probes.
+- *Every lane CI runs beside the local gate.* Declined, some have no local form, a scan in GitHub alone, a gate's
+  canaries or a lane that needs a secret, and a line that cannot be done as written is skipped whole.
+- *The closed steps moved into the plan's progress row.* Declined, a table cell holds no paragraph, and the row is
+  kept per slice.
+- *Letting a brief mark a standing question "none in this scope".* Declined again, as in D-076.
+
+**Consequences.** Every brief written from kit v1.26.0 asks twelve standing questions, about twenty lines more, and
+each that finds nothing over the next slices comes back as a proposal to remove it. A Now block holds two steps of
+prose. A repo with a floors or extras lane runs it at every commit of a fix, a few minutes each. The numbers each change
+should move are in the review bench's ledger. No workflow and no tool changes. VERSION 0.2.167, kit and cicd's own
+copies at v1.26.0.

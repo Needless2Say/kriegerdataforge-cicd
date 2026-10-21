@@ -141,7 +141,7 @@ implementation does not do what the decision says, and then the finding names wh
 
 {The plan's list for this slice is the starting point. What step 1 settled is above, what is left, and what step 1
 added, is where a finding is likeliest. One bullet per area, each naming the specific question, not the topic. In a
-final brief, every Blocks fix of the last Sol round comes first, with its finding id. Keep the eight standing bullets
+final brief, every Blocks fix of the last Sol round comes first, with its finding id. Keep the twelve standing bullets
 after the areas, word for word, and delete a stack's readers only when the slice holds none of that stack.}
 
 - **{Area}.** {Whether X could ever Y, whether Z holds when W, what happens to V when U.}
@@ -177,6 +177,26 @@ after the areas, word for word, and delete a stack's readers only when the slice
   mark, a platform's decode of bytes it could not read, and what the protocol lets a caller send to match it. Probe
   with a value the probe makes, never one an environment holds, whether a stored value can hold what no caller can
   send, so it never matches, or match what it should not.
+- **What a value of the right type can hold.** Every value a check accepts once its type is right, a string, a
+  number, a URL or a name, and what the type still lets it hold that its consumer refuses or cannot carry, a
+  character the grammar of the header line it lands in forbids, one its encoder cannot write, a size past the
+  interpreter's own limits, a label whose own decoding fails. Probe each at its consumer, fed where the consumer
+  reads it, and measure there, never at the type, since a check of the type alone passes the value the consumer
+  breaks on.
+- **A setting applied once.** Every setting the code applies at one point, a logging posture, a filter, a handler
+  or a default, and each window before and after that point where a caller's own code can undo it or run without
+  it, the caller's startup and shutdown code, a part registered after it, a layer that writes before the setting
+  stands. Probe each window with the caller's code in it, and what the setting's own author does inside it.
+- **A callable read for its shape.** Every place the code decides what kind of callable or container it was given
+  before it uses it, whether it reads the shape through the call, so a wrapper is judged as the call will run it,
+  in Python an instance whose `__call__` is that kind or a partial over one, in JavaScript a bound function or an
+  async function behind a plain one, and whether a container's shape is read before its first use, not after.
+- **Every boundary a line's consumer honours.** Wherever the code escapes, splits or filters text that ends up as a
+  line, a log line, a header or a record, every boundary that line's own consumer honours, read from the consumer's
+  grammar and not the line feed alone, such as all that Python's `str.splitlines` splits on where it reads the
+  line, or the line terminators a JavaScript pattern's anchors match, and every conversion the format's grammar
+  permits, read from the grammar and not from its examples, since a conversion can write a character after the
+  filter ran.
 - **The new tests.** Whether each pins what its name claims. A test that would pass against a broken implementation
   is a finding.
 - **The docs.** Every `file:line` cite into this slice against the code, and every claim in the adjudication log's

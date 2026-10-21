@@ -27,6 +27,7 @@ SKILL   = TOOLS / "kdf-codex-start-skill.md"
 BASH    = os.environ.get("KDF_TEST_BASH") or shutil.which("bash")
 REPO    = "kriegerdataforge-sdk"
 PRIVATE = "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@main"
+PYTHONS = ("python3.14", "python3.14.exe")
 
 # the venv's python. Each call is one line of the log, and a pip install that reads a requirements file also logs every
 # line it read, so a test sees what reached pip. STUB_FAIL names a call that fails, the way a broken install would
@@ -95,20 +96,44 @@ def box(tmp_path: Path) -> Box:
     return Box(workspace = workspace, repo = repo, stubs = stubs, log = tmp_path / "stub.log")
 
 
+def _shadow(folder: Path, into: Path) -> Path | None:
+    """
+    A folder of links to every entry of `folder` but a python3.14, so a system folder that holds one, as Ubuntu 26.04's
+    `/usr/bin` does, still gives the script and the stubs their grep and bash. None where links cannot be made, a
+    Windows account without the right, and the folder is then left out whole.
+    """
+    shadow = into / f"shadow-{len(list(into.glob('shadow-*')))}"
+    shadow.mkdir()
+    try:
+        for entry in folder.iterdir():
+            if entry.name not in PYTHONS:
+                (shadow / entry.name).symlink_to(entry)
+    except OSError:
+        shutil.rmtree(shadow)
+        return None
+    return shadow
+
+
 def _path(box: Box, with_python: bool) -> str:
     """
-    The stubs first, with python3.14 among them or not, and uv always. Then the machine's own PATH without any folder
-    that holds a real python3.14, so the script finds one only where a test put it.
+    The stubs first, with python3.14 among them or not, and uv always. Then the machine's own PATH, each folder that
+    holds a real python3.14 kept through its shadow, so the script finds one only where a test put it.
     """
     bin_dir = box.stubs / ("bin-python" if with_python else "bin-uv")
     bin_dir.mkdir(exist_ok = True)
     _executable(bin_dir / "uv", UV)
     if with_python:
         _executable(bin_dir / "python3.14", SYSTEM_PYTHON)
-    folders = [
-        folder for folder in os.environ.get("PATH", "").split(os.pathsep)
-        if folder and not any((Path(folder) / name).exists() for name in ("python3.14", "python3.14.exe"))
-    ]
+    folders: list[str] = []
+    for folder in os.environ.get("PATH", "").split(os.pathsep):
+        if not folder:
+            continue
+        if not any((Path(folder) / name).exists() for name in PYTHONS):
+            folders.append(folder)
+            continue
+        shadow = _shadow(Path(folder), box.stubs)
+        if shadow is not None:
+            folders.append(shadow.as_posix())
     return os.pathsep.join([bin_dir.as_posix(), *folders])
 
 
@@ -135,6 +160,27 @@ def _install(box: Box, with_python: bool = True, fail: str | None = None) -> sub
 
 def _log(box: Box) -> str:
     return box.log.read_text(encoding = "utf-8") if box.log.exists() else ""
+
+
+def test_a_system_folder_keeps_its_tools_but_python3_14(box: Box, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Ubuntu 26.04 puts python3.14 in `/usr/bin` beside grep and bash. The PATH a test hands the script hides that
+    python3.14 and keeps the folder's other tools, so the script still finds grep. Where links cannot be made the
+    folder is left out whole, as before.
+    """
+    system = box.stubs.parent / "system-bin"
+    system.mkdir()
+    _executable(system / "python3.14", SYSTEM_PYTHON)
+    _executable(system / "grep", "#!/usr/bin/env bash\nexit 0\n")
+    monkeypatch.setenv("PATH", system.as_posix())
+    folders = [Path(folder) for folder in _path(box, with_python = False).split(os.pathsep)]
+    assert not any((folder / name).exists() for folder in folders for name in PYTHONS)
+    assert system not in folders
+    try:
+        (box.stubs.parent / "link-probe").symlink_to(system)
+    except OSError:
+        return
+    assert any((folder / "grep").exists() for folder in folders), folders
 
 
 def test_a_clean_install_leaves_the_private_package_out_and_reaches_pip_check(box: Box) -> None:

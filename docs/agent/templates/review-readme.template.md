@@ -3,10 +3,10 @@
 > **How to use.** The orchestrator copies this to `README.md` at the root of the review folder,
 > `docs/reviews/{YYYY-MM-DD}-{scope}/`, on the day the review opens, fills every `{...}`, and deletes this box
 > and every hint in braces. It is the index a person reads first, so keep it short and current. The orchestrator
-> updates it whenever a step closes, rewrites its Now block at every step, and adds the review's line to the top of
-> `docs/reviews/README.md`, the archive's front door, the day the folder is created. The layout it describes is
-> [`../CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md) section 3. Link every file with a path relative to this
-> folder, and name a secret's variable, never its value.
+> updates it whenever a step closes, rewrites its Now block at every step by the rule under its Now heading, and adds
+> the review's line to the top of `docs/reviews/README.md`, the archive's front door, the day the folder is created.
+> The layout it describes is [`../CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md) section 3. Link every file with
+> a path relative to this folder, and name a secret's variable, never its value.
 
 | | |
 | --- | --- |
@@ -23,6 +23,12 @@
 takeover, before the plan's progress table and the open slice's adjudication log. Process state alone, never a finding
 or a judgment of the code, since the reviewers read the pinned tree. The launches a pin will start are named here in
 the state commit before the pin, and from the pin until both of its reports are in nothing here changes.}
+
+Its first bullet holds the open step and the step before it, no more, and every other bullet holds what stands now,
+each open Pending line, owner wait and Do not line kept whatever step it came from. When a step closes, the commit
+that closes it, outside every freeze, moves the prose of the step before it word for word into the open slice's
+adjudication log, its section "Closed steps", and the plan's progress row, or at spot scale the timeline's row, gains
+one line saying where it went. A resume opens that section only where a line here points to it.
 
 - Slice {S1}, step {n}, pin {the commit its brief names, its sha once it exists}. Next, {the next action}.
 - Launches, {each launch this pin starts, the reviewer, the planned command and the report's path, and how it is
