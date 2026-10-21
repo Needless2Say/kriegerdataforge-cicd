@@ -710,6 +710,11 @@ VALUES = {
                 return cls.limit
 
 
+        class Derived(Status):
+            def chain(self):
+                return self.unbound.value, Child.active.upper
+
+
         class Twice:
             @property
             def size(self):
@@ -1985,6 +1990,9 @@ def test_a_self_or_cls_read_of_a_member_is_unchecked_and_of_a_name_its_class_doe
     assert not any("self.unbound" in entry for entry in unchecked)
     _, values, unchecked, _ = _callees(tmp_path, "val.reader.Lockout.build")
     assert values == [] and _has(unchecked, line("return cls.limit") + f"cls.limit used, {words}")
+    _, values, unchecked, _ = _callees(tmp_path, "val.reader.Derived.chain")
+    assert values == [] and not any("self.unbound" in entry for entry in unchecked), "a base never names a self chain"
+    assert _has(unchecked, line("Child.active.upper") + "Child.active used, through its base val.enums.Status, unchecked")
 
 
 def test_a_member_bound_in_a_form_the_map_does_not_take_as_certain_is_unchecked(tmp_path: Path) -> None:
