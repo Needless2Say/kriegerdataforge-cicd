@@ -34,6 +34,24 @@ STARRED = "a star import in its scope may replace it, unchecked"
 # how a written attribute names a receiver the ast cannot type, and the first parameter of a method of WRITES' class
 UNKNOWN = "its type unknown to the ast"
 FIRST   = "the first parameter of a def in the body of class wr.body.Store"
+# the words a session hands a worker it briefs to use the map, which --help prints whole
+WORKER_BRIEF = """\
+Start with the repo map, a lookup over the repos' Python at the commits above, read from git's objects. Run it in
+Bash on one line with single quotes, since the guard refuses a $ or a backtick inside double quotes, as
+bash <the wrapper> <command> <name> --repo <clone> --at <clone>=<commit>
+with a --repo and an --at for each repo the lookup names. Its commands are defs <name> (where a bare or dotted name
+is defined), imports <dotted module> (who imports it or a name in it), callers <dotted name> (resolved calls, uses
+that are not calls, and unchecked matches kept by name), callees <dotted function> (what that function's own body
+calls and uses, the repo's class members and module values among them, then the attributes it writes, a def nested
+in it apart), and test-importers <dotted> (test files that import it, those through a re-export, the unchecked
+matches, then the test candidates that use it). What a function does, its conditions and its values, is read in its
+body. Add --tests to keep tests in imports and callers, and --full to print a group past its 40 lines. Each answer
+gives its resolved lines first, each line <clone>@<hash> <path>:<line>. An empty group proves no absence, so search
+before you say there is none. Read a line at the answer's commit, with git -C <clone> show <hash>:<path>, or with
+Read in a checkout you know is clean at that commit, and search for a name the map was not given or what it names
+as unseen with git -C <clone> grep -n '<pattern>' <hash>, or with Grep in such a checkout. The guard refuses grep
+-r, and an awk program that runs a command, reads the environment or writes a file, so use neither.
+"""
 # a stand in for cicd's venv interpreter, it logs each call and runs this interpreter, or plays one that cannot start
 STAND_IN = """#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "{log}"
@@ -2294,13 +2312,22 @@ def test_a_test_candidate_reaching_a_name_by_name_alone_is_unchecked(tmp_path: P
     assert _has(unchecked, _defs(test, "def test_by_name")[0] + words)
 
 
-def test_the_wrapper_usage_and_the_readme_name_every_command() -> None:
+def test_the_wrapper_usage_the_readme_and_the_help_name_every_command_and_new_group(tmp_path: Path) -> None:
     commands = _module().COMMANDS
-    usage    = WRAPPER.read_text(encoding = "utf-8").splitlines()[3]
+    wrapper  = WRAPPER.read_text(encoding = "utf-8")
+    usage    = wrapper.splitlines()[3]
     readme   = (TOOLS / "README.md").read_text(encoding = "utf-8")
+    helped   = _run(tmp_path, "--help").stdout
     for command in commands:
         assert f" {command} " in usage, command
         assert f"bash kdf-repo-map.sh {command} " in readme, command
+    for title in ("Attributes written", "Test candidates that use it"):
+        assert title in wrapper and title in readme and title in helped, title
+
+
+def test_help_prints_the_workers_brief_word_for_word(tmp_path: Path) -> None:
+    done = _run(tmp_path, "--help")
+    assert done.returncode == 0 and WORKER_BRIEF in done.stdout
 
 # ======================================================================================================================
 # the wrapper, against a stand in interpreter, since GitHub's test job makes no repo .venv
