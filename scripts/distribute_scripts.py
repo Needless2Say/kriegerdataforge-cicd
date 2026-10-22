@@ -16,8 +16,11 @@ Synced items (per repo, from the registry):
   - deletes[]: the superseded flat scripts/ copies, removed in the same PR.
   - Makefile ("makefile_patch"): every scripts/<name>.py reference is rewritten to
     scripts/kdf_scripts/<name>.py (covers the `_BUMP :=` line and comments), then the
-    `ci-version-check:` recipe block is re-asserted to the canonical thin call.
-    Idempotent; a Makefile without the target raises PatchError -> NEEDS MANUAL ATTENTION.
+    `ci-version-check:` recipe block is re-asserted to the canonical thin call, and the
+    managed `scan` block of the local code scan (D-084) is written between its two marker
+    lines, inserted when absent and replaced whole but for the repo's own SCAN_EXCLUDE and
+    SCAN_LIMIT lines. Idempotent; a Makefile without the target, with two scan blocks or
+    with a `scan` target outside the block raises PatchError -> NEEDS MANUAL ATTENTION.
   - kdf-fmt.toml ("kdf_fmt_patch"): appends "scripts/kdf_scripts/" to the top-level
     `exclude` list (creating the key before the first TOML table when absent). A repo
     entry with "skip_kdf_fmt": true has no style lane and carries no kdf-fmt.toml, so the
@@ -63,7 +66,8 @@ import sys
 from pathlib import Path
 
 # third party imports
-# local imports — the shared sync engine (transport, retry session, fan-out loops)
+# local imports — the shared sync engine (transport, retry session, fan-out loops), and the scan's markers and pins
+from common.kdf_scan import BLOCK_CLOSE, BLOCK_OPEN, PYTHON_VERSION, SCAN_ROOT
 from common.repo_sync import PatchError, SyncItem, _select_repos, run_check, run_distribute
 
 # ======================================================================================================================
@@ -124,6 +128,27 @@ _RECIPE_RE = re.compile(r"^ci-version-check:[^\n]*\n(?:\t[^\n]*\n)*", re.MULTILI
 # "kdf_scripts/bump_version.py" itself ENDS WITH the substring "scripts/bump_version.py",
 # so a naive replace would double-nest the path on every re-run.
 _PATH_REWRITE_RE = re.compile(r"(?<!kdf_)scripts/(check_version|bump_version|version_targets)\.py")
+
+# the managed scan block every repo's Makefile holds between its two markers (D-084, design 5.5). Its recipe runs the
+# scan folder's own Python, isolated and writing no bytecode, on the installed launcher, so no repo venv and no file a
+# branch can edit runs. A repo's own SCAN_EXCLUDE and SCAN_LIMIT lines sit between the head and the tail, the wrapper
+# reading them from the block itself, and its Python's path moves with the Python's pin by this Distribute.
+SCAN_PYTHON     = f"{SCAN_ROOT.as_posix()}/python/{PYTHON_VERSION}/python.exe"
+SCAN_BLOCK_HEAD = (
+    f"{BLOCK_OPEN}\n"
+    "# The local code scan, Opengrep over the code and zizmor over the workflows (cicd D-084).\n"
+    "SCAN_EXCLUDE ?=\n"
+)
+SCAN_BLOCK_TAIL = (
+    ".PHONY: scan\n"
+    "scan: ## Local code scan, Opengrep and zizmor, before every pull request\n"
+    f"\t@{SCAN_PYTHON} -I -S -B {SCAN_ROOT.as_posix()}/kdf-scan.py\n"
+    f"{BLOCK_CLOSE}\n"
+)
+# a rule whose targets name scan, alone or among others, and not scan-dev, scan-fixtures or a variable
+_SCAN_TARGET_RE = re.compile(r"^(?:[^\t#:=][^:=#]*\s+)?scan(?:\s+[^:=#]*)?\s*::?(?!=)")
+# the lines of a repo's own the block keeps whole, which the wrapper itself judges
+_SCAN_OWN_LINES = ("SCAN_EXCLUDE +=", "SCAN_LIMIT")
 
 # The exclusion appended to tenant style/lint configs (trailing slash = directory).
 _VENDOR_EXCLUDE_ENTRY  = f'"{VENDOR_DIR}"'
@@ -212,7 +237,41 @@ def patch_makefile(text: str | None) -> str:
         raise PatchError("Makefile has no `ci-version-check:` recipe to rewrite")
     rewritten = _PATH_REWRITE_RE.sub(r"scripts/kdf_scripts/\1.py", normalized)
     # function replacement -> inserted literally (no \-escape processing of the recipe)
-    return _RECIPE_RE.sub(lambda _match: CANONICAL_RECIPE, rewritten, count = 1)
+    return patch_scan_block(_RECIPE_RE.sub(lambda _match: CANONICAL_RECIPE, rewritten, count = 1))
+
+
+def patch_scan_block(text: str) -> str:
+    """
+    Write the managed scan block, inserted at the end when absent and replaced whole when present, the repo's own
+    SCAN_EXCLUDE and SCAN_LIMIT lines kept as they stand (D-084, design 5.5). Idempotent, since the block it writes is
+    the block it reads.
+
+    Args:
+        text: a Makefile's content with LF endings
+
+    Returns:
+        str: the content with the canonical block
+
+    Raises:
+        PatchError: when the Makefile holds two blocks, an unclosed one, a stray close, or a scan target outside it
+    """
+    lines  = text.split("\n")
+    opened = [index for index, line in enumerate(lines) if line.rstrip() == BLOCK_OPEN]
+    closed = [index for index, line in enumerate(lines) if line.rstrip() == BLOCK_CLOSE]
+    if len(opened) > 1 or len(closed) > 1:
+        raise PatchError("the Makefile holds two managed scan blocks, so the sync cannot tell which to keep")
+    if len(opened) != len(closed) or (opened and closed[0] < opened[0]):
+        raise PatchError("the Makefile's managed scan block is unclosed or its close stands alone")
+    inside  = lines[opened[0] + 1:closed[0]] if opened else []
+    outside = lines[:opened[0]] + lines[closed[0] + 1:] if opened else lines
+    if any(_SCAN_TARGET_RE.match(line) for line in outside):
+        raise PatchError("the Makefile holds a scan target outside the managed block, which the block would shadow")
+    own   = "".join(f"{line.rstrip()}\n" for line in inside if line.startswith(_SCAN_OWN_LINES))
+    block = SCAN_BLOCK_HEAD + own + SCAN_BLOCK_TAIL
+    if not opened:
+        body = text.rstrip("\n")
+        return f"{body}\n\n{block}" if body else block
+    return "\n".join(lines[:opened[0]]) + "\n" + block + "\n".join(lines[closed[0] + 1:])
 
 
 def patch_kdf_fmt_toml(text: str | None) -> str:
