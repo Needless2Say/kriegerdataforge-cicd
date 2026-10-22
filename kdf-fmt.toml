@@ -12,8 +12,9 @@ quiet_degenerate_sections = true
 # this repo's Python is scripts/, its src tree, and the repo map's module beside the machine's tools (D-082), all strict
 roots = ["scripts", "tools/claude-code"]
 
-# backup snapshots are frozen artifacts, not living code
-exclude = ["scripts/backups/"]
+# backup snapshots are frozen artifacts, not living code, and the scan's KDF rules sit beside their test cases, written
+# in Opengrep's test form to be flagged (D-084)
+exclude = ["scripts/backups/", "scripts/common/scan_rules/"]
 
 [rules]
 # no decorative banners / __all__ policy enforced while the baseline burns down
