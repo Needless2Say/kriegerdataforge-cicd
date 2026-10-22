@@ -633,7 +633,7 @@ class Collector(ast.NodeVisitor):
         base = self.absolute(node.module or "", node.level)
         # inside a class Python imports a private name, or from a private module, under its mangled name
         module = node.module or ""
-        hiding = inside_class(self.scope) and not node.level and "." not in module and private(module)
+        hiding = inside_class(self.scope) and "." not in module and private(module)
         for alias in node.names:
             hidden = hiding or (inside_class(self.scope) and private(alias.name))
             if alias.name == "*":
@@ -928,8 +928,10 @@ class Resolver:
         for module in self.clone.files:
             for scope, node, verb, _ in module.writes:
                 place = self.resolve(module, scope, node.value)
-                known = place.nature == "def" and place.origin in self.clone.classes
-                if not known and not (place.nature == "module" and place.established):
+                # a receiver a mangled name or a star leaves unchecked still writes the class or module it holds
+                nature = place.holds if place.nature == "candidate" else place.nature
+                known  = nature == "def" and place.origin in self.clone.classes
+                if not known and not (nature == "module" and place.established):
                     continue
                 origin = f"{place.origin}.{node.attr}"
                 if private(node.attr) and inside_class(scope):
@@ -1144,9 +1146,18 @@ class Resolver:
             elif place.label == "bound more than once, unchecked":
                 return Place("", "unresolved", label = "bound more than once in its class, unchecked")
             if private(attr):
-                # the member keeps where it leads, an import's origin among it, so a use of that origin never drops out
-                holds = place.holds or (place.nature if place.nature in RESOLVED else "")
-                return Place(place.origin or member, "candidate", label = MANGLED, holds = holds, via = (member,))
+                # the member keeps where it leads, an import's origin and a module's identity among it, so a use of
+                # that origin never drops out
+                holds  = place.holds or (place.nature if place.nature in RESOLVED else "")
+                origin = place.origin or member
+                return replace(
+                    place,
+                    origin = origin,
+                    nature = "candidate",
+                    label = MANGLED,
+                    holds = holds,
+                    via = (member,),
+                )
             return place
         # a private name read through a class is read as its mangled name, which the class body never binds as written
         if private(attr):
@@ -1905,16 +1916,23 @@ class Resolver:
             tuple[bool, str, str] | None: whether it resolves there, its text and the label when it does not, or None
                 for a use of anything else
         """
-        place = self.resolve(module, scope, node)
-        text  = dotted_text(node)
-        under = place.origin == self.target or place.origin.startswith(f"{self.target}.")
-        if under and place.nature in RESOLVED:
-            return (False, text, f"{ANNOTATION}, unchecked") if id(node) in module.annotated else (True, text, "")
-        if under and place.nature == "candidate":
-            return False, text, place.label
-        # a value its own test module binds, read bare, as callees reads it
-        if under and place.nature == "local" and place.holds == "value":
-            return (False, text, place.label) if place.label else (True, text, "")
+        place  = self.resolve(module, scope, node)
+        text   = dotted_text(node)
+        under  = place.origin == self.target or place.origin.startswith(f"{self.target}.")
+        valued = place.nature == "value" or (place.nature in ("candidate", "local") and place.holds == "value")
+        # a use reaching the asked name takes every doubt callees reads, a value its own test module binds among it
+        if under and (valued or place.nature in (*RESOLVED, "candidate")):
+            if place.label:
+                return False, text, place.label
+            if id(node) in module.annotated:
+                return False, text, f"{ANNOTATION}, unchecked"
+            if valued and self_receiver(node):
+                return False, text, "an instance or a subclass may hold its own, unchecked"
+            written = self.marks()[0]
+            marked  = next((written[step] for step in (place.origin, *place.via) if step in written), "")
+            if valued and marked:
+                return False, text, marked
+            return True, text, ""
         if place.nature in (*RESOLVED, "candidate") and self.through_package(place.origin):
             return False, text, "through a package, unchecked"
         if place.nature in (*RESOLVED, "candidate", "local"):

@@ -4559,7 +4559,8 @@ later star import replaces, which `follow` read only when no explicit binding ex
    them one the clone's code replaces, and else with its type unknown to the `ast`.
 5. `test-importers` adds a fourth group, "Test candidates that use it", the `test*` functions and the `test*` methods
    of `Test*` classes at module level whose own bodies use the asked name or a name under it, one reaching it by name
-   alone or bound more than once unchecked, and closes saying a candidate is a place to look and not proof.
+   alone, through a use `callees` leaves unchecked or bound more than once unchecked, and closes saying a candidate is
+   a place to look and not proof.
 6. `--help` prints a worker's brief, the words a session hands a worker it briefs to use the map, and every answer
    names what the map cannot see, a class decorator's or a metaclass's change and a write through `setattr`, `vars()`
    or `__dict__` among it.

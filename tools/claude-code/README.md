@@ -668,11 +668,12 @@ nothing, though its receiver still runs, and a write through `setattr`, `vars()`
 **The tests that use a name.** `test-importers` scans every test file and adds "Test candidates that use it", the
 `test*` functions at module level and the `test*` methods of `Test*` classes at module level, pytest's default names,
 whose own bodies use the asked name or a name under it, the defs, lambdas and classes nested in them included, each
-named at its `def` with the names it uses. A candidate that reaches the name by name alone, or whose name or class its
-file binds more than once, is among the unchecked matches. A candidate is a place to look and not proof of a
-behaviour. A test reaching the name only through a fixture, a helper, `conftest.py` or a string is not named, and
-pytest's settings, `__test__`, a constructor and a `unittest.TestCase` subclass of another name are not read. Its three
-groups of test imports are as before.
+named at its `def` with the names it uses. A candidate that reaches the name by name alone, through a use `callees`
+would leave unchecked, a `self` read, a value written elsewhere or a use in an annotation alone among them, or whose
+name or class its file binds more than once, is among the unchecked matches. A candidate is a place to look and not
+proof of a behaviour. A test reaching the name only through a fixture, a helper, `conftest.py` or a string is not
+named, and pytest's settings, `__test__`, a constructor and a `unittest.TestCase` subclass of another name are not
+read. Its three groups of test imports are as before.
 
 **The venv.** The wrapper runs the module with cicd's own interpreter, `.venv/Scripts/python.exe` on Windows and
 `.venv/bin/python` on Linux, with `-I -B`, and checks that it starts and is Python 3.14 or newer, since `ast` reads the

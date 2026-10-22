@@ -2439,7 +2439,11 @@ def test_a_test_candidate_reading_a_value_bare_in_its_own_file_is_named(tmp_path
 def test_a_test_candidate_takes_every_doubt_callees_reads_on_a_value(tmp_path: Path) -> None:
     _clone(tmp_path, "app", OUTLIERS)
     test  = lambda needle: _line(OUTLIERS, "tests/test_k.py", needle)
-    asked = (("tests.test_k.TestK.W", "def test_read"), ("tests.test_k.V", "def test_note"), ("lib_v.X", "def test_written"))
+    asked = (
+        ("tests.test_k.TestK.W", "def test_read"),
+        ("tests.test_k.V", "def test_note"),
+        ("lib_v.X", "def test_written"),
+    )
     for name, needle in asked:
         done = _run(tmp_path, "test-importers", name, "--repo", "app")
         _, _, unchecked, candidates = _groups(done.stdout, "test-importers")
