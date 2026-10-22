@@ -1021,6 +1021,67 @@ RECEIVERS = {
     "tests/test_values.py": "V = 1\n\n\ndef test_read():\n    return V\n",
 }
 
+OUTLIERS = {
+    "lib_v.py": "X = 1\n",
+    "writer.py": "import lib_v\n\n\ndef change():\n    lib_v.X = 2\n",
+    "lib3.py": "def target():\n    return 1\n",
+    "facade3.py": "from lib3 import target as alias\n",
+    "use3.py": """
+        class K:
+            import facade3 as __mod
+
+            def run(self):
+                return self.__mod.alias()
+        """,
+    "lib4.py": "V = 1\n",
+    "use4.py": """
+        import lib4
+
+
+        class K:
+            def change(self):
+                import lib4 as __mod
+                __mod.V = 2
+
+
+        def read():
+            return lib4.V
+        """,
+    "__top.py": "V = 1\n",
+    "p5/__init__.py": "",
+    "p5/__cfg.py": "V = 1\n",
+    "p5/read.py": """
+        class K:
+            from .__cfg import V
+            from __top import V as W
+
+
+        def read():
+            return K.V, K.W
+        """,
+    "tests/test_k.py": """
+        import lib_v
+
+        V = 1
+
+
+        class TestK:
+            W = 1
+
+            def test_read(self):
+                return self.W
+
+
+        def test_note():
+            note: V
+            return None
+
+
+        def test_written():
+            return lib_v.X
+        """,
+}
+
 CANDIDATES = {
     "cand/__init__.py": "",
     "cand/service.py": """
@@ -2373,6 +2434,39 @@ def test_a_test_candidate_reading_a_value_bare_in_its_own_file_is_named(tmp_path
         "test-importers",
     )
     assert _has(candidates, "tests/test_values.py:4 test_read uses V")
+
+
+def test_a_test_candidate_takes_every_doubt_callees_reads_on_a_value(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", OUTLIERS)
+    test  = lambda needle: _line(OUTLIERS, "tests/test_k.py", needle)
+    asked = (("tests.test_k.TestK.W", "def test_read"), ("tests.test_k.V", "def test_note"), ("lib_v.X", "def test_written"))
+    for name, needle in asked:
+        done = _run(tmp_path, "test-importers", name, "--repo", "app")
+        _, _, unchecked, candidates = _groups(done.stdout, "test-importers")
+        assert not _has(candidates, test(needle)) and _has(unchecked, test(needle)), name
+
+
+def test_a_module_under_a_private_member_or_alias_keeps_its_origin_and_its_writes(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", OUTLIERS)
+    place = _line(OUTLIERS, "use3.py", "self.__mod.alias()")
+    resolved, _, unchecked = _groups(_run(tmp_path, "callers", "lib3.target", "--repo", "app").stdout, "callers")
+    assert not _has(resolved, place) and _has(unchecked, place + f"self.__mod.alias called in K.run, {MANGLED}")
+    _, values, unchecked, _ = _callees(tmp_path, "use4.read")
+    written = _line(OUTLIERS, "use4.py", "__mod.V = 2").strip()
+    words   = f"lib4.V used, written elsewhere at {written}, unchecked, lib4.V"
+    assert values == [] and _has(unchecked, _line(OUTLIERS, "use4.py", "return lib4.V") + words)
+
+
+def test_an_import_inside_a_class_from_a_private_module_is_unchecked_as_mangled(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", OUTLIERS)
+    place = _line(OUTLIERS, "p5/read.py", "return K.V")
+    _, values, unchecked, _ = _callees(tmp_path, "p5.read.read")
+    assert values == []
+    assert _has(unchecked, place + f"K.V used, {MANGLED}, p5.__cfg.V"), "a relative import from a private module"
+    assert _has(unchecked, place + f"K.W used, {MANGLED}, __top.V"), "an absolute import from a private module"
+    found, _, unchecked = _groups(_run(tmp_path, "imports", "p5.__cfg", "--repo", "app").stdout, "imports")
+    imported = _line(OUTLIERS, "p5/read.py", "from .__cfg import V")
+    assert not _has(found, imported) and _has(unchecked, imported + f"imports p5.__cfg.V in class K, {MANGLED}")
 
 
 def test_defs_keeps_every_binding_on_the_way_to_a_name_a_del_leaves_unchecked(tmp_path: Path) -> None:
