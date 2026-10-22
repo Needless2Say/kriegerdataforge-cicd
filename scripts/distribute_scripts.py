@@ -17,7 +17,7 @@ Synced items (per repo, from the registry):
   - Makefile ("makefile_patch"): every scripts/<name>.py reference is rewritten to
     scripts/kdf_scripts/<name>.py (covers the `_BUMP :=` line and comments), then the
     `ci-version-check:` recipe block is re-asserted to the canonical thin call, and the
-    managed `scan` block of the local code scan (D-084) is written between its two marker
+    managed `scan` block of the local code scan (D-085) is written between its two marker
     lines, inserted when absent and replaced whole but for the repo's own SCAN_EXCLUDE and
     SCAN_LIMIT lines. Idempotent; a Makefile without the target, with two scan blocks or
     with a `scan` target outside the block raises PatchError -> NEEDS MANUAL ATTENTION.
@@ -129,14 +129,14 @@ _RECIPE_RE = re.compile(r"^ci-version-check:[^\n]*\n(?:\t[^\n]*\n)*", re.MULTILI
 # so a naive replace would double-nest the path on every re-run.
 _PATH_REWRITE_RE = re.compile(r"(?<!kdf_)scripts/(check_version|bump_version|version_targets)\.py")
 
-# the managed scan block every repo's Makefile holds between its two markers (D-084, design 5.5). Its recipe runs the
+# the managed scan block every repo's Makefile holds between its two markers (D-085, design 5.5). Its recipe runs the
 # scan folder's own Python, isolated and writing no bytecode, on the installed launcher, so no repo venv and no file a
 # branch can edit runs. A repo's own SCAN_EXCLUDE and SCAN_LIMIT lines sit between the head and the tail, the wrapper
 # reading them from the block itself, and its Python's path moves with the Python's pin by this Distribute.
 SCAN_PYTHON     = f"{SCAN_ROOT.as_posix()}/python/{PYTHON_VERSION}/python.exe"
 SCAN_BLOCK_HEAD = (
     f"{BLOCK_OPEN}\n"
-    "# The local code scan, Opengrep over the code and zizmor over the workflows (cicd D-084).\n"
+    "# The local code scan, Opengrep over the code and zizmor over the workflows (cicd D-085).\n"
     "SCAN_EXCLUDE ?=\n"
 )
 SCAN_BLOCK_TAIL = (
@@ -243,7 +243,7 @@ def patch_makefile(text: str | None) -> str:
 def patch_scan_block(text: str) -> str:
     """
     Write the managed scan block, inserted at the end when absent and replaced whole when present, the repo's own
-    SCAN_EXCLUDE and SCAN_LIMIT lines kept as they stand (D-084, design 5.5). Idempotent, since the block it writes is
+    SCAN_EXCLUDE and SCAN_LIMIT lines kept as they stand (D-085, design 5.5). Idempotent, since the block it writes is
     the block it reads.
 
     Args:

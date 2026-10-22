@@ -1,5 +1,5 @@
 """
-Stand ins for the local code scan's tests (D-084), shared by test_kdf_scan.py, test_kdf_scan_launcher.py and
+Stand ins for the local code scan's tests (D-085), shared by test_kdf_scan.py, test_kdf_scan_launcher.py and
 test_kdf_scan_verify.py.
 
 The wrapper runs each tool by an absolute path with an environment of named variables alone, so a stand in reads its
@@ -236,7 +236,7 @@ KDF_RULE     = """rules:
 """
 
 BLOCK = """# >>> kdf-scan, managed by cicd's scripts sync
-# The local code scan, Opengrep over the code and zizmor over the workflows (cicd D-084).
+# The local code scan, Opengrep over the code and zizmor over the workflows (cicd D-085).
 SCAN_EXCLUDE ?=
 {lines}.PHONY: scan
 scan: ## Local code scan, Opengrep and zizmor, before every pull request

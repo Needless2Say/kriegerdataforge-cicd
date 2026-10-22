@@ -1,6 +1,6 @@
 """
 Tests for the launcher's verify mode, `kdf-scan.py --pr <link>`, the scan before a merge and the reviewer's local gate
-(D-084, design 5.5).
+(D-085, design 5.5).
 
 Each test makes a bare remote holding main and a pull request's head at refs/pull/1/head, a clone of it, and a stand
 in gh that answers for GitHub, then runs the launcher's verify mode in the clone. The mode asks GitHub for the head

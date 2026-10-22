@@ -1,5 +1,5 @@
 """
-The local code scan's wrapper, Opengrep over the code and zizmor over the workflows, before every pull request (D-084).
+The local code scan's wrapper, Opengrep over the code and zizmor over the workflows, before every pull request (D-085).
 
 `make scan` runs the owner's installed launcher, `D:/KriegerDataForge-scan/kdf-scan.py`, under the scan folder's own
 Python with -I, -S and -B. The launcher refuses an elevated process or an open UAC value, reads `current` once, checks
@@ -1841,7 +1841,7 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         int: the exit code
     """
-    parser = argparse.ArgumentParser(description = "The local code scan's wrapper, run from source (D-084).")
+    parser = argparse.ArgumentParser(description = "The local code scan's wrapper, run from source (D-085).")
     parser.add_argument("--pins", action = "store_true", help = "print the declared pins and stop")
     parser.add_argument("--rules-digest", metavar = "GIT_DIR", help = "print the rules' digest at the pinned commit")
     parser.add_argument("--git", help = "the git --rules-digest runs, the install's own, else git at a protected path")

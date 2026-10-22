@@ -1,6 +1,6 @@
 """
 Tests for kdf_scan_launcher.py, the local code scan's launcher, installed as D:/KriegerDataForge-scan/kdf-scan.py
-(D-084).
+(D-085).
 
 Each test installs a bundle as the install would, into a scan folder under the test's temp folder, its files from this
 source tree, its manifest and `current`, and runs the launcher's main with stand ins for its Windows checks, an

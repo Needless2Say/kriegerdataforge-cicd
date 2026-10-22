@@ -1,4 +1,4 @@
-# The KDF rule's own test cases, in Opengrep's test form, run by make scan-fixtures (D-084). Each line the rule must
+# The KDF rule's own test cases, in Opengrep's test form, run by make scan-fixtures (D-085). Each line the rule must
 # flag sits under a ruleid comment and each it must leave alone under an ok comment. Every name and value is made up.
 import logging
 

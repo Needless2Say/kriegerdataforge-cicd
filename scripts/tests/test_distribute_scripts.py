@@ -45,7 +45,7 @@ LEGACY_INLINE = (
 )
 
 # minimal Makefiles written for cicd in the shapes of a FastAPI hub's, a Next.js frontend's, terraform's and a package
-# template's, each already on the canonical version check, for the managed scan block (D-084). No line is a tenant's.
+# template's, each already on the canonical version check, for the managed scan block (D-085). No line is a tenant's.
 HUB_MAKEFILE = (
     "# a FastAPI service\n"
     "PYTHON ?= .venv/Scripts/python\n"
@@ -197,7 +197,7 @@ def test_canonical_recipe_uses_vendor_dir_paths():
     assert ds._PATH_REWRITE_RE.sub(r"scripts/kdf_scripts/\1.py", ds.CANONICAL_RECIPE) == ds.CANONICAL_RECIPE
 
 
-# ── the managed scan block (D-084) ───────────────────────────────────────────
+# ── the managed scan block (D-085) ───────────────────────────────────────────
 @pytest.mark.parametrize("shape", sorted(SHAPES))
 def test_an_absent_scan_block_is_inserted_at_the_end_of_each_repo_shape(shape):
     patched = ds.patch_makefile(SHAPES[shape])

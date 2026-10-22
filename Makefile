@@ -390,6 +390,23 @@ bump-minor: _ensure-venv ## Bump the minor version (0.X.0) -- updates VERSION
 bump-major: _ensure-venv ## Bump the major version (X.0.0) -- updates VERSION
 	@$(_BUMP) major
 
+##@ Local Code Scan
+
+# The scan itself is the managed block at the end of this file, as in every repo, running the installed launcher
+# (D-085). scan-dev runs the wrapper's source in this tree under the scan folder's own Python while it is developed,
+# its last line saying bundle dev, so a pull request's pasted line always comes from `make scan`. scan-fixtures runs
+# scripts/tests/fixtures/scan against the installed tools after each owner install and at every pin move. Neither is
+# part of `make ci`, whose pytest collects no fixture_*.py.
+.PHONY: scan-dev scan-fixtures
+
+scan-dev: ## Local code scan from the wrapper's source in this tree, for developing it (D-085)
+	@D:/KriegerDataForge-scan/python/3.14.7/python.exe -I -S -B scripts/common/kdf_scan.py --repo .
+
+scan-fixtures: _ensure-venv ## The scan's fixtures against the installed tools, after each owner install (D-085)
+	@printf "$(GREEN)Scan fixtures against the installed tools...$(NC)\n"
+	cd scripts && $(CURDIR)/$(PYTHON) -m pytest tests/fixtures/scan -o python_files="fixture_*.py" \
+		-p no:cacheprovider -rP --tb=short
+
 ##@ CodeQL Security Scanning
 
 .PHONY: codeql codeql-db codeql-scan-security codeql-scan-quality codeql-scan-all \
@@ -485,4 +502,12 @@ clean-deep: ## Deep clean including virtual environment
 	@$(MAKE) clean
 	rm -rf .venv/
 	@printf "$(GREEN)Deep cleanup complete!$(NC)\n"
+
+# >>> kdf-scan, managed by cicd's scripts sync
+# The local code scan, Opengrep over the code and zizmor over the workflows (cicd D-085).
+SCAN_EXCLUDE ?=
+.PHONY: scan
+scan: ## Local code scan, Opengrep and zizmor, before every pull request
+	@D:/KriegerDataForge-scan/python/3.14.7/python.exe -I -S -B D:/KriegerDataForge-scan/kdf-scan.py
+# <<< kdf-scan
 

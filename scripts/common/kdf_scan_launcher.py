@@ -1,6 +1,6 @@
 """
 The local code scan's launcher, installed by the owner as D:/KriegerDataForge-scan/kdf-scan.py and run by every repo's
-`make scan` under the scan folder's own Python with -I, -S and -B (D-084).
+`make scan` under the scan folder's own Python with -I, -S and -B (D-085).
 
 Before anything, it refuses with exit 2 when its own process is elevated, read from its token's TokenElevation, or
 when UAC's values leave the folder's fence open, EnableLUA 0, ConsentPromptBehaviorAdmin 0, or PromptOnSecureDesktop 0
@@ -910,7 +910,7 @@ def main(
         print("kdf-scan  close any elevated window, start every session from an ordinary one, and keep UAC prompting")
         print(REFUSED)
         return 2
-    parser = argparse.ArgumentParser(prog = LAUNCHER, description = "The local code scan (cicd D-084).")
+    parser = argparse.ArgumentParser(prog = LAUNCHER, description = "The local code scan (cicd D-085).")
     parser.add_argument("--repo", default = ".", help = "the repo or clone, the current folder by default")
     parser.add_argument("--at", help = "scan this commit's tree, with origin/main's exclusions and limits")
     parser.add_argument("--check", action = "store_true", help = "check the installed machine and print it")

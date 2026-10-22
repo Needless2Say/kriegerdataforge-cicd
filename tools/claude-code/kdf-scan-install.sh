@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# kdf-scan-install.sh, the owner's install of the local code scan into D:/KriegerDataForge-scan (D-084, design 5.3).
+# kdf-scan-install.sh, the owner's install of the local code scan into D:/KriegerDataForge-scan (D-085, design 5.3).
 #
 #   "/c/Program Files/Git/usr/bin/bash.exe" -p /d/KriegerDataForge-scan/install/<commit>/kdf-scan-install.sh <commit>
 #

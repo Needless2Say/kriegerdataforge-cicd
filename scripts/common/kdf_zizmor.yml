@@ -1,4 +1,4 @@
-# The local code scan's zizmor configuration, carried in the scan's bundle (D-084). The wrapper runs zizmor with
+# The local code scan's zizmor configuration, carried in the scan's bundle (D-085). The wrapper runs zizmor with
 # --no-ignores, so these settings and the wrapper's own check of each marker are the only ways a finding is set aside.
 rules:
   # every action stays pinned by its commit's hash. The wrapper itself accepts a call of cicd's own reusable workflows

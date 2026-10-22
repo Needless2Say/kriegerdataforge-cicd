@@ -1,5 +1,5 @@
 """
-Tests for kdf_scan.py, the local code scan's wrapper (D-084).
+Tests for kdf_scan.py, the local code scan's wrapper (D-085).
 
 Each test builds a rig, a machine folder of stand ins for Opengrep and zizmor, a rules clone at a commit and a repo
 whose origin/main is its first commit, all with real git under the test's temp folder, then runs the wrapper's scan
@@ -13,13 +13,16 @@ from __future__ import annotations
 import io
 import re
 import subprocess
+import sys
 from pathlib import Path
 
+import distribute_scripts as ds
 import pytest
 from tests.scan_fakes import (
     COMMON,
     GIT,
     PYTHON,
+    ROOT,
     commit,
     fake_python,
     git,
@@ -704,3 +707,41 @@ def test_kdf_zizmor_yml_names_only_known_keys_each_disabled_audit_with_its_reaso
         before = text[:text.index(f"  {audit}:")].rstrip().splitlines()[-1]
         assert before.strip().startswith("#"), audit
     assert "pending a later change" in text
+
+# ======================================================================================================================
+# cicd's own targets and the fixtures, which run against the installed tools and never in make ci
+# ======================================================================================================================
+
+def test_cicds_own_makefile_holds_the_one_managed_block_the_sync_writes() -> None:
+    text = (ROOT / "Makefile").read_text(encoding = "utf-8")
+    assert text.count(SCAN.BLOCK_OPEN) == 1
+    assert ds.patch_scan_block(text) == text
+
+
+def test_scan_dev_runs_the_wrappers_source_under_the_scan_folders_own_python() -> None:
+    text   = (ROOT / "Makefile").read_text(encoding = "utf-8")
+    recipe = text[text.index("\nscan-dev:"):].split("\n")[2]
+    assert recipe == f"\t@{ds.SCAN_PYTHON} -I -S -B scripts/common/kdf_scan.py --repo ."
+    ci_line = next(line for line in text.splitlines() if line.startswith("ci: "))
+    assert "scan" not in ci_line
+
+
+def test_the_fixtures_are_never_collected_by_the_unit_lane_and_each_imports() -> None:
+    folder = ROOT / "scripts" / "tests" / "fixtures" / "scan"
+    names  = sorted(path.name for path in folder.glob("*.py"))
+    assert "conftest.py" not in names and not [name for name in names if name.startswith("test_")]
+    assert {
+        "scanfix.py",
+        "fixture_rules.py",
+        "fixture_markers.py",
+        "fixture_coverage.py",
+        "fixture_tampering.py",
+        "fixture_repo.py",
+        "fixture_tools.py",
+    } <= set(names)
+    sys.path.insert(0, str(folder))
+    try:
+        for name in names:
+            load(f"scan_fixture_{name.removesuffix('.py')}", folder / name)
+    finally:
+        sys.path.remove(str(folder))

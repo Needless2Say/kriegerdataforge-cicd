@@ -1,5 +1,5 @@
 """
-Tests for kdf-scan-install.sh, the owner's install of the local code scan (D-084, design 5.3).
+Tests for kdf-scan-install.sh, the owner's install of the local code scan (D-085, design 5.3).
 
 Each test runs the script as it ships, with bash -p from the folder it was fetched into, against a scan folder, a cicd
 remote and artifacts of the test's own, through --programs, whose folder holds the stand ins. whoami, cygpath, reg,
