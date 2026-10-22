@@ -160,7 +160,10 @@ def test_the_scanners_get_named_variables_alone_and_a_fresh_temp_folder_each_run
     assert len(calls) == 4
     temps = set()
     for call in calls:
-        assert set(call["env"]) <= {*SCAN.TOOL_ENVIRONMENT, "SYSTEMROOT", "PATH"}, call["env"].keys()
+        # the stand ins are Python, which on Linux sets LC_CTYPE in its own environment when the locale is C (PEP 538),
+        # so that one name, at the value Python coerces to, is the stand in's own and never the wrapper's
+        names = {name for name, value in call["env"].items() if not (name == "LC_CTYPE" and "UTF-8" in value.upper())}
+        assert names <= {*SCAN.TOOL_ENVIRONMENT, "SYSTEMROOT", "PATH"}, call["env"].keys()
         assert "planted" not in call["env"].values()
         assert call["env"]["TEMP"] == call["env"]["TMP"]
         assert not Path(call["env"]["TEMP"]).exists()

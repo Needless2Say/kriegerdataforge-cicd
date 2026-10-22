@@ -8,7 +8,9 @@ git, curl, tar and sha256sum are the real programs behind a wrapper that logs ea
 what configuration they load, and cosign is a stand in served through the pins as the real one is. The fake cicd holds
 this script, the real wrapper and launcher, kdf_scan.py's pins pointed at the artifacts by file:// addresses. An input
 the real program always acts on, a BASH_ENV, a PATH, a .gitconfig, a .curlrc or GIT_TRACE, is first shown to fire
-without the clean room, then shown to reach no run of the install. The tests need bash, git and curl.
+without the clean room, then shown to reach no run of the install. The install runs on Git for Windows alone, so
+the tests run there with its bash, git and curl, and skip on Linux, where neither the pre-flight's image nor the install
+is.
 """
 
 from __future__ import annotations
@@ -212,8 +214,8 @@ PLANTED = (
 )
 
 pytestmark = pytest.mark.skipif(
-    not (BASH and CURL and REAL_GIT and GIT),
-    reason = "the install's tests need bash, git and curl",
+    not (WINDOWS and BASH and CURL and REAL_GIT and GIT),
+    reason = "the install runs on Git for Windows alone, so its tests run there, with its bash, git and curl",
 )
 
 
