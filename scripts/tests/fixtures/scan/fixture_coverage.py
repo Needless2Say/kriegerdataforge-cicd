@@ -2,8 +2,12 @@
 Coverage, design 5.9's third part. A file the tools did not read whole makes the scan incomplete, never clean, unless a
 recorded limit names that file's content. Python 3.14's `except A, B:` and template strings, a file over the size
 limit, an unparsable one, a recorded limit passing on its blob and failing after one byte changes, and a workflow
-zizmor cannot load. At a commit, export-ignore and export-subst, a replacement ref, a symlink and a gitlink, none ending
-CLEAN, row L2 and Codex's revision read.
+zizmor cannot load, alone or beside one it can. At a commit, export-ignore and export-subst, a replacement ref, a
+symlink and a gitlink, none ending CLEAN, row L2 and Codex's revision read.
+
+Opengrep parses a file only when it holds the words some rule needs, so a broken file holding none of them is never
+parsed and passes, rightly, since no rule could match it, and the broken file here holds a rule's words where it
+breaks, the build's dry run of 2026-10-22.
 """
 
 from __future__ import annotations
@@ -14,7 +18,23 @@ from pathlib import Path
 from scanfix import commit, git, installed, lines, make_repo, scan
 
 SHELL = "import subprocess\n\n\ndef run(command):\n    return subprocess.run(command, shell=True, check=True)\n"
-BROKEN          = "def broken(:\n    pass\n"
+BROKEN          = lines(
+    "import logging",
+    "logger = logging.getLogger(__name__)",
+    "def record(access_token:",
+    "    logger.info('issued %s', access_token",
+)
+NO_WORDS        = "def broken(:\n    pass\n"
+GOOD_WORKFLOW   = lines(
+    "name: good",
+    "on: push",
+    "permissions: {}",
+    "jobs:",
+    "  build:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - run: true",
+)
 ATTRIBUTES      = lines(
     "src/hidden.py export-ignore",
     ".github/workflows/hidden.yml export-ignore",
@@ -49,6 +69,9 @@ def test_a_file_over_the_size_limit_and_an_unparsable_one_are_each_incomplete(tm
     for name, text in (("big", "x = 1\n" * 200000), ("broken", BROKEN)):
         result = scan(installed(), make_repo(tmp_path / name, {f"src/{name}.py": text}))
         assert result.result == "INCOMPLETE" and result.last["code"] == "4", (name, result.text)
+    result = scan(installed(), make_repo(tmp_path / "words", {"src/no_words.py": NO_WORDS}))
+    print(f"FIXTURE-NOTE a broken file holding no rule's words, {result.last['result']}")
+    assert result.result in ("CLEAN", "INCOMPLETE"), result.text
 
 
 def test_a_recorded_limit_passes_on_its_blob_and_fails_after_one_byte_changes(tmp_path: Path) -> None:
@@ -62,10 +85,11 @@ def test_a_recorded_limit_passes_on_its_blob_and_fails_after_one_byte_changes(tm
     assert result.result == "INCOMPLETE", result.text
 
 
-def test_a_workflow_zizmor_cannot_load_is_incomplete(tmp_path: Path) -> None:
-    files  = {".github/workflows/bad.yml": "name: bad\non: push\njobs: [unclosed\n"}
-    result = scan(installed(), make_repo(tmp_path / "repo", files))
-    assert result.result == "INCOMPLETE", result.text
+def test_a_workflow_zizmor_cannot_load_is_incomplete_alone_or_beside_one_it_can(tmp_path: Path) -> None:
+    bad = {".github/workflows/bad.yml": "name: bad\non: push\njobs: [unclosed\n"}
+    for name, files in (("alone", bad), ("beside", {**bad, ".github/workflows/good.yml": GOOD_WORKFLOW})):
+        result = scan(installed(), make_repo(tmp_path / name, files))
+        assert result.result == "INCOMPLETE" and result.last["code"] == "4", (name, result.text)
 
 
 def test_export_ignore_and_export_subst_hide_nothing_from_a_scan_at_a_commit(tmp_path: Path) -> None:

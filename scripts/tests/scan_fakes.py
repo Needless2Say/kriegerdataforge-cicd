@@ -43,6 +43,10 @@ scenario = json.loads(SCENARIO.read_text(encoding = "utf-8")) if SCENARIO.exists
 args     = sys.argv[1:]
 with open(HERE / "calls.jsonl", "a", encoding = "utf-8") as log:
     log.write(json.dumps({"tool": "opengrep", "args": args, "cwd": os.getcwd(), "env": dict(os.environ)}) + "\n")
+if scenario.get("opengrep_json_error"):
+    output = args[args.index("--output") + 1]
+    Path(output).write_text(json.dumps({"errors": [{"message": scenario["opengrep_json_error"]}]}), encoding = "utf-8")
+    sys.exit(7)
 if scenario.get("opengrep_exit"):
     sys.exit(scenario["opengrep_exit"])
 assert args[0] == "scan", args
@@ -121,6 +125,9 @@ with open(HERE / "calls.jsonl", "a", encoding = "utf-8") as log:
     log.write(json.dumps({"tool": "zizmor", "args": args, "cwd": os.getcwd(), "env": dict(os.environ)}) + "\n")
 if scenario.get("zizmor_exit_error"):
     sys.exit(1)
+if scenario.get("zizmor_no_inputs"):
+    sys.stderr.write("fatal: no audit was performed\nerror: no inputs collected\n")
+    sys.exit(3)
 
 
 def workflow(path):

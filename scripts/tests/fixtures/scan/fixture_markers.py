@@ -1,9 +1,11 @@
 """
 Suppressions, design 5.9's second part, on real findings. Opengrep runs with --disable-nosem and zizmor with
 --no-ignores, so the wrapper alone binds each marker, at the end of a finding's first line, alone on the line straight
-above it, or on a run block's line for a finding inside the block. Each bad form of section 4 fails, a marker in an
-excluded file, a stale one and an ambiguous id among them, and kdf_zizmor.yml stays in force under --no-ignores, the
-King's F4 and F5.
+above it, or on a run block's line for a finding inside the block. A finding's first line is the line its rule
+reports, so a rule that focuses on one argument, as subprocess-shell-true focuses on shell=True, reports that
+argument's line, and a marker on the call's first line is stale, the build's dry run of 2026-10-22. Each bad form of
+section 4 fails, a marker in an excluded file, a stale one and an ambiguous id among them, and kdf_zizmor.yml stays in
+force under --no-ignores, the King's F4 and F5.
 """
 
 from __future__ import annotations
@@ -27,6 +29,19 @@ OPENGREP  = {
     ),
     "src/multi_line.py": (
         lines(
+            "import yaml",
+            "",
+            "",
+            "def load(text):",
+            "    return yaml.unsafe_load(  # nosemgrep: avoid-pyyaml-load the text is a fixture constant",
+            "        text,",
+            "    )",
+        ),
+        True,
+        None,
+    ),
+    "src/focused.py": (
+        lines(
             "import subprocess",
             "",
             "",
@@ -36,8 +51,8 @@ OPENGREP  = {
             "        shell=True,",
             "    )",
         ),
-        True,
-        None,
+        False,
+        "stale",
     ),
     "src/bare.py": (SHELL_FILE.format(line = f"    return {SHELL}  # nosemgrep"), False, "a bare nosemgrep"),
     "src/nosem.py": (SHELL_FILE.format(line = f"    return {SHELL}  # nosem: {RULE} {REASON}"), False, "never nosem"),

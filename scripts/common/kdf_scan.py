@@ -154,6 +154,7 @@ HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,(?P<count>\d+))? @@", 
 MAX_TARGET_BYTES  = 1000000
 RULE_TIMEOUT      = 5
 ZIZMOR_EXITS      = frozenset({0, 10, 11, 12, 13, 14})
+ZIZMOR_NO_INPUTS  = 3
 ZIZMOR_NO_IGNORES = True
 ZIZMOR_COMPLETED  = re.compile(r"completed (?P<path>\S.*?)\s*$")
 # the only names the scanners' environment holds, every other variable, a token or SEMGREP_RULES, never reaching them
@@ -981,7 +982,15 @@ def run_opengrep(machine: Machine, work: Path, environment: dict[str, str]) -> d
     ]
     done    = subprocess.run(command, cwd = work, env = environment, capture_output = True, check = False)
     if done.returncode != 0:
-        raise ToolFailure(f"Opengrep exited {done.returncode}, {tail(done.stderr)}")
+        # an error Opengrep may write to its JSON alone, saying nothing on either stream
+        said = tail(done.stderr or done.stdout)
+        try:
+            errors = json.loads((work / "opengrep.json").read_text(encoding = "utf-8")).get("errors", [])
+            if errors:
+                said = " ".join(str(errors[0].get("message", said)).split())[:2 * SHOWN]
+        except (OSError, ValueError, IndexError, AttributeError):
+            pass
+        raise ToolFailure(f"Opengrep exited {done.returncode}, {said}")
     try:
         return json.loads((work / "opengrep.json").read_text(encoding = "utf-8"))
     except (OSError, ValueError) as error:
@@ -1063,6 +1072,10 @@ def run_zizmor(machine: Machine, work: Path, environment: dict[str, str]) -> tup
         ".",
     ]
     done    = subprocess.run(command, cwd = work / "workflows", env = environment, capture_output = True, check = False)
+    # zizmor says it collected no input when it could load none of the workflows it was given, an answer and not a
+    # failure, so none is completed and the coverage makes the scan incomplete
+    if done.returncode == ZIZMOR_NO_INPUTS and b"no inputs collected" in done.stderr:
+        return [], set()
     if done.returncode not in ZIZMOR_EXITS:
         raise ToolFailure(f"zizmor exited {done.returncode}, {tail(done.stderr)}")
     try:

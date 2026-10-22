@@ -612,6 +612,23 @@ def test_a_tool_that_fails_or_answers_outside_its_tree_ends_exit_3(tmp_path: Pat
     assert code == 3, text
     assert "(exit 3)" in text.splitlines()[-1]
 
+
+def test_opengreps_error_written_to_its_json_alone_is_named_in_the_failure(tmp_path: Path) -> None:
+    # a rule file Opengrep refuses ends in exit 7, its reason in the JSON alone and nothing on either stream
+    rig = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n"})
+    rig.set_scenario(opengrep_json_error = "Invalid YAML file rules/kdf/x.yaml:\n mapping values are not allowed here")
+    code, text = run(rig)
+    assert code == 3, text
+    assert "Opengrep exited 7, Invalid YAML file rules/kdf/x.yaml: mapping values are not allowed here" in text
+
+
+def test_workflows_zizmor_could_load_none_of_make_the_scan_incomplete_not_failed(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n", ".github/workflows/ci.yml": "name: CI\n"})
+    rig.set_scenario(zizmor_no_inputs = True)
+    code, text = run(rig)
+    assert code == 4, text
+    assert last(text)["result"].startswith("INCOMPLETE"), text
+
 # ======================================================================================================================
 # the pins printed for the install, and kdf_zizmor.yml
 # ======================================================================================================================
@@ -710,6 +727,15 @@ def test_kdf_zizmor_yml_names_only_known_keys_each_disabled_audit_with_its_reaso
         before = text[:text.index(f"  {audit}:")].rstrip().splitlines()[-1]
         assert before.strip().startswith("#"), audit
     assert "pending a later change" in text
+
+
+def test_kdfs_rule_patterns_holding_a_colon_and_a_space_are_quoted_so_yaml_reads_them() -> None:
+    # unquoted, "$KEY: $VALUE" in a pattern reads as a mapping, and Opengrep refuses the whole file, exit 7
+    for rule in sorted((COMMON / "scan_rules").glob("*.yaml")):
+        for number, line in enumerate(rule.read_text(encoding = "utf-8").splitlines(), 1):
+            key, _sep, value = line.strip().removeprefix("- ").partition(": ")
+            if key.startswith("pattern") and value and value[0] not in "'\"|>":
+                assert ": " not in value, (rule.name, number)
 
 # ======================================================================================================================
 # cicd's own targets and the fixtures, which run against the installed tools and never in make ci
