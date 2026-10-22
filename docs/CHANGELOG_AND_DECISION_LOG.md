@@ -4522,3 +4522,68 @@ each that finds nothing over the next slices comes back as a proposal to remove 
 prose. A repo with a floors or extras lane runs it at every commit of a fix, a few minutes each. The numbers each change
 should move are in the review bench's ledger. No workflow and no tool changes. VERSION 0.2.167, kit and cicd's own
 copies at v1.26.0.
+
+## D-084. The repo map's second round, the values a body reads and writes, the tests that use a name, two lines closed
+
+- **Date.** 2026-10-21
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Follows.** D-082, the repo map it changes.
+- **Tier / scope:** Epic, two repos · `tools/claude-code/kdf_repo_map.py`, `tools/claude-code/kdf-repo-map.sh`'s usage
+  and `scripts/tests/test_kdf_repo_map.py` · no workflow, input, kit page or guard rule changed
+
+**Context.** A worker briefed to use the map lost points where `callees` left out a plain load of a value, so a member
+of an enum the clone defines was dropped, where no group named the attributes a function writes, and where
+`test-importers` named a test file and not the test. A read of the design found two resolved lines the map gave that
+Python would not take, a private name read through its class, which Python reads as its mangled name, and a binding a
+later star import replaces, which `follow` read only when no explicit binding existed.
+
+**Decision.**
+
+1. A value resolves only when its name is bound by one statement, an assignment or an import standing directly in the
+   body of the scope that runs it, at every step of its path, the reader's own import among them, and a value read
+   through a module or a class only when every binding of that receiver in the reader's scope and on its way is an
+   import or a def standing so, several imports binding one package counting as one, the owner's answer "Direct
+   import, origin counted (Recommended)", and never through `self` or `cls` past the member itself. Any other binding
+   leaves it unchecked and labelled so, in every command.
+2. A private name used, bound or imported inside a class or read through one is unchecked as mangled, and a binding a
+   star import in its scope may replace, a def as well as a value, is unchecked, the two false lines closed. An
+   unchecked path keeps its origin, so an alias of the asked name moves to the unchecked matches and never drops out,
+   and `defs` names every binding on the way from a dotted name to its definition.
+3. `callees` lists a class's member read through its class and a module's value read through an import, an
+   established module or bare in its own module, a chain at its longest receiver that is one, a `self` or `cls` read of
+   a member unchecked and one of a name the class body does not bind left out, and a member or value the clone's code
+   writes elsewhere through its class or module unchecked with the write's place.
+4. `callees` adds a fourth group, "Attributes written", every attribute the body assigns or deletes, its receiver named
+   only when the receiver itself is the first parameter of a def written in a class body, worded from the source with
+   no claim that it is an instance or the class, a class, an established module or a name outside the clone, none of
+   them one the clone's code replaces, and else with its type unknown to the `ast`.
+5. `test-importers` adds a fourth group, "Test candidates that use it", the `test*` functions and the `test*` methods
+   of `Test*` classes at module level whose own bodies use the asked name or a name under it, one reaching it by name
+   alone, through a use `callees` leaves unchecked or bound more than once unchecked, and closes saying a candidate is
+   a place to look and not proof.
+6. `--help` prints a worker's brief, the words a session hands a worker it briefs to use the map, and every answer
+   names what the map cannot see, a class decorator's or a metaclass's change and a write through `setattr`, `vars()`
+   or `__dict__` among it.
+
+**Alternatives considered.**
+
+- *The rule counted by target.* `V = V = 1` would read as bound twice.
+- *A module receiver's import counted by statement.* `import a.x` and `import a.y` would leave every `a.y.V`
+  unchecked, though both bind `a` to one package.
+- *A module receiver's import outside the rule.* A value read through a module imported on a condition would resolve
+  where one imported the same way by name does not.
+- *Test files filtered by their imports.* It misses a test reaching a name through a package that re-exports its
+  module, and saves no parse.
+- *`callers --tests` in place of the test candidates.* Less code, but for a class or a module it names every use, and a
+  candidate names the test at its `def`.
+- *Writes listed by `callers`.* It answers where an attribute is set, but adds a kind of line to every `callers`
+  answer, so it waits.
+
+**Trade-offs.** More lines unchecked, a value bound in a branch or a loop among them, and more lines a worker reads. A
+member or value is the static binding the source makes, never the object Python reads at run time. A private name's
+mangled name is never formed, so every such use is unchecked.
+
+**Consequences.** `callees` names the values a function reads and the attributes it writes, and `test-importers` the
+tests that use a name, each line certain or unchecked with its label. An answer of `callers`, `imports`,
+`test-importers` or `defs` moves only toward unchecked. What reopens this is a false resolved line the rules let
+through. VERSION 0.2.168.

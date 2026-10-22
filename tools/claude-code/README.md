@@ -17,7 +17,7 @@ from a clone of this repo.
 | `kdf-ask-codex.sh` | Asks Codex for a read only review of a change, a plan or a decision, the one way every session does (D-052, D-053). Gives Codex a detached worktree of a commit, or a throwaway repo of a folder of patches with no secret file, link or token in it, sets the session's question in the standard frame, runs Codex with the verified flags and archives its answer in the workspace's `codex-archive`, never in a repo or in `temp` (D-069). Refuses a reviewer, and fails when Codex changed its folder or wrote no answer |
 | `kdf-preflight.sh` | Runs a repo's CI lanes on Linux in a container, the one way a session runs a Linux pre-flight (D-072). Exports a commit as an LF tar, builds the image in `preflight/` with `docker build` alone and options on the guard's list, and reads each lane's result and setup's from marker lines a last step prints. Runs the repo's `setup` first, and serves the owner's private Python packages through bare git mirrors this machine's git fetches, only for a repo GitHub calls private (D-078). Refuses a docker pointed at another machine, a dirty tree with no `--at`, a tracked secret file, an owner only lane and a pin off CI's allowlist |
 | `preflight/` | The pre-flight's image, `Dockerfile`, Python 3.14.7 slim by digest with git, make, ShellCheck, Node and actionlint, and `lanes.sh`, which runs setup and the lanes inside it |
-| `kdf-repo-map.sh` with `kdf_repo_map.py` | The repo map (D-082). A session, and the workers it briefs, ask where a name is defined, who imports it, its resolved static callers, its other uses, what a function's own body calls and its test importers in the Python clones they name, read from git's objects at a commit, nothing written anywhere. A reviewer never runs it, and the wrapper and the module both refuse `KDF_ROLE=reviewer` |
+| `kdf-repo-map.sh` with `kdf_repo_map.py` | The repo map (D-082, D-084). A session, and the workers it briefs, ask where a name is defined, who imports it, its resolved static callers, its other uses, what a function's own body calls, the clone's values it reads and the attributes it writes, and the test files and test candidates that use a name in the Python clones they name, read from git's objects at a commit, nothing written anywhere. A reviewer never runs it, and the wrapper and the module both refuse `KDF_ROLE=reviewer` |
 | `check-wiring.js` | Read only. Says whether this machine's settings wire the guard as the process needs, and prints the block to add when they do not |
 | `kdf-compact.js` | A Claude Code SessionStart hook for the work records (D-058). After a compaction or a resume it prints the paths of the open records the session wrote, read from its own transcript, and nothing for a reviewer or a subagent. It never blocks |
 | `install.sh` | Stages the guard in `~/.claude/hooks/`, smoke tests the staged copy, then puts it in place and keeps the previous one, copies `kdf-compact.js`, and prints the settings block. It edits no settings and refuses to run inside a Claude Code session |
@@ -560,12 +560,12 @@ plays docker and gh with stand ins that record every call and fetches from local
 bash kdf-repo-map.sh defs <name> --repo <clone>                                 # where a name is defined
 bash kdf-repo-map.sh imports pkg.module --repo <clone> --repo <other clone>     # who imports it, or under it
 bash kdf-repo-map.sh callers pkg.module.name --repo <clone> --at <clone>=<rev>  # its callers at a commit
-bash kdf-repo-map.sh callees pkg.module.name --repo <clone>                     # what its own body calls
-bash kdf-repo-map.sh test-importers pkg.module --repo <clone>                   # the test files that import it
+bash kdf-repo-map.sh callees pkg.module.name --repo <clone>                     # what its body calls, reads, writes
+bash kdf-repo-map.sh test-importers pkg.module --repo <clone>                   # the test files and tests using it
 ```
 
-A lookup a search worker would make, in one call (D-082). A session names its clones one by one, each a folder beside
-the cicd clone and never a link that leads outside, and the tool reads each clone's tracked `*.py` files at one
+A lookup a search worker would make, in one call (D-082, D-084). A session names its clones one by one, each a folder
+beside the cicd clone and never a link that leads outside, and the tool reads each clone's tracked `*.py` files at one
 commit, `refs/remotes/origin/main` as the clone last fetched it unless `--at <clone>=<rev>` names another, through
 `git ls-tree` and `git cat-file` alone. It parses them with Python's own `ast` on every query and keeps nothing, so
 the working tree, an untracked file and an ignored one are never read and nothing is written in a clone or anywhere
@@ -585,12 +585,15 @@ too.
 reflog or unknown without one, and the checkout's commit when it differs. Then three groups, resolved static targets,
 uses that are not calls, and unchecked matches, which are calls kept by name, calls through a base, uses through a
 module or a package the tool cannot establish, and attribute references with a receiver it cannot know, each with its
-label. Each line is `<clone>@<short hash> <path>:<line>` and the words saying what stands there. Each group prints
-every clone's count and at most 40 lines spread across the clones, then prints them by clone in the order `--repo`
-names them, then path, then line, and `--full` prints the rest. The answer ends saying an empty group proves no
-absence, and naming what it cannot see, uncommitted edits, `importlib` and `getattr`, a name held in a string such as a
-`mock.patch` target, a star import, and a method on an instance whose class the `ast` cannot know. A line it names is
-read at its commit, `git -C <clone> show <hash>:<path>`, never in the checkout.
+label. `callees` adds a fourth, "Attributes written", and `test-importers` one, "Test candidates that use it". Each line
+is `<clone>@<short hash> <path>:<line>` and the words saying what stands there. Each group prints every clone's count
+and at most 40 lines spread across the clones, then prints them by clone in the order `--repo` names them, then path,
+then line, and `--full` prints the rest. The answer ends saying an empty group proves no absence, and naming what it
+cannot see, uncommitted edits, `importlib` and `getattr`, a name held in a string such as a `mock.patch` target, a star
+import, a method on an instance whose class the `ast` cannot know, a class decorator's or a metaclass's change to a
+class, a value replaced by code the clone does not hold, and a write through `setattr`, `vars()` or `__dict__`. A line
+it names is read at its commit, `git -C <clone> show <hash>:<path>`, never in the checkout. `--help` prints a
+worker's brief, the words a session hands a worker it briefs to use the map.
 
 **How it resolves.** By Python's scopes, nearest first. A class body is skipped by the methods inside it, its
 `global` and `nonlocal` declarations with it, a module built into the interpreter or frozen in it, such as `sys`, is
@@ -611,12 +614,36 @@ the clone's top folder, from `src/` when the clone keeps its packages there, and
 file under a folder named `tests` or ending in `_tests`, left out of `imports` and `callers` unless `--tests` keeps
 them.
 
+**Three rules that only ever move a line toward unchecked** (D-084), in every command. A value, a module's or a class's
+member, resolves only when its name is bound by exactly one statement, so `V = V = 1` is one, and that statement is an
+assignment or an import standing directly in the body of the scope that runs it, never through `global`, a walrus, a
+comprehension, a `del`, an augmented assignment, a `for`, `with` or `except` target, or inside an `if`, `try`, loop,
+`with` or `match`. That holds at every step of the value's path, the reader's own import among them. A value read
+through a module or a class, `cfg.V` or `K.V`, is unchecked when a binding of that receiver in the reader's scope or on
+its way is no import or def standing directly in its scope, several `import pkg.x` binding `pkg` to the same package
+counting as one, and so is a value read through `self` or `cls` past the member itself, `self.K.V`, since an instance
+may hold its own. A private name, two leading underscores and no trailing pair, used, bound or imported inside a class
+or read through one, is unchecked as mangled, since Python reads it there as `_Class__name`, an import line of it in
+`imports` among them. A binding a star import in its scope may replace, a star after it or either inside a compound
+statement, is unchecked, a def as well as a value. An unchecked path keeps its origin, so an alias of the asked name
+moves to the unchecked matches and never drops out. So a resolved call or use of `callers`, an import or an import
+through a re-export of `imports` and `test-importers`, and a definition or an import binding of `defs` may move to the
+unchecked matches by these rules, each with its label, and nothing moves the other way. `defs` also names every binding
+on the way from a dotted name to its definition.
+
 **What a body calls.** `callees` takes the dotted name of a function or method the clone defines and reads the one
 body that name selects, the module resolution picks and never a file it shadows, a test file included whatever `--tests`
 says. Its first line names the body by path and line. Each call in that body is a line, whatever it calls through, and
-so is each use of a definition or of a name outside the clone that is not a call, while a plain load of a value is left
-out. A resolved call says its target and whether that is a def, a class, a value, a module or a name outside the clone,
-and `self.m()` or `cls.m()` adds that an override may run instead. A call inside a lambda or a generator expression runs
+so is each use of a definition or of a name outside the clone that is not a call. A use that is not a call and reads a
+value the clone binds is a line too, a member bound in the body of a class read through the class, `Status.active`,
+or a value bound at module level read through an import, a module whose identity is established, or bare in its own
+module, each worded as the one it is. A member read as the receiver of an attribute, `Status.active.value`, is named at
+the longest receiver that resolves. A `self` or `cls` read of a member the class body binds is unchecked, since an
+instance or a subclass may hold its own, and one of a name the class body does not bind is left out, as is a plain
+load of a local. A member reached through a base, and a member or value the clone's code writes elsewhere through its
+class or its module, `K.X = 2`, are unchecked, the second with that write's place. A resolved call says its target and
+whether that is a def, a class, a value, a module or a name outside the clone, and `self.m()` or `cls.m()` adds that an
+override may run instead. A call inside a lambda or a generator expression runs
 when it is called or consumed, so it is unchecked with that label, a list, set or dict comprehension runs with the body,
 and a class body nested in it runs as the function does and is labelled so. A def nested in the body is its own query
 and left out, its decorators and defaults running with the body. A call through a parameter, a local, a subscript, a
@@ -624,8 +651,29 @@ call's result, a builtin or a method of a value whose type the `ast` cannot know
 use in an annotation. A name with several bodies, a property with its setter for one, or one whose name, or a class's
 holding it, is bound more than once or declared `global` or `nonlocal`, keeps every line unchecked. A name in a module
 built into the interpreter is outside the clone, whatever file bears that module's name. A body with no line says it
-makes no call or use the `ast` sees, a class names its methods to ask, a name outside the clone says no body is read
-here, and a name the clone does not define says so, each ending 1.
+makes no call, use or write the `ast` sees, a class names its methods to ask, a name outside the clone says no body is
+read here, and a name the clone does not define says so, each ending 1.
+
+**What a body writes.** "Attributes written" lists every attribute the body assigns, an augmented assignment, a `for`
+or `with` target and a tuple's part among them, as written, and every `del` of one as deleted, labelled as the other
+groups are. It names the receiver only when the receiver itself is known. The first parameter of a def written in a
+class body, bound once there, is worded from the source, "self, the first parameter of a def in the body of class K",
+whatever its decorators, with no claim that it is an instance or the class. A class the clone defines is "class K", a
+module whose identity is established "module M", the write landing on M even when M imports the name from elsewhere,
+which is added, and a name outside the clone is named as imported. Any other receiver, a chain through `self` or
+`cls`, a parameter, a local, a rebound first parameter, a call's result, a subscript, or a class or module the clone's
+code replaces anywhere, is named with its type unknown to the `ast`. An annotated attribute with no value writes
+nothing, though its receiver still runs, and a write through `setattr`, `vars()` or `__dict__` is never seen.
+
+**The tests that use a name.** `test-importers` scans every test file and adds "Test candidates that use it", the
+`test*` functions at module level and the `test*` methods of `Test*` classes at module level, pytest's default names,
+whose own bodies use the asked name or a name under it, the defs, lambdas and classes nested in them included, each
+named at its `def` with the names it uses. A candidate that reaches the name by name alone, through a use `callees`
+would leave unchecked, a `self` read, a value written elsewhere or a use in an annotation alone among them, or whose
+name or class its file binds more than once, is among the unchecked matches. A candidate is a place to look and not
+proof of a behaviour. A test reaching the name only through a fixture, a helper, `conftest.py` or a string is not
+named, and pytest's settings, `__test__`, a constructor and a `unittest.TestCase` subclass of another name are not
+read. Its three groups of test imports are as before.
 
 **The venv.** The wrapper runs the module with cicd's own interpreter, `.venv/Scripts/python.exe` on Windows and
 `.venv/bin/python` on Linux, with `-I -B`, and checks that it starts and is Python 3.14 or newer, since `ast` reads the
