@@ -2,8 +2,8 @@
 The local code scan's wrapper, Opengrep over the code and zizmor over the workflows, before every pull request (D-084).
 
 `make scan` runs the owner's installed launcher, `D:/KriegerDataForge-scan/kdf-scan.py`, under the scan folder's own
-Python with -I and -S. The launcher refuses an elevated process or an open UAC value, reads `current` once, checks that
-bundle's manifest and runs this file's checked text, so no repo holds a scan script a branch could edit. cicd's
+Python with -I, -S and -B. The launcher refuses an elevated process or an open UAC value, reads `current` once, checks
+that bundle's manifest and runs this file's checked text, so no repo holds a scan script a branch could edit. cicd's
 `make scan-dev` runs this source directly while it is developed, and its last line says `bundle dev`.
 
 A scan checks every pin first, both executables, the Python and the digest of the rules as the pinned commit's raw

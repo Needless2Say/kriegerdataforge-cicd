@@ -1,6 +1,6 @@
 """
 The local code scan's launcher, installed by the owner as D:/KriegerDataForge-scan/kdf-scan.py and run by every repo's
-`make scan` under the scan folder's own Python with -I and -S (D-084).
+`make scan` under the scan folder's own Python with -I, -S and -B (D-084).
 
 Before anything, it refuses with exit 2 when its own process is elevated, read from its token's TokenElevation, or
 when UAC's values leave the folder's fence open, EnableLUA 0, ConsentPromptBehaviorAdmin 0, or PromptOnSecureDesktop 0

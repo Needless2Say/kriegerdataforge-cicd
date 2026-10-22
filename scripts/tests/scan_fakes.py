@@ -240,7 +240,7 @@ BLOCK = """# >>> kdf-scan, managed by cicd's scripts sync
 SCAN_EXCLUDE ?=
 {lines}.PHONY: scan
 scan: ## Local code scan, Opengrep and zizmor, before every pull request
-\t@D:/KriegerDataForge-scan/python/3.14.7/python.exe -I -S D:/KriegerDataForge-scan/kdf-scan.py
+\t@D:/KriegerDataForge-scan/python/3.14.7/python.exe -I -S -B D:/KriegerDataForge-scan/kdf-scan.py
 # <<< kdf-scan
 """
 
