@@ -22,6 +22,7 @@ from tests.scan_fakes import (
     GIT,
     PYTHON,
     bundle_files,
+    fake_python,
     install_bundle,
     load,
     make_rig,
@@ -79,6 +80,7 @@ def hooks(rig, gh: dict | None = None, changes: dict | None = None):
 def rig(tmp_path: Path):
     rig = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n", ".github/workflows/ci.yml": "name: CI\n"})
     install_bundle(rig.base, bundle_files())
+    fake_python(rig.base)
     return rig
 
 
@@ -215,13 +217,15 @@ def test_check_prints_the_bundle_the_launcher_the_pins_and_the_permission(
     assert "opengrep 1.30.2 sha256 ok" in out and "digest ok" in out
 
 
-@pytest.mark.parametrize("trouble", ["acl", "launcher", "behind", "pin"])
+@pytest.mark.parametrize("trouble", ["acl", "launcher", "behind", "pin", "python"])
 def test_check_fails_on_each_problem(rig, capsys: pytest.CaptureFixture[str], trouble: str) -> None:
     fence   = platform(acl = ["D:/scan lets Users write"] if trouble == "acl" else [])
     gh      = {"repos/Needless2Say/kriegerdataforge-cicd/compare": {"status": "behind"}} if trouble == "behind" else {}
     changes = {"rules_digest": "0" * 64} if trouble == "pin" else {}
     if trouble == "launcher":
         (rig.base / "kdf-scan.py").write_bytes(b"print('another launcher')\n")
+    if trouble == "python":
+        (rig.base / "python" / "3.14.7" / "Lib" / "planted.pth").write_bytes(b"import os\n")
     code = launch(rig, "--check", fence = fence, hooks = hooks(rig, gh, changes))
     out  = capsys.readouterr().out
     assert code == 2, out
@@ -252,9 +256,34 @@ def test_the_designs_permission_on_the_folder_passes() -> None:
     (ADMINS, True, [*GOOD_ROOT, LAUNCHER.Ace(0, 11, 0x40000000, OWNER)], False),
     (ADMINS, True, [*GOOD_ROOT, LAUNCHER.Ace(0, 0, 0x40000, "S-1-1-0")], False),
     (ADMINS, True, GOOD_ROOT[:2], True),
+    (ADMINS, True, GOOD_ROOT[:2], False),
+    (ADMINS, True, [*GOOD_ROOT, LAUNCHER.Ace(0, 16, READ_RUN, OWNER)], False),
 ])
 def test_a_weaker_permission_is_named(owner: str, protected: bool, aces: list, root: bool) -> None:
     assert LAUNCHER.acl_findings("x", owner, protected, aces, root = root)
+
+
+def test_a_link_or_a_junction_under_the_folder_is_named_and_never_walked_into(tmp_path: Path) -> None:
+    root = tmp_path / "scan"
+    (root / "bundles").mkdir(parents = True)
+    outside = tmp_path / "outside"
+    (outside / "deep").mkdir(parents = True)
+    if sys.platform == "win32":
+        import _winapi
+        _winapi.CreateJunction(str(outside), str(root / "install"))
+    else:
+        (root / "install").symlink_to(outside, target_is_directory = True)
+    read = []
+
+
+    def reader(path: Path):
+        read.append(path)
+        return ADMINS, True, GOOD_ROOT
+
+
+    problems = LAUNCHER.acl_problems(root, reader)
+    assert any("install is a link or a junction" in line for line in problems), problems
+    assert not any("deep" in str(path) for path in read)
 
 
 def test_a_deny_entry_is_never_read_as_a_grant() -> None:

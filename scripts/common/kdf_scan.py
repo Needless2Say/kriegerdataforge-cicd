@@ -53,27 +53,38 @@ OPENGREP_IDENTITY = (
     "https://github.com/opengrep/opengrep/.github/workflows/rolling-release.yml@refs/heads/release-v1.30.2"
 )
 OPENGREP_ISSUER   = "https://token.actions.githubusercontent.com"
-# zizmor from PyPI's Windows wheel, pinned by the wheel's SHA-256 as the trial installed it, and the zizmor.exe that
-# wheel installs, read on 2026-10-21 from the trial's venv
+# zizmor from PyPI's Windows wheel, pinned by the wheel's SHA-256 as the trial installed it and by its address as PyPI
+# names it, read on 2026-10-22, and the zizmor.exe inside it, read on 2026-10-21 from the trial's venv
 ZIZMOR_VERSION      = "1.30.1"
+ZIZMOR_WHEEL_URL    = (
+    "https://files.pythonhosted.org/packages/db/fe/2889fcbcf7728dd5e013bae7cf5c4e634d981a9e26d55e1da6ab9006404f/"
+    "zizmor-1.30.1-py3-none-win_amd64.whl"
+)
 ZIZMOR_WHEEL_SHA256 = "06e039fae8e185e2a1a8b002f2d95a6f5c3b548048bdd79e004dcb501fcd0868"
 ZIZMOR_SHA256       = "c39ef6b4c975ed3bf07a3a88fcfe228cb4b073993d76192fe09faba21478df91"
+# cosign's Windows program, which the install fetches into its staging folder and runs to verify Opengrep, its
+# SHA-256 as GitHub's release page lists it on 2026-10-22, for the owner's match against the release's checksums
+COSIGN_VERSION = "v3.1.4"
+COSIGN_URL     = "https://github.com/sigstore/cosign/releases/download/v3.1.4/cosign-windows-amd64.exe"
+COSIGN_SHA256  = "cbe953787074611f1334cbf37dc1cf953995bb8c45398eb4fc7bb781d29c1f2a"
 # the rules of Semgrep at the commit the web survey read, the digest of every rule file of RULE_FOLDERS at it, read on
 # 2026-10-21 with rules_digest below, and the page of the rules' licence the install saves with its date
 RULES_REPO        = "https://github.com/semgrep/semgrep-rules"
 RULES_COMMIT      = "17e31e11ebac99fb7dfe1cd288f7a32151b6f3f9"
 RULES_DIGEST      = "e2ec51f90a9d26ff7fac7a4a268ad24f935ab357add11304b9da141fc9181ff1"
 RULES_LICENSE_URL = "https://semgrep.dev/legal/rules-license"
-# the CPython uv 0.13.1 installs for 3.14.7, python-build-standalone's build 20260929, read from uv's own download
-# metadata on 2026-10-21, and the SHA-256 of that build's python.exe
+# the CPython uv 0.13.1 would install for 3.14.7, python-build-standalone's build 20260929, read from uv's own
+# download metadata on 2026-10-21. The install reads these three by a strict pattern before any Python runs, so each
+# stays one plain assignment, and builds the archive's address from them as below. The installed Python is held to the
+# manifest the install writes from the archive's own listing, Round Table 54's L4
 PYTHON_VERSION        = "3.14.7"
 PYTHON_BUILD          = "20260929"
-PYTHON_ARCHIVE_URL    = (
-    "https://github.com/astral-sh/python-build-standalone/releases/download/20260929/"
-    "cpython-3.14.7%2B20260929-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
-)
 PYTHON_ARCHIVE_SHA256 = "6378385d5e42ec0874656e5efd707fb92334a6972b1aca90fd254eb924a8f404"
-PYTHON_SHA256         = "0000000000000000000000000000000000000000000000000000000000000000"
+PYTHON_ARCHIVE_URL    = (
+    f"https://github.com/astral-sh/python-build-standalone/releases/download/{PYTHON_BUILD}/"
+    f"cpython-{PYTHON_VERSION}%2B{PYTHON_BUILD}-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
+)
+PYTHON_MANIFEST       = "manifest.sha256"
 # the security folders of Semgrep's rules for this stack (design 5.6)
 RULE_FOLDERS = (
     "python/lang/security",
@@ -241,7 +252,7 @@ def machine(root: Path, bundle: str, files: Mapping[str, bytes], git: str, cicd:
         root = root,
         opengrep = Tool("opengrep", OPENGREP_VERSION.removeprefix("v"), opengrep, OPENGREP_SHA256, (str(opengrep),)),
         zizmor = Tool("zizmor", ZIZMOR_VERSION, zizmor, ZIZMOR_SHA256, (str(zizmor),)),
-        python = Tool("python", PYTHON_VERSION, python, PYTHON_SHA256, (str(python),)),
+        python = Tool("python", PYTHON_VERSION, python, "", (str(python),)),
         rules = root / "rules" / "semgrep-rules.git",
         rules_commit = RULES_COMMIT,
         rules_digest = RULES_DIGEST,
@@ -267,8 +278,12 @@ def pins() -> dict[str, str]:
         "OPENGREP_IDENTITY",
         "OPENGREP_ISSUER",
         "ZIZMOR_VERSION",
+        "ZIZMOR_WHEEL_URL",
         "ZIZMOR_WHEEL_SHA256",
         "ZIZMOR_SHA256",
+        "COSIGN_VERSION",
+        "COSIGN_URL",
+        "COSIGN_SHA256",
         "RULES_REPO",
         "RULES_COMMIT",
         "RULES_DIGEST",
@@ -277,7 +292,6 @@ def pins() -> dict[str, str]:
         "PYTHON_BUILD",
         "PYTHON_ARCHIVE_URL",
         "PYTHON_ARCHIVE_SHA256",
-        "PYTHON_SHA256",
     )
     return {name: str(globals()[name]) for name in names}
 
@@ -1329,7 +1343,8 @@ def bundle_behind(machine: Machine) -> str:
 
 def check_pins(machine: Machine) -> list[str]:
     """
-    Every pin checked, both executables and the Python by SHA-256 and the Python as the one running.
+    Every pin checked, both executables by SHA-256, and the Python as the one running, which --check holds to the
+    manifest of its whole install.
 
     Args:
         machine: the machine
@@ -1338,13 +1353,50 @@ def check_pins(machine: Machine) -> list[str]:
         list[str]: each check's line, a failure starting FAIL
     """
     lines = []
-    for tool in (machine.opengrep, machine.zizmor, machine.python):
+    for tool in (machine.opengrep, machine.zizmor):
         found = file_sha256(tool.path)
         state = "ok" if found == tool.sha256 else f"FAIL, {tool.path} is {found or 'missing'}"
         lines.append(f"{tool.name} {tool.version} sha256 {state}")
     if Path(sys.executable).resolve() != machine.python.path.resolve():
         lines.append(f"FAIL, the wrapper runs under {sys.executable}, not {machine.python.path}")
     return lines
+
+
+def python_manifest(folder: Path) -> list[str]:
+    """
+    How the folder's Python differs from the manifest the install wrote from its archive's listing, an extra file, a
+    missing one or a changed one, which shows damage on disk, the fence being what keeps a session out.
+
+    Args:
+        folder: the Python's folder
+
+    Returns:
+        list[str]: each difference, empty when the install is whole
+    """
+    try:
+        lines = (folder / PYTHON_MANIFEST).read_text(encoding = "utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return [f"{folder / PYTHON_MANIFEST} cannot be read"]
+    listed = {}
+    for line in lines:
+        sha, _, path = line.partition("  ")
+        if len(sha) != 64 or not plain_path(path) or path in listed:
+            return [f"{folder / PYTHON_MANIFEST} holds a line it cannot take, {line[:80]!r}"]
+        listed[path] = sha
+    present = set()
+    for place, _folders, names in os.walk(folder):
+        for name in names:
+            path = (Path(place) / name).relative_to(folder).as_posix()
+            if path != PYTHON_MANIFEST:
+                present.add(path)
+    problems = [f"{path} is not in the manifest" for path in sorted(present - set(listed))]
+    problems += [f"{path} is missing" for path in sorted(set(listed) - present)]
+    problems += [
+        f"{path} differs from the manifest"
+        for path in sorted(present & set(listed))
+        if file_sha256(folder / path) != listed[path]
+    ]
+    return problems
 
 
 def prepare(machine: Machine, work: Path) -> dict[str, int]:
@@ -1664,7 +1716,7 @@ def _scan(
     outcome = Outcome()
     out.write(
         f"kdf-scan  opengrep {machine.opengrep.version} sha256 ok  rules {machine.rules_commit[:8]} digest ok  "
-        f"zizmor {machine.zizmor.version} sha256 ok  python {machine.python.version} sha256 ok  "
+        f"zizmor {machine.zizmor.version} sha256 ok  python {machine.python.version} path ok  "
         f"env {len(TOOL_ENVIRONMENT)} names\n"
     )
     for folder, reason in applied.excludes:
@@ -1749,6 +1801,9 @@ def check(machine: Machine, out: TextIO = sys.stdout) -> list[str]:
     except Refusal as refusal:
         state = f"FAIL, {refusal}"
     lines.append(f"rules {machine.rules_commit[:8]} digest {state}")
+    damaged = python_manifest(machine.root / "python" / machine.python.version)
+    shown   = "; ".join(damaged[:5]) + (f", and {len(damaged) - 5} more" if len(damaged) > 5 else "")
+    lines.append(f"python {machine.python.version} manifest " + (f"FAIL, {shown}" if damaged else "ok"))
     for line in lines:
         out.write(f"check     {line}\n")
     return [line for line in lines if "FAIL" in line]

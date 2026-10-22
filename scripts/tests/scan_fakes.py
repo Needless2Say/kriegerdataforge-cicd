@@ -401,6 +401,20 @@ def install_bundle(root: Path, files: dict[str, bytes], commit: str = COMMIT, cu
     return folder
 
 
+def fake_python(root: Path, version: str = "3.14.7") -> Path:
+    """
+    A stand in for the installed Python's folder, a few files and the manifest the install writes from its archive.
+    """
+    folder = root / "python" / version
+    files  = {"python.exe": b"MZ a stand in\n", "Lib/os.py": b"# os\n", "DLLs/_ssl.pyd": b"pyd\n"}
+    for name, data in files.items():
+        (folder / name).parent.mkdir(parents = True, exist_ok = True)
+        (folder / name).write_bytes(data)
+    manifest = "".join(f"{hashlib.sha256(files[name]).hexdigest()}  {name}\n" for name in sorted(files))
+    (folder / "manifest.sha256").write_text(manifest, encoding = "utf-8", newline = "\n")
+    return folder
+
+
 def platform(elevated: bool = False, uac: dict | None = None, acl: list[str] | None = None) -> types.SimpleNamespace:
     """
     A stand in for the launcher's Windows checks, an elevated token, UAC's values and the folder's permission.

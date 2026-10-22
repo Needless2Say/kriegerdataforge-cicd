@@ -26,6 +26,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import types
@@ -63,6 +64,7 @@ ADMINISTRATORS = "S-1-5-32-544"
 SYSTEM         = "S-1-5-18"
 USERS          = "S-1-5-32-545"
 WRITERS        = frozenset({ADMINISTRATORS, SYSTEM})
+GRANTED        = frozenset({ADMINISTRATORS, SYSTEM, USERS})
 NAMES          = {ADMINISTRATORS: "Administrators", SYSTEM: "SYSTEM", USERS: "Users", "S-1-1-0": "Everyone"}
 WRITE_RIGHTS   = 0x2 | 0x4 | 0x10 | 0x40 | 0x100 | 0x10000 | 0x40000 | 0x80000 | 0x10000000 | 0x40000000
 FULL_CONTROL   = 0x1F01FF
@@ -70,6 +72,7 @@ READ_EXECUTE   = 0x1200A9
 GENERIC_ALL    = 0x10000000
 GENERIC_READ   = 0x80000000 | 0x20000000
 ALLOW_KINDS    = frozenset({0, 5, 9, 11})
+REPARSE_POINT  = 0x400
 SID_AT_EIGHT   = frozenset({0, 1, 9, 10})
 SHOWN_PROBLEMS = 20
 # GitHub, asked through gh at a path only an administrator can write, cicd's repo, and the private refs a verify
@@ -252,8 +255,9 @@ def named(sid: str) -> str:
 
 def acl_findings(label: str, owner: str, protected: bool, aces: list[Ace], root: bool) -> list[str]:
     """
-    How one item's permission is weaker than design 5.1's, an owner other than Administrators or SYSTEM, a grant of
-    writing to anyone else, and for the folder itself, inheritance or a grant of the design missing.
+    How one item's permission differs from design 5.1's, an owner other than Administrators or SYSTEM, a grant to any
+    account beyond the three, Users able to write, a grant of the three missing, and for the folder itself,
+    inheritance, Round Table 55's L3.
 
     Args:
         label: the item, as the line names it
@@ -263,20 +267,20 @@ def acl_findings(label: str, owner: str, protected: bool, aces: list[Ace], root:
         root: whether it is the folder itself
 
     Returns:
-        list[str]: each weakness, empty when there is none
+        list[str]: each difference, empty when there is none
     """
     problems = []
     if owner not in WRITERS:
         problems.append(f"{label} is owned by {named(owner)}, not Administrators or SYSTEM, and an owner can change "
                         f"its permission")
-    for ace in aces:
-        if ace.kind in ALLOW_KINDS and ace.mask & WRITE_RIGHTS and ace.sid not in WRITERS:
-            problems.append(f"{label} lets {named(ace.sid)} write")
-    if not root:
-        return problems
-    if not protected:
-        problems.append(f"{label} takes permissions from its parent, which the install's /inheritance:r refuses")
     allowed = [ace for ace in aces if ace.kind in ALLOW_KINDS]
+    for ace in allowed:
+        if ace.sid not in GRANTED:
+            problems.append(f"{label} grants {named(ace.sid)}, an entry beyond the three of design 5.1")
+        elif ace.sid == USERS and ace.mask & WRITE_RIGHTS:
+            problems.append(f"{label} lets Users write")
+    if root and not protected:
+        problems.append(f"{label} takes permissions from its parent, which the install's /inheritance:r refuses")
     for sid in (ADMINISTRATORS, SYSTEM):
         if not any(
             ace.sid == sid and (ace.mask & FULL_CONTROL == FULL_CONTROL or ace.mask & GENERIC_ALL) for ace in allowed
@@ -398,16 +402,34 @@ def read_security(path: Path) -> tuple[str, bool, list[Ace]]:
         kernel32.LocalFree(descriptor)
 
 
+def reparse_point(path: Path) -> bool:
+    """
+    Whether a path is a link, a junction or any other reparse point, read from its own attributes and never followed.
+
+    Args:
+        path: the path
+
+    Returns:
+        bool: True for a reparse point
+
+    Raises:
+        OSError: when the path cannot be read
+    """
+    found = os.lstat(path)
+    return stat.S_ISLNK(found.st_mode) or bool(getattr(found, "st_file_attributes", 0) & REPARSE_POINT)
+
+
 def acl_problems(root: Path, reader: Callable[[Path], tuple[str, bool, list[Ace]]] = read_security) -> list[str]:
     """
-    Every weakness of the folder's permission and of everything under it, a link anywhere refused.
+    Every difference of the folder's permission and of everything under it from design 5.1's, a link, a junction or
+    any other reparse point anywhere refused and never descended into, Round Table 54's L2.
 
     Args:
         root: the scan folder
         reader: how one item's permission is read
 
     Returns:
-        list[str]: each weakness, at most SHOWN_PROBLEMS and a count of the rest
+        list[str]: each difference, at most SHOWN_PROBLEMS and a count of the rest
     """
     try:
         problems = acl_findings(str(root), *reader(root), root = True)
@@ -417,8 +439,10 @@ def acl_problems(root: Path, reader: Callable[[Path], tuple[str, bool, list[Ace]
         for name in sorted(folders + files):
             path = Path(folder) / name
             try:
-                if path.is_symlink():
-                    problems.append(f"{path} is a link, which the folder never holds")
+                if reparse_point(path):
+                    problems.append(f"{path} is a link or a junction, which the folder never holds")
+                    if name in folders:
+                        folders.remove(name)
                     continue
                 problems.extend(acl_findings(str(path), *reader(path), root = False))
             except OSError as error:

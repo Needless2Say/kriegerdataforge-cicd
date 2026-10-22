@@ -21,6 +21,7 @@ from tests.scan_fakes import (
     GIT,
     PYTHON,
     commit,
+    fake_python,
     git,
     init_repo,
     load,
@@ -39,6 +40,11 @@ LAST = re.compile(
 )
 # a well formed marker accepting an eval-detected finding on its line
 ACCEPT = "  # nosemgrep: eval-detected the input is a module constant"
+# the address uv 0.13.1's download metadata names for CPython 3.14.7 on Windows, read on 2026-10-21
+UV_PYTHON_URL = (
+    "https://github.com/astral-sh/python-build-standalone/releases/download/20260929/"
+    "cpython-3.14.7%2B20260929-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
+)
 
 pytestmark = pytest.mark.skipif(GIT is None, reason = "the scan's tests need git")
 
@@ -86,11 +92,11 @@ def test_uncommitted_work_is_scanned_and_the_tree_named_dirty(tmp_path: Path) ->
 # the pins
 # ======================================================================================================================
 
-@pytest.mark.parametrize("pin", ["opengrep", "zizmor", "python", "python-path", "digest", "commit"])
+@pytest.mark.parametrize("pin", ["opengrep", "zizmor", "python-path", "digest", "commit"])
 def test_each_pin_mismatch_refuses_with_exit_2_before_any_tool_runs(tmp_path: Path, pin: str) -> None:
     rig     = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n"})
     machine = rig.machine()
-    if pin in ("opengrep", "zizmor", "python"):
+    if pin in ("opengrep", "zizmor"):
         tool    = getattr(machine, pin)
         machine = rig.machine(**{pin: SCAN.Tool(tool.name, tool.version, tool.path, "0" * 64, tool.command)})
     elif pin == "python-path":
@@ -612,6 +618,33 @@ def test_the_pins_print_as_plain_assignments_the_install_reads(capsys: pytest.Ca
     assert printed["RULES_COMMIT"] == SCAN.RULES_COMMIT
     for name, value in printed.items():
         assert re.fullmatch(r"[A-Z0-9_]+", name) and re.fullmatch(r"[A-Za-z0-9_.:/@%+=-]+", value), (name, value)
+    assert "PYTHON_SHA256" not in printed
+    assert {"ZIZMOR_WHEEL_URL", "COSIGN_VERSION", "COSIGN_URL", "COSIGN_SHA256"} <= set(printed)
+
+
+def test_the_pythons_three_pins_stay_one_plain_assignment_each_for_the_installs_pattern() -> None:
+    source = (COMMON / "kdf_scan.py").read_text(encoding = "utf-8")
+    for name in ("PYTHON_VERSION", "PYTHON_BUILD", "PYTHON_ARCHIVE_SHA256"):
+        found = re.findall(rf"^{name} += \"([^\"\n]+)\"$", source, re.MULTILINE)
+        assert found == [getattr(SCAN, name)], name
+
+
+def test_the_pythons_archive_address_is_the_one_uv_0_13_1_names() -> None:
+    assert SCAN.PYTHON_ARCHIVE_URL == UV_PYTHON_URL
+
+
+def test_the_pythons_manifest_holds_every_file_and_no_other(tmp_path: Path) -> None:
+    folder = fake_python(tmp_path)
+    assert SCAN.python_manifest(folder) == []
+    (folder / "Lib" / "extra.py").write_bytes(b"x\n")
+    (folder / "DLLs" / "_ssl.pyd").unlink()
+    (folder / "Lib" / "os.py").write_bytes(b"# changed\n")
+    problems = SCAN.python_manifest(folder)
+    assert any("Lib/extra.py is not in the manifest" in line for line in problems)
+    assert any("DLLs/_ssl.pyd is missing" in line for line in problems)
+    assert any("Lib/os.py differs" in line for line in problems)
+    (folder / "manifest.sha256").unlink()
+    assert SCAN.python_manifest(folder)
 
 
 def _yaml_keys(text: str) -> list[tuple[int, str, str]]:
