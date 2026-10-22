@@ -41,8 +41,10 @@ LAST = re.compile(
     r"opengrep 1\.30\.2 rules (?P<rules>[0-9a-f]{8}) zizmor 1\.30\.1 limits (?P<limits>\d+)(?: marks (?P<marks>\S+))?"
     r": (?P<result>.+) \(exit (?P<code>\d)\)"
 )
-# a well formed marker accepting an eval-detected finding on its line
-ACCEPT = "  # nosemgrep: eval-detected the input is a module constant"
+# a well formed marker accepting an eval-detected finding on its line, and the two kinds' good forms with no opener
+ACCEPT  = "  # nosemgrep: eval-detected the input is a module constant"
+GOOD_OG = "nosemgrep: rule-x the input is constant"
+GOOD_ZZ = "zizmor: ignore[template-injection] a caller sets this"
 # the address uv 0.13.1's download metadata names for CPython 3.14.7 on Windows, read on 2026-10-21
 UV_PYTHON_URL = (
     "https://github.com/astral-sh/python-build-standalone/releases/download/20260929/"
@@ -416,6 +418,76 @@ def test_without_no_ignores_every_zizmor_marker_is_refused(tmp_path: Path, monke
     code, text = run(rig)
     assert code == 1 and "BAD" in text, text
     assert "--no-ignores" not in rig.calls("zizmor")[0]["args"]
+
+
+@pytest.mark.parametrize(("path", "text", "found"), [
+    ("a.py", f'x = "# {GOOD_OG}"\n', []),
+    ("a.py", f'x = f"{{a}} # {GOOD_OG}"\n', []),
+    ("a.py", f"'''\n# {GOOD_OG}\n'''\n", []),
+    ("a.py", f'x = "# nosemgrep: a b c d"  # {GOOD_OG}\n', [1]),
+    ("a.py", f"\ufeff# {GOOD_OG}\nx = 1\n", [1]),
+    ("a.js", f'const s = "// {GOOD_OG}";\n', []),
+    ("a.ts", f"const s = `\n// {GOOD_OG}\n`;\n", []),
+    ("a.ts", f"const s = `a ${{ x /* {GOOD_OG} */ }} b`;\n", [1]),
+    ("a.js", f"const r = /[ //{GOOD_OG}]/;\n", []),
+    ("a.js", f"const a = b / c; // {GOOD_OG}\n", [1]),
+    ("a.ts", f"if (a < b) {{ f<T>(x); }} // {GOOD_OG}\n", [1]),
+    ("a.tsx", f"const e = (\n  <p>\n    // {GOOD_OG}\n  </p>\n);\n", []),
+    ("a.tsx", f"const e = (\n  <p>\n    {{/* {GOOD_OG} */}}\n    <b>don't</b>\n  </p>\n);\n", [3]),
+    ("a.jsx", f"const e = <a href=\"http://x.y/'z\" {{...p}}>x</a>; // {GOOD_OG}\n", [1]),
+    ("a.mjs", f"#!/usr/bin/env node\nreturn /'/.test(s); // {GOOD_OG}\n", [2]),
+    ("a.yml", f"jobs:\n  a:\n    steps:\n      - run: |\n          # {GOOD_ZZ}\n          echo\n", []),
+    ("a.yml", f"steps:\n  - |\n    # {GOOD_ZZ}\n", []),
+    ("a.yml", f"      - run: |  # {GOOD_ZZ}\n          echo\n", [1]),
+    ("a.yml", f"a:\n  run: |\n    echo\n\n  # {GOOD_ZZ}\n  b: 1\n", [5]),
+    ("a.yml", f"a: &anchor |\n  # {GOOD_ZZ}\n", []),
+    ("a.yml", f'name: "a # {GOOD_ZZ}"\n', []),
+    ("a.yml", f"name: 'it''s # {GOOD_ZZ}'\n", []),
+    ("a.yml", f"name: it's here  # {GOOD_ZZ}\n", [1]),
+    ("a.yml", f"a: first\n  'second  # {GOOD_ZZ}\nb: \"c # {GOOD_ZZ}\"\n", [2]),
+    ("a.yml", f"a: [b,\n  'c # {GOOD_ZZ}']\n", []),
+    ("a.yml", f"a: b#{GOOD_ZZ}\n", []),
+    ("README.md", f"# {GOOD_OG}\n", [1]),
+])
+def test_a_marker_counts_only_inside_a_comment_its_reader_finds(path: str, text: str, found: list[int]) -> None:
+    markers = SCAN.find_markers(path, text.encode("utf-8"))
+    assert [marker.line for marker in markers] == found, [vars(marker) for marker in markers]
+    assert not any(SCAN.UNREADABLE in marker.bad for marker in markers)
+
+
+@pytest.mark.parametrize(("path", "text"), [
+    ("a.py", f"x = (\n    1  # {GOOD_OG}\n"),
+    ("a.py", f"x = 1\r# {GOOD_OG}\n"),
+    ("a.ts", f"const s = `abc // {GOOD_OG}\n"),
+    ("a.js", f"/* {GOOD_OG}\n"),
+    ("a.tsx", f"const f = <T,>(x: T) => x; // {GOOD_OG}\n"),
+    ("a.js", f"}} // {GOOD_OG}\n"),
+    ("a.yml", f'a: "b\n# {GOOD_ZZ}\n'),
+    ("a.yml", f"a: [b,\n# {GOOD_ZZ}\n"),
+])
+def test_a_file_whose_comments_cannot_be_read_whole_has_every_marker_refused(path: str, text: str) -> None:
+    markers = SCAN.find_markers(path, text.encode("utf-8"))
+    assert markers and all(SCAN.UNREADABLE in marker.bad for marker in markers), [vars(m) for m in markers]
+
+
+def test_marker_text_in_a_string_accepts_nothing(tmp_path: Path) -> None:
+    # the probe Codex ran on 2026-10-22, an assignment's string appended to the finding's line
+    line = 'eval(x); note = "# nosemgrep: eval-detected the input is a module constant"  # VULN(eval-detected)\n'
+    rig  = make_rig(tmp_path, SCAN, {"src/app.py": line})
+    code, text = run(rig)
+    assert code == 1 and "ACCEPTED" not in text, text
+    assert re.search(r"FAIL\s+src/app\.py:1\s+eval-detected", text), text
+
+
+def test_a_zizmor_marker_in_a_run_blocks_script_accepts_nothing(tmp_path: Path) -> None:
+    workflow = (
+        "jobs:\n  a:\n    steps:\n      - name: Install\n        run: |\n"
+        "          # zizmor: ignore[template-injection] a caller of ours sets this input\n"
+        "          echo hello  ZFIND(template-injection)\n"
+    )
+    rig      = make_rig(tmp_path, SCAN, {".github/workflows/ci.yml": workflow})
+    code, text = run(rig)
+    assert code == 1 and "ACCEPTED" not in text, text
 
 # ======================================================================================================================
 # the rule policy

@@ -263,7 +263,15 @@ def test_two_blocks_an_unclosed_block_or_a_stray_close_are_refused(extra):
 
 @pytest.mark.parametrize(
     "target",
-    ["scan:\n\t@echo mine\n", "lint scan: ## two at once\n\t@echo both\n", "scan :: \n\t@echo double colon\n"],
+    [
+        "scan:\n\t@echo mine\n",
+        "lint scan: ## two at once\n\t@echo both\n",
+        "scan :: \n\t@echo double colon\n",
+        " scan:\n\t@echo one space, still a rule to make\n",
+        "  lint scan:\n\t@echo spaces and two targets\n",
+        " \tscan:\n\t@echo a space then a tab, still a rule\n",
+        "lint scan &: other\n\t@echo grouped targets\n",
+    ],
 )
 def test_a_scan_target_outside_the_block_is_refused(target):
     with pytest.raises(PatchError, match = "a scan target outside"):
@@ -274,7 +282,8 @@ def test_a_scan_target_outside_the_block_is_refused(target):
 
 def test_targets_that_only_start_with_scan_and_a_phony_line_naming_it_are_kept():
     extra   = (".PHONY: scan scan-dev scan-fixtures\nscan-dev: ## the wrapper from source\n\t@echo dev\n"
-               "scan-fixtures:\n\t@echo fixtures\nSCANNER := other\n")
+               "scan-fixtures:\n\t@echo fixtures\n\tscan: a recipe line, which its tab keeps from a rule\n"
+               "SCANNER := other\n")
     patched = ds.patch_makefile(SHAPES["terraform"] + "\n" + extra)
     assert extra in patched and patched.count(BLOCK_OPEN) == 1
 

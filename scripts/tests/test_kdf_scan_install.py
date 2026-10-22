@@ -992,10 +992,12 @@ def test_root_and_cicd_are_refused_without_programs_and_an_unknown_option_is_ref
         assert "refused" in done.stdout
 
 
-def test_the_clean_room_refuses_any_variable_env_i_never_passed(rig: Rig) -> None:
+def test_the_clean_room_refuses_any_variable_env_i_never_passed_and_removes_nothing(rig: Rig) -> None:
     inner = rig.root / "staging" / "run.direct"
     (inner / "home").mkdir(parents = True)
-    command = [BASH, "-p", rig.script_for(rig.commit).as_posix(), "--inner", inner.as_posix(), rig.commit]
+    # the folder holds this very process's id, written before the exec that keeps it, as the outer run writes its own
+    front   = 'printf "%s\\n" "$$" > "$1/pid"; exec "$2" -p "$3" --inner "$1" "${@:4}"'
+    command = [BASH, "-c", front, "front", inner.as_posix(), BASH, rig.script_for(rig.commit).as_posix(), rig.commit]
     command += ["--programs", rig.programs.as_posix(), "--root", rig.root.as_posix(), "--cicd", file_url(rig.source)]
     done = subprocess.run(
         command,
@@ -1007,7 +1009,40 @@ def test_the_clean_room_refuses_any_variable_env_i_never_passed(rig: Rig) -> Non
     )
     assert done.returncode == 2, done.stdout
     assert "the clean room holds" in done.stdout
+    assert inner.is_dir(), "a refused clean room removed the folder it was named"
     assert not (rig.root / "staging" / "lock").exists()
+
+
+def test_inner_naming_any_folder_but_its_own_staging_run_is_refused_and_removes_nothing(rig: Rig) -> None:
+    code, text = rig.run()
+    assert code == 0, text
+    before = snapshot(rig.root)
+    script = rig.script_for(rig.commit).as_posix()
+    tail   = [
+        rig.commit,
+        "--programs",
+        rig.programs.as_posix(),
+        "--root",
+        rig.root.as_posix(),
+        "--cicd",
+        file_url(rig.source),
+    ]
+    for named, words in (
+        (rig.root, "names no staging folder"),
+        (rig.root / "staging" / "run.x" / ".." / "..", "a path with a dot part"),
+        (rig.root / "staging" / "run.absent", "was not made by this run"),
+    ):
+        done = subprocess.run(
+            [BASH, "-p", script, "--inner", named.as_posix(), *tail],
+            capture_output = True,
+            text = True,
+            env = rig.environment(),
+            cwd = rig.root,
+            check = False,
+        )
+        assert done.returncode == 2 and words in done.stdout, (named, done.stdout)
+    assert snapshot(rig.root) == before
+    assert (rig.root / "current").read_text(encoding = "ascii") == f"{rig.commit}\n"
 
 # ======================================================================================================================
 # inputs the real programs always act on, each shown to fire without the clean room, then reaching no run

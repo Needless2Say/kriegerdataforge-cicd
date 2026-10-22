@@ -26,7 +26,9 @@ from __future__ import annotations
 
 # standard imports
 import argparse
+import bisect
 import hashlib
+import io
 import json
 import os
 import re
@@ -34,6 +36,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tokenize
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping, TextIO
@@ -147,6 +150,18 @@ ZIZMOR_MARK  = re.compile(r"#\s*zizmor\s*:\s*ignore\b(?P<rest>.*)")
 GOOD_ZIZMOR  = re.compile(r"\[(?P<id>[A-Za-z0-9_,-]+)\](?:\s+(?P<reason>.*?))?\s*")
 REASON_WORDS = 3
 RULE_ID      = re.compile(r"^\s*-\s+id:\s*['\"]?([A-Za-z0-9_.-]+)", re.MULTILINE)
+# a marker counts only in a comment, which a reader of the file's kind finds, Codex's read of 2026-10-22, and a file
+# whose comments it cannot read whole counts none. Words after which a slash opens a regular expression and a less than
+# sign an element, a YAML block scalar's header, and the kinds whose markers are read as text alone, as before
+EXPRESSION_WORDS = frozenset({
+    "return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw", "case", "do", "else", "yield",
+    "await",
+})
+BLOCK_HEADER     = re.compile(r"[|>][0-9+-]{0,2}(?:[ \t]+(?P<comment>#.*)?)?$")
+DOCUMENT         = re.compile(r"---(?:[ \t]|$)")
+PROPERTY         = re.compile(r"[&!][^ \t]*")
+YAML_SUFFIXES    = (".yml", ".yaml")
+UNREADABLE       = "its comments could not be read whole, so no marker in it counts"
 # a hunk's header in a diff with no context, whose new side gives the lines the branch changed
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,(?P<count>\d+))? @@", re.MULTILINE)
 # what Opengrep and zizmor are given, Semgrep's defaults written out, zizmor's codes for its findings, and whether it
@@ -187,6 +202,12 @@ class Refusal(Exception):
 class ToolFailure(Exception):
     """
     A tool that failed to complete or answered outside what it was given, exit 3.
+    """
+
+
+class Unreadable(Exception):
+    """
+    A file whose comments a reader could not find whole, so none of its markers counts.
     """
 
 
@@ -1143,6 +1164,383 @@ def zizmor_findings(found: list) -> tuple[list[Finding], int]:
 # Markers and the policy
 # ======================================================================================================================
 
+def line_starts(text: str) -> list[int]:
+    """
+    The offset where each line of a text begins, its lines split at a line feed alone, as git's are.
+
+    Args:
+        text: the text
+
+    Returns:
+        list[int]: each line's first offset
+    """
+    return [0, *(match.end() for match in re.finditer("\n", text))]
+
+
+def python_comments(text: str) -> list[tuple[int, int]]:
+    """
+    Every comment of a Python file, as Python's own tokenizer finds them, so no string holds one.
+
+    Args:
+        text: the file's text
+
+    Returns:
+        list[tuple[int, int]]: each comment's first offset and the offset after it
+
+    Raises:
+        Unreadable: when the tokenizer stops, or a carriage return alone could split the lines otherwise than git
+    """
+    if re.search(r"\r(?!\n)", text):
+        raise Unreadable("a carriage return stands alone")
+    starts = line_starts(text)
+    spans  = []
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(text).readline):
+            if token.type == tokenize.COMMENT:
+                begin = starts[token.start[0] - 1] + token.start[1]
+                spans.append((begin, begin + len(token.string)))
+    except (tokenize.TokenError, SyntaxError) as error:
+        raise Unreadable(f"Python's tokenizer stopped, {type(error).__name__}") from error
+    return spans
+
+
+def string_end(text: str, index: int) -> int:
+    """
+    The offset after a script's quoted string.
+
+    Args:
+        text: the file's text
+        index: the opening quote's offset
+
+    Returns:
+        int: the offset after the closing quote
+
+    Raises:
+        Unreadable: when the string meets its line's end or the file's
+    """
+    quote, index = text[index], index + 1
+    while index < len(text):
+        char = text[index]
+        if char == "\\":
+            index += 3 if text.startswith("\r\n", index + 1) else 2
+            continue
+        if char == quote:
+            return index + 1
+        if char in "\r\n":
+            break
+        index += 1
+    raise Unreadable("a string never closes on its line")
+
+
+def regex_end(text: str, index: int) -> int:
+    """
+    The offset after a script's regular expression and its flags.
+
+    Args:
+        text: the file's text
+        index: the opening slash's offset
+
+    Returns:
+        int: the offset after its flags
+
+    Raises:
+        Unreadable: when the expression meets its line's end or the file's
+    """
+    in_class, index = False, index + 1
+    while index < len(text):
+        char = text[index]
+        if char in "\r\n":
+            break
+        if char == "\\":
+            index += 2
+            continue
+        if char == "/" and not in_class:
+            index += 1
+            while index < len(text) and (text[index].isalnum() or text[index] in "_$"):
+                index += 1
+            return index
+        in_class = (in_class or char == "[") and char != "]"
+        index += 1
+    raise Unreadable("a regular expression never closes on its line")
+
+
+def tag_step(text: str, index: int, stack: list[list]) -> int:
+    """
+    One step inside an element's tag, past a name, an attribute, its string or the tag's end, an expression opened.
+
+    Args:
+        text: the file's text
+        index: the offset
+        stack: the reader's modes, changed in place
+
+    Returns:
+        int: the next offset
+
+    Raises:
+        Unreadable: when the tag holds what no tag holds, or closes an element that never opened
+    """
+    char, closing = text[index], stack[-1][1]
+    if char.isspace() or char.isalnum() or char in "_$.:=-":
+        return index + 1
+    if char in "'\"":
+        end = text.find(char, index + 1)
+        if end < 0:
+            raise Unreadable("an attribute's string never closes")
+        return end + 1
+    if char == "{":
+        stack.append(["code", 0])
+        return index + 1
+    if text.startswith("/>", index) and not closing:
+        stack.pop()
+        return index + 2
+    if char != ">":
+        raise Unreadable(f"{char!r} inside an element's tag")
+    stack.pop()
+    if not closing:
+        stack.append(["children"])
+    elif stack[-1][0] == "children":
+        stack.pop()
+    else:
+        raise Unreadable("an element closes that never opened")
+    return index + 1
+
+
+def script_comments(text: str, jsx: bool) -> list[tuple[int, int]]:
+    """
+    Every comment of a JavaScript or TypeScript file, found past strings, templates and their expressions, regular
+    expressions and elements, whose text is never a comment. A slash opens a regular expression, and a less than sign
+    before a name an element, where an expression may begin, after a punctuator but a closing bracket or after a word
+    EXPRESSION_WORDS names. A file that reads otherwise, a TypeScript arrow's type parameters in .tsx among them, is
+    refused whole.
+
+    Args:
+        text: the file's text
+        jsx: whether the file may hold elements, every kind but .ts
+
+    Returns:
+        list[tuple[int, int]]: each comment's first offset and the offset after it
+
+    Raises:
+        Unreadable: when a string, template, comment, regular expression or element never closes, or a bracket closes
+            what never opened
+    """
+    spans: list[tuple[int, int]] = []
+    stack: list[list] = [["code", 0]]
+    expression, dotted, index, size = True, False, 0, len(text)
+    if text.startswith("#!"):
+        index = text.find("\n") if "\n" in text else size
+    while index < size:
+        mode, char = stack[-1], text[index]
+        following = text[index + 1:index + 2]
+        if mode[0] == "template":
+            if char == "\\":
+                index += 2
+            elif char == "`":
+                stack.pop()
+                index, expression = index + 1, False
+            elif char + following == "${":
+                stack.append(["code", 0])
+                index, expression = index + 2, True
+            else:
+                index += 1
+            continue
+        if mode[0] == "children":
+            if char == "{":
+                stack.append(["code", 0])
+                expression = True
+            elif char == "<":
+                stack.append(["tag", following == "/"])
+                index += following == "/"
+            index += 1
+            continue
+        if mode[0] == "tag":
+            index      = tag_step(text, index, stack)
+            expression = text[index - 1] == "{"
+            continue
+        if char.isspace():
+            index += 1
+            continue
+        if char + following == "//":
+            end = text.find("\n", index)
+            end = size if end < 0 else end
+            spans.append((index, end))
+            index = end
+            continue
+        if char + following == "/*":
+            end = text.find("*/", index + 2)
+            if end < 0:
+                raise Unreadable("a block comment never closes")
+            spans.append((index, end + 2))
+            index = end + 2
+            continue
+        if char in "'\"":
+            index, expression = string_end(text, index), False
+        elif char == "`":
+            stack.append(["template"])
+            index += 1
+        elif char == "/" and expression:
+            index, expression = regex_end(text, index), False
+        elif char == "<" and jsx and expression and (following.isalpha() or following in ("_", "$", ">")):
+            stack.append(["tag", False])
+            index += 1
+        elif char == "{":
+            mode[1] += 1
+            index, expression = index + 1, True
+        elif char == "}":
+            if mode[1]:
+                mode[1] -= 1
+            elif len(stack) == 1:
+                raise Unreadable("a closing brace with no opening one")
+            else:
+                stack.pop()
+            index, expression = index + 1, False
+        elif char.isalnum() or char in "_$\\":
+            end = index + 1
+            while end < size and (text[end].isalnum() or text[end] in "_$\\"):
+                end += 1
+            expression = not dotted and text[index:end] in EXPRESSION_WORDS
+            index      = end
+        elif char in ")]":
+            index, expression = index + 1, False
+        elif char + following in ("++", "--"):
+            index, expression = index + 2, False
+        else:
+            index, expression = index + 1, True
+        dotted = char == "."
+    if stack != [["code", 0]]:
+        raise Unreadable("the file ends inside a template, an element or a bracket")
+    return spans
+
+
+def yaml_comments(text: str) -> list[tuple[int, int]]:
+    """
+    Every comment of a YAML file, a hash at a line's start or after a space, outside a quoted scalar and outside a
+    block scalar's lines, which run while they are blank or indented past the node that owns the scalar, so a script's
+    own comment in a run block is never one. A quote opens a scalar only where a scalar may start, never inside a plain
+    one or on its next line.
+
+    Args:
+        text: the file's text
+
+    Returns:
+        list[tuple[int, int]]: each comment's first offset and the offset after it
+
+    Raises:
+        Unreadable: when a quoted scalar or a flow collection never closes
+    """
+    spans: list[tuple[int, int]] = []
+    block: int | None = None
+    plain: int | None = None
+    quote, flow = "", 0
+    for raw, offset in zip(text.split("\n"), line_starts(text)):
+        line   = raw.rstrip("\r")
+        indent = len(line) - len(line.lstrip(" "))
+        if block is not None and (not line.strip() or indent > block):
+            continue
+        block = None
+        if not line.strip():
+            continue
+        continued = plain is not None and indent > plain and not quote and not flow
+        start, owner, key = not continued, -1, -1
+        last  = "plain" if continued else ""
+        index = 0 if quote else 3 if DOCUMENT.match(line) else indent
+        while index < len(line):
+            char, after = line[index], line[index + 1:index + 2]
+            header = BLOCK_HEADER.match(line, index) if start and not flow and char in "|>" else None
+            if quote:
+                if (quote == '"' and char == "\\") or (quote == "'" and char + after == "''"):
+                    index += 1
+                elif char == quote:
+                    quote, start, last = "", False, "quoted"
+            elif char == "#" and (index == 0 or line[index - 1] in " \t"):
+                spans.append((offset + index, offset + len(line)))
+                last = "comment"
+                break
+            elif char in " \t":
+                pass
+            elif start and char in "'\"":
+                quote, key = char, index
+            elif start and char in "-?" and after in ("", " ", "\t"):
+                owner, last = index, "indicator"
+            elif start and char in "&!":
+                index = PROPERTY.match(line, index).end()
+                continue
+            elif header:
+                if header["comment"]:
+                    spans.append((offset + header.start("comment"), offset + len(line)))
+                block, last = owner, "block"
+                break
+            elif char in "[{" and (start or flow):
+                flow, start, last = flow + 1, True, "indicator"
+            elif flow and char in "]}":
+                flow, start, last = flow - 1, False, "quoted"
+            elif flow and char == ",":
+                start = True
+            elif char == ":" and (after in ("", " ", "\t") or (flow and after in (",", "]", "}"))):
+                owner, start, last = key if key >= 0 else owner, True, "indicator"
+            else:
+                key, start, last = index if start else key, False, "plain"
+            index += 1
+        plain = (owner if owner >= 0 else indent) if last == "plain" and not quote and not flow else None
+    if quote or flow:
+        raise Unreadable("a quoted scalar or a flow collection never closes")
+    return spans
+
+
+def comment_spans(path: str, text: str) -> list[tuple[int, int]] | None:
+    """
+    Every comment of a file of a kind a reader knows, Python, JavaScript, TypeScript or YAML.
+
+    Args:
+        path: the repo relative path, whose suffix names its kind
+        text: the file's text
+
+    Returns:
+        list[tuple[int, int]] | None: each comment's first offset and the offset after it, in order, None for a kind
+            no reader knows, whose marker text is read as markers
+
+    Raises:
+        Unreadable: when the reader cannot find the file's comments whole
+    """
+    suffix   = Path(path).suffix.lower()
+    language = LANGUAGES.get(suffix)
+    if language == "python":
+        return python_comments(text)
+    if language:
+        return script_comments(text, jsx = suffix != ".ts")
+    return yaml_comments(text) if suffix in YAML_SUFFIXES else None
+
+
+def in_comment(
+    pattern: re.Pattern[str],
+    line: str,
+    offset: int,
+    spans: list[tuple[int, int]] | None,
+    firsts: list[int],
+) -> re.Match[str] | None:
+    """
+    The first match of a marker's pattern on a line that begins inside a comment, the first match when no reader knows
+    the file's comments.
+
+    Args:
+        pattern: the marker's pattern
+        line: the line
+        offset: the line's first offset in the file
+        spans: the file's comments in order, None when every match counts
+        firsts: each comment's first offset
+
+    Returns:
+        re.Match[str] | None: the match, None for none
+    """
+    position = 0
+    while (match := pattern.search(line, position)) is not None:
+        index = bisect.bisect_right(firsts, offset + match.start()) - 1
+        if spans is None or (index >= 0 and offset + match.start() < spans[index][1]):
+            return match
+        position = match.start() + 1
+    return None
+
+
 @dataclass
 class Marker:
     """
@@ -1161,6 +1559,9 @@ class Marker:
 def find_markers(path: str, data: bytes) -> list[Marker]:
     """
     Every marker in one file, each checked for the one good form, nosemgrep or zizmor's ignore, one rule and a reason.
+    In a file of a kind a reader knows, a marker counts only inside a comment, so marker text in a string, a template,
+    an element's text or a run block's script is no marker, and a file whose comments cannot be read whole has every
+    marker refused.
 
     Args:
         path: the repo relative path
@@ -1169,10 +1570,17 @@ def find_markers(path: str, data: bytes) -> list[Marker]:
     Returns:
         list[Marker]: the markers
     """
+    text = data.decode("utf-8-sig", "replace")
+    try:
+        spans, unread = comment_spans(path, text), ""
+    except Unreadable as error:
+        spans, unread = None, f"{UNREADABLE}, {error}"
+    firsts  = [begin for begin, _end in spans or []]
     markers = []
-    for number, line in enumerate(data.decode("utf-8", "replace").split("\n"), 1):
-        line = line.rstrip("\r")
-        for match in MARKER.finditer(line):
+    for number, (line, offset) in enumerate(zip(text.split("\n"), line_starts(text)), 1):
+        line  = line.rstrip("\r")
+        match = in_comment(MARKER, line, offset, spans, firsts)
+        if match:
             alone  = not line[:match.start()].strip()
             marker = Marker("opengrep", path, number, alone)
             good   = GOOD_MARKER.fullmatch(match["rest"])
@@ -1184,9 +1592,10 @@ def find_markers(path: str, data: bytes) -> list[Marker]:
                 marker.bad = "two rules in one comment"
             else:
                 marker.rule, marker.reason, marker.bad = good["id"], good["reason"] or "", good_reason(good["reason"])
+            marker.bad = unread or marker.bad
             markers.append(marker)
-            break
-        for match in ZIZMOR_MARK.finditer(line):
+        match = in_comment(ZIZMOR_MARK, line, offset, spans, firsts)
+        if match:
             marker = Marker("zizmor", path, number, not line[:match.start()].strip())
             good   = GOOD_ZIZMOR.fullmatch(match["rest"])
             if not ZIZMOR_NO_IGNORES:
@@ -1197,8 +1606,8 @@ def find_markers(path: str, data: bytes) -> list[Marker]:
                 marker.bad = "two audits in one marker"
             else:
                 marker.rule, marker.reason, marker.bad = good["id"], good["reason"] or "", good_reason(good["reason"])
+            marker.bad = unread or marker.bad
             markers.append(marker)
-            break
     return markers
 
 

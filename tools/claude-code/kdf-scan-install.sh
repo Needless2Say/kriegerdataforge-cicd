@@ -1021,11 +1021,22 @@ outer_main() {
 	rerun_clean
 }
 
+# the clean run, entered only by the outer run's exec, its staging folder one this invocation made, named under
+# staging/ and holding this process's id, so --inner can name no other folder for the cleanup to remove, and
+# --programs refused when elevated here too
 inner_main() {
-	run="$inner"
-	run_owned=1
 	self="${BASH_SOURCE[0]}"
+	[ -z "$programs" ] || refuse_if_elevated
+	case "$inner" in
+		*/../*|*/..|*/./*|*/.) refuse "--inner names a path with a dot part" ;;
+		"$root"/staging/run.*/*) refuse "--inner names no staging folder of this install" ;;
+		"$root"/staging/run.*) ;;
+		*) refuse "--inner names no staging folder of this install" ;;
+	esac
+	[ -f "$inner/pid" ] && [ "$(< "$inner/pid")" = "$$" ] || refuse "the staging folder $inner was not made by this run"
+	run="$inner"
 	check_clean_room
+	run_owned=1
 	export GIT_CONFIG_GLOBAL="$run/empty.gitconfig" GIT_CONFIG_NOSYSTEM=1 GIT_NO_REPLACE_OBJECTS=1
 	export GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0
 	: > "$GIT_CONFIG_GLOBAL"

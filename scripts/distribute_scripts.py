@@ -145,8 +145,9 @@ SCAN_BLOCK_TAIL = (
     f"\t@{SCAN_PYTHON} -I -S -B {SCAN_ROOT.as_posix()}/kdf-scan.py\n"
     f"{BLOCK_CLOSE}\n"
 )
-# a rule whose targets name scan, alone or among others, and not scan-dev, scan-fixtures or a variable
-_SCAN_TARGET_RE = re.compile(r"^(?:[^\t#:=][^:=#]*\s+)?scan(?:\s+[^:=#]*)?\s*::?(?!=)")
+# a rule whose targets name scan, alone or among others, after any spaces make allows before a rule, and not a recipe
+# line, which a tab opens, scan-dev, scan-fixtures or a variable, grouped targets' &: read as a rule too
+_SCAN_TARGET_RE = re.compile(r"^(?!\t)[ \t]*(?:[^\s#:=][^:=#]*\s+)?scan(?:\s+[^:=#&]*)?\s*&?::?(?!=)")
 # the lines of a repo's own the block keeps whole, which the wrapper itself judges
 _SCAN_OWN_LINES = ("SCAN_EXCLUDE +=", "SCAN_LIMIT")
 

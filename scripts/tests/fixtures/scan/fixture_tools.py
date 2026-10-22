@@ -1,19 +1,26 @@
 """
-The installed tools run directly, design 5.9's last parts and the side agent's note of 2026-10-21. Opengrep runs twice,
-each with a temp folder of its own, and the fixture records where it unpacks and whether the second run reuses anything
-outside its own temp folder, which stops the build if it does. Each tool runs with every proxy variable pointed at a
-closed port and finishes. Two parts need the owner's hand and run only when asked. KDF_SCAN_OFFLINE=1 under the
-owner's outbound firewall rule on the two executables, where a registry fetch must fail first as the control.
-KDF_SCAN_WRITE_PROBE=1, an unelevated try at a file in the scan folder, which Windows must refuse, removed at once if it
-does not. The elevated window's refusal of `--check` is the owner's own, plan owner step 2.
+The installed tools run directly, design 5.9's last parts and the side agent's note of 2026-10-21. Opengrep runs as the
+wrapper runs it, its temp folder watched while it runs, then again with a temp folder already holding a poisoned file at
+every path the first run used, and once with an empty profile and once with a profile poisoned the same way, and each
+second run must find what the first found, while nothing of a scanner's outside the run changes, by size or time. A
+folder a tool finds through Windows rather than its environment, and reads without writing, is beyond a fixture, a
+process monitor's question. Each tool runs with every proxy variable pointed at a closed port and finishes. Two parts
+need the owner's hand and run only when asked. KDF_SCAN_OFFLINE=1 under the owner's outbound firewall rule on the two
+executables, where a registry fetch must fail first as the control. KDF_SCAN_WRITE_PROBE=1, an unelevated try at a file
+in the scan folder, which Windows must refuse, removed at once if it does not. The elevated window's refusal of
+`--check` is the owner's own, plan owner step 2.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
 import subprocess
+import threading
+import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -35,6 +42,21 @@ WORKFLOW   = lines(
 )
 PROXIES    = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
 TOOLISH    = re.compile(r"(?i)opengrep|semgrep|_MEI|ocaml")
+# bytes no loader, YAML reader or rule parser accepts
+POISON = b"\0KDF poisoned, never load this\xff\xfe\0"
+# the profile paths Opengrep's source names for its settings, log and caches, Semgrep_envvars.ml, and the like
+PLANTED = (
+    ".semgrep/settings.yml",
+    ".semgrep/semgrep.log",
+    ".semgrep/cache/rules",
+    ".opengrep/settings.yml",
+    ".opengrep/opengrep.log",
+    ".cache/semgrep/rules",
+    ".cache/opengrep/rules",
+    "AppData/Local/semgrep/rules",
+    "AppData/Local/opengrep/rules",
+    "AppData/Roaming/semgrep/settings.yml",
+)
 
 
 def opengrep(machine: Machine) -> Path:
@@ -99,12 +121,12 @@ def run_opengrep(machine: Machine, folder: Path, temp: Path, **extra: str) -> su
     )
 
 
-def watched() -> dict[str, set[str]]:
+def places() -> dict[str, Path]:
     """
-    The top level of each place a single file executable could unpack to or cache in, outside a run's own temp.
+    Each place outside a run's own temp where a single file executable could unpack to or cache in, the session's.
     """
     profile = Path(os.environ.get("USERPROFILE", "."))
-    places  = {
+    return {
         "TEMP": Path(os.environ.get("TEMP", profile)),
         "LOCALAPPDATA": Path(os.environ.get("LOCALAPPDATA", profile)),
         "APPDATA": Path(os.environ.get("APPDATA", profile)),
@@ -112,34 +134,120 @@ def watched() -> dict[str, set[str]]:
         "~/.semgrep": profile / ".semgrep",
         "~/.opengrep": profile / ".opengrep",
     }
-    return {
-        name: {entry.name for entry in place.iterdir()} if place.is_dir() else set() for name, place in places.items()
-    }
 
 
-def listing(folder: Path) -> list[str]:
-    return sorted(path.relative_to(folder).as_posix() for path in folder.rglob("*")) if folder.is_dir() else []
+def files(folder: Path) -> dict[str, int]:
+    """
+    Every file under a folder with its size, a file that goes while it is read passed over.
+    """
+    found: dict[str, int] = {}
+    for top, _dirs, names in os.walk(folder):
+        for name in names:
+            path = Path(top) / name
+            with contextlib.suppress(OSError):
+                found[path.relative_to(folder).as_posix()] = path.stat().st_size
+    return found
 
 
-def test_opengrep_twice_unpacks_into_its_own_temp_and_reuses_nothing_outside_it(tmp_path: Path) -> None:
+def outside() -> dict[str, tuple[int, int]]:
+    """
+    Every file under each place's entries a scanner could own, a tool's name at the top or anything in its own dot
+    folder, with its size and time, so a change inside an old cache shows as plainly as a new one.
+    """
+    found: dict[str, tuple[int, int]] = {}
+    for name, place in places().items():
+        entries = sorted(place.iterdir()) if place.is_dir() else []
+        for entry in entries:
+            if not (name in ("~/.semgrep", "~/.opengrep") or TOOLISH.search(entry.name)):
+                continue
+            walked = [entry] if entry.is_file() else [
+                Path(top) / file for top, _dirs, names in os.walk(entry) for file in names
+            ]
+            for path in walked:
+                with contextlib.suppress(OSError):
+                    stat = path.stat()
+                    found[f"{name}/{path.relative_to(place).as_posix()}"] = (stat.st_size, stat.st_mtime_ns)
+    return found
+
+
+@contextlib.contextmanager
+def watching(folder: Path) -> Iterator[dict[str, int]]:
+    """
+    Every file seen under a folder while the block runs, read every few milliseconds, since an unpacked file may live
+    only while its program does.
+    """
+    seen: dict[str, int] = {}
+    done = threading.Event()
+
+
+    def poll() -> None:
+        while not done.is_set():
+            seen.update(files(folder))
+            time.sleep(0.02)
+
+
+    folder.mkdir(parents = True, exist_ok = True)
+    thread = threading.Thread(target = poll, daemon = True)
+    thread.start()
+    try:
+        yield seen
+    finally:
+        done.set()
+        thread.join()
+        seen.update(files(folder))
+
+
+def poison(folder: Path, seen: dict[str, int]) -> None:
+    """
+    A file at each path seen, of at least its size, holding bytes no program, rule or setting could load, so a run
+    that read any of them fails or finds otherwise.
+    """
+    for name, size in seen.items():
+        path = folder / name
+        path.parent.mkdir(parents = True, exist_ok = True)
+        path.write_bytes((POISON * (size // len(POISON) + 1))[:max(size, len(POISON))])
+
+
+def findings(folder: Path) -> list[tuple[str, str, int]]:
+    # a check id begins with its rule folder's path, which differs between two runs, so its last part names the rule
+    results = json.loads((folder / "out.json").read_text(encoding = "utf-8"))["results"]
+    return sorted(
+        (item["check_id"].rsplit(".", 1)[-1], Path(item["path"]).name, item["start"]["line"]) for item in results
+    )
+
+
+def test_opengrep_reuses_nothing_it_unpacked_or_left_in_a_temp_folder(tmp_path: Path) -> None:
+    # run as the wrapper runs it, its own temp watched while it runs, then again with a temp folder already holding a
+    # poisoned file at every path the first run used, where a cache found by its name would be read
     machine = installed()
-    before  = watched()
-    first   = run_opengrep(machine, tmp_path / "one", tmp_path / "temp-one")
-    middle  = watched()
-    second  = run_opengrep(machine, tmp_path / "two", tmp_path / "temp-two")
-    after   = watched()
-    assert first.returncode == 0 and second.returncode == 0, (first.stderr, second.stderr)
-    for name in before:
-        print(f"FIXTURE-NOTE opengrep first run added to {name}: {sorted(middle[name] - before[name])}")
-        print(f"FIXTURE-NOTE opengrep second run added to {name}: {sorted(after[name] - middle[name])}")
-    print(f"FIXTURE-NOTE opengrep first run's own temp: {listing(tmp_path / 'temp-one')[:20]}")
-    print(f"FIXTURE-NOTE opengrep second run's own temp: {listing(tmp_path / 'temp-two')[:20]}")
-    print(f"FIXTURE-NOTE ~/.semgrep after: {sorted(after['~/.semgrep'])}")
-    outside = {
-        name: sorted(entry for entry in after[name] - before[name] if TOOLISH.search(entry))
-        for name in before if name != "~/.semgrep"
-    }
-    assert not any(outside.values()), f"Opengrep left files outside its run's temp, {outside}"
+    before  = outside()
+    with watching(tmp_path / "temp-one") as seen:
+        first = run_opengrep(machine, tmp_path / "one", tmp_path / "temp-one")
+    assert first.returncode == 0, first.stderr
+    print(f"FIXTURE-NOTE opengrep's own temp while it ran: {sorted(seen)[:40]}")
+    poison(tmp_path / "temp-two", seen)
+    second = run_opengrep(machine, tmp_path / "two", tmp_path / "temp-two")
+    assert second.returncode == 0, f"a poisoned temp folder broke Opengrep, so it reads what it finds there, {second}"
+    assert findings(tmp_path / "two") == findings(tmp_path / "one") != []
+    changed = sorted(set(outside().items()) ^ set(before.items()))
+    assert not changed, f"Opengrep changed files outside its run's temp, {changed}"
+
+
+def test_opengrep_reads_nothing_planted_in_its_profile(tmp_path: Path) -> None:
+    # USERPROFILE is the one name the wrapper passes that points at a place of the session's, so Opengrep runs once
+    # with an empty profile, watched, and once with a profile holding a poisoned file at every path it wrote and at
+    # each its source names for settings, logs and caches
+    machine = installed()
+    fresh   = tmp_path / "profile-fresh"
+    with watching(fresh) as seen:
+        first = run_opengrep(machine, tmp_path / "one", tmp_path / "temp-one", USERPROFILE = str(fresh))
+    assert first.returncode == 0, first.stderr
+    print(f"FIXTURE-NOTE opengrep wrote into an empty profile: {sorted(seen)}")
+    planted = tmp_path / "profile-planted"
+    poison(planted, {**dict.fromkeys(PLANTED, 0), **seen})
+    second = run_opengrep(machine, tmp_path / "two", tmp_path / "temp-two", USERPROFILE = str(planted))
+    assert second.returncode == 0, f"a poisoned profile broke Opengrep, so it reads its profile, {second}"
+    assert findings(tmp_path / "two") == findings(tmp_path / "one") != []
 
 
 def test_each_tool_finishes_with_every_proxy_pointed_at_a_closed_port(tmp_path: Path) -> None:
