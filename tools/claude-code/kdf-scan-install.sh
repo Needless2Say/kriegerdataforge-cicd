@@ -39,7 +39,7 @@
 # its .cert and .sig, the certificate's identity exactly OPENGREP_IDENTITY and its issuer OPENGREP_ISSUER. zizmor.exe
 # is taken out of its pinned wheel with that Python's zipfile and checked against its SHA-256. Semgrep's rules are
 # fetched at their pinned commit into a bare clone, their digest checked by the bundle's kdf_scan.py, and the rules'
-# licence page saved with its date.
+# licence page saved with its date, a page that cannot be saved refusing the install.
 #
 # A part already in place is kept when it checks whole against its pin or manifest and never changed. A damaged one
 # refuses the install, or on a first install, one with no current, is removed and installed again, so a run cut short
@@ -888,13 +888,12 @@ stage_rules() {
 	date="$(/usr/bin/date +%F)"
 	licence="$root/rules/semgrep-rules-license-$date.html"
 	if [ ! -e "$licence" ]; then
-		/usr/bin/mkdir -p "$run/licence"
-		if download "${pin[RULES_LICENSE_URL]}" "$run/licence/semgrep-rules-license-$date.html"; then
-			moves+=("$run/licence/semgrep-rules-license-$date.html|$licence")
-			say "rules' licence page saved with its date, $date"
-		else
-			say "WARN, the rules' licence page could not be saved, save ${pin[RULES_LICENSE_URL]} by hand"
-		fi
+		/usr/bin/mkdir -p "$run/licence" || refuse "the licence page's staging folder could not be made"
+		download "${pin[RULES_LICENSE_URL]}" "$run/licence/semgrep-rules-license-$date.html" \
+			&& [ -s "$run/licence/semgrep-rules-license-$date.html" ] \
+			|| refuse "the rules' licence page could not be saved from ${pin[RULES_LICENSE_URL]}, so the terms are not kept"
+		moves+=("$run/licence/semgrep-rules-license-$date.html|$licence")
+		say "rules' licence page saved with its date, $date"
 	fi
 }
 

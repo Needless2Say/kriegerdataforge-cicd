@@ -663,6 +663,19 @@ def test_a_first_folder_holding_anything_else_is_refused(rig: Rig) -> None:
     assert "holds notes.txt, which no install writes" in text
     assert not (rig.root / "staging").exists()
 
+
+@pytest.mark.parametrize("page", ["missing", "empty"])
+def test_a_licence_page_that_cannot_be_saved_refuses_the_install_and_installs_nothing(rig: Rig, page: str) -> None:
+    licence = rig.artifacts / "licence.html"
+    if page == "missing":
+        licence.unlink()
+    else:
+        licence.write_bytes(b"")
+    code, text = rig.run()
+    assert code == 2, text
+    assert "the rules' licence page could not be saved" in text
+    assert installed_nothing(rig.root), sorted(path.name for path in rig.root.rglob("*"))
+
 # ======================================================================================================================
 # a second run, a later commit, a damaged part
 # ======================================================================================================================
