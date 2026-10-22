@@ -2466,10 +2466,16 @@ def test_a_test_candidate_with_a_certain_use_keeps_its_doubtful_ones_unchecked(t
     assert _has(candidates, place + "TestMixed.test_both uses TestMixed.V")
     hedge = "an instance or a subclass may hold its own, unchecked"
     assert _has(unchecked, place + f"TestMixed.test_both uses self.V, {hedge}")
-    _, _, unchecked, candidates = _groups(_run(tmp_path, "test-importers", "lib_v", "--repo", "app").stdout, "test-importers")
+    _, _, unchecked, candidates = _groups(
+        _run(tmp_path, "test-importers", "lib_v", "--repo", "app").stdout,
+        "test-importers",
+    )
     written = _line(OUTLIERS, "writer.py", "lib_v.X = 2").strip()
     assert _has(candidates, test("def test_written") + "test_written uses lib_v")
-    assert _has(unchecked, test("def test_written") + f"test_written uses lib_v.X, written elsewhere at {written}, unchecked")
+    assert _has(
+        unchecked,
+        test("def test_written") + f"test_written uses lib_v.X, written elsewhere at {written}, unchecked",
+    )
 
 
 def test_a_module_under_a_private_member_or_alias_keeps_its_origin_and_its_writes(tmp_path: Path) -> None:

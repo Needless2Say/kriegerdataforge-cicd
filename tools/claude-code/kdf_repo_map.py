@@ -1871,16 +1871,21 @@ class Resolver:
                 found[holder][0 if matched[0] else 1].append((matched[1], matched[2]))
         lines = []
         for scope, (sure, doubtful) in found.items():
-            uses  = sure or doubtful
-            texts = list(dict.fromkeys(text for text, _ in uses))
-            # a receiver is named once, at the longest name that uses it, Lockout.register over Lockout
-            texts = [text for text in texts if not any(other.startswith(f"{text}.") for other in texts)]
-            if not texts:
-                continue
             reason = self.rebound(scope)
-            reason = f"{reason}, unchecked" if reason else ("" if sure else doubtful[0][1])
-            words  = f"{scope.qual} uses {', '.join(texts)}"
-            lines.append((2, scope.line, f"{words}, {reason}") if reason else (3, scope.line, words))
+            if reason:
+                # a candidate whose name or class is bound again is unchecked whole, every use on one line
+                batches = [(sure + doubtful, f"{reason}, unchecked")]
+            else:
+                # its certain uses among the candidates, and each doubt with its uses among the unchecked matches
+                labels  = dict.fromkeys(label for _, label in doubtful)
+                batches = [(sure, ""), *(([use for use in doubtful if use[1] == label], label) for label in labels)]
+            for uses, label in batches:
+                texts = list(dict.fromkeys(text for text, _ in uses))
+                # a receiver is named once, at the longest name that uses it, Lockout.register over Lockout
+                texts = [text for text in texts if not any(other.startswith(f"{text}.") for other in texts)]
+                if texts:
+                    words = f"{scope.qual} uses {', '.join(texts)}"
+                    lines.append((2, scope.line, f"{words}, {label}") if label else (3, scope.line, words))
         return lines
 
 

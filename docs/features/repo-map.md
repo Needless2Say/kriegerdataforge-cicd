@@ -47,15 +47,15 @@ workflow, input, kit page or guard rule changed, so no consumer of this repo see
                                          test-importers, capped at 40 lines across clones
 ```
 
-- **The fence.** `fence` (`kdf_repo_map.py:2048`) looks for `kdf-review/open`, the folder `kdf-review.sh` makes while a
+- **The fence.** `fence` (`kdf_repo_map.py:2053`) looks for `kdf-review/open`, the folder `kdf-review.sh` makes while a
   review is open, in the clone's git dir, its common dir and every worktree administration folder registered there,
   and refuses before any file of the clone is read, and `open_clone` refuses a name that leads outside the root
-  through a link. `main` (`:2404`) refuses `KDF_ROLE=reviewer` before it parses anything, `--help` included, and the
+  through a link. `main` (`:2409`) refuses `KDF_ROLE=reviewer` before it parses anything, `--help` included, and the
   wrapper does the same before it looks for an interpreter.
-- **The read.** `git` (`:1944`) drops every inherited `GIT_` variable and sets `GIT_NO_LAZY_FETCH=1` and
-  `GIT_TERMINAL_PROMPT=0`. `listing` (`:2138`) keeps tracked regular blobs ending in `.py`, and `closed` (`:1980`)
+- **The read.** `git` (`:1949`) drops every inherited `GIT_` variable and sets `GIT_NO_LAZY_FETCH=1` and
+  `GIT_TERMINAL_PROMPT=0`. `listing` (`:2143`) keeps tracked regular blobs ending in `.py`, and `closed` (`:1985`)
   drops a secret file's name in any case, a backslash read as a separator, and anything under `keys/`, the list
-  `SECRET_GLOBS` (`:40`) held to `kdf-ask-codex.sh`'s and `kdf-preflight.sh`'s by a test. `contents` (`:2168`) reads
+  `SECRET_GLOBS` (`:40`) held to `kdf-ask-codex.sh`'s and `kdf-preflight.sh`'s by a test. `contents` (`:2173`) reads
   every blob in one call with no text conversion or filter, and a missing object is named in the answer as not
   fetched. Every file read is scanned, and where a package and a module file share a name, the package resolves it.
 - **The scopes.** `Collector` (`:336`) builds module, function, lambda, comprehension and class scopes, a lambda and a
@@ -110,14 +110,15 @@ workflow, input, kit page or guard rule changed, so no consumer of this repo see
   unknown. `callee_note` (`:1578`) heads each clone with the body read, or says the name is a class with its methods to
   ask, outside the clone or not defined, and a body with no line says it makes no call, use or write the `ast` sees.
 - **The test candidates.** `candidate_lines` (`:1850`) walks each test file's uses up their scopes to the candidate
-  holding them, `candidate` (`:1887`) taking `test*` functions at module level and `test*` methods of `Test*` classes
-  at module level, and `candidate_use` (`:1906`) keeping a use that resolves to the asked name or one under it, a value
+  holding them, `candidate` (`:1892`) taking `test*` functions at module level and `test*` methods of `Test*` classes
+  at module level, and `candidate_use` (`:1911`) keeping a use that resolves to the asked name or one under it, a value
   the test file binds read bare among them, each taking every doubt `callees` reads on a value, so a `self` read, a
-  value written elsewhere and a use in an annotation alone are unchecked, as is one by name alone. A candidate whose
-  name or class is bound more than once is unchecked too.
-- **The answer.** `render` (`:2257`) prints each clone's first line from `heading` (`:2075`), the commit read, when
+  value written elsewhere and a use in an annotation alone are unchecked, as is one by name alone. A candidate prints
+  its certain uses among the candidates and each doubt with its uses among the unchecked matches, and one whose name
+  or class is bound more than once is unchecked whole.
+- **The answer.** `render` (`:2262`) prints each clone's first line from `heading` (`:2080`), the commit read, when
   `origin/main` last moved by its reflog, and a checkout that differs, then its groups, each with every clone's count
-  and at most `CAP` (`:57`) lines chosen in turn from each clone by `spread` (`:2237`), then printed by clone, path
+  and at most `CAP` (`:57`) lines chosen in turn from each clone by `spread` (`:2242`), then printed by clone, path
   and line. Every line is `<clone>@<short hash> <path>:<line>` and its words. `test-importers` closes saying a
   candidate is a place to look and not proof, and what it does not read.
 
