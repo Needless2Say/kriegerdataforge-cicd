@@ -63,10 +63,12 @@ ZIZMOR_WHEEL_URL    = (
 ZIZMOR_WHEEL_SHA256 = "06e039fae8e185e2a1a8b002f2d95a6f5c3b548048bdd79e004dcb501fcd0868"
 ZIZMOR_SHA256       = "c39ef6b4c975ed3bf07a3a88fcfe228cb4b073993d76192fe09faba21478df91"
 # cosign's Windows program, which the install fetches into its staging folder and runs to verify Opengrep, its
-# SHA-256 as GitHub's release page lists it on 2026-10-22, for the owner's match against the release's checksums
-COSIGN_VERSION = "v3.1.4"
-COSIGN_URL     = "https://github.com/sigstore/cosign/releases/download/v3.1.4/cosign-windows-amd64.exe"
-COSIGN_SHA256  = "cbe953787074611f1334cbf37dc1cf953995bb8c45398eb4fc7bb781d29c1f2a"
+# SHA-256 as GitHub's release page lists it on 2026-10-22, for the owner's match against the release's checksums,
+# the 2.6 line, whose verify-blob still takes the separate .sig and .cert Opengrep publishes, 3.1's taking a
+# bundle alone, and 2.6.5 the release that carries the fix of GHSA-fx35-mq7g-6g98
+COSIGN_VERSION = "v2.6.5"
+COSIGN_URL     = "https://github.com/sigstore/cosign/releases/download/v2.6.5/cosign-windows-amd64.exe"
+COSIGN_SHA256  = "19ec346d0050f59ffad9694da97ef9704be34ec60ddc41c5f1d16d8619385825"
 # the rules of Semgrep at the commit the web survey read, the digest of every rule file of RULE_FOLDERS at it, read on
 # 2026-10-21 with rules_digest below, and the page of the rules' licence the install saves with its date
 RULES_REPO        = "https://github.com/semgrep/semgrep-rules"
