@@ -510,10 +510,12 @@ def snapshot(root: Path) -> dict[str, tuple[int, str]]:
 
 def launcher_check(root: Path) -> tuple[int, str]:
     """
-    The installed launcher's --check, its machine built from the installed bundle with this interpreter as the Python,
-    the folder's permission and the token read by stand ins.
+    The installed launcher's --check, its machine built from the installed bundle with this interpreter as the Python
+    and the git PATH names, which on Linux sits at no path the launcher looks for, the folder's permission and the
+    token read by stand ins.
     """
     launcher = load(f"kdf_scan_launcher_check_{abs(hash(root))}", root / "kdf-scan.py")
+    hooks    = launcher.Hooks(machine = None, git = GIT)
 
 
     def machine(wrapper, folder, bundle):
@@ -524,7 +526,12 @@ def launcher_check(root: Path) -> tuple[int, str]:
 
     buffer = io.StringIO()
     with redirect_stdout(buffer):
-        code = launcher.main(["--check"], root = root, platform = platform(), hooks = launcher.Hooks(machine = machine))
+        code = launcher.main(
+            ["--check"],
+            root = root,
+            platform = platform(),
+            hooks = dataclasses.replace(hooks, machine = machine),
+        )
     return code, buffer.getvalue()
 
 # ======================================================================================================================
