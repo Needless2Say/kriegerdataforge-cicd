@@ -620,17 +620,44 @@ def test_the_pins_print_as_plain_assignments_the_install_reads(capsys: pytest.Ca
         assert re.fullmatch(r"[A-Z0-9_]+", name) and re.fullmatch(r"[A-Za-z0-9_.:/@%+=-]+", value), (name, value)
     assert "PYTHON_SHA256" not in printed
     assert {"ZIZMOR_WHEEL_URL", "COSIGN_VERSION", "COSIGN_URL", "COSIGN_SHA256"} <= set(printed)
+    assert {"OPENGREP_URL", "PYTHON_ARCHIVE_BASE"} <= set(printed)
 
 
-def test_the_pythons_three_pins_stay_one_plain_assignment_each_for_the_installs_pattern() -> None:
+def test_the_pythons_four_pins_stay_one_plain_assignment_each_for_the_installs_pattern() -> None:
     source = (COMMON / "kdf_scan.py").read_text(encoding = "utf-8")
-    for name in ("PYTHON_VERSION", "PYTHON_BUILD", "PYTHON_ARCHIVE_SHA256"):
+    for name in ("PYTHON_VERSION", "PYTHON_BUILD", "PYTHON_ARCHIVE_SHA256", "PYTHON_ARCHIVE_BASE"):
         found = re.findall(rf"^{name} += \"([^\"\n]+)\"$", source, re.MULTILINE)
         assert found == [getattr(SCAN, name)], name
+        assert len(re.findall(rf"^{name}\b", source, re.MULTILINE)) == 1, name
 
 
 def test_the_pythons_archive_address_is_the_one_uv_0_13_1_names() -> None:
     assert SCAN.PYTHON_ARCHIVE_URL == UV_PYTHON_URL
+    assert SCAN.PYTHON_ARCHIVE_URL.startswith(f"{SCAN.PYTHON_ARCHIVE_BASE}/{SCAN.PYTHON_BUILD}/")
+
+
+def test_opengreps_address_is_its_release_asset_whose_cert_and_sig_sit_beside_it() -> None:
+    assert SCAN.OPENGREP_URL == (
+        "https://github.com/opengrep/opengrep/releases/download/v1.30.2/opengrep_windows_x86.exe"
+    )
+
+
+def test_the_rules_digest_reads_the_clone_with_the_git_it_is_given(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rig      = make_rig(tmp_path, SCAN)
+    command  = ["--rules-digest", str(rig.rules), "--git", GIT]
+    original = SCAN.RULES_COMMIT, SCAN.RULE_FOLDERS
+    SCAN.RULES_COMMIT, SCAN.RULE_FOLDERS = rig.commit, ("python/lang/security", "javascript/lang/security")
+    try:
+        assert SCAN.main(command) == 0
+        expected = SCAN.rules_digest(SCAN.rule_files(GIT, rig.rules, rig.commit, SCAN.RULE_FOLDERS))
+        assert capsys.readouterr().out.strip() == expected
+        assert SCAN.main(["--rules-digest", str(rig.rules), "--git", str(tmp_path / "no-git.exe")]) == 2
+        assert "kdf-scan  refused" in capsys.readouterr().out
+    finally:
+        SCAN.RULES_COMMIT, SCAN.RULE_FOLDERS = original
 
 
 def test_the_pythons_manifest_holds_every_file_and_no_other(tmp_path: Path) -> None:

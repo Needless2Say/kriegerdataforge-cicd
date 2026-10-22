@@ -53,6 +53,8 @@ OPENGREP_IDENTITY = (
     "https://github.com/opengrep/opengrep/.github/workflows/rolling-release.yml@refs/heads/release-v1.30.2"
 )
 OPENGREP_ISSUER   = "https://token.actions.githubusercontent.com"
+# the asset's release address, its .cert and .sig beside it under the same name
+OPENGREP_URL = f"https://github.com/opengrep/opengrep/releases/download/{OPENGREP_VERSION}/{OPENGREP_ASSET}"
 # zizmor from PyPI's Windows wheel, pinned by the wheel's SHA-256 as the trial installed it and by its address as PyPI
 # names it, read on 2026-10-22, and the zizmor.exe inside it, read on 2026-10-21 from the trial's venv
 ZIZMOR_VERSION      = "1.30.1"
@@ -76,14 +78,15 @@ RULES_COMMIT      = "17e31e11ebac99fb7dfe1cd288f7a32151b6f3f9"
 RULES_DIGEST      = "e2ec51f90a9d26ff7fac7a4a268ad24f935ab357add11304b9da141fc9181ff1"
 RULES_LICENSE_URL = "https://semgrep.dev/legal/rules-license"
 # the CPython uv 0.13.1 would install for 3.14.7, python-build-standalone's build 20260929, read from uv's own
-# download metadata on 2026-10-21. The install reads these three by a strict pattern before any Python runs, so each
-# stays one plain assignment, and builds the archive's address from them as below. The installed Python is held to the
-# manifest the install writes from the archive's own listing, Round Table 54's L4
+# download metadata on 2026-10-21. The install reads these four by a strict pattern before any Python runs, so each
+# stays one plain assignment, and builds the archive's address from them as below, which --pins must then print. The
+# installed Python is held to the manifest the install writes from the archive's own listing, Round Table 54's L4
 PYTHON_VERSION        = "3.14.7"
 PYTHON_BUILD          = "20260929"
 PYTHON_ARCHIVE_SHA256 = "6378385d5e42ec0874656e5efd707fb92334a6972b1aca90fd254eb924a8f404"
+PYTHON_ARCHIVE_BASE   = "https://github.com/astral-sh/python-build-standalone/releases/download"
 PYTHON_ARCHIVE_URL    = (
-    f"https://github.com/astral-sh/python-build-standalone/releases/download/{PYTHON_BUILD}/"
+    f"{PYTHON_ARCHIVE_BASE}/{PYTHON_BUILD}/"
     f"cpython-{PYTHON_VERSION}%2B{PYTHON_BUILD}-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
 )
 PYTHON_MANIFEST       = "manifest.sha256"
@@ -279,6 +282,7 @@ def pins() -> dict[str, str]:
         "OPENGREP_SHA256",
         "OPENGREP_IDENTITY",
         "OPENGREP_ISSUER",
+        "OPENGREP_URL",
         "ZIZMOR_VERSION",
         "ZIZMOR_WHEEL_URL",
         "ZIZMOR_WHEEL_SHA256",
@@ -292,6 +296,7 @@ def pins() -> dict[str, str]:
         "RULES_LICENSE_URL",
         "PYTHON_VERSION",
         "PYTHON_BUILD",
+        "PYTHON_ARCHIVE_BASE",
         "PYTHON_ARCHIVE_URL",
         "PYTHON_ARCHIVE_SHA256",
     )
@@ -1839,6 +1844,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description = "The local code scan's wrapper, run from source (D-084).")
     parser.add_argument("--pins", action = "store_true", help = "print the declared pins and stop")
     parser.add_argument("--rules-digest", metavar = "GIT_DIR", help = "print the rules' digest at the pinned commit")
+    parser.add_argument("--git", help = "the git --rules-digest runs, the install's own, else git at a protected path")
     parser.add_argument("--repo", default = ".", help = "the repo to scan, the current folder by default")
     parser.add_argument("--at", help = "scan this commit's tree instead of the working tree")
     parser.add_argument("--policy-at", help = "the commit whose exclusions and limits a scan at a commit applies")
@@ -1848,8 +1854,11 @@ def main(argv: list[str] | None = None) -> int:
         for name, value in pins().items():
             print(f"{name}={value}")
         return 0
+    if args.git is not None and not Path(args.git).is_file():
+        print(f"kdf-scan  refused, no git at {args.git}")
+        return 2
     try:
-        git = find_git()
+        git = args.git or find_git()
         if args.rules_digest:
             print(rules_digest(rule_files(git, Path(args.rules_digest), RULES_COMMIT, RULE_FOLDERS)))
             return 0
