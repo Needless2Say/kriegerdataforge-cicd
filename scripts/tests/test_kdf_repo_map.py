@@ -27,6 +27,31 @@ MODULE  = TOOLS / "kdf_repo_map.py"
 WRAPPER = TOOLS / "kdf-repo-map.sh"
 GIT     = shutil.which("git")
 BASH    = os.environ.get("KDF_TEST_BASH") or shutil.which("bash")
+# the labels the binding rule, a private name and a star import leave on a line they move to unchecked
+SHAKY   = "bound more than once, or in a form the map does not take as certain, unchecked"
+MANGLED = "a private name, which Python mangles inside a class, unchecked"
+STARRED = "a star import in its scope may replace it, unchecked"
+# how a written attribute names a receiver the ast cannot type, and the first parameter of a method of WRITES' class
+UNKNOWN = "its type unknown to the ast"
+FIRST   = "the first parameter of a def in the body of class wr.body.Store"
+# the words a session hands a worker it briefs to use the map, which --help prints whole
+WORKER_BRIEF = """\
+Start with the repo map, a lookup over the repos' Python at the commits above, read from git's objects. Run it in
+Bash on one line with single quotes, since the guard refuses a $ or a backtick inside double quotes, as
+bash <the wrapper> <command> <name> --repo <clone> --at <clone>=<commit>
+with a --repo and an --at for each repo the lookup names. Its commands are defs <name> (where a bare or dotted name
+is defined), imports <dotted module> (who imports it or a name in it), callers <dotted name> (resolved calls, uses
+that are not calls, and unchecked matches kept by name), callees <dotted function> (what that function's own body
+calls and uses, the repo's class members and module values among them, then the attributes it writes, a def nested
+in it apart), and test-importers <dotted> (test files that import it, those through a re-export, the unchecked
+matches, then the test candidates that use it). What a function does, its conditions and its values, is read in its
+body. Add --tests to keep tests in imports and callers, and --full to print a group past its 40 lines. Each answer
+gives its resolved lines first, each line <clone>@<hash> <path>:<line>. An empty group proves no absence, so search
+before you say there is none. Read a line at the answer's commit, with git -C <clone> show <hash>:<path>, or with
+Read in a checkout you know is clean at that commit, and search for a name the map was not given or what it names
+as unseen with git -C <clone> grep -n '<pattern>' <hash>, or with Grep in such a checkout. The guard refuses grep
+-r, and an awk program that runs a command, reads the environment or writes a file, so use neither.
+"""
 # a stand in for cicd's venv interpreter, it logs each call and runs this interpreter, or plays one that cannot start
 STAND_IN = """#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "{log}"
@@ -521,6 +546,634 @@ DUPLICATE = {
     "dup/use.py": "from dup.pkg import run\n\nrun()\n",
 }
 
+VALUES = {
+    "val/__init__.py": "",
+    "val/enums.py": """
+        import os
+
+        FLAG = True
+
+
+        class Status:
+            active = "active"
+            same = same = "same"
+            twice = 1
+            twice = 2
+            dropped = 1
+            del dropped
+            if FLAG:
+                guarded = 1
+            try:
+                tried = 1
+            except ValueError:
+                pass
+            try:
+                grouped = 1
+            except* ValueError:
+                pass
+            for _ in range(1):
+                looped = 1
+            with os.scandir(".") as entries:
+                held = 1
+            FLAG and (walrus := 1)
+            written = 1
+
+            def describe(self):
+                return 1
+
+
+        class Child(Status):
+            pass
+
+
+        Status.written = 2
+        """,
+    "val/limits.py": """
+        import os
+
+        MAX = 3
+        SAME = SAME = 4
+        TWICE = 1
+        TWICE = 2
+        GONE = 1
+        del GONE
+        CHANGED = 1
+        FLAG = True
+        FLAG and (WALRUS := 1)
+        COMPREHENDED = [(LEAKED := item) for item in range(2)]
+        if os.sep:
+            GUARDED = 1
+
+
+        def setter():
+            global GLOBALLED
+            GLOBALLED = 1
+
+
+        def own():
+            return MAX, SAME, TWICE, CHANGED, LEAKED, GLOBALLED
+        """,
+    "val/relay.py": """
+        import os
+
+        from val.limits import MAX
+        from val.limits import MAX as DOUBLE
+        from val.limits import MAX as DOUBLE
+        from val.limits import MAX as DELETED
+        del DELETED
+        if os.sep:
+            from val.limits import MAX as GUARDED_RELAY
+        """,
+    "val/reader.py": """
+        import os
+
+        import val.enums
+        import val.limits
+        from val.enums import Child, Status
+        from val.limits import CHANGED, GLOBALLED, GONE, GUARDED, LEAKED, MAX, SAME, TWICE, WALRUS
+        from val.limits import MAX as ALIASED
+        from val.relay import DELETED, DOUBLE, GUARDED_RELAY
+        from val.relay import MAX as RELAYED
+
+        val.limits.CHANGED = 5
+
+        if os.sep:
+            from val.limits import MAX as CONDITIONAL
+            import val.limits as maybe_limits
+
+
+        def members(user):
+            user.reason = Status.active
+            user.text = Status.active.value
+            user.full = val.enums.Status.active
+            user.same = Status.same
+            return Status.describe
+
+
+        def doubtful():
+            return (
+                Status.twice,
+                Status.dropped,
+                Status.guarded,
+                Status.tried,
+                Status.grouped,
+                Status.looped,
+                Status.held,
+                Status.walrus,
+                Status.written,
+                Child.active,
+            )
+
+
+        def values():
+            return MAX, ALIASED, val.limits.MAX, SAME, RELAYED
+
+
+        def doubtful_values():
+            return TWICE, GONE, WALRUS, LEAKED, GUARDED, GLOBALLED, CHANGED, val.limits.CHANGED, val.limits.TWICE
+
+
+        def relayed():
+            return DOUBLE, DELETED, GUARDED_RELAY
+
+
+        def imported_inside():
+            from val.limits import MAX as INSIDE
+            return INSIDE
+
+
+        def imported_conditionally():
+            return CONDITIONAL
+
+
+        def through_modules():
+            import val.limits as inner_limits
+            return inner_limits.MAX, maybe_limits.MAX
+
+
+        def labelled():
+            later = lambda: Status.active
+            note: Status.active = None
+            return later, note
+
+
+        class Lockout:
+            limit = 3
+
+            def register(self):
+                first = self.limit
+                second = self.unbound
+                return first, second, self.limit.real
+
+            @classmethod
+            def build(cls):
+                return cls.limit
+
+
+        class Derived(Status):
+            def chain(self):
+                return self.unbound.value, Child.active.upper
+
+
+        class Twice:
+            @property
+            def size(self):
+                return Status.active
+
+            @size.setter
+            def size(self, value):
+                return SAME
+        """,
+}
+
+PRIVATE = {
+    "priv/__init__.py": "",
+    "priv/lib.py": """
+        __value = 1
+        __hidden = 2
+
+
+        class Keeper:
+            __member = 1
+
+            def read(self):
+                return self.__member
+
+            def write(self):
+                global __hidden
+                __hidden = 3
+
+            def touch(self):
+                import priv.lib
+                priv.lib.__value = 4
+                return priv.lib.__value
+        """,
+    "priv/use.py": """
+        import priv.lib
+        from priv.lib import Keeper
+
+
+        def outside():
+            return Keeper.__member
+
+
+        def plain():
+            return priv.lib.__value
+
+
+        def hidden():
+            return priv.lib.__hidden
+        """,
+}
+
+STARS = {
+    "star/__init__.py": "",
+    "star/source.py": "def target():\n    return 1\n\n\ndef helper():\n    return 2\n\n\nVALUE = 1\n",
+    "star/early.py": """
+        from star.source import *
+
+
+        def target():
+            return helper()
+
+
+        VALUE = 2
+        """,
+    "star/late.py": """
+        from star.source import helper
+
+
+        def target():
+            return helper()
+
+
+        VALUE = 3
+
+        from star.source import *
+        """,
+    "star/looped.py": """
+        for _ in range(1):
+            from star.source import *
+
+        from star.source import VALUE, target
+        """,
+    "star/use.py": """
+        from star.early import VALUE as EARLY
+        from star.early import target as early_target
+        from star.late import VALUE as LATE
+        from star.late import target as late_target
+        from star.looped import VALUE as LOOPED
+        from star.looped import target as looped_target
+
+
+        def run():
+            early_target()
+            late_target()
+            looped_target()
+            return EARLY, LATE, LOOPED
+        """,
+    "tests/test_star.py": "from star.looped import target\n",
+}
+
+REGRESSION = {
+    "reg/__init__.py": "",
+    "reg/lib.py": "def helper():\n    return 1\n\n\nclass Thing:\n    def run(self):\n        return 1\n",
+    "reg/relay.py": """
+        import os
+
+        if os.sep:
+            from reg.lib import helper
+
+        from reg.lib import Thing
+        from reg.lib import Thing
+        """,
+    "reg/use.py": """
+        import os
+
+        from reg.relay import Thing, helper
+
+        if os.sep:
+            from reg.lib import helper as guarded
+
+
+        def work():
+            helper()
+            guarded()
+            made = Thing()
+            made.run()
+            return Thing
+
+
+        def inside():
+            if os.sep:
+                from reg.lib import helper as nested
+            return nested()
+        """,
+}
+
+WRITES = {
+    "wr/__init__.py": "",
+    "wr/real.py": "LIMIT = 1\n",
+    "wr/facade.py": "from wr.real import LIMIT\n",
+    "wr/settings.py": "FLAG = False\n",
+    "wr/body.py": """
+        import os
+
+        import wr.facade
+        import wr.settings
+
+        static = staticmethod
+
+
+        def make():
+            return Store()
+
+
+        def replace(item):
+            return item
+
+
+        class Store:
+            import wr.settings as settings
+
+            count = 0
+
+            def plain(self, user, items, handle):
+                self.count = 1
+                self.count += 1
+                for self.item in items:
+                    pass
+                with handle as self.held:
+                    pass
+                self.first, user.second = 1, 2
+                del self.held
+                user.name = "name"
+                local = object()
+                local.size = 2
+                make().attr = 3
+                items[0].attr = 4
+                self.settings.FLAG = True
+                Store.count = 5
+                wr.settings.FLAG = True
+                wr.facade.LIMIT = 6
+                os.environ.extra = 7
+                self.__secret = 8
+                make().hint: int
+                nested = [1 for user.slot in items]
+                lazy = (1 for user.later in items)
+
+                class Inner:
+                    user.inner = 1
+
+                return nested, lazy, Inner
+
+            @classmethod
+            def built(self):
+                self.made = 1
+
+            def swapped(cls):
+                cls.flag = 1
+
+            @staticmethod
+            def fixed(self):
+                self.fixed = 1
+
+            @static
+            def aliased(self):
+                self.aliased = 1
+
+            def rebound(self):
+                self = replace(self)
+                self.value = 1
+
+            def bare(*args):
+                self.value = 2
+        """,
+}
+
+CROSSINGS = {
+    "cx/__init__.py": "",
+    "cx/cfg.py": "V = 1\n",
+    "cx/lib.py": "def target():\n    return 1\n\n\nclass K:\n    V = 1\n",
+    "cx/facade.py": "import os\n\nif os.sep:\n    from cx import cfg\n",
+    "cx/plain.py": "from cx import cfg\n",
+    "cx/alias.py": "from cx.lib import target as alias\n",
+    "cx/relay.py": "from cx.cfg import V as X\n\ndel X\n",
+    "cx/aliasuse.py": "from cx.relay import X as Alias\n",
+    "cx/reader.py": """
+        import os
+
+        import cx.facade
+        import cx.lib
+        import cx.plain
+
+        if os.sep:
+            from cx.lib import K
+
+
+        def through_conditional():
+            return cx.facade.cfg.V, K.V
+
+
+        class Reader:
+            from cx.lib import K
+
+            def run(self):
+                return self.K.V
+
+
+        def change(other):
+            cx.plain.cfg = other
+            cx.lib.K = other
+
+
+        def through_written():
+            return cx.plain.cfg.V, cx.lib.K.V
+        """,
+    "cx/starred.py": """
+        import cx.alias as api
+        from cx.cfg import *
+
+
+        def run():
+            return api.alias()
+        """,
+}
+
+RECEIVERS = {
+    "pv/__init__.py": "",
+    "pv/cfg.py": "__value = 1\n_K__value = 2\n",
+    "pv/read.py": """
+        class K:
+            from pv.cfg import __value as V
+
+
+        def read():
+            return K.V
+        """,
+    "pv/lib.py": """
+        class K:
+            V = 1
+
+
+        def read():
+            return K.V
+
+
+        def change(other):
+            import pv.lib
+            pv.lib.K = other
+            pv.lib.K.x = 1
+        """,
+    "pv/alias.py": """
+        def target():
+            return 1
+
+
+        class K:
+            from pv.alias import target as __alias
+
+            def run(self):
+                self.__alias()
+                import pv.alias as __lib
+                return __lib.target
+        """,
+    "tests/test_values.py": "V = 1\n\n\ndef test_read():\n    return V\n",
+}
+
+OUTLIERS = {
+    "lib_v.py": "X = 1\n",
+    "writer.py": "import lib_v\n\n\ndef change():\n    lib_v.X = 2\n",
+    "lib3.py": "def target():\n    return 1\n",
+    "facade3.py": "from lib3 import target as alias\n",
+    "use3.py": """
+        class K:
+            import facade3 as __mod
+
+            def run(self):
+                return self.__mod.alias()
+        """,
+    "lib4.py": "V = 1\n",
+    "use4.py": """
+        import lib4
+
+
+        class K:
+            def change(self):
+                import lib4 as __mod
+                __mod.V = 2
+
+
+        def read():
+            return lib4.V
+        """,
+    "__top.py": "V = 1\n",
+    "p5/__init__.py": "",
+    "p5/__cfg.py": "V = 1\n",
+    "p5/read.py": """
+        class K:
+            from .__cfg import V
+            from __top import V as W
+
+
+        def read():
+            return K.V, K.W
+        """,
+    "tests/test_k.py": """
+        import lib_v
+
+        V = 1
+
+
+        class TestK:
+            W = 1
+
+            def test_read(self):
+                return self.W
+
+
+        def test_note():
+            note: V
+            return None
+
+
+        def test_written():
+            return lib_v.X
+
+
+        class TestMixed:
+            V = 1
+
+            def test_both(self):
+                return TestMixed.V, self.V
+        """,
+}
+
+CANDIDATES = {
+    "cand/__init__.py": "",
+    "cand/service.py": """
+        class Lockout:
+            def register(self):
+                return 1
+
+
+        def helper():
+            return Lockout()
+        """,
+    "cand/facade/__init__.py": "from cand.service import Lockout\n",
+    "tests/__init__.py": "",
+    "tests/conftest.py": """
+        from cand.service import Lockout
+
+
+        def test_in_conftest():
+            return Lockout()
+        """,
+    "tests/test_lockout.py": """
+        from cand.facade import Lockout
+        from cand.service import helper
+
+
+        def test_module_level():
+            return Lockout()
+
+
+        def test_nested():
+            def inner():
+                return Lockout
+
+            later = lambda: Lockout
+
+            class Holder:
+                kept = Lockout
+
+            return inner, later, Holder
+
+
+        def test_by_name(service):
+            return service.register()
+
+
+        def test_through_helper():
+            return helper()
+
+
+        def test_fixture(lockout):
+            return lockout
+
+
+        def test_twice():
+            return Lockout()
+
+
+        def test_twice():
+            return Lockout()
+
+
+        class TestKept:
+            def test_method(self):
+                return Lockout.register
+
+            def helper_method(self):
+                return Lockout()
+
+
+        class TestLock:
+            def test_first(self):
+                return Lockout()
+
+
+        class TestLock:
+            def test_again(self):
+                return Lockout()
+
+
+        class Other:
+            def test_not_a_candidate(self):
+                return Lockout()
+        """,
+}
+
 pytestmark = pytest.mark.skipif(GIT is None and not os.environ.get("CI"), reason = "the repo map needs git")
 
 # ======================================================================================================================
@@ -605,10 +1258,11 @@ def _run(root: Path, *args: str, env: dict[str, str] | None = None) -> subproces
 
 def _groups(answer: str, command: str) -> list[list[str]]:
     """
-    Split an answer's lines into its three groups, by the titles the module prints.
+    Split an answer's lines into its groups, by the titles the module prints, three, or four for callees and
+    test-importers.
     """
     titles  = _module().TITLES[command]
-    groups  = [[], [], []]
+    groups  = [[] for _ in titles]
     current = None
     for line in answer.splitlines():
         heading = next((index for index, title in enumerate(titles) if line.startswith(f"{title}, ")), None)
@@ -902,7 +1556,7 @@ def test_vercel_api_is_left_out_and_tests_only_with_tests(tmp_path: Path) -> Non
         "unit_tests/auth/check.py:3",
     ]
     assert "Left out, vercel_api/." in done.stdout
-    found, _, _ = _groups(_run(tmp_path, "test-importers", "api.core", "--repo", "app").stdout, "test-importers")
+    found, _, _, _ = _groups(_run(tmp_path, "test-importers", "api.core", "--repo", "app").stdout, "test-importers")
     assert sorted(line.split(" ")[1] for line in found) == ["tests/test_core.py:1", "unit_tests/auth/check.py:1"]
 
 
@@ -1321,7 +1975,7 @@ def test_callees_lists_a_body_within_its_bounds_and_every_call_it_makes(tmp_path
     done = _run(tmp_path, "callees", "cal.body.work", "--repo", "app")
     assert done.returncode == 0, done.stderr
     assert "app, the body of cal.body.work at " + _line(CALLEES, "cal/body.py", "def work").strip() in done.stdout
-    resolved, values, unchecked = _groups(done.stdout, "callees")
+    resolved, values, unchecked, _ = _groups(done.stdout, "callees")
     line = lambda needle: _line(CALLEES, "cal/body.py", needle)
     assert _has(resolved, line("    helper()") + "helper called, resolves to cal.lib.helper, a def")
     assert _has(resolved, line("[other()") + "other called, resolves to cal.lib.other, a def")
@@ -1376,16 +2030,16 @@ def test_callees_lists_one_line_for_every_call_its_body_makes(tmp_path: Path) ->
 def test_callees_of_a_name_with_several_bodies_keeps_every_line_unchecked(tmp_path: Path) -> None:
     _clone(tmp_path, "app", CALLEES)
     done = _run(tmp_path, "callees", "cal.body.Box.size", "--repo", "app")
-    resolved, values, unchecked = _groups(done.stdout, "callees")
+    resolved, values, unchecked, _ = _groups(done.stdout, "callees")
     assert "cal.body.Box.size has 2 bodies, at cal/body.py:" in done.stdout
     assert resolved == [] and values == []
     assert all(entry.endswith("one of 2 bodies of this name, unchecked") for entry in unchecked) and unchecked
     done = _run(tmp_path, "callees", "cal.body.twice", "--repo", "app")
-    resolved, values, unchecked = _groups(done.stdout, "callees")
+    resolved, values, unchecked, _ = _groups(done.stdout, "callees")
     rebound = "its name or a class holding it bound more than once"
     for name in ("cal.body.twice", "cal.body.shadowed", "cal.body.Crate.work", "cal.scoped.Registry.Kept.work"):
         done = _run(tmp_path, "callees", name, "--repo", "app")
-        resolved, values, unchecked = _groups(done.stdout, "callees")
+        resolved, values, unchecked, _ = _groups(done.stdout, "callees")
         assert f"app, the body of {name} at cal/" in done.stdout, name
         assert f"{rebound}, so every line is unchecked." in done.stdout, name
         assert resolved == [] and values == [], name
@@ -1396,7 +2050,7 @@ def test_callees_says_an_empty_body_a_missing_name_a_class_and_a_name_outside_ap
     _clone(tmp_path, "app", CALLEES)
     done = _run(tmp_path, "callees", "cal.body.empty", "--repo", "app")
     assert done.returncode == 1 and "app, the body of cal.body.empty at cal/body.py:" in done.stdout
-    assert ", which makes no call or use the ast sees." in done.stdout
+    assert ", which makes no call, use or write the ast sees." in done.stdout
     done = _run(tmp_path, "callees", "cal.body.absent", "--repo", "app")
     assert done.returncode == 1 and "app, the clone defines no function cal.body.absent." in done.stdout
     done = _run(tmp_path, "callees", "cal.lib.Thing", "--repo", "app")
@@ -1416,27 +2070,32 @@ def test_callees_says_an_empty_body_a_missing_name_a_class_and_a_name_outside_ap
 def test_callees_reads_the_body_resolution_selects_never_a_shadowed_file(tmp_path: Path) -> None:
     _clone(tmp_path, "app", DUPLICATE)
     done = _run(tmp_path, "callees", "dup.pkg.run", "--repo", "app")
-    assert "app, the body of dup.real.run at dup/real.py:1, which makes no call or use the ast sees." in done.stdout
+    assert "app, the body of dup.real.run at dup/real.py:1, which makes no call, use or write the ast sees." in (
+        done.stdout
+    )
     assert "again" not in done.stdout
 
 
 def test_callees_names_a_self_call_its_static_target_or_an_override(tmp_path: Path) -> None:
     _clone(tmp_path, "app", BASES)
-    resolved, _, _ = _groups(_run(tmp_path, "callees", "base.model.Own.store", "--repo", "app").stdout, "callees")
+    resolved, _, _, _ = _groups(_run(tmp_path, "callees", "base.model.Own.store", "--repo", "app").stdout, "callees")
     assert any(entry.endswith("self.save called, resolves to base.model.Own.save, a def, its class's own as the "
                               "static target, or an override") for entry in resolved)
 
 
 def test_callees_skips_a_class_scope_and_its_global_for_a_method_inside(tmp_path: Path) -> None:
     _clone(tmp_path, "app", CALLEES)
-    resolved, _, _ = _groups(_run(tmp_path, "callees", "cal.scoped.outer.Box.work", "--repo", "app").stdout, "callees")
+    resolved, _, _, _ = _groups(
+        _run(tmp_path, "callees", "cal.scoped.outer.Box.work", "--repo", "app").stdout,
+        "callees",
+    )
     place = _line(CALLEES, "cal/scoped.py", "        target()")
     assert len(resolved) == 1 and _has(resolved, place + "target called, resolves to cal.scoped.outer.target, a def")
 
 
 def test_callees_never_lets_a_clone_file_replace_a_builtin_module(tmp_path: Path) -> None:
     _clone(tmp_path, "app", CALLEES)
-    resolved, _, _ = _groups(_run(tmp_path, "callees", "cal.body.system", "--repo", "app").stdout, "callees")
+    resolved, _, _, _ = _groups(_run(tmp_path, "callees", "cal.body.system", "--repo", "app").stdout, "callees")
     assert any(entry.endswith("sys.target called, resolves to sys.target, outside the clone, as imported")
                for entry in resolved)
     assert not any("a def" in entry for entry in resolved)
@@ -1450,14 +2109,547 @@ def test_callers_labels_a_call_in_an_annotation_whatever_it_resolves_to(tmp_path
     assert _has(unchecked, "cal/annotated.py:1 late called by name at module level, used before its binding")
     assert all(entry.endswith("in an annotation, never run with the code around it") for entry in unchecked)
 
+# ======================================================================================================================
+# the binding rule, a class's members and a module's values in callees, and the two false lines closed
+# ======================================================================================================================
 
-def test_the_wrapper_usage_and_the_readme_name_every_command() -> None:
+def _callees(root: Path, name: str) -> list[list[str]]:
+    """
+    The groups of a callees answer for one name in the clone app.
+    """
+    done = _run(root, "callees", name, "--repo", "app")
+    assert done.returncode in (0, 1), done.stderr
+    return _groups(done.stdout, "callees")
+
+
+def test_callees_names_a_class_member_read_through_its_class(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", VALUES)
+    resolved, values, unchecked, _ = _callees(tmp_path, "val.reader.members")
+    line   = lambda needle: _line(VALUES, "val/reader.py", needle)
+    member = "resolves to val.enums.Status.active, a member bound in the body of class val.enums.Status"
+    assert _has(values, line("user.reason = Status.active") + f"Status.active used, {member}")
+    assert _has(values, line("Status.active.value") + f"Status.active used, {member}")
+    assert _has(values, line("val.enums.Status.active") + f"val.enums.Status.active used, {member}")
+    same = "resolves to val.enums.Status.same, a member bound in the body of class val.enums.Status"
+    assert _has(values, line("Status.same") + f"Status.same used, {same}"), "V = V = 1 is one statement"
+    assert _has(values, line("Status.describe") + "Status.describe used, resolves to val.enums.Status.describe, a def")
+    assert not any("Status.active.value" in entry for entry in resolved + values + unchecked)
+
+
+def test_a_self_or_cls_read_of_a_member_is_unchecked_and_of_a_name_its_class_does_not_bind_left_out(
+    tmp_path: Path,
+) -> None:
+    _clone(tmp_path, "app", VALUES)
+    words = "bound in the body of class val.reader.Lockout, an instance or a subclass may hold its own, unchecked"
+    line  = lambda needle: _line(VALUES, "val/reader.py", needle)
+    resolved, values, unchecked, _ = _callees(tmp_path, "val.reader.Lockout.register")
+    assert resolved == [] and values == []
+    assert _has(unchecked, line("first = self.limit") + f"self.limit used, {words}")
+    assert _has(unchecked, line("self.limit.real") + f"self.limit used, {words}")
+    assert not any("self.unbound" in entry for entry in unchecked)
+    _, values, unchecked, _ = _callees(tmp_path, "val.reader.Lockout.build")
+    assert values == [] and _has(unchecked, line("return cls.limit") + f"cls.limit used, {words}")
+    _, values, unchecked, _ = _callees(tmp_path, "val.reader.Derived.chain")
+    assert values == [] and not any("self.unbound" in entry for entry in unchecked), "a base never names a self chain"
+    assert _has(
+        unchecked,
+        line("Child.active.upper") + "Child.active used, through its base val.enums.Status, unchecked",
+    )
+
+
+def test_a_member_bound_in_a_form_the_map_does_not_take_as_certain_is_unchecked(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", VALUES)
+    resolved, values, unchecked, _ = _callees(tmp_path, "val.reader.doubtful")
+    line = lambda needle: _line(VALUES, "val/reader.py", needle)
+    assert resolved == [] and values == []
+    for member in ("twice", "dropped", "guarded", "tried", "grouped", "looped", "held", "walrus"):
+        words = f"Status.{member} used, {SHAKY}, val.enums.Status.{member}"
+        assert _has(unchecked, line(f"Status.{member},") + words), member
+    written = _line(VALUES, "val/enums.py", "Status.written = 2").strip()
+    words   = f"Status.written used, written elsewhere at {written}, unchecked, val.enums.Status.written"
+    assert _has(unchecked, line("Status.written,") + words)
+    assert _has(unchecked, line("Child.active,") + "Child.active used, through its base val.enums.Status, unchecked")
+
+
+def test_a_module_value_resolves_through_an_import_an_established_module_and_bare_in_its_own_module(
+    tmp_path: Path,
+) -> None:
+    _clone(tmp_path, "app", VALUES)
+    value = "resolves to val.limits.MAX, a value bound at module level in val.limits"
+    _, values, unchecked, _ = _callees(tmp_path, "val.reader.values")
+    place = _line(VALUES, "val/reader.py", "return MAX, ALIASED")
+    for text in ("MAX", "ALIASED", "val.limits.MAX", "RELAYED"):
+        assert _has(values, place + f"{text} used, {value}"), text
+    assert _has(values, place + "SAME used, resolves to val.limits.SAME, a value bound at module level in val.limits")
+    assert unchecked == []
+    _, values, _, _ = _callees(tmp_path, "val.reader.imported_inside")
+    assert _has(values, _line(VALUES, "val/reader.py", "return INSIDE") + f"INSIDE used, {value}")
+    _, values, _, _ = _callees(tmp_path, "val.limits.own")
+    assert _has(values, _line(VALUES, "val/limits.py", "return MAX, SAME") + f"MAX used, {value}")
+
+
+def test_a_module_value_bound_or_written_uncertainly_is_unchecked_in_every_form(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", VALUES)
+    line    = lambda needle: _line(VALUES, "val/reader.py", needle)
+    written = line("val.limits.CHANGED = 5").strip()
+    changed = f"written elsewhere at {written}, unchecked, val.limits.CHANGED"
+    _, values, unchecked, _ = _callees(tmp_path, "val.reader.doubtful_values")
+    place = line("return TWICE, GONE")
+    assert values == []
+    for name in ("TWICE", "GONE", "WALRUS", "LEAKED", "GUARDED", "GLOBALLED"):
+        assert _has(unchecked, place + f"{name} used, {SHAKY}, val.limits.{name}"), name
+    assert _has(unchecked, place + f"val.limits.TWICE used, {SHAKY}, val.limits.TWICE")
+    for text in ("CHANGED", "val.limits.CHANGED"):
+        assert _has(unchecked, place + f"{text} used, {changed}"), text
+    _, values, unchecked, _ = _callees(tmp_path, "val.limits.own")
+    place = _line(VALUES, "val/limits.py", "return MAX, SAME")
+    assert _has(unchecked, place + f"TWICE used, {SHAKY}, val.limits.TWICE")
+    assert _has(unchecked, place + f"CHANGED used, {changed}")
+    _, values, unchecked, _ = _callees(tmp_path, "val.reader.relayed")
+    assert values == []
+    for name in ("DOUBLE", "DELETED", "GUARDED_RELAY"):
+        assert _has(unchecked, line("return DOUBLE") + f"{name} used, {SHAKY}, val.limits.MAX"), name
+    _, values, unchecked, _ = _callees(tmp_path, "val.reader.imported_conditionally")
+    assert values == [] and _has(unchecked, line("return CONDITIONAL") + f"CONDITIONAL used, {SHAKY}, val.limits.MAX")
+
+
+def test_a_value_through_a_module_imported_conditionally_is_unchecked_and_through_one_imported_twice_is_not(
+    tmp_path: Path,
+) -> None:
+    _clone(tmp_path, "app", VALUES)
+    value = "resolves to val.limits.MAX, a value bound at module level in val.limits"
+    place = _line(VALUES, "val/reader.py", "return inner_limits.MAX")
+    _, values, unchecked, _ = _callees(tmp_path, "val.reader.through_modules")
+    assert _has(values, place + f"inner_limits.MAX used, {value}")
+    assert _has(unchecked, place + f"maybe_limits.MAX used, {SHAKY}, val.limits.MAX")
+    _, values, _, _ = _callees(tmp_path, "val.reader.values")
+    place = _line(VALUES, "val/reader.py", "return MAX, ALIASED")
+    assert _has(values, place + f"val.limits.MAX used, {value}"), "import val.enums and import val.limits bind val once"
+    resolved, values, unchecked = _groups(
+        _run(tmp_path, "callers", "val.limits.MAX", "--repo", "app").stdout,
+        "callers",
+    )
+    place = _line(VALUES, "val/reader.py", "return inner_limits.MAX")
+    assert _has(values, place + "inner_limits.MAX used in through_modules")
+    assert _has(unchecked, place + f"maybe_limits.MAX used in through_modules, {SHAKY}")
+
+
+def test_a_value_under_the_rule_moves_callers_imports_and_test_importers_toward_unchecked_alone(
+    tmp_path: Path,
+) -> None:
+    files = dict(VALUES, **{"tests/test_values.py": "from val.relay import GUARDED_RELAY\nfrom val.relay import MAX\n"})
+    _clone(tmp_path, "app", files)
+    line = lambda needle: _line(VALUES, "val/reader.py", needle)
+    resolved, values, unchecked = _groups(
+        _run(tmp_path, "callers", "val.limits.MAX", "--repo", "app").stdout,
+        "callers",
+    )
+    for text in ("MAX", "ALIASED", "val.limits.MAX", "RELAYED"):
+        assert _has(values, line("return MAX, ALIASED") + f"{text} used in values"), text
+    assert _has(values, line("return INSIDE") + "INSIDE used in imported_inside")
+    for text in ("DOUBLE", "DELETED", "GUARDED_RELAY"):
+        assert _has(unchecked, line("return DOUBLE") + f"{text} used in relayed, {SHAKY}"), text
+    assert _has(unchecked, line("return CONDITIONAL") + f"CONDITIONAL used in imported_conditionally, {SHAKY}")
+    assert not any(_has(group, line("return DOUBLE")) for group in (resolved, values))
+    _, through, unchecked = _groups(_run(tmp_path, "imports", "val.limits", "--repo", "app").stdout, "imports")
+    relay = "at module level, through a re-export to val.limits.MAX"
+    assert _has(through, line("import MAX as RELAYED") + f"imports val.relay.MAX {relay}")
+    for name in ("DELETED", "DOUBLE", "GUARDED_RELAY"):
+        assert _has(unchecked, line("import DELETED") + f"imports val.relay.{name} {relay}, {SHAKY}"), name
+    done = _run(tmp_path, "test-importers", "val.limits", "--repo", "app")
+    _, through, unchecked, _ = _groups(done.stdout, "test-importers")
+    assert _has(through, f"tests/test_values.py:2 imports val.relay.MAX {relay}")
+    assert _has(unchecked, f"tests/test_values.py:1 imports val.relay.GUARDED_RELAY {relay}, {SHAKY}")
+
+
+def test_a_new_line_carries_the_annotation_deferred_and_several_bodies_labels(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", VALUES)
+    line   = lambda needle: _line(VALUES, "val/reader.py", needle)
+    member = "resolves to val.enums.Status.active, a member bound in the body of class val.enums.Status"
+    member = f"Status.active used, {member}"
+    _, values, unchecked, _ = _callees(tmp_path, "val.reader.labelled")
+    assert values == []
+    assert _has(unchecked, line("lambda: Status.active") + f"{member}, inside a lambda, runs when it is called")
+    assert _has(
+        unchecked,
+        line("note: Status.active") + f"{member}, in an annotation, never run with the code around it",
+    )
+    _, values, unchecked, _ = _callees(tmp_path, "val.reader.Twice.size")
+    assert values == []
+    assert _has(unchecked, line("return Status.active") + f"{member}, one of 2 bodies of this name, unchecked")
+    same = "SAME used, resolves to val.limits.SAME, a value bound at module level in val.limits"
+    assert _has(unchecked, line("return SAME") + f"{same}, one of 2 bodies of this name, unchecked")
+
+
+def test_a_private_name_is_unchecked_as_mangled_in_callees_and_callers(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", PRIVATE)
+    use = lambda needle: _line(PRIVATE, "priv/use.py", needle)
+    lib = lambda needle: _line(PRIVATE, "priv/lib.py", needle)
+    _, values, unchecked, _ = _callees(tmp_path, "priv.use.outside")
+    assert values == [] and _has(unchecked, use("Keeper.__member") + f"Keeper.__member used, {MANGLED}")
+    _, values, unchecked, _ = _callees(tmp_path, "priv.lib.Keeper.read")
+    assert values == [] and _has(unchecked, lib("self.__member") + f"self.__member used, {MANGLED}")
+    resolved, values, unchecked = _groups(
+        _run(tmp_path, "callers", "priv.lib.Keeper.__member", "--repo", "app").stdout,
+        "callers",
+    )
+    assert resolved == [] and values == []
+    assert _has(unchecked, use("Keeper.__member") + f"Keeper.__member used in outside, {MANGLED}")
+    assert _has(unchecked, lib("self.__member") + f"self.__member used in Keeper.read, {MANGLED}")
+    for name, function in (("__hidden", "hidden"), ("__value", "plain")):
+        _, values, unchecked, _ = _callees(tmp_path, f"priv.use.{function}")
+        assert values == [] and _has(unchecked, use(f"priv.lib.{name}") + f"priv.lib.{name} used, {MANGLED}"), name
+        resolved, values, unchecked = _groups(
+            _run(tmp_path, "callers", f"priv.lib.{name}", "--repo", "app").stdout,
+            "callers",
+        )
+        assert resolved == [] and values == [], name
+        assert _has(unchecked, use(f"priv.lib.{name}") + f"priv.lib.{name} used in {function}, {MANGLED}"), name
+    _, _, unchecked = _groups(_run(tmp_path, "callers", "priv.lib.__value", "--repo", "app").stdout, "callers")
+    assert _has(unchecked, lib("return priv.lib.__value") + f"priv.lib.__value used in Keeper.touch, {MANGLED}")
+
+
+def test_a_binding_a_star_import_may_replace_is_unchecked_in_every_command(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", STARS)
+    line = lambda needle: _line(STARS, "star/use.py", needle)
+    resolved, values, unchecked, _ = _callees(tmp_path, "star.use.run")
+    assert _has(resolved, line("early_target()") + "early_target called, resolves to star.early.target, a def")
+    early = "EARLY used, resolves to star.early.VALUE, a value bound at module level in star.early"
+    assert _has(values, line("return EARLY") + early)
+    for text, origin in (("late_target", "star.late.target"), ("looped_target", "star.source.target")):
+        assert _has(unchecked, line(f"    {text}()") + f"{text} called, {STARRED}, {origin}"), text
+    for text, origin in (("LATE", "star.late.VALUE"), ("LOOPED", "star.source.VALUE")):
+        assert _has(unchecked, line("return EARLY") + f"{text} used, {STARRED}, {origin}"), text
+    resolved, _, unchecked = _groups(_run(tmp_path, "callers", "star.late.target", "--repo", "app").stdout, "callers")
+    assert resolved == [] and _has(unchecked, line("    late_target()") + f"late_target called in run, {STARRED}")
+    resolved, _, _ = _groups(_run(tmp_path, "callers", "star.early.target", "--repo", "app").stdout, "callers")
+    assert _has(resolved, line("    early_target()") + "early_target called in run")
+    _, through, unchecked = _groups(_run(tmp_path, "imports", "star.source", "--repo", "app").stdout, "imports")
+    relay = "imports star.looped.target at module level, through a re-export to star.source.target"
+    assert _has(unchecked, line("import target as looped_target") + f"{relay}, {STARRED}")
+    assert not _has(through, line("import target as looped_target"))
+    done = _run(tmp_path, "test-importers", "star.source", "--repo", "app")
+    _, through, unchecked, _ = _groups(done.stdout, "test-importers")
+    assert _has(unchecked, f"tests/test_star.py:1 {relay}, {STARRED}") and not _has(through, "tests/test_star.py:1 ")
+    found, _, unchecked = _groups(_run(tmp_path, "defs", "target", "--repo", "app").stdout, "defs")
+    assert _has(found, _line(STARS, "star/early.py", "def target") + "def star.early.target")
+    assert _has(unchecked, _line(STARS, "star/late.py", "def target") + f"def star.late.target, {STARRED}")
+    bound = "star.looped.target bound by an import of star.source.target"
+    assert _has(unchecked, _line(STARS, "star/looped.py", "import VALUE, target") + f"{bound}, {STARRED}")
+    done = _run(tmp_path, "callees", "star.late.target", "--repo", "app")
+    resolved, values, unchecked, _ = _groups(done.stdout, "callees")
+    assert "a star import in its scope may replace it, so every line is unchecked." in done.stdout
+    assert resolved == [] and values == [] and unchecked
+    assert all(entry.endswith(STARRED) for entry in unchecked)
+
+
+def test_a_def_and_a_class_answer_as_before_in_every_other_form(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", REGRESSION)
+    line = lambda needle: _line(REGRESSION, "reg/use.py", needle)
+    resolved, _, unchecked = _groups(_run(tmp_path, "callers", "reg.lib.helper", "--repo", "app").stdout, "callers")
+    for needle, words in (("    helper()", "helper called in work"), ("guarded()", "guarded called in work")):
+        assert _has(resolved, line(needle) + words), needle
+    assert _has(resolved, line("return nested()") + "nested called in inside") and unchecked == []
+    resolved, values, _ = _groups(_run(tmp_path, "callers", "reg.lib.Thing", "--repo", "app").stdout, "callers")
+    assert _has(resolved, line("Thing()") + "Thing called in work")
+    assert _has(values, line("return Thing") + "Thing used in work")
+    resolved, values, _, _ = _callees(tmp_path, "reg.use.work")
+    assert _has(resolved, line("    helper()") + "helper called, resolves to reg.lib.helper, a def")
+    assert _has(resolved, line("Thing()") + "Thing called, resolves to reg.lib.Thing, a class")
+    assert _has(values, line("return Thing") + "Thing used, resolves to reg.lib.Thing, a class")
+
+
+def test_a_value_through_a_receiver_bound_on_a_condition_or_through_self_is_unchecked(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", CROSSINGS)
+    line = lambda needle: _line(CROSSINGS, "cx/reader.py", needle)
+    _, values, unchecked, _ = _callees(tmp_path, "cx.reader.through_conditional")
+    place = line("return cx.facade.cfg.V")
+    assert values == []
+    assert _has(
+        unchecked,
+        place + f"cx.facade.cfg.V used, {SHAKY}, cx.cfg.V",
+    ), "a module a module on the way imports on a condition"
+    assert _has(unchecked, place + f"K.V used, {SHAKY}, cx.lib.K.V"), "a class the reader imports on a condition"
+    _, values, unchecked, _ = _callees(tmp_path, "cx.reader.Reader.run")
+    hedge = "through self or cls, which an instance or a subclass may replace, unchecked"
+    assert values == [] and _has(unchecked, line("return self.K.V") + f"self.K.V used, {hedge}, cx.lib.K.V")
+
+
+def test_a_write_to_a_receiver_on_the_way_leaves_the_value_read_through_it_unchecked(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", CROSSINGS)
+    line = lambda needle: _line(CROSSINGS, "cx/reader.py", needle)
+    _, values, unchecked, _ = _callees(tmp_path, "cx.reader.through_written")
+    place = line("return cx.plain.cfg.V")
+    cfg   = line("cx.plain.cfg = other").strip()
+    klass = line("cx.lib.K = other").strip()
+    assert values == []
+    assert _has(unchecked, place + f"cx.plain.cfg.V used, written elsewhere at {cfg}, unchecked, cx.cfg.V")
+    assert _has(unchecked, place + f"cx.lib.K.V used, written elsewhere at {klass}, unchecked, cx.lib.K.V")
+
+
+def test_a_use_through_a_receiver_a_star_may_replace_stays_in_the_unchecked_matches(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", CROSSINGS)
+    resolved, _, unchecked = _groups(_run(tmp_path, "callers", "cx.lib.target", "--repo", "app").stdout, "callers")
+    place = _line(CROSSINGS, "cx/starred.py", "api.alias()")
+    assert not _has(resolved, place) and _has(unchecked, place + f"api.alias called in run, {STARRED}")
+
+
+def test_a_private_name_an_import_inside_a_class_takes_is_unchecked_as_mangled(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", RECEIVERS)
+    place = _line(RECEIVERS, "pv/read.py", "return K.V")
+    _, values, unchecked, _ = _callees(tmp_path, "pv.read.read")
+    assert values == [] and _has(unchecked, place + f"K.V used, {MANGLED}, pv.cfg.__value")
+    resolved, values, unchecked = _groups(
+        _run(tmp_path, "callers", "pv.cfg.__value", "--repo", "app").stdout,
+        "callers",
+    )
+    assert resolved == [] and values == [] and _has(unchecked, place + f"K.V used in read, {MANGLED}")
+    found, _, unchecked = _groups(_run(tmp_path, "imports", "pv.cfg", "--repo", "app").stdout, "imports")
+    imported = _line(RECEIVERS, "pv/read.py", "import __value")
+    assert not _has(found, imported) and _has(unchecked, imported + f"imports pv.cfg.__value in class K, {MANGLED}")
+
+
+def test_a_class_read_by_its_bare_name_and_replaced_elsewhere_is_unchecked_and_names_no_written_receiver(
+    tmp_path: Path,
+) -> None:
+    _clone(tmp_path, "app", RECEIVERS)
+    line    = lambda needle: _line(RECEIVERS, "pv/lib.py", needle)
+    written = line("pv.lib.K = other").strip()
+    _, values, unchecked, _ = _callees(tmp_path, "pv.lib.read")
+    words = f"K.V used, written elsewhere at {written}, unchecked, pv.lib.K.V"
+    assert values == [] and _has(unchecked, line("return K.V") + words)
+    *_, writes = _callees(tmp_path, "pv.lib.change")
+    assert _has(writes, line("pv.lib.K.x = 1") + f"pv.lib.K.x written, on pv.lib.K, {UNKNOWN}")
+    assert _has(writes, line("pv.lib.K = other") + "pv.lib.K written, on module pv.lib")
+
+
+def test_a_private_alias_of_a_name_keeps_its_origin_and_stays_in_the_unchecked_matches(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", RECEIVERS)
+    line = lambda needle: _line(RECEIVERS, "pv/alias.py", needle)
+    resolved, _, unchecked = _groups(_run(tmp_path, "callers", "pv.alias.target", "--repo", "app").stdout, "callers")
+    assert not _has(resolved, line("self.__alias()"))
+    assert _has(unchecked, line("self.__alias()") + f"self.__alias called in K.run, {MANGLED}")
+    _, values, unchecked, _ = _callees(tmp_path, "pv.alias.K.run")
+    assert values == [
+    ] and _has(unchecked, line("return __lib.target") + f"__lib.target used, {MANGLED}, pv.alias.target")
+
+
+def test_a_test_candidate_reading_a_value_bare_in_its_own_file_is_named(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", RECEIVERS)
+    *_, candidates = _groups(
+        _run(tmp_path, "test-importers", "tests.test_values.V", "--repo", "app").stdout,
+        "test-importers",
+    )
+    assert _has(candidates, "tests/test_values.py:4 test_read uses V")
+
+
+def test_a_test_candidate_takes_every_doubt_callees_reads_on_a_value(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", OUTLIERS)
+    test  = lambda needle: _line(OUTLIERS, "tests/test_k.py", needle)
+    asked = (
+        ("tests.test_k.TestK.W", "def test_read"),
+        ("tests.test_k.V", "def test_note"),
+        ("lib_v.X", "def test_written"),
+    )
+    for name, needle in asked:
+        done = _run(tmp_path, "test-importers", name, "--repo", "app")
+        _, _, unchecked, candidates = _groups(done.stdout, "test-importers")
+        assert not _has(candidates, test(needle)) and _has(unchecked, test(needle)), name
+
+
+def test_a_test_candidate_with_a_certain_use_keeps_its_doubtful_ones_unchecked(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", OUTLIERS)
+    test = lambda needle: _line(OUTLIERS, "tests/test_k.py", needle)
+    done = _run(tmp_path, "test-importers", "tests.test_k.TestMixed.V", "--repo", "app")
+    _, _, unchecked, candidates = _groups(done.stdout, "test-importers")
+    place = test("def test_both")
+    assert _has(candidates, place + "TestMixed.test_both uses TestMixed.V")
+    hedge = "an instance or a subclass may hold its own, unchecked"
+    assert _has(unchecked, place + f"TestMixed.test_both uses self.V, {hedge}")
+    _, _, unchecked, candidates = _groups(
+        _run(tmp_path, "test-importers", "lib_v", "--repo", "app").stdout,
+        "test-importers",
+    )
+    written = _line(OUTLIERS, "writer.py", "lib_v.X = 2").strip()
+    assert _has(candidates, test("def test_written") + "test_written uses lib_v")
+    assert _has(
+        unchecked,
+        test("def test_written") + f"test_written uses lib_v.X, written elsewhere at {written}, unchecked",
+    )
+
+
+def test_a_module_under_a_private_member_or_alias_keeps_its_origin_and_its_writes(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", OUTLIERS)
+    place = _line(OUTLIERS, "use3.py", "self.__mod.alias()")
+    resolved, _, unchecked = _groups(_run(tmp_path, "callers", "lib3.target", "--repo", "app").stdout, "callers")
+    assert not _has(resolved, place) and _has(unchecked, place + f"self.__mod.alias called in K.run, {MANGLED}")
+    _, values, unchecked, _ = _callees(tmp_path, "use4.read")
+    written = _line(OUTLIERS, "use4.py", "__mod.V = 2").strip()
+    words   = f"lib4.V used, written elsewhere at {written}, unchecked, lib4.V"
+    assert values == [] and _has(unchecked, _line(OUTLIERS, "use4.py", "return lib4.V") + words)
+
+
+def test_an_import_inside_a_class_from_a_private_module_is_unchecked_as_mangled(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", OUTLIERS)
+    place = _line(OUTLIERS, "p5/read.py", "return K.V")
+    _, values, unchecked, _ = _callees(tmp_path, "p5.read.read")
+    assert values == []
+    assert _has(unchecked, place + f"K.V used, {MANGLED}, p5.__cfg.V"), "a relative import from a private module"
+    assert _has(unchecked, place + f"K.W used, {MANGLED}, __top.V"), "an absolute import from a private module"
+    found, _, unchecked = _groups(_run(tmp_path, "imports", "p5.__cfg", "--repo", "app").stdout, "imports")
+    imported = _line(OUTLIERS, "p5/read.py", "from .__cfg import V")
+    assert not _has(found, imported) and _has(unchecked, imported + f"imports p5.__cfg.V in class K, {MANGLED}")
+
+
+def test_defs_keeps_every_binding_on_the_way_to_a_name_a_del_leaves_unchecked(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", CROSSINGS)
+    _, _, unchecked = _groups(_run(tmp_path, "defs", "cx.aliasuse.Alias", "--repo", "app").stdout, "defs")
+    assert _has(unchecked, "cx/relay.py:3 cx.relay.X bound by assignment, unchecked")
+    assert _has(unchecked, f"cx/relay.py:1 cx.relay.X bound by an import of cx.cfg.V, {SHAKY}")
+
+# ======================================================================================================================
+# the attributes a body writes, callees' fourth group
+# ======================================================================================================================
+
+def test_callees_lists_every_attribute_its_body_writes_in_a_fourth_group(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", WRITES)
+    done = _run(tmp_path, "callees", "wr.body.Store.plain", "--repo", "app")
+    assert done.returncode == 0, done.stderr
+    assert "Attributes written, " in done.stdout
+    *_, writes = _groups(done.stdout, "callees")
+    line = lambda needle: _line(WRITES, "wr/body.py", needle)
+    for needle, words in (
+        ("self.count = 1", f"self.count written, on self, {FIRST}"),
+        ("self.count += 1", f"self.count written, on self, {FIRST}"),
+        ("for self.item", f"self.item written, on self, {FIRST}"),
+        ("as self.held", f"self.held written, on self, {FIRST}"),
+        ("self.first, user.second", f"self.first written, on self, {FIRST}"),
+        ("self.first, user.second", f"user.second written, on user, {UNKNOWN}"),
+        ("del self.held", f"self.held deleted, on self, {FIRST}"),
+        ("self.__secret", f"self.__secret written, on self, {FIRST}, {MANGLED}"),
+    ):
+        assert _has(writes, line(needle) + words), needle
+    assert not any("an instance" in entry or "the class " in entry for entry in writes)
+
+
+def test_a_written_attribute_names_its_receiver_only_when_the_receiver_itself_is_known(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", WRITES)
+    resolved, _, _, writes = _callees(tmp_path, "wr.body.Store.plain")
+    line   = lambda needle: _line(WRITES, "wr/body.py", needle)
+    facade = "wr.facade.LIMIT written, on module wr.facade, which wr.facade imports from wr.real.LIMIT"
+    for needle, words in (
+        ("Store.count = 5", "Store.count written, on class wr.body.Store"),
+        ("wr.settings.FLAG", "wr.settings.FLAG written, on module wr.settings"),
+        ("wr.facade.LIMIT", facade),
+        ("os.environ.extra", "os.environ.extra written, on os.environ, outside the clone, as imported"),
+        ("user.name", f"user.name written, on user, {UNKNOWN}"),
+        ("local.size", f"local.size written, on local, {UNKNOWN}"),
+        ("make().attr", f"make().attr written, on make(), {UNKNOWN}"),
+        ("items[0].attr", f"items[].attr written, on items[], {UNKNOWN}"),
+        ("self.settings.FLAG", f"self.settings.FLAG written, on self.settings, {UNKNOWN}"),
+    ):
+        assert _has(writes, line(needle) + words), needle
+    hint = line("make().hint")
+    assert not _has(writes, hint), "an annotated attribute with no value writes nothing"
+    assert _has(resolved, hint + "make called, resolves to wr.body.make, a def"), "its receiver still runs"
+
+
+def test_a_first_parameter_is_worded_from_the_source_never_as_an_instance_or_the_class(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", WRITES)
+    for name, words in (
+        ("built", f"self.made written, on self, {FIRST}"),
+        ("swapped", f"cls.flag written, on cls, {FIRST}"),
+        ("fixed", f"self.fixed written, on self, {FIRST}"),
+        ("aliased", f"self.aliased written, on self, {FIRST}"),
+        ("rebound", f"self.value written, on self, {UNKNOWN}"),
+        ("bare", f"self.value written, on self, {UNKNOWN}"),
+    ):
+        *_, writes = _callees(tmp_path, f"wr.body.Store.{name}")
+        assert len(writes) == 1 and writes[0].endswith(words), (name, writes)
+
+
+def test_a_write_in_a_nested_class_or_a_generator_takes_the_labels_the_other_groups_take(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", WRITES)
+    *_, writes = _callees(tmp_path, "wr.body.Store.plain")
+    line = lambda needle: _line(WRITES, "wr/body.py", needle)
+    assert _has(writes, line("user.slot") + f"user.slot written, on user, {UNKNOWN}")
+    later = f"user.later written, on user, {UNKNOWN}, inside a generator expression, runs as it is consumed"
+    assert _has(writes, line("user.later") + later)
+    inner = f"user.inner written, on user, {UNKNOWN}, in class Store.plain.Inner, whose body runs as the function does"
+    assert _has(writes, line("user.inner") + inner)
+
+# ======================================================================================================================
+# the test candidates that use a name, test-importers' fourth group
+# ======================================================================================================================
+
+def _defs(path: str, needle: str) -> list[str]:
+    """
+    The path and line of every line of a CANDIDATES file holding the needle, as an answer names them.
+    """
+    lines = textwrap.dedent(CANDIDATES[path]).splitlines()
+    return [f"{path}:{number} " for number, text in enumerate(lines, 1) if needle in text]
+
+
+def test_test_importers_names_the_test_candidates_that_use_a_name_in_a_fourth_group(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", CANDIDATES)
+    done = _run(tmp_path, "test-importers", "cand.service.Lockout", "--repo", "app")
+    assert done.returncode == 0, done.stderr
+    found, through, unchecked, candidates = _groups(done.stdout, "test-importers")
+    test     = "tests/test_lockout.py"
+    relay    = "imports cand.facade.Lockout at module level, through a re-export to cand.service.Lockout"
+    found_at = _defs("tests/conftest.py", "import Lockout")[0]
+    assert _has(found, found_at + "imports cand.service.Lockout at module level")
+    assert _has(through, _defs(test, "import Lockout")[0] + relay), "through a package that re-exports it"
+    for path, qual, words in (
+        ("tests/conftest.py", "test_in_conftest", "test_in_conftest uses Lockout"),
+        (test, "test_module_level", "test_module_level uses Lockout"),
+        (test, "test_nested", "test_nested uses Lockout"),
+        (test, "test_method", "TestKept.test_method uses Lockout.register"),
+    ):
+        assert _has(candidates, _defs(path, f"def {qual}")[0] + words), qual
+    assert len(candidates) == 4
+    rebound = "its name or a class holding it bound more than once, unchecked"
+    for place in _defs(test, "def test_twice"):
+        assert _has(unchecked, place + f"test_twice uses Lockout, {rebound}"), place
+    for qual in ("test_first", "test_again"):
+        assert _has(unchecked, _defs(test, f"def {qual}")[0] + f"TestLock.{qual} uses Lockout, {rebound}"), qual
+    for name in ("test_by_name", "test_through_helper", "test_fixture", "helper_method", "test_not_a_candidate"):
+        assert name not in done.stdout, name
+    for words in (
+        "a place to look and not proof",
+        "a fixture, a helper, conftest.py or a string is not named",
+        "unittest.TestCase",
+    ):
+        assert words in done.stdout, words
+
+
+def test_a_test_candidate_reaching_a_name_by_name_alone_is_unchecked(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", CANDIDATES)
+    done = _run(tmp_path, "test-importers", "cand.service.Lockout.register", "--repo", "app")
+    found, through, unchecked, candidates = _groups(done.stdout, "test-importers")
+    test = "tests/test_lockout.py"
+    assert found == [] and through == []
+    assert _has(candidates, _defs(test, "def test_method")[0] + "TestKept.test_method uses Lockout.register")
+    words = "test_by_name uses service.register, by name alone, unchecked"
+    assert _has(unchecked, _defs(test, "def test_by_name")[0] + words)
+
+
+def test_the_wrapper_usage_the_readme_and_the_help_name_every_command_and_new_group(tmp_path: Path) -> None:
     commands = _module().COMMANDS
-    usage    = WRAPPER.read_text(encoding = "utf-8").splitlines()[3]
+    wrapper  = WRAPPER.read_text(encoding = "utf-8")
+    usage    = wrapper.splitlines()[3]
     readme   = (TOOLS / "README.md").read_text(encoding = "utf-8")
+    helped   = _run(tmp_path, "--help").stdout
     for command in commands:
         assert f" {command} " in usage, command
         assert f"bash kdf-repo-map.sh {command} " in readme, command
+    for title in ("Attributes written", "Test candidates that use it"):
+        assert title in wrapper and title in readme and title in helped, title
+
+
+def test_help_prints_the_workers_brief_word_for_word(tmp_path: Path) -> None:
+    done = _run(tmp_path, "--help")
+    assert done.returncode == 0 and WORKER_BRIEF in done.stdout
 
 # ======================================================================================================================
 # the wrapper, against a stand in interpreter, since GitHub's test job makes no repo .venv

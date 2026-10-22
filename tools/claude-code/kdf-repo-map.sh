@@ -5,6 +5,9 @@
 #                        --repo <name> [--repo <name>]... [--at <repo>=<rev>]... [--skip <dir>]... [--tests] [--full]
 #                        [--package-root <dir>]...
 #
+# callees adds a fourth group, Attributes written, and test-importers one, Test candidates that use it (D-084). Its
+# --help prints a worker's brief, the words a session hands a worker it briefs to use the map.
+#
 # It refuses a session in the reviewer role first (KDF_ROLE=reviewer), before help, then finds cicd's own venv
 # interpreter beside this checkout, checks that it starts and is Python 3.14 or newer, since ast parses the grammar of
 # the Python that runs it, and only then runs kdf_repo_map.py with -I and -B, --help among the arguments. So a help
