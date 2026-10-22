@@ -803,6 +803,8 @@ stage_opengrep() {
 	download "${pin[COSIGN_URL]}" "$cosign" || refuse "cosign could not be fetched"
 	sha_of "$cosign" && [ "$REPLY" = "${pin[COSIGN_SHA256]}" ] \
 		|| refuse "cosign is ${REPLY:-unreadable}, not its pin ${pin[COSIGN_SHA256]}"
+	# curl writes no execute bit, which Linux needs and Git for Windows' noacl mount ignores
+	/usr/bin/chmod 0755 "$cosign" || refuse "cosign could not be made runnable"
 	say "cosign ${pin[COSIGN_VERSION]} sha256 ok, run from staging"
 	staged="$run/opengrep/$version/opengrep.exe"
 	download "${pin[OPENGREP_URL]}" "$staged" || refuse "Opengrep's asset could not be fetched"
