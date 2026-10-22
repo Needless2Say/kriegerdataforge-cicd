@@ -1079,6 +1079,13 @@ OUTLIERS = {
 
         def test_written():
             return lib_v.X
+
+
+        class TestMixed:
+            V = 1
+
+            def test_both(self):
+                return TestMixed.V, self.V
         """,
 }
 
@@ -2448,6 +2455,21 @@ def test_a_test_candidate_takes_every_doubt_callees_reads_on_a_value(tmp_path: P
         done = _run(tmp_path, "test-importers", name, "--repo", "app")
         _, _, unchecked, candidates = _groups(done.stdout, "test-importers")
         assert not _has(candidates, test(needle)) and _has(unchecked, test(needle)), name
+
+
+def test_a_test_candidate_with_a_certain_use_keeps_its_doubtful_ones_unchecked(tmp_path: Path) -> None:
+    _clone(tmp_path, "app", OUTLIERS)
+    test = lambda needle: _line(OUTLIERS, "tests/test_k.py", needle)
+    done = _run(tmp_path, "test-importers", "tests.test_k.TestMixed.V", "--repo", "app")
+    _, _, unchecked, candidates = _groups(done.stdout, "test-importers")
+    place = test("def test_both")
+    assert _has(candidates, place + "TestMixed.test_both uses TestMixed.V")
+    hedge = "an instance or a subclass may hold its own, unchecked"
+    assert _has(unchecked, place + f"TestMixed.test_both uses self.V, {hedge}")
+    _, _, unchecked, candidates = _groups(_run(tmp_path, "test-importers", "lib_v", "--repo", "app").stdout, "test-importers")
+    written = _line(OUTLIERS, "writer.py", "lib_v.X = 2").strip()
+    assert _has(candidates, test("def test_written") + "test_written uses lib_v")
+    assert _has(unchecked, test("def test_written") + f"test_written uses lib_v.X, written elsewhere at {written}, unchecked")
 
 
 def test_a_module_under_a_private_member_or_alias_keeps_its_origin_and_its_writes(tmp_path: Path) -> None:
