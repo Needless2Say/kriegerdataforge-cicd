@@ -75,12 +75,8 @@ function positionals() {
   return out;
 }
 
-// The git the tool runs, git on the PATH unless KDF_BRIEF_GIT names another, and a Node script named there runs under
-// this Node, which is how the tests stand in for git's answer to an ambiguous hash.
-const GIT = process.env.KDF_BRIEF_GIT || 'git';
 function git(repo, args, input) {
-  const [cmd, lead] = /\.js$/i.test(GIT) ? [process.execPath, [GIT]] : [GIT, []];
-  return execFileSync(cmd, lead.concat(['-C', repo], args), {
+  return execFileSync('git', ['-C', repo].concat(args), {
     input,
     maxBuffer: 1 << 30,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -442,6 +438,7 @@ try {
 const cells = (line) => line.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
 const rows = [];
 let inTable = false;
+let scopeTable = false;
 for (const line of text.split(/\r?\n/)) {
   if (!line.trim().startsWith('|')) {
     inTable = false;
@@ -450,6 +447,7 @@ for (const line of text.split(/\r?\n/)) {
   const c = cells(line);
   if (c.length >= 2 && c[0].toLowerCase() === 'files' && c[1].toLowerCase() === 'lines') {
     inTable = true;
+    scopeTable = true;
     continue;
   }
   if (inTable && !/^-+$/.test(c[0].replace(/[:\s]/g, ''))) rows.push(c);
@@ -460,18 +458,51 @@ for (const line of text.split(/\r?\n/)) {
 // span or on a line of a fenced block, the whole span or a run inside a command. One the repo resolves passes. One git
 // calls ambiguous is refused. One the repo does not hold is looked up in each git clone beside the repo, a sibling's
 // commit passing, and refused when none holds it. A run of digits alone that resolves nowhere is a number and passes.
+// A fence opens with three or more backticks or tildes and closes on a line of the same character, at least as many,
+// and nothing else, as Markdown's do. Outside a fence a code span opens and closes on backtick runs of one length and
+// may cross a line break, never a blank line. The commit paragraph is a line outside a fence that starts with it.
 const hashes = [];
-let fenced = false;
-text.split(/\r?\n/).forEach((line, k) => {
-  if (/^\s*(```|~~~)/.test(line)) {
-    fenced = !fenced;
+const HEX = /(?<![0-9a-f])[0-9a-f]{7,40}(?![0-9a-f])/g;
+const briefLines = text.split(/\r?\n/);
+let fence = null;
+let prose = [];
+let commitParagraph = false;
+function readProse() {
+  const joined = prose.map((p) => p.text).join('\n');
+  for (const m of joined.matchAll(/(?<!`)(`+)(?!`)((?:(?!\n[ \t]*\n)[\s\S])+?)(?<!`)\1(?!`)/g)) {
+    let line = prose[0] ? prose[0].line : 0;
+    let at = 0;
+    for (const p of prose) {
+      if (at + p.text.length >= m.index) {
+        line = p.line;
+        break;
+      }
+      at += p.text.length + 1;
+    }
+    for (const h of m[2].matchAll(HEX)) {
+      const before = m[2].slice(0, h.index).split('\n').length - 1;
+      hashes.push({ hash: h[0], line: line + before });
+    }
+  }
+  prose = [];
+}
+briefLines.forEach((line, k) => {
+  if (fence) {
+    const close = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(line);
+    if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
+    else for (const h of line.matchAll(HEX)) hashes.push({ hash: h[0], line: k + 1 });
     return;
   }
-  const spans = fenced ? [line] : [...line.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
-  for (const span of spans) {
-    for (const m of span.matchAll(/(?<![0-9a-f])[0-9a-f]{7,40}(?![0-9a-f])/g)) hashes.push({ hash: m[0], line: k + 1 });
+  const open = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+  if (open) {
+    readProse();
+    fence = open[1];
+    return;
   }
+  if (/^\s*(>\s*)?\*\*The commit\.\*\*/.test(line)) commitParagraph = true;
+  prose.push({ text: line, line: k + 1 });
 });
+readProse();
 function resolveIn(where, hash) {
   try {
     git(where, ['rev-parse', '--verify', hash + '^{commit}']);
@@ -484,9 +515,15 @@ let siblings;
 function siblingClones() {
   if (siblings) return siblings;
   const parent = path.dirname(repo);
-  siblings = fs.readdirSync(parent).sort()
-    .map((d) => path.join(parent, d))
-    .filter((d) => d !== repo && fs.existsSync(path.join(d, '.git')));
+  try {
+    siblings = fs.readdirSync(parent).sort()
+      .map((d) => path.join(parent, d))
+      .filter((d) => d !== repo && fs.existsSync(path.join(d, '.git')));
+  } catch (err) {
+    process.stdout.write('kdf-brief: cannot list the clones beside the repo, ' + err.code + ', so a hash the repo does '
+      + 'not hold names no commit\n');
+    siblings = [];
+  }
   return siblings;
 }
 let hashBad = 0;
@@ -495,8 +532,9 @@ for (const { hash, line } of hashes) {
   if (!seen.has(hash)) {
     let found = resolveIn(repo, hash);
     if (found === 'none') {
+      // an ambiguous answer anywhere stands, a sibling's single commit never hides it
       const elsewhere = siblingClones().map((d) => resolveIn(d, hash));
-      found = elsewhere.includes('commit') ? 'sibling' : elsewhere.includes('ambiguous') ? 'ambiguous' : 'none';
+      found = elsewhere.includes('ambiguous') ? 'ambiguous' : elsewhere.includes('commit') ? 'sibling' : 'none';
     }
     if (found === 'none' && /^[0-9]+$/.test(hash)) found = 'number';
     seen.set(hash, found);
@@ -510,7 +548,7 @@ for (const { hash, line } of hashes) {
     process.stdout.write('NO COMMIT ' + hash + ' at line ' + line + ', in the repo or a clone beside it\n');
   }
 }
-if (rows.length && !/\*\*The commit\.\*\*/.test(text)) {
+if (scopeTable && !commitParagraph) {
   hashBad++;
   process.stdout.write('NO COMMIT PARAGRAPH, the brief has a scope table and no "**The commit.**" paragraph\n');
 }

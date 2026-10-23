@@ -4659,9 +4659,8 @@ what scans it. VERSION 0.2.169, scripts 1.6.0.
   key templates and their copies in `docs/agent/`, `tools/claude-code/kdf-retro.js` and `kdf-brief.js` with their
   README, the tests · kit v1.27.0, synced by the Distribute
 
-**Context.** The kdf-sdk's fifth slice closed with a retrospective, and the owner approved its proposals, the kit's
-landing here and the rest sent to a backlog for a design session. Three are classes of defect a step 2 brief did not
-ask about. A rule a constructor or a default holds can be passed by another path to the same consumer, a value of a
+**Context.** A review retrospective's measured proposals, approved by the owner, reach the kit here. Three are classes
+of defect a step 2 brief did not ask about. A rule a constructor or a default holds can be passed by another path to the same consumer, a value of a
 builtin type read through its own methods answers what a caller's object says, and a closed set built from the cases
 in hand lacks what its authority holds. An answer key's call on whether a later finding was in the step 2 tree was
 made from the history where the pin's own code could have been run. A brief named a commit by a hash that resolves

@@ -292,8 +292,7 @@ refuses a hash that names no commit anywhere or that git calls ambiguous, with i
 table and no `**The commit.**` paragraph, and reads a run of digits alone that names no commit as a number. A brief
 not yet in the pin is read from disk, so whoever places a brief runs `check` before its commit. It exits 1 on a count
 that differs, a path missing at the pin or a hash that does not hold, and the launcher runs it before every pinned
-review. `KDF_BRIEF_GIT` names another git for it, and a Node script named there runs under the same Node, which is how
-the tests stand in for git's answer to an ambiguous hash.
+review. It runs the `git` on the PATH and reads no variable that could point it at another program.
 
 `cites` lists every `file:line` cite of the docs it is given, or of every living doc, beside the first and last lines
 it names at the pin (D-061). A living doc is a tracked Markdown file outside `docs/reviews/`, a dated record under

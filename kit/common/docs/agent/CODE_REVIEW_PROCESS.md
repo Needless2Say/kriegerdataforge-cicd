@@ -120,8 +120,9 @@ bundles, the answer key, the retrospective and the pull request's body, each on 
 from the orchestrator's handoff and the slice's log, and writes each draft into the workspace's temp folder, never
 into the reviewed repo's folder. The orchestrator reads each draft, places it in the repo, runs its checks, commits
 it, a brief alone as its pin, and pushes and launches on the owner's word, and keeps every reproduction, verdict and
-log row. When a slice closes, the supporting session also reads the slice's retrospective, turns its proposals into the owner's list, and builds each
-approved one the owner marks to build here, the rest going to a backlog the same way, section 14.
+log row. When a slice closes, the supporting session also reads the slice's retrospective, turns its proposals into
+the owner's list, and builds each approved one the owner marks to build here, the rest going to a backlog the same
+way, section 14.
 
 Each role's limits are written for every model and tool in [`AGENT_ROLES.md`](AGENT_ROLES.md). Every brief states the
 reviewer's role in its own text, word for word from the template, so Codex, Sol or any other model is told the same
@@ -550,11 +551,10 @@ is corrected in the key in the same commit.
 A dispatch is one self contained prompt over one area of the scope, small enough for one fresh ChatGPT Sol session
 to read whole. The orchestrator builds one Claude Artifact page per slice, or per spot review, that holds every
 dispatch with a copy button, a settled list and a box per round, or, where the review has a supporting session, that
-session drafts the dispatches and their bundles and publishes the page, section 2. The owner pastes a dispatch into a fresh Sol session
-and pastes the answer back. The orchestrator adjudicates it as step 3 does, then refreshes the page for the next round
-with what the round settled and the new pin and line counts. The shape to copy is an earlier review's page, whose
-link that review's plan records. A round is
-never run against a commit that is not pushed. Each dispatch opens by naming Sol a chat reader, section 6 of
+session drafts the dispatches and their bundles and publishes the page, section 2. The owner pastes a dispatch into a
+fresh Sol session and pastes the answer back. The orchestrator adjudicates it as step 3 does, then refreshes the page
+for the next round with what the round settled and the new pin and line counts. The shape to copy is an earlier
+review's page, whose link that review's plan records. A round is never run against a commit that is not pushed. Each dispatch opens by naming Sol a chat reader, section 6 of
 `AGENT_ROLES.md`, that answers in the chat and writes nothing.
 
 **The page is where the owner copies from, and the repo is the record.** When a round is published the orchestrator

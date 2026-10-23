@@ -17,6 +17,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -133,16 +134,26 @@ RESULT       = (
     '"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.5}}}'
 )
 
-# a stand in for git, run by the brief tool through KDF_BRIEF_GIT, that answers one hash as ambiguous and hands every
-# other call to git, since a real seven character collision cannot be made at test time
-AMBIGUOUS_GIT = r"""
+# a stand in for git, named git and put first on the test's own PATH, since the brief tool reads no variable that could
+# point it at another program. It answers one hash as ambiguous and hands every other call to the real git the test
+# names in KDF_TEST_REAL_GIT, since a real seven character collision cannot be made at test time. KDF_TEST_RESOLVES_IN
+# names a clone where it answers that hash as one commit instead, so one sibling can resolve it while another calls it
+# ambiguous
+AMBIGUOUS_GIT = r"""#!/usr/bin/env node
+const path = require('path');
 const { spawnSync } = require('child_process');
 const args = process.argv.slice(2);
 if (args.includes('abcdef1^{commit}')) {
+  const where = path.resolve(args[args.indexOf('-C') + 1]);
+  const resolves = process.env.KDF_TEST_RESOLVES_IN;
+  if (resolves && path.resolve(resolves) === where) {
+    process.stdout.write('abcdef1000000000000000000000000000000000\n');
+    process.exit(0);
+  }
   process.stderr.write('error: short object ID abcdef1 is ambiguous\n');
   process.exit(128);
 }
-const done = spawnSync('git', args, { stdio: 'inherit' });
+const done = spawnSync(process.env.KDF_TEST_REAL_GIT, args, { stdio: 'inherit' });
 process.exit(done.status === null ? 1 : done.status);
 """
 
@@ -1454,6 +1465,15 @@ def test_the_fifth_retrospective_s_changes_are_in_the_kit() -> None:
     assert pin_rule in key, "the answer key template lost the pin rule"
     assert "a read of the file at the pin, a probe, or the commit that brought the code in" not in key
     assert "The orchestrator, from the supporting session's draft where there is one, copies this to" in key
+    log   = " ".join((templates / "review-adjudication.template.md").read_text(encoding = "utf-8").split())
+    retro = " ".join((templates / "review-retro.template.md").read_text(encoding = "utf-8").split())
+    for words in (
+        "the orchestrator writes the slice's answer key beside it, from the supporting session's draft where there is",
+        "writes the slice's retrospective, from the supporting session's draft where there is one,",
+    ):
+        assert words in log, f"the adjudication template lost {words!r}"
+    assert "The orchestrator, from the supporting session's draft where there is one, copies this to" in retro
+    assert "the orchestrator or the supporting session's draft, short and with its evidence." in retro
 
     drafts = " ".join((
         "In a review that has one, the supporting session also drafts each slice's write ups, the briefs, the Sol",
@@ -2687,8 +2707,7 @@ def test_the_brief_tool_resolves_every_commit_hash_the_brief_names(rig: Rig) -> 
     Every hash the brief names is read, in its commit paragraph, a fixes table, a command span and a fenced block, and
     a sibling clone's commit passes. One that names no commit anywhere is refused with its line, wherever it stands,
     and so is a brief with a scope table and no commit paragraph, and a brief with no scope table is still read. A run
-    of digits is a number. An ambiguous hash is refused, git's answer stood in for by a script, since a real seven
-    character collision cannot be made at test time.
+    of digits is a number.
     """
     sibling = rig.tmp / "sibling"
     sibling.mkdir()
@@ -2731,18 +2750,68 @@ def test_the_brief_tool_resolves_every_commit_hash_the_brief_names(rig: Rig) -> 
     assert untabled.returncode == 1
     assert "nothing more to check" in untabled.stdout
 
-    shim = rig.tmp / "ambiguous-git.js"
+
+@pytest.mark.skipif(sys.platform == "win32", reason = "a script named git stands in for git.exe only off Windows")
+def test_the_brief_tool_refuses_a_hash_git_calls_ambiguous(rig: Rig) -> None:
+    """
+    An ambiguous hash is refused, git's answer stood in for by a script named git first on the test's own PATH, since
+    a real seven character collision cannot be made at test time and the tool reads no variable that could point it at
+    another program. One sibling resolving the hash never hides another's ambiguity.
+    """
+    real = shutil.which("git")
+    assert real, "git is not on the PATH"
+    bin_ = rig.tmp / "bin"
+    bin_.mkdir()
+    shim = bin_ / "git"
     shim.write_text(AMBIGUOUS_GIT, encoding = "utf-8", newline = "\n")
-    brief.write_text(good + "A short hash `abcdef1`.\n", encoding = "utf-8", newline = "\n")
-    ambiguous = subprocess.run(
-        [str(NODE), str(BRIEF), "check", "--repo", rig.repo.as_posix(), "--pin", "HEAD", brief.as_posix()],
-        capture_output = True,
-        text = True,
-        check = False,
-        env = {**os.environ, "KDF_BRIEF_GIT": str(shim)},
+    shim.chmod(shim.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    brief = rig.tmp / "brief.md"
+    text  = (
+        "**The commit.** The pin adds this brief.\n\n| Files | Lines |\n| --- | --- |\n| `src/app.py` | 1 |\n\n"
+        "A short hash `abcdef1`.\n"
     )
-    assert ambiguous.returncode == 1, ambiguous.stdout + ambiguous.stderr
-    assert "AMBIGUOUS hash abcdef1 at line 18, git names more than one commit" in ambiguous.stdout
+    brief.write_text(text, encoding = "utf-8", newline = "\n")
+    base  = {**os.environ, "PATH": str(bin_) + os.pathsep + os.environ.get("PATH", ""), "KDF_TEST_REAL_GIT": real}
+    other = rig.tmp / "other"
+    other.mkdir()
+    subprocess.run([real, "-C", str(other), "init", "-q", "-b", "main"], check = True, capture_output = True)
+    for env, label in ((base, "everywhere"), ({**base, "KDF_TEST_RESOLVES_IN": str(other)}, "one sibling resolves")):
+        done = subprocess.run(
+            [str(NODE), str(BRIEF), "check", "--repo", rig.repo.as_posix(), "--pin", "HEAD", brief.as_posix()],
+            capture_output = True,
+            text = True,
+            check = False,
+            env = env,
+        )
+        assert done.returncode == 1, f"{label}\n{done.stdout}{done.stderr}"
+        assert "AMBIGUOUS hash abcdef1 at line 7, git names more than one commit" in done.stdout, label
+
+
+def test_the_brief_tool_reads_hashes_and_the_commit_paragraph_as_markdown_does(rig: Rig) -> None:
+    """
+    A code span that crosses a line break is one span, and a fence of four backticks holding three is one fence, so a
+    bad hash in either is read and refused. The commit paragraph counts only as a line outside a fence, and a scope
+    table whose header has no rows still asks for it.
+    """
+    brief = rig.tmp / "brief.md"
+    head  = "**The commit.** The pin adds this brief.\n\n| Files | Lines |\n| --- | --- |\n| `src/app.py` | 1 |\n\n"
+    brief.write_text(head + "A span `git log\ndeadbee` across a line.\n", encoding = "utf-8", newline = "\n")
+    crossing = _brief_tool(rig, "check", brief.as_posix())
+    assert crossing.returncode == 1
+    assert "NO COMMIT deadbee at line 8" in crossing.stdout
+    brief.write_text(head + "````text\n```\ngit show deadbee\n```\n````\n", encoding = "utf-8", newline = "\n")
+    nested = _brief_tool(rig, "check", brief.as_posix())
+    assert nested.returncode == 1
+    assert "NO COMMIT deadbee at line 9" in nested.stdout
+    fenced = "```text\n**The commit.** an example\n```\n\n| Files | Lines |\n| --- | --- |\n| `src/app.py` | 1 |\n"
+    brief.write_text(fenced, encoding = "utf-8", newline = "\n")
+    example = _brief_tool(rig, "check", brief.as_posix())
+    assert example.returncode == 1
+    assert "NO COMMIT PARAGRAPH" in example.stdout
+    brief.write_text("| Files | Lines |\n| --- | --- |\n", encoding = "utf-8", newline = "\n")
+    empty = _brief_tool(rig, "check", brief.as_posix())
+    assert empty.returncode == 1
+    assert "NO COMMIT PARAGRAPH" in empty.stdout
 
 
 def _numbered(count: int) -> str:
@@ -3006,7 +3075,7 @@ def test_the_retro_tool_lists_later_pin_calls_that_name_no_pin(tmp_path: Path) -
         "the commit that brought it in | the repo alone | A later helper. | section 11 |"
     )
     asked  = (
-        "| Q, a question | Step 5 final, Claude | m | | | Acted on | `l.py` | | `ddddddd` | | | | "
+        "| Q, a question | Step 5 final, Claude | m | | | Acted on | `l.py` | | `ddddddd` | yes | | | "
         "Whether to bound it. | section 3 |"
     )
     rows   = (fin_2, fin_3, fin_4, nr_1, asked)
