@@ -489,6 +489,7 @@ let prose = [];
 let commitParagraph = false;
 let commitFrom = 0;
 let commitTo = 0;
+let commitTwice = 0;
 // every code span of a run of prose lines, its start and its text
 function codeSpans(s) {
   const out = [];
@@ -564,8 +565,12 @@ briefLines.forEach((raw, k) => {
     return;
   }
   if (/^\s*\*\*The commit\.\*\*/.test(line)) {
-    commitParagraph = true;
-    commitFrom = k + 1;
+    // one commit paragraph names the pin, so a second is refused and never moves the first one's range
+    if (commitParagraph) commitTwice = k + 1;
+    else {
+      commitParagraph = true;
+      commitFrom = k + 1;
+    }
   }
   prose.push({ text: line, line: k + 1 });
 });
@@ -625,6 +630,11 @@ for (const { hash, line } of hashes) {
 if (scopeTable && !commitParagraph) {
   hashBad++;
   process.stdout.write('NO COMMIT PARAGRAPH, the brief has a scope table and no "**The commit.**" paragraph\n');
+}
+if (commitTwice) {
+  hashBad++;
+  process.stdout.write('A SECOND COMMIT PARAGRAPH at line ' + commitTwice + ', one names the pin, after line '
+    + commitFrom + '\n');
 }
 const hashLine = hashBad
   ? 'kdf-brief: ' + hashBad + ' commit hash(es) or the commit paragraph do not hold\n'

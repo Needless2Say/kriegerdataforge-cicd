@@ -552,11 +552,12 @@ A dispatch is one self contained prompt over one area of the scope, small enough
 to read whole. The orchestrator builds one Claude Artifact page per slice, or per spot review, that holds every
 dispatch with a copy button, a settled list and a box per round, or, where the review has a supporting session, that
 session drafts the dispatches and their bundles and publishes the page, section 2. The owner pastes a dispatch into a
-fresh Sol session and pastes the answer back. The orchestrator adjudicates it as step 3 does, then refreshes the page
-for the next round with what the round settled and the new pin and line counts. The shape to copy is an earlier
-review's page, whose link that review's plan records. A round is never run against a commit that is not pushed. Each
-dispatch opens by naming Sol a chat reader, section 6 of `AGENT_ROLES.md`, that answers in the chat and writes
-nothing.
+fresh Sol session and pastes the answer back. The orchestrator adjudicates it as step 3 does, then the page is
+refreshed for the next round with what the round settled and the new pin and line counts, by the orchestrator, or
+where the review has a supporting session, by that session from its own drafts as for the first round. The shape to
+copy is an earlier review's page, whose link that review's plan records. A round is never run against a commit that
+is not pushed. Each dispatch opens by naming Sol a chat reader, section 6 of `AGENT_ROLES.md`, that answers in the
+chat and writes nothing.
 
 **The page is where the owner copies from, and the repo is the record.** When a round is published the orchestrator
 writes every dispatch of it, word for word as the page holds it, from the supporting session's draft where there is

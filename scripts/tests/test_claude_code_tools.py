@@ -1492,6 +1492,7 @@ def test_the_fifth_retrospective_s_changes_are_in_the_kit() -> None:
         "Drafts each slice's briefs, Sol dispatches, answer key, retrospective and pull request body, section 2",
         "| `step-2-review` | Orchestrator, from the supporting session's draft where there is one, one brief for",
         "session drafts the dispatches and their bundles and publishes the page, section 2.",
+        "where the review has a supporting session, by that session from its own drafts as for the first round.",
         "every yes or unsure call of a later finding that does not name the pin.",
         "`<PFX>_REVIEW_<slice>_RETRO.md`, from the supporting session's draft where there is one, from",
         "a commit hash in the commit paragraph that resolves to no commit, in the repo or a clone beside it,",
@@ -2839,6 +2840,12 @@ def test_the_brief_tool_reads_hashes_and_the_commit_paragraph_as_markdown_does(r
     literal = _brief_tool(rig, "check", brief.as_posix())
     assert literal.returncode == 1
     assert "NO COMMIT deadbee at line 1, in the commit paragraph" in literal.stdout
+    twice = "**The commit.** The pin sits on `deadbee`.\n\n**The commit.** Again.\n\n| Files | Lines |\n| --- | --- |\n"
+    brief.write_text(twice, encoding = "utf-8", newline = "\n")
+    second = _brief_tool(rig, "check", brief.as_posix())
+    assert second.returncode == 1
+    assert "NO COMMIT deadbee at line 1, in the commit paragraph" in second.stdout, "a second paragraph moved the first"
+    assert "A SECOND COMMIT PARAGRAPH at line 3" in second.stdout
     fenced = "```text\n**The commit.** an example\n```\n\n| Files | Lines |\n| --- | --- |\n| `src/app.py` | 1 |\n"
     brief.write_text(fenced, encoding = "utf-8", newline = "\n")
     example = _brief_tool(rig, "check", brief.as_posix())
