@@ -133,6 +133,19 @@ RESULT       = (
     '"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.5}}}'
 )
 
+# a stand in for git, run by the brief tool through KDF_BRIEF_GIT, that answers one hash as ambiguous and hands every
+# other call to git, since a real seven character collision cannot be made at test time
+AMBIGUOUS_GIT = r"""
+const { spawnSync } = require('child_process');
+const args = process.argv.slice(2);
+if (args.includes('abcdef1^{commit}')) {
+  process.stderr.write('error: short object ID abcdef1 is ambiguous\n');
+  process.exit(128);
+}
+const done = spawnSync('git', args, { stdio: 'inherit' });
+process.exit(done.status === null ? 1 : done.status);
+"""
+
 # a stand in for claude, it writes what STUB_MODE says a reviewer did, records how it was started and whether anything
 # reached its stdin, and streams its events with the result last
 STUB = """#!/usr/bin/env bash
@@ -1373,12 +1386,13 @@ def test_the_fourth_retrospective_s_changes_are_in_the_kit() -> None:
 
 def test_the_fifth_retrospective_s_changes_are_in_the_kit() -> None:
     """
-    The owner approved the kdf-sdk's S5 retrospective (D-086). Every brief closes its look for list with fifteen standing
-    questions, the three new ones asking every other path to a rule's consumer, what a builtin's subclass answers, and
-    which authority a closed set follows, and a brief names that authority. A later finding's pin call is settled by a
-    probe at the pin, in a copy outside the reviewed folder. The supporting session drafts each slice's write ups into
-    the temp folder and the orchestrator places and commits them, so the old wording that named the orchestrator alone
-    stands nowhere. The templates, the process and the roles page name each, so they cannot drift apart in silence.
+    The owner approved the kdf-sdk's S5 retrospective (D-086). Every brief closes its look for list with fifteen
+    standing questions, the three new ones asking every other path to a rule's consumer, what a builtin's subclass
+    answers, and which authority a closed set follows, and a brief names that authority. A later finding's pin call is
+    settled by a probe at the pin, in a copy outside the reviewed folder. The supporting session drafts each slice's
+    write ups into the temp folder and the orchestrator places and commits them, so the old wording that named the
+    orchestrator alone stands nowhere. The templates, the process and the roles page name each, so they cannot drift
+    apart in silence.
     """
     agent     = KIT / "docs" / "agent"
     process   = " ".join((agent / "CODE_REVIEW_PROCESS.md").read_text(encoding = "utf-8").split())
@@ -1453,7 +1467,7 @@ def test_the_fifth_retrospective_s_changes_are_in_the_kit() -> None:
         "pin, and pushes and launches on the owner's word, and keeps every reproduction, verdict and log row.",
         "writes the briefs, or places the supporting session's drafts, and pins them,",
         "Drafts each slice's briefs, Sol dispatches, answer key, retrospective and pull request body, section 2",
-        "| Brief | `<PFX>_REVIEW_<slice>_PROMPT.md` | `step-2-review` | Orchestrator, from the supporting session's draft",
+        "| `step-2-review` | Orchestrator, from the supporting session's draft where there is one, one brief for",
         "session drafts the dispatches and their bundles and publishes the page, section 2.",
         "every yes or unsure call of a later finding that does not name the pin.",
         "`<PFX>_REVIEW_<slice>_RETRO.md`, from the supporting session's draft where there is one, from",
@@ -2661,20 +2675,11 @@ def test_the_brief_tool_checks_a_scope_table_with_its_destroys_column(rig: Rig) 
 
 def _head(repo: Path) -> str:
     return subprocess.run(
-        ["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output = True, text = True, check = True
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        capture_output = True,
+        text = True,
+        check = True,
     ).stdout.strip()
-
-
-AMBIGUOUS_GIT = r"""
-const { spawnSync } = require('child_process');
-const args = process.argv.slice(2);
-if (args.includes('abcdef1^{commit}')) {
-  process.stderr.write('error: short object ID abcdef1 is ambiguous\n');
-  process.exit(128);
-}
-const done = spawnSync('git', args, { stdio: 'inherit' });
-process.exit(done.status === null ? 1 : done.status);
-"""
 
 
 def test_the_brief_tool_resolves_every_commit_hash_the_brief_names(rig: Rig) -> None:
@@ -2975,10 +2980,6 @@ def test_the_retro_tool_counts_findings_escapes_minutes_and_missing_answers() ->
     assert "Every yes or unsure call of a later finding names the pin in How decided." in lines
 
 
-def _key_row(*cells: str) -> str:
-    return "| " + " | ".join(cells) + " |"
-
-
 def test_the_retro_tool_lists_later_pin_calls_that_name_no_pin(tmp_path: Path) -> None:
     """
     A later finding's yes or unsure at the step 2 pin is settled at the pin, so its How decided names the pin. One that
@@ -2988,25 +2989,33 @@ def test_the_retro_tool_lists_later_pin_calls_that_name_no_pin(tmp_path: Path) -
     slice_ = tmp_path / "s1-example"
     shutil.copytree(RETRO_SLICE, slice_)
     key    = slice_ / "EX_REVIEW_S1_ANSWER_KEY.md"
-    late   = ("before the review", "`ddddddd`")
-    rows   = (
-        _key_row("EX-S1-FIN-2", "Step 5 final, Claude", "m", "L", "no", "Agreed", "`h.py:1`", *late, "yes",
-                 "the history", "the repo alone", "A bound has no pair.", "section 11"),
-        _key_row("EX-S1-FIN-3", "Step 5 final, Codex", "m", "L", "no", "Agreed", "`i.py:1`", *late,
-                 "yes, the first half", "a probe at the pin's tree", "the repo alone", "Half was there.", "section 11"),
-        _key_row("EX-S1-FIN-4", "Step 5 final, Codex", "m", "L", "no", "Agreed", "`j.py:1`", *late, "unsure",
-                 "spinning up a probe", "the repo alone", "A spin word.", "section 11"),
-        _key_row("EX-S1-NR-1", "Second read 1", "m", "L", "no", "Agreed", "`k.py:1`", "`eeeeeee`", "`fffffff`",
-                 "no", "the commit that brought it in", "the repo alone", "A later helper.", "section 11"),
-        _key_row("Q, a question", "Step 5 final, Claude", "m", "", "", "Acted on", "`l.py`", "", "`ddddddd`", "", "",
-                 "", "Whether to bound it.", "section 3"),
+    fin_2  = (
+        "| EX-S1-FIN-2 | Step 5 final, Claude | m | L | no | Agreed | `h.py:1` | before the review | `ddddddd` | yes | "
+        "the history | the repo alone | A bound has no pair. | section 11 |"
     )
+    fin_3  = (
+        "| EX-S1-FIN-3 | Step 5 final, Codex | m | L | no | Agreed | `i.py:1` | before the review | `ddddddd` | "
+        "yes, the first half | a probe at the pin's tree | the repo alone | Half was there. | section 11 |"
+    )
+    fin_4  = (
+        "| EX-S1-FIN-4 | Step 5 final, Codex | m | L | no | Agreed | `j.py:1` | before the review | `ddddddd` | "
+        "unsure | spinning up a probe | the repo alone | A spin word. | section 11 |"
+    )
+    nr_1   = (
+        "| EX-S1-NR-1 | Second read 1 | m | L | no | Agreed | `k.py:1` | `eeeeeee` | `fffffff` | no | "
+        "the commit that brought it in | the repo alone | A later helper. | section 11 |"
+    )
+    asked  = (
+        "| Q, a question | Step 5 final, Claude | m | | | Acted on | `l.py` | | `ddddddd` | | | | "
+        "Whether to bound it. | section 3 |"
+    )
+    rows   = (fin_2, fin_3, fin_4, nr_1, asked)
     text   = key.read_text(encoding = "utf-8")
     anchor = next(line for line in text.splitlines() if line.startswith("| EX-S1-C1 |"))
     key.write_text(text.replace(anchor, anchor + "\n" + "\n".join(rows)), encoding = "utf-8", newline = "\n")
-    done   = _retro_tool(slice_)
+    done = _retro_tool(slice_)
     assert done.returncode == 0, done.stderr
-    lines  = done.stdout.splitlines()
+    lines = done.stdout.splitlines()
     assert "## Pin calls to check" in lines
     assert "| EX-S1-FIN-2 | yes | the history |" in lines
     assert "| EX-S1-FIN-4 | unsure | spinning up a probe |" in lines
