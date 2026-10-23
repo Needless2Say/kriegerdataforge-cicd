@@ -2,7 +2,7 @@
 #
 # The base stage holds CI's tools. Python 3.14.7 slim from AWS ECR Public's gallery of Docker's official images by its
 # index digest (D-064), Node from its official tarball checked against its sum, and actionlint at the version and
-# sha256 that ci.yml pins. git, make and ShellCheck come unpinned from the digest's own Debian release, since its
+# sha256 that ci.yml pins. git, make, ShellCheck and curl come unpinned from the digest's own Debian release, since its
 # mirror keeps only the current package. The wrapper builds this stage first and alone, by --target base, so a failure
 # here is the tool's, and tags it kdf-preflight-base:<this file's hash>.
 #
@@ -21,12 +21,13 @@ FROM public.ecr.aws/docker/library/python@sha256:51dafde81dbdb6ebde285137a295cf1
 
 # ShellCheck too, since actionlint runs it over every run: script when it is on the PATH, as on GitHub's runner, and
 # skips that check without a word when it is not. Debian 13's is 0.10.0 where the runner's is 0.9.0 (D-072).
-# Its version is printed, so a base without it fails here
+# curl as on GitHub's runner, since the local code scan's install tests fetch with it and skip without it (D-085).
+# Each version is printed, so a base without one fails here
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends git make shellcheck \
+    && apt-get install --yes --no-install-recommends git make shellcheck curl \
     && rm -rf /var/lib/apt/lists/* \
     && . /etc/os-release && echo "Debian $VERSION_ID $VERSION_CODENAME" && git --version && make --version | head -1 \
-    && shellcheck --version
+    && shellcheck --version && curl --version | head -1
 
 # Node 22, the major ubuntu-latest runs by default, "Node.js 22.23.3" in actions/runner-images'
 # images/ubuntu/Ubuntu2404-Readme.md for image 20261004.327.1, read on 2026-10-14. Its sum is the line nodejs.org's
