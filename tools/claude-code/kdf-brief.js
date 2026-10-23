@@ -9,12 +9,13 @@
  *        own hash, so the brief names the state and says the pin is the commit that adds the brief on top of it
  *   node kdf-brief.js counts --repo <root> --pin <commit> [<label>=]<path or glob> ...
  *        one scope table row per argument, every file it names at the pin with its line count
- *   node kdf-brief.js check  --repo <root> --pin <commit> <brief>
+ *   node kdf-brief.js check  --repo <root> --pin <commit> [--disk] <brief>
  *        checks every row of the brief's "| Files | Lines |" table against the pin, and every commit hash the brief
  *        names, a run of 7 to 40 lowercase hex characters in a backticked span or a fenced block, against the repo
  *        and the git clones beside it, refusing one that names no commit or that git calls ambiguous, and a brief
  *        with a scope table and no "**The commit.**" paragraph. A run of digits alone that names no commit is read
- *        as a number. Run it on the brief before its commit, since it reads the brief from disk when the pin lacks it
+ *        as a number. The brief is read at the pin, or from disk when the pin lacks it, and --disk reads it from
+ *        disk alone, so whoever places a brief checks the file it is about to commit, never an older one at the pin
  *   node kdf-brief.js cites  --repo <root> --pin <commit> [--since <commit>] [--only <path or glob>]... [<doc>...]
  *        every `file:line` cite of the docs named, or of every living doc, beside the lines it names at the pin, for
  *        the orchestrator to read by eye. A living doc is a tracked Markdown file outside docs/reviews/, a dated record
@@ -70,7 +71,7 @@ function positionals() {
   const out = [];
   for (let i = 1; i < argv.length; i++) {
     if (['--repo', '--pin', '--base', '--since', '--only'].includes(argv[i])) i++;
-    else out.push(argv[i]);
+    else if (argv[i] !== '--disk') out.push(argv[i]);
   }
   return out;
 }
@@ -424,14 +425,23 @@ if (command === 'cites') {
 const briefArg = positionals()[0];
 if (!briefArg) fail(2, 'name the brief to check');
 const briefRel = path.relative(repo, path.resolve(repo, briefArg)).replace(/\\/g, '/');
+// --disk reads the brief from disk alone, as whoever places a brief checks it before its commit, a brief at the pin
+// being an older one. Without it the pin's brief is read first, as the launcher reads it at the pin.
 let text;
-try {
-  text = git(repo, ['show', pin + ':' + briefRel]).toString('utf8');
-} catch (err) {
+const fromDisk = () => {
   try {
-    text = fs.readFileSync(path.resolve(repo, briefArg), 'utf8');
-  } catch (err2) {
-    fail(2, 'the brief ' + briefArg + ' is neither in the pin nor on disk');
+    return fs.readFileSync(path.resolve(repo, briefArg), 'utf8');
+  } catch (err) {
+    const where = argv.includes('--disk') ? ' is not on disk' : ' is neither in the pin nor on disk';
+    return fail(2, 'the brief ' + briefArg + where);
+  }
+};
+if (argv.includes('--disk')) text = fromDisk();
+else {
+  try {
+    text = git(repo, ['show', pin + ':' + briefRel]).toString('utf8');
+  } catch (err) {
+    text = fromDisk();
   }
 }
 
@@ -468,7 +478,8 @@ let fence = null;
 let prose = [];
 let commitParagraph = false;
 function readProse() {
-  const joined = prose.map((p) => p.text).join('\n');
+  // an escaped backtick delimits nothing, so it reads as two spaces, the same length, so every index holds
+  const joined = prose.map((p) => p.text).join('\n').replace(/\\`/g, '  ');
   for (const m of joined.matchAll(/(?<!`)(`+)(?!`)((?:(?!\n[ \t]*\n)[\s\S])+?)(?<!`)\1(?!`)/g)) {
     let line = prose[0] ? prose[0].line : 0;
     let at = 0;
@@ -493,8 +504,9 @@ briefLines.forEach((line, k) => {
     else for (const h of line.matchAll(HEX)) hashes.push({ hash: h[0], line: k + 1 });
     return;
   }
-  const open = /^ {0,3}(`{3,}|~{3,})/.exec(line);
-  if (open) {
+  // a backtick fence's info text holds no backtick, so a line such as ```git show abc``` is a code span
+  const open = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+  if (open && !(open[1][0] === '`' && open[2].includes('`'))) {
     readProse();
     fence = open[1];
     return;

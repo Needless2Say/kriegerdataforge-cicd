@@ -103,8 +103,8 @@ When this log is complete the orchestrator writes the slice's answer key beside 
 draft where there is one, `{PFX}_REVIEW_{slice}_ANSWER_KEY.md` from
 [`review-answer-key.template.md`](review-answer-key.template.md), one row per finding of every section above, before
 the slice's pull request opens. Then it runs `kdf-retro.js` on the slice folder and writes the slice's retrospective,
-from the supporting session's draft where there is one, `{PFX}_REVIEW_{slice}_RETRO.md` from [`review-retro.template.md`](review-retro.template.md), and the
-owner answers its proposals, the process's section 14.
+from the supporting session's draft where there is one, `{PFX}_REVIEW_{slice}_RETRO.md` from
+[`review-retro.template.md`](review-retro.template.md), and the owner answers its proposals, the process's section 14.
 
 The verdict on every finding is one of **Agreed**, **Agreed in part** with what was and was not taken, **Declined**
 with the measurement that shows why, **Measured false**, or **Deferred** with the register row it became.

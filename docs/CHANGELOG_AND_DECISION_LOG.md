@@ -4660,12 +4660,13 @@ what scans it. VERSION 0.2.169, scripts 1.6.0.
   README, the tests · kit v1.27.0, synced by the Distribute
 
 **Context.** A review retrospective's measured proposals, approved by the owner, reach the kit here. Three are classes
-of defect a step 2 brief did not ask about. A rule a constructor or a default holds can be passed by another path to the same consumer, a value of a
-builtin type read through its own methods answers what a caller's object says, and a closed set built from the cases
-in hand lacks what its authority holds. An answer key's call on whether a later finding was in the step 2 tree was
-made from the history where the pin's own code could have been run. A brief named a commit by a hash that resolves
-to none, and each reader sized its delta against a prefix. And the long writing of a slice moved from the
-orchestrator to the supporting session on the owner's word, which the process did not yet say.
+of defect a step 2 brief did not ask about. A rule a constructor or a default holds can be passed by another path to
+the same consumer, a value of a builtin type read through its own methods answers what a caller's object says, and a
+closed set built from the cases in hand lacks what its authority holds. An answer key's call on whether a later
+finding was in the step 2 tree was made from the history where the pin's own code could have been run. A brief named
+a commit by a hash that resolves to none, and each reader sized its delta against a prefix. And the long writing of
+a slice moved from the orchestrator to the supporting session on the owner's word, which the process did not yet
+say.
 
 **Decision.**
 
@@ -4680,8 +4681,8 @@ orchestrator to the supporting session on the owner's word, which the process di
   no count.
 - **Every commit hash a brief names resolves.** `kdf-brief.js check` reads every hex run in a backticked span or a
   fenced block, resolves it in the repo or a git clone beside it, and refuses one that names no commit or that git
-  calls ambiguous, and a brief with a scope table and no commit paragraph. Whoever places a brief runs it before the
-  commit, and the launcher at the pin.
+  calls ambiguous, and a brief with a scope table and no commit paragraph. Whoever places a brief runs it with
+  `--disk` before the commit, reading the file about to be committed, and the launcher at the pin.
 - **The supporting session drafts each slice's write ups**, the briefs, the Sol dispatches with their page and bundles,
   the answer key, the retrospective and the pull request's body, on the owner's yes in its own session, into the
   workspace's temp folder. The orchestrator places, checks and commits each, a brief alone as its pin, and pushes and

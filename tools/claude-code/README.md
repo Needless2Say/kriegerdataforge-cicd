@@ -274,6 +274,7 @@ home directory, the tests use them.
 node kdf-brief.js facts  --repo <repo> --pin HEAD                     # the state, its branch, the tip of main
 node kdf-brief.js counts --repo <repo> --pin HEAD Code=src/pkg/auth "Tests=tests/unit/auth/*.py"
 node kdf-brief.js check  --repo <repo> --pin HEAD <step>/<brief>
+node kdf-brief.js check  --repo <repo> --pin HEAD --disk <step>/<brief>    # the brief about to be committed
 node kdf-brief.js cites  --repo <repo> --pin HEAD --since <last clean commit>   # every cite that can have moved
 ```
 
@@ -290,9 +291,10 @@ run of 7 to 40 lowercase hex characters in a backticked span or on a line of a f
 inside a command, and resolves each in the repo, then in each git clone beside it, so a sibling's commit passes. It
 refuses a hash that names no commit anywhere or that git calls ambiguous, with its line, and a brief that has a scope
 table and no `**The commit.**` paragraph, and reads a run of digits alone that names no commit as a number. A brief
-not yet in the pin is read from disk, so whoever places a brief runs `check` before its commit. It exits 1 on a count
-that differs, a path missing at the pin or a hash that does not hold, and the launcher runs it before every pinned
-review. It runs the `git` on the PATH and reads no variable that could point it at another program.
+not yet in the pin is read from disk, and `--disk` reads it from disk alone, so whoever places a brief runs `check
+--disk` before its commit and checks the file it is about to commit, never an older brief at the pin. It exits 1 on
+a count that differs, a path missing at the pin or a hash that does not hold, and the launcher runs it before every
+pinned review. It runs the `git` on the PATH and reads no variable that could point it at another program.
 
 `cites` lists every `file:line` cite of the docs it is given, or of every living doc, beside the first and last lines
 it names at the pin (D-061). A living doc is a tracked Markdown file outside `docs/reviews/`, a dated record under

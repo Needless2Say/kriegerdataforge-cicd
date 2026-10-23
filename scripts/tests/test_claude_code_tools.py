@@ -136,22 +136,25 @@ RESULT       = (
 
 # a stand in for git, named git and put first on the test's own PATH, since the brief tool reads no variable that could
 # point it at another program. It answers one hash as ambiguous and hands every other call to the real git the test
-# names in KDF_TEST_REAL_GIT, since a real seven character collision cannot be made at test time. KDF_TEST_RESOLVES_IN
-# names a clone where it answers that hash as one commit instead, so one sibling can resolve it while another calls it
-# ambiguous
+# names in KDF_TEST_REAL_GIT, since a real seven character collision cannot be made at test time. With neither of
+# KDF_TEST_AMBIGUOUS_IN and KDF_TEST_RESOLVES_IN set the hash is ambiguous everywhere. With them it is ambiguous in the
+# first clone, one commit in the second and, by the real git, no commit anywhere else
 AMBIGUOUS_GIT = r"""#!/usr/bin/env node
 const path = require('path');
 const { spawnSync } = require('child_process');
 const args = process.argv.slice(2);
 if (args.includes('abcdef1^{commit}')) {
   const where = path.resolve(args[args.indexOf('-C') + 1]);
+  const ambiguous = process.env.KDF_TEST_AMBIGUOUS_IN;
   const resolves = process.env.KDF_TEST_RESOLVES_IN;
   if (resolves && path.resolve(resolves) === where) {
     process.stdout.write('abcdef1000000000000000000000000000000000\n');
     process.exit(0);
   }
-  process.stderr.write('error: short object ID abcdef1 is ambiguous\n');
-  process.exit(128);
+  if ((!ambiguous && !resolves) || (ambiguous && path.resolve(ambiguous) === where)) {
+    process.stderr.write('error: short object ID abcdef1 is ambiguous\n');
+    process.exit(128);
+  }
 }
 const done = spawnSync(process.env.KDF_TEST_REAL_GIT, args, { stdio: 'inherit' });
 process.exit(done.status === null ? 1 : done.status);
@@ -1473,7 +1476,7 @@ def test_the_fifth_retrospective_s_changes_are_in_the_kit() -> None:
     ):
         assert words in log, f"the adjudication template lost {words!r}"
     assert "The orchestrator, from the supporting session's draft where there is one, copies this to" in retro
-    assert "the orchestrator or the supporting session's draft, short and with its evidence." in retro
+    assert "The rest is the analysis of whoever writes it, the orchestrator or the supporting" in retro
 
     drafts = " ".join((
         "In a review that has one, the supporting session also drafts each slice's write ups, the briefs, the Sol",
@@ -2771,11 +2774,16 @@ def test_the_brief_tool_refuses_a_hash_git_calls_ambiguous(rig: Rig) -> None:
         "A short hash `abcdef1`.\n"
     )
     brief.write_text(text, encoding = "utf-8", newline = "\n")
-    base  = {**os.environ, "PATH": str(bin_) + os.pathsep + os.environ.get("PATH", ""), "KDF_TEST_REAL_GIT": real}
-    other = rig.tmp / "other"
-    other.mkdir()
-    subprocess.run([real, "-C", str(other), "init", "-q", "-b", "main"], check = True, capture_output = True)
-    for env, label in ((base, "everywhere"), ({**base, "KDF_TEST_RESOLVES_IN": str(other)}, "one sibling resolves")):
+    path   = str(bin_) + os.pathsep + os.environ.get("PATH", "")
+    base   = {**os.environ, "PATH": path, "KDF_TEST_REAL_GIT": real}
+    clones = (rig.tmp / "sibling-a", rig.tmp / "sibling-b")
+    for clone in clones:
+        clone.mkdir()
+        subprocess.run([real, "-C", str(clone), "init", "-q", "-b", "main"], check = True, capture_output = True)
+    # the repo holds no such commit, one sibling calls it ambiguous and the other resolves it, so only the precedence
+    # of ambiguity over a sibling's single commit refuses it
+    split = {**base, "KDF_TEST_AMBIGUOUS_IN": str(clones[0]), "KDF_TEST_RESOLVES_IN": str(clones[1])}
+    for env, label in ((base, "everywhere"), (split, "one sibling resolves, another calls it ambiguous")):
         done = subprocess.run(
             [str(NODE), str(BRIEF), "check", "--repo", rig.repo.as_posix(), "--pin", "HEAD", brief.as_posix()],
             capture_output = True,
@@ -2812,6 +2820,31 @@ def test_the_brief_tool_reads_hashes_and_the_commit_paragraph_as_markdown_does(r
     empty = _brief_tool(rig, "check", brief.as_posix())
     assert empty.returncode == 1
     assert "NO COMMIT PARAGRAPH" in empty.stdout
+    brief.write_text(head + "A span ```git show deadbee``` on one line.\n", encoding = "utf-8", newline = "\n")
+    inline = _brief_tool(rig, "check", brief.as_posix())
+    assert inline.returncode == 1
+    assert "NO COMMIT deadbee at line 7" in inline.stdout
+    brief.write_text(head + "Plain words \\`deadbee\\` in prose.\n", encoding = "utf-8", newline = "\n")
+    escaped = _brief_tool(rig, "check", brief.as_posix())
+    assert escaped.returncode == 0, escaped.stdout
+
+
+def test_the_brief_tool_reads_the_brief_about_to_be_committed_with_disk(rig: Rig) -> None:
+    """
+    A brief already at the pin is what the launcher reads. Whoever rewrites it before the next commit runs check with
+    --disk, which reads the file on disk and refuses its bad hash, where the plain check reads the pin's older brief.
+    """
+    placed = rig.repo / "docs" / "reviews" / "BRIEF.md"
+    text   = (
+        "**The commit.** The pin adds this brief.\n\n| Files | Lines |\n| --- | --- |\n| `src/app.py` | 1 |\n\n"
+        "A slip names `deadbee`.\n"
+    )
+    placed.write_text(text, encoding = "utf-8", newline = "\n")
+    at_pin = _brief_tool(rig, "check", "docs/reviews/BRIEF.md")
+    assert at_pin.returncode == 0, at_pin.stdout
+    on_disk = _brief_tool(rig, "check", "--disk", "docs/reviews/BRIEF.md")
+    assert on_disk.returncode == 1
+    assert "NO COMMIT deadbee at line 7" in on_disk.stdout
 
 
 def _numbered(count: int) -> str:

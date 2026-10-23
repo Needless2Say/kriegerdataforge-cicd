@@ -554,8 +554,9 @@ dispatch with a copy button, a settled list and a box per round, or, where the r
 session drafts the dispatches and their bundles and publishes the page, section 2. The owner pastes a dispatch into a
 fresh Sol session and pastes the answer back. The orchestrator adjudicates it as step 3 does, then refreshes the page
 for the next round with what the round settled and the new pin and line counts. The shape to copy is an earlier
-review's page, whose link that review's plan records. A round is never run against a commit that is not pushed. Each dispatch opens by naming Sol a chat reader, section 6 of
-`AGENT_ROLES.md`, that answers in the chat and writes nothing.
+review's page, whose link that review's plan records. A round is never run against a commit that is not pushed. Each
+dispatch opens by naming Sol a chat reader, section 6 of `AGENT_ROLES.md`, that answers in the chat and writes
+nothing.
 
 **The page is where the owner copies from, and the repo is the record.** When a round is published the orchestrator
 writes every dispatch of it, word for word as the page holds it, from the supporting session's draft where there is
@@ -665,10 +666,10 @@ other reviewer of the pin reads it waits outside the tree with the first report'
 **The brief's facts.** `node <cicd>/tools/claude-code/kdf-brief.js counts --repo <repo> --pin HEAD <label>=<paths>`
 prints the scope table's rows with the line counts at the pin, and `facts`, run on the state commit before the brief's
 own commit, prints the commit line, which names the state and says the pin is the commit that adds the brief.
-`check --repo <repo> --pin HEAD <brief>`, run by whoever places the brief before its commit, since it reads the brief
-from disk, and by the launcher at the pin, refuses a scope table whose counts differ from the pin, a brief with a
-scope table and no commit paragraph, and every commit hash in the brief that resolves to no commit, in the repo or a
-clone beside it, or that git reads as ambiguous.
+`check --repo <repo> --pin HEAD <brief>`, run by the launcher at the pin, and as `check --disk` by whoever places the
+brief before its commit, which reads the file about to be committed and never an older brief at the pin, refuses a
+scope table whose counts differ from the pin, a brief with a scope table and no commit paragraph, and every commit
+hash in the brief that resolves to no commit, in the repo or a clone beside it, or that git reads as ambiguous.
 `cites --repo <repo> --pin HEAD [--since <commit>] [--only <paths>]` lists every `file:line` cite of the living docs
 beside the lines it names at the pin, a doc under `docs/reviews/`, a dated record under `docs/<kind>/` and a log
 keeping the lines of their own day, and flags a missing file, a line out of range, a backwards range and a basename
@@ -844,9 +845,10 @@ reviewers read that a later step found, each report's minutes and tokens, every 
 every yes or unsure call of a later finding that does not name the pin. The orchestrator writes
 `<PFX>_REVIEW_<slice>_RETRO.md`, from the supporting session's draft where there is one, from
 [`templates/review-retro.template.md`](templates/review-retro.template.md), the tool's tables pasted as printed, then
-its own analysis, why each escape was missed, what cost time or tokens or confused the owner, how the changes earlier
-retrospectives made did here, and its proposals. Phase B and a spot review write one the same way, and the whole
-review closes with `<PFX>_REVIEW_CAMPAIGN_RETRO.md`.
+the analysis, why each escape was missed, what cost time or tokens or confused the owner, how the changes earlier
+retrospectives made did here, and the proposals, the supporting session's draft of it where there is one, which the
+orchestrator reads and checks against the log before it commits it. Phase B and a spot review write one the same
+way, and the whole review closes with `<PFX>_REVIEW_CAMPAIGN_RETRO.md`.
 
 **The owner decides every change.** The supporting session, or the orchestrator in a review without one, turns the
 proposals into a short list in the chat, each with the problem, the change, the number it should move and its cost,
