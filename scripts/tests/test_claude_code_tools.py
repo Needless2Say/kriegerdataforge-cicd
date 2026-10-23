@@ -2814,20 +2814,31 @@ def test_the_brief_tool_refuses_a_hash_git_calls_ambiguous(rig: Rig) -> None:
 
 def test_the_brief_tool_reads_hashes_and_the_commit_paragraph_as_markdown_does(rig: Rig) -> None:
     """
-    A code span that crosses a line break is one span, and a fence of four backticks holding three is one fence, so a
-    bad hash in either is read and refused. The commit paragraph counts only as a line outside a fence, and a scope
-    table whose header has no rows still asks for it.
+    A code span that crosses a line break is one span, a fence of four backticks holding three is one fence, a line of
+    three backticks with a backtick in its text is a span, a backslash inside a span is literal, and a fence inside a
+    blockquote is a fence, so a hash in each is read, and an escaped backtick opens nothing. The commit paragraph ends
+    at its blank line, so a hash after it is warned of and never refused, it counts only as a line outside a fence,
+    and a scope table whose header has no rows still asks for it.
     """
     brief = rig.tmp / "brief.md"
     head  = "**The commit.** The pin adds this brief.\n\n| Files | Lines |\n| --- | --- |\n| `src/app.py` | 1 |\n\n"
+    after = "WARNING deadbee at line {n} names no commit"
     brief.write_text(head + "A span `git log\ndeadbee` across a line.\n", encoding = "utf-8", newline = "\n")
     crossing = _brief_tool(rig, "check", brief.as_posix())
-    assert crossing.returncode == 1
-    assert "NO COMMIT deadbee at line 8" in crossing.stdout
+    assert crossing.returncode == 0, crossing.stdout
+    assert after.format(n = 8) in crossing.stdout
     brief.write_text(head + "````text\n```\ngit show deadbee\n```\n````\n", encoding = "utf-8", newline = "\n")
     nested = _brief_tool(rig, "check", brief.as_posix())
-    assert nested.returncode == 1
-    assert "NO COMMIT deadbee at line 9" in nested.stdout
+    assert nested.returncode == 0, nested.stdout
+    assert after.format(n = 9) in nested.stdout
+    brief.write_text(head + "> ~~~text\n> git show deadbee\n> ~~~\n", encoding = "utf-8", newline = "\n")
+    quoted = _brief_tool(rig, "check", brief.as_posix())
+    assert after.format(n = 8) in quoted.stdout, quoted.stdout
+    inside = "**The commit.** The pin sits on `deadbee\\`.\n\n| Files | Lines |\n| --- | --- |\n| `src/app.py` | 1 |\n"
+    brief.write_text(inside, encoding = "utf-8", newline = "\n")
+    literal = _brief_tool(rig, "check", brief.as_posix())
+    assert literal.returncode == 1
+    assert "NO COMMIT deadbee at line 1, in the commit paragraph" in literal.stdout
     fenced = "```text\n**The commit.** an example\n```\n\n| Files | Lines |\n| --- | --- |\n| `src/app.py` | 1 |\n"
     brief.write_text(fenced, encoding = "utf-8", newline = "\n")
     example = _brief_tool(rig, "check", brief.as_posix())
@@ -2839,11 +2850,12 @@ def test_the_brief_tool_reads_hashes_and_the_commit_paragraph_as_markdown_does(r
     assert "NO COMMIT PARAGRAPH" in empty.stdout
     brief.write_text(head + "A span ```git show deadbee``` on one line.\n", encoding = "utf-8", newline = "\n")
     inline = _brief_tool(rig, "check", brief.as_posix())
-    assert inline.returncode == 1
-    assert "NO COMMIT deadbee at line 7" in inline.stdout
+    assert inline.returncode == 0, inline.stdout
+    assert after.format(n = 7) in inline.stdout
     brief.write_text(head + "Plain words \\`deadbee\\` in prose.\n", encoding = "utf-8", newline = "\n")
     escaped = _brief_tool(rig, "check", brief.as_posix())
     assert escaped.returncode == 0, escaped.stdout
+    assert "deadbee" not in escaped.stdout, "an escaped backtick opened a span"
 
 
 def test_the_brief_tool_reads_the_brief_about_to_be_committed_with_disk(rig: Rig) -> None:
@@ -2852,16 +2864,13 @@ def test_the_brief_tool_reads_the_brief_about_to_be_committed_with_disk(rig: Rig
     --disk, which reads the file on disk and refuses its bad hash, where the plain check reads the pin's older brief.
     """
     placed = rig.repo / "docs" / "reviews" / "BRIEF.md"
-    text   = (
-        "**The commit.** The pin adds this brief.\n\n| Files | Lines |\n| --- | --- |\n| `src/app.py` | 1 |\n\n"
-        "A slip names `deadbee`.\n"
-    )
+    text   = "**The commit.** The pin sits on `deadbee`.\n\n| Files | Lines |\n| --- | --- |\n| `src/app.py` | 1 |\n"
     placed.write_text(text, encoding = "utf-8", newline = "\n")
     at_pin = _brief_tool(rig, "check", "docs/reviews/BRIEF.md")
     assert at_pin.returncode == 0, at_pin.stdout
     on_disk = _brief_tool(rig, "check", "--disk", "docs/reviews/BRIEF.md")
     assert on_disk.returncode == 1
-    assert "NO COMMIT deadbee at line 7" in on_disk.stdout
+    assert "NO COMMIT deadbee at line 1, in the commit paragraph" in on_disk.stdout
 
 
 def _numbered(count: int) -> str:
@@ -3128,7 +3137,11 @@ def test_the_retro_tool_lists_later_pin_calls_that_name_no_pin(tmp_path: Path) -
         "| Q, a question | Step 5 final, Claude | m | | | Acted on | `l.py` | | `ddddddd` | yes | | | "
         "Whether to bound it. | section 3 |"
     )
-    rows   = (fin_2, fin_3, fin_4, nr_1, asked)
+    early  = (
+        "| EX-S1-3 | Step 2, Claude | m | L | no | Agreed | `m.py:1` | before the review | `ddddddd` | yes | "
+        "the history | the repo alone | Found at step 2. | section 6 |"
+    )
+    rows   = (fin_2, fin_3, fin_4, nr_1, asked, early)
     text   = key.read_text(encoding = "utf-8")
     anchor = next(line for line in text.splitlines() if line.startswith("| EX-S1-C1 |"))
     key.write_text(text.replace(anchor, anchor + "\n" + "\n".join(rows)), encoding = "utf-8", newline = "\n")
@@ -3138,7 +3151,7 @@ def test_the_retro_tool_lists_later_pin_calls_that_name_no_pin(tmp_path: Path) -
     assert "## Pin calls to check" in lines
     assert "| EX-S1-FIN-2 | yes | the history |" in lines
     assert "| EX-S1-FIN-4 | unsure | spinning up a probe |" in lines
-    for quiet in ("| EX-S1-FIN-3 |", "| EX-S1-NR-1 |", "| Q, a question |", "| EX-S1-FIN-1 |"):
+    for quiet in ("| EX-S1-FIN-3 |", "| EX-S1-NR-1 |", "| Q, a question |", "| EX-S1-FIN-1 |", "| EX-S1-3 |"):
         assert not any(line.startswith(quiet) for line in lines), f"{quiet} was listed\n{done.stdout}"
     assert any(line.startswith("2 later finding(s) whose yes or unsure") for line in lines)
     escapes = next(line for line in lines if line.startswith("Escapes,"))

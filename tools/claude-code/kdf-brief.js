@@ -472,62 +472,104 @@ for (const line of text.split(/\r?\n/)) {
 // repo, a sibling's commit passing. One that resolves nowhere is refused in the commit paragraph, where the pin, the
 // state and the tip are named, and warned of elsewhere, where a digest, a value or a sibling not yet pulled can stand.
 // A run of digits alone that resolves nowhere is a number and passes.
-// A fence opens with three or more backticks or tildes and closes on a line of the same character, at least as many,
-// and nothing else, as Markdown's do. Outside a fence a code span opens and closes on backtick runs of one length and
-// may cross a line break, never a blank line. The commit paragraph is a line outside a fence that starts with it.
-// A hex run joined to a letter, a digit, a dash or an underscore is part of a longer word, a run id or a name, and is
-// not read as a hash.
+// Markdown's rules, read the way CommonMark reads them. A blockquote's markers are read off a line first, so a quoted
+// fence or span is read as an unquoted one. A fence opens with three or more backticks or tildes, a backtick fence's
+// info text holding no backtick, and closes on a line of the same character, at least as many, and nothing else.
+// Outside a fence a code span opens on a backtick run no backslash escapes and closes on the next run of the same
+// length, a backslash inside the span being literal, and it may cross a line break, never a blank line. The commit
+// paragraph is the paragraph whose first line starts with "**The commit.**", up to its blank line, a heading or a
+// fence. A hex run joined to a letter, a digit, a dash or an underscore is part of a longer word, a run id or a name,
+// and is not read as a hash.
 const hashes = [];
 const HEX = /(?<![0-9A-Za-z_-])[0-9a-f]{7,40}(?![0-9A-Za-z_-])/g;
 const briefLines = text.split(/\r?\n/);
+const unquote = (line) => line.replace(/^(\s{0,3}>\s?)+/, '');
 let fence = null;
 let prose = [];
 let commitParagraph = false;
 let commitFrom = 0;
 let commitTo = 0;
-function readProse() {
-  // an escaped backtick delimits nothing, so it reads as two spaces, the same length, so every index holds
-  const joined = prose.map((p) => p.text).join('\n').replace(/\\`/g, '  ');
-  for (const m of joined.matchAll(/(?<!`)(`+)(?!`)((?:(?!\n[ \t]*\n)[\s\S])+?)(?<!`)\1(?!`)/g)) {
-    let line = prose[0] ? prose[0].line : 0;
-    let at = 0;
-    for (const p of prose) {
-      if (at + p.text.length >= m.index) {
-        line = p.line;
-        break;
-      }
-      at += p.text.length + 1;
+// every code span of a run of prose lines, its start and its text
+function codeSpans(s) {
+  const out = [];
+  const blankAfter = (k) => /^[ \t]*(\n|$)/.test(s.slice(k + 1, k + 202));
+  let i = 0;
+  while (i < s.length) {
+    if (s[i] !== '`') {
+      i++;
+      continue;
     }
-    for (const h of m[2].matchAll(HEX)) {
-      const before = m[2].slice(0, h.index).split('\n').length - 1;
-      hashes.push({ hash: h[0], line: line + before });
+    let slashes = 0;
+    while (i - 1 - slashes >= 0 && s[i - 1 - slashes] === '\\') slashes++;
+    if (slashes % 2 === 1) {
+      // the escaped backtick is a character of the text, and the run's rest may open a span
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j < s.length && s[j] === '`') j++;
+    const run = j - i;
+    let k = j;
+    let close = -1;
+    while (k < s.length) {
+      if (s[k] === '\n' && blankAfter(k)) break;
+      if (s[k] === '`') {
+        let m = k;
+        while (m < s.length && s[m] === '`') m++;
+        if (m - k === run) {
+          close = k;
+          break;
+        }
+        k = m;
+        continue;
+      }
+      k++;
+    }
+    if (close < 0) {
+      i = j;
+      continue;
+    }
+    out.push({ start: j, text: s.slice(j, close) });
+    i = close + run;
+  }
+  return out;
+}
+function readProse() {
+  if (!prose.length) return;
+  const joined = prose.map((p) => p.text).join('\n');
+  const first = prose[0].line;
+  for (const span of codeSpans(joined)) {
+    const spanLine = first + (joined.slice(0, span.start).match(/\n/g) || []).length;
+    for (const h of span.text.matchAll(HEX)) {
+      hashes.push({ hash: h[0], line: spanLine + (span.text.slice(0, h.index).match(/\n/g) || []).length });
     }
   }
   prose = [];
 }
-briefLines.forEach((line, k) => {
+briefLines.forEach((raw, k) => {
+  const line = unquote(raw);
   if (fence) {
     const close = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(line);
     if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
     else for (const h of line.matchAll(HEX)) hashes.push({ hash: h[0], line: k + 1 });
     return;
   }
-  // a backtick fence's info text holds no backtick, so a line such as ```git show abc``` is a code span
   const open = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-  if (open && !(open[1][0] === '`' && open[2].includes('`'))) {
+  const opens = open && !(open[1][0] === '`' && open[2].includes('`'));
+  // the commit paragraph ends at its blank line, a heading or a fence
+  if (commitFrom && !commitTo && (!line.trim() || /^\s*#/.test(line) || opens)) commitTo = k;
+  if (opens) {
     readProse();
     fence = open[1];
     return;
   }
-  if (/^\s*(>\s*)?\*\*The commit\.\*\*/.test(line)) {
+  if (/^\s*\*\*The commit\.\*\*/.test(line)) {
     commitParagraph = true;
     commitFrom = k + 1;
-  } else if (commitFrom && !commitTo && /^\s*(>\s*)?(\*\*[^*]+\*\*|#)/.test(line)) commitTo = k;
+  }
   prose.push({ text: line, line: k + 1 });
 });
 readProse();
-// the commit paragraph runs from its bold heading to the next bold heading or section heading, the pin, the state
-// and the tip it names being the hashes a review cannot start without
 const inCommitParagraph = (line) => commitFrom > 0 && line >= commitFrom && (!commitTo || line <= commitTo);
 function resolveIn(where, hash) {
   try {
