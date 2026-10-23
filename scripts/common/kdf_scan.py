@@ -190,6 +190,9 @@ SYSTEM_ROOT      = "C:\\Windows"
 RUN_MARKER = "kdf-scan.run"
 STALE_RUNS = 24 * 60 * 60
 RUN_PREFIX = "kdf-scan-"
+# where run folders go, on D beside the workspace's scratch files, since a run holds Opengrep's 289 MB unpack and the
+# owner keeps room on C, the owner's choice of 2026-10-23, the temp folder where that folder's parent is missing
+RUN_ROOT = Path("D:/KriegerDataForge/temp/kdf-scan-runs")
 # the environment every git call takes instead of the caller's, which the scan before a merge sets with neutral_git so
 # neither the session's variables nor its git configuration reach git, None for every other scan
 NEUTRAL_GIT: dict[str, str] | None = None
@@ -2230,12 +2233,14 @@ def scan(
 
 def make_run() -> Path:
     """
-    A run folder in the temp folder, marked as the wrapper's, after sweeping the folders older runs left.
+    A run folder under RUN_ROOT, or the temp folder where RUN_ROOT's parent is missing, marked as the wrapper's, after
+    sweeping the folders older runs left.
 
     Returns:
         Path: the folder
     """
-    temp = Path(tempfile.gettempdir())
+    temp = RUN_ROOT if RUN_ROOT.parent.is_dir() else Path(tempfile.gettempdir())
+    temp.mkdir(exist_ok = True)
     sweep_runs(temp, time.time())
     work = Path(tempfile.mkdtemp(prefix = RUN_PREFIX, dir = temp))
     (work / RUN_MARKER).write_text(f"{os.getpid()}\n", encoding = "ascii")

@@ -788,9 +788,10 @@ def test_a_run_folder_goes_with_its_run_and_one_an_older_run_left_is_swept(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    temp = tmp_path / "temp"
-    temp.mkdir()
-    monkeypatch.setattr(SCAN.tempfile, "tempdir", str(temp))
+    # the run folders live under RUN_ROOT, on D beside the workspace's scratch files where its parent is there
+    temp = tmp_path / "workspace-temp" / "kdf-scan-runs"
+    temp.mkdir(parents = True)
+    monkeypatch.setattr(SCAN, "RUN_ROOT", temp)
     old = time.time() - 2 * SCAN.STALE_RUNS
     for name, marked, when in (
         ("kdf-scan-stale", True, old),
@@ -810,6 +811,23 @@ def test_a_run_folder_goes_with_its_run_and_one_an_older_run_left_is_swept(
     assert sorted(path.name for path in temp.iterdir()) == ["kdf-scan-other", "kdf-scan-young"]
     for name in ("kdf-scan-other", "kdf-scan-young"):
         os.chmod(temp / name / "runtime.dll", stat.S_IWRITE)
+
+
+def test_run_folders_go_under_run_root_made_when_missing_and_to_temp_without_its_parent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / "workspace-temp").mkdir()
+    monkeypatch.setattr(SCAN, "RUN_ROOT", tmp_path / "workspace-temp" / "kdf-scan-runs")
+    work = SCAN.make_run()
+    assert work.parent == tmp_path / "workspace-temp" / "kdf-scan-runs" and (work / SCAN.RUN_MARKER).is_file()
+    SCAN.remove_run(work)
+    monkeypatch.setattr(SCAN, "RUN_ROOT", tmp_path / "no-such-folder" / "kdf-scan-runs")
+    monkeypatch.setattr(SCAN.tempfile, "tempdir", str(tmp_path / "temp"))
+    (tmp_path / "temp").mkdir()
+    work = SCAN.make_run()
+    assert work.parent == tmp_path / "temp" and not (tmp_path / "no-such-folder").exists()
+    SCAN.remove_run(work)
 
 # ======================================================================================================================
 # the pins printed for the install, and kdf_zizmor.yml
