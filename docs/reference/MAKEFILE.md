@@ -171,6 +171,26 @@ cp1252 Windows console *after* the files are written. This repo's copy is emoji 
 (verified - its only non-ASCII is box drawing inside comments), so here the prefix is precaution
 rather than a fix for a live crash.
 
+### Local Code Scan
+
+`scan`, `scan-dev` and `scan-fixtures`, decision D-085. None is part of `ci`.
+
+- **`scan`** is the managed block every repo's Makefile holds, written by the scripts sync between its two marker
+  lines. It runs Opengrep over the code and zizmor over the workflows before a pull request, through the launcher the
+  owner installs at `D:/KriegerDataForge-scan/`, under that folder's own Python with `-I -S -B`, so nothing in a
+  checkout decides what runs. Its last line names the commit, the bundle, the pins and the result, and goes into the
+  pull request whole. It exits 0 clean, 1 for a finding or a bad marker, 2 refused, 3 when a tool failed and 4 when
+  the scan is incomplete. `make` itself returns 2 whenever a recipe fails, so the last line is the result.
+- **`scan-dev`** runs the wrapper's source in this tree, `scripts/common/kdf_scan.py`, under the scan folder's Python
+  while the wrapper is developed. Its last line says `bundle dev`, so a pull request's pasted line comes from `scan`
+  alone.
+- **`scan-fixtures`** runs `scripts/tests/fixtures/scan/` against the installed tools after each install and at every
+  pin move. Its files are named `fixture_*.py`, so the unit lane's pytest never collects them. `KDF_SCAN_OFFLINE=1`
+  runs the firewall control and `KDF_SCAN_WRITE_PROBE=1` the unelevated write probe, each only when the owner asks.
+
+The install is `tools/claude-code/kdf-scan-install.sh`, run by the owner alone from the elevated window of an account
+kept for it, never by a session.
+
 ### CodeQL Security Scanning
 
 Seven targets, SARIF and CSV. Language is **`python`**, scanning the operational code under

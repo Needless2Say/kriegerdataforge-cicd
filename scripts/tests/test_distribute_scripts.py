@@ -12,7 +12,9 @@ from unittest.mock import patch
 
 import distribute_scripts as ds
 import pytest
+from common.kdf_scan import BLOCK_CLOSE, BLOCK_OPEN, PYTHON_VERSION, parse_policy
 from common.repo_sync import PatchError
+from tests.scan_fakes import BLOCK as SCAN_TEST_BLOCK
 
 # ── Makefile fixtures ────────────────────────────────────────────────────────
 # The post-1.0.x state every repo is in today: canonical recipe + flat script paths.
@@ -41,6 +43,60 @@ LEGACY_INLINE = (
     "\n"
     "##@ Next section\n"
 )
+
+# minimal Makefiles written for cicd in the shapes of a FastAPI hub's, a Next.js frontend's, terraform's and a package
+# template's, each already on the canonical version check, for the managed scan block (D-085). No line is a tenant's.
+HUB_MAKEFILE = (
+    "# a FastAPI service\n"
+    "PYTHON ?= .venv/Scripts/python\n"
+    "GREEN := \\033[0;32m\n"
+    "NC := \\033[0m\n"
+    "\n"
+    "##@ Setup\n"
+    "_ensure-venv:\n"
+    "\t@test -x $(PYTHON) || $(MAKE) venv\n"
+    "\n"
+    "##@ CI\n"
+    "ci-lint: _ensure-venv ## CI: lint\n"
+    "\t@$(PYTHON) -m ruff check api scripts\n"
+    f"{ds.CANONICAL_RECIPE}"
+    "ci: ci-lint ci-version-check ## CI: every lane\n"
+)
+
+FRONTEND_MAKEFILE = (
+    "NPM ?= npm\n"
+    ".PHONY: ci-lint ci-unit-tests\n"
+    "ci-lint: ## CI: eslint\n"
+    "\t@$(NPM) run lint\n"
+    "ci-unit-tests: ## CI: jest\n"
+    "\t@$(NPM) test -- --ci\n"
+    f"{ds.CANONICAL_RECIPE}"
+)
+
+TERRAFORM_MAKEFILE = (
+    "TF ?= terraform\n"
+    "ci-fmt: ## CI: terraform fmt\n"
+    "\t@$(TF) fmt -check -recursive\n"
+    "ci-validate: ## CI: terraform validate\n"
+    "\t@$(TF) validate\n"
+    f"{ds.CANONICAL_RECIPE}"
+)
+
+TEMPLATE_MAKEFILE = (
+    "PYTHON ?= .venv/bin/python\n"
+    "build: ## Build the wheel\n"
+    "\t@$(PYTHON) -m build\n"
+    f"{ds.CANONICAL_RECIPE}"
+    "\n"
+    "ci: build ci-version-check\n"
+)
+
+SHAPES = {
+    "hub": HUB_MAKEFILE,
+    "frontend": FRONTEND_MAKEFILE,
+    "terraform": TERRAFORM_MAKEFILE,
+    "template": TEMPLATE_MAKEFILE,
+}
 
 
 # config-file fixtures for the kdf-fmt / ruff patchers
@@ -139,6 +195,97 @@ def test_canonical_recipe_uses_vendor_dir_paths():
     assert "scripts/kdf_scripts/check_version.py" in ds.CANONICAL_RECIPE
     # the recipe itself must be a fixed point of the path rewrite
     assert ds._PATH_REWRITE_RE.sub(r"scripts/kdf_scripts/\1.py", ds.CANONICAL_RECIPE) == ds.CANONICAL_RECIPE
+
+
+# ── the managed scan block (D-085) ───────────────────────────────────────────
+@pytest.mark.parametrize("shape", sorted(SHAPES))
+def test_an_absent_scan_block_is_inserted_at_the_end_of_each_repo_shape(shape):
+    patched = ds.patch_makefile(SHAPES[shape])
+    assert patched.count(BLOCK_OPEN) == 1 and patched.count(BLOCK_CLOSE) == 1
+    assert patched.endswith(ds.SCAN_BLOCK_HEAD + ds.SCAN_BLOCK_TAIL)
+    assert "\n\n" + BLOCK_OPEN in patched
+    policy = parse_policy(patched)
+    assert policy.excludes == () and policy.limits == ()
+    assert patched.startswith(SHAPES[shape].rstrip("\n") + "\n")
+
+
+def test_the_block_runs_the_pinned_python_on_the_launcher_isolated_and_writing_no_bytecode():
+    python = f"D:/KriegerDataForge-scan/python/{PYTHON_VERSION}/python.exe"
+    assert f"\t@{python} -I -S -B D:/KriegerDataForge-scan/kdf-scan.py\n" in ds.SCAN_BLOCK_TAIL
+    assert ds.SCAN_BLOCK_HEAD.startswith(BLOCK_OPEN + "\n")
+    assert ds.SCAN_BLOCK_TAIL.endswith(BLOCK_CLOSE + "\n")
+    assert "_ensure-venv" not in ds.SCAN_BLOCK_TAIL
+
+
+def test_the_block_is_the_one_the_scans_own_tests_read():
+    assert ds.SCAN_BLOCK_HEAD + ds.SCAN_BLOCK_TAIL == SCAN_TEST_BLOCK.format(lines = "")
+
+
+def test_a_present_block_is_replaced_whole_but_for_the_repos_own_lines():
+    own     = (
+        "SCAN_EXCLUDE += src/core/api/generated  # generated from the hub's schema by openapi\n"
+        "SCAN_LIMIT += src/app/view.tsx@" + "a" * 64 + "  # opengrep reads its dynamic import only partly\n"
+    )
+    old     = (
+        f"{BLOCK_OPEN}\n# an older header\nSCAN_EXCLUDE ?=\n{own}.PHONY: scan\nscan:\n"
+        "\t@D:/KriegerDataForge-scan/python/3.14.6/python.exe -I -S D:/KriegerDataForge-scan/kdf-scan.py\n"
+        "STRAY := a line nobody owns\n"
+        f"{BLOCK_CLOSE}\n"
+        "after: ## a target after the block\n\t@echo after\n"
+    )
+    patched = ds.patch_makefile(SHAPES["frontend"] + "\n" + old)
+    assert ds.SCAN_BLOCK_HEAD + own + ds.SCAN_BLOCK_TAIL in patched
+    assert "3.14.6" not in patched and "STRAY" not in patched and "an older header" not in patched
+    assert patched.endswith("after: ## a target after the block\n\t@echo after\n")
+    policy = parse_policy(patched)
+    assert policy.excludes == (("src/core/api/generated", "generated from the hub's schema by openapi"),)
+    assert [limit[0] for limit in policy.limits] == ["src/app/view.tsx"]
+
+
+@pytest.mark.parametrize("shape", sorted(SHAPES))
+def test_a_rerun_changes_nothing(shape):
+    own  = "SCAN_EXCLUDE += vercel_api  # a bundle the compactor writes from api\n"
+    once = ds.patch_makefile(SHAPES[shape])
+    once = once.replace("SCAN_EXCLUDE ?=\n", "SCAN_EXCLUDE ?=\n" + own)
+    assert ds.patch_makefile(once) == once
+    assert ds.patch_makefile(once.replace("\n", "\r\n")) == once
+
+
+@pytest.mark.parametrize("extra", [
+    f"{BLOCK_OPEN}\n{BLOCK_CLOSE}\n{BLOCK_OPEN}\n{BLOCK_CLOSE}\n",
+    f"{BLOCK_OPEN}\nSCAN_EXCLUDE ?=\n",
+    f"{BLOCK_CLOSE}\n",
+])
+def test_two_blocks_an_unclosed_block_or_a_stray_close_are_refused(extra):
+    with pytest.raises(PatchError, match = "managed scan block"):
+        ds.patch_makefile(SHAPES["hub"] + "\n" + extra)
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "scan:\n\t@echo mine\n",
+        "lint scan: ## two at once\n\t@echo both\n",
+        "scan :: \n\t@echo double colon\n",
+        " scan:\n\t@echo one space, still a rule to make\n",
+        "  lint scan:\n\t@echo spaces and two targets\n",
+        " \tscan:\n\t@echo a space then a tab, still a rule\n",
+        "lint scan &: other\n\t@echo grouped targets\n",
+    ],
+)
+def test_a_scan_target_outside_the_block_is_refused(target):
+    with pytest.raises(PatchError, match = "a scan target outside"):
+        ds.patch_makefile(SHAPES["template"] + "\n" + target)
+    with pytest.raises(PatchError, match = "a scan target outside"):
+        ds.patch_makefile(ds.patch_makefile(SHAPES["template"]) + "\n" + target)
+
+
+def test_targets_that_only_start_with_scan_and_a_phony_line_naming_it_are_kept():
+    extra   = (".PHONY: scan scan-dev scan-fixtures\nscan-dev: ## the wrapper from source\n\t@echo dev\n"
+               "scan-fixtures:\n\t@echo fixtures\n\tscan: a recipe line, which its tab keeps from a rule\n"
+               "SCANNER := other\n")
+    patched = ds.patch_makefile(SHAPES["terraform"] + "\n" + extra)
+    assert extra in patched and patched.count(BLOCK_OPEN) == 1
 
 
 # ── patch_kdf_fmt_toml ───────────────────────────────────────────────────────

@@ -4588,6 +4588,68 @@ tests that use a name, each line certain or unchecked with its label. An answer 
 `test-importers` or `defs` moves only toward unchecked. What reopens this is a false resolved line the rules let
 through. VERSION 0.2.168.
 
+## D-085. A local code scan before every pull request, run from a folder only an elevated install writes
+
+- **Date.** 2026-10-22
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Follows.** D-013 and D-014, the scripts sync that writes the scan's Makefile block.
+- **Tier / scope:** Epic, every repo · `scripts/common/kdf_scan.py`, `kdf_scan_launcher.py`, `kdf_zizmor.yml`,
+  `scan_rules/`, `tools/claude-code/kdf-scan-install.sh`, the scripts sync's Makefile patch, cicd's `Makefile` and
+  `scripts/tests/fixtures/scan/` · no workflow, input or guard rule changed
+
+**Context.** CodeQL's code scanning is free on a public repository and paid on a private one, so most of the
+ecosystem's repositories had no static security scan before a merge. A scan on the developer's machine closes that gap
+at no cost, but only if nothing a branch can change decides what runs, or a branch could quiet its own scan.
+
+**Decision.**
+
+1. `make scan` in every repo runs Opengrep over the code, with the security folders of Semgrep's rules for this stack
+   and KDF's own rules, and zizmor over the workflows, each at a pinned version. Python findings are kept at MEDIUM and
+   HIGH confidence and JavaScript and TypeScript findings at any, two path rules are dropped in tooling folders, and
+   the stock logger rule gives way to KDF's own.
+2. Nothing the scan runs lives in a repo. The wrapper, its launcher, the zizmor configuration and KDF's rules are a
+   bundle the owner installs into `D:/KriegerDataForge-scan/`, a folder whose permission lets only an elevated process
+   write, beside the pinned tools, a Python of its own and a bare clone of the rules. The launcher refuses an elevated
+   process and UAC values that leave the folder open, checks the bundle's manifest and runs the wrapper's checked
+   bytes, and every pin is checked before each run.
+3. The wrapper reads the repo's files from git, the working tree's or one commit's raw blobs, copies them into a fresh
+   folder and runs each tool there by full path with an environment of named variables, each value its own, the temp
+   folder and the profile the run's own, since Opengrep's Windows executable unpacks its engine and Python under the
+   profile it is given and reuses them. Opengrep's answer is read from its output stream, what the tools were given is
+   read back once they exit, and a change ends the run, exit 3. Opengrep runs with
+   `--disable-nosem` and zizmor with `--no-ignores`, and the wrapper binds every marker itself at the finding's line,
+   `nosemgrep: <rule> <reason>` or `zizmor: ignore[<audit>] <reason>`, one rule and a reason of three words or more. A
+   file a tool did not read whole makes the scan incomplete, unless a recorded limit names that file's content.
+4. The last line names the commit, the tree's state, the bundle, the pins and the result, and goes into the pull
+   request whole. The launcher's `--pr` mode is the scan before a merge, run at every merge, at the head GitHub names,
+   with the exclusions of the base's `main`. It fetches the head and `main` into a fresh repository of its own, under
+   no inherited git configuration, `https` alone and `gh`'s credential helper, checks git's ids against `gh`'s and the
+   merge base against GitHub's, and never reads the session's clone. A link must name the owner's account.
+5. The owner installs from the elevated window of an account kept for installs, with `kdf-scan-install.sh` fetched at
+   a commit of cicd's `main`. It runs itself again under `env -i`, every program by full path, holds every part to its
+   pin, checks Opengrep's signature with cosign against its exact workflow identity, reads every owner before it
+   changes any, and names a new bundle in `current` only after the permission is read back and every manifest passes.
+6. The scripts sync writes each repo's `scan` block between two marker lines and keeps the repo's own exclusions and
+   limits. `make scan-fixtures` in cicd runs the scan's fixtures against the installed tools after each install.
+
+**Alternatives considered.**
+
+- *CodeQL on every repository.* An organisation with Code Security bought per committer, and a move of every repo.
+- *Semgrep Community Edition as the engine.* The same rules and licence, its taint within one function, kept as the
+  fallback.
+- *The scan's scripts in each repo.* A branch could edit what scans it.
+- *A CI lane.* Minutes on every push, where the machine's scan costs nothing.
+
+**Trade-offs.** The scan runs only where the owner installed it, so a pull request shows it ran by its pasted line, and
+the verify mode runs before every merge, whatever the line says. Taint is followed within a file. A moved pin is a
+cicd pull request and an install on each machine. A fresh unpack costs about 6 seconds a run. A process of the same
+account running while a scan lasts can still change the run's own folder, which the read back catches only when the
+change is left in place, a limit the design names and a later design may close with a second account.
+
+**Consequences.** Every repo gains `make scan`, a later kit release requires it before a pull request, and CodeQL stays
+where it is free. What reopens this is a scan that passes code it should have caught, or a way for a session to change
+what scans it. VERSION 0.2.169, scripts 1.6.0.
+
 ## D-086. The fifth retrospective's changes, three standing questions, a pin call by probe, a brief's hashes, drafts
 
 - **Date.** 2026-10-23
@@ -4643,4 +4705,4 @@ each weighed by its class's escapes where the class next appears, and a slice wi
 later finding's pin call costs a probe over a copy of the pin's tree. A brief with a stale hash is refused before its
 pin. Each draft takes the owner's yes in the supporting session and each commit its yes in the orchestrator's. The
 numbers each change should move are in the review bench's ledger. No workflow changes, and two tools gain a check
-each.
+each. VERSION 0.2.170, kit and cicd's own copies at v1.27.0.

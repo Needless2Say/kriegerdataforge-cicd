@@ -564,6 +564,14 @@ def test_the_base_installs_shellcheck_and_fails_without_it() -> None:
     assert "&& shellcheck --version" in apt[0], "its version printed, so a base without it fails to build"
 
 
+def test_the_base_installs_curl_as_on_githubs_runner_and_fails_without_it() -> None:
+    # the local code scan's install tests fetch with curl and skip without it, so the pre-flight runs them as CI does
+    # (D-085)
+    apt = [rest for keyword, rest in _stages()[0] if keyword == "RUN" and "apt-get install" in rest]
+    assert len(apt) == 1 and "curl" in apt[0].split(), "curl beside git, make and ShellCheck, from Debian"
+    assert "&& curl --version" in apt[0], "its version printed, so a base without it fails to build"
+
+
 def test_the_actionlint_lane_is_red_when_no_shellcheck_is_on_the_path() -> None:
     text  = LANES.read_text(encoding = "utf-8")
     guard = text.find("command -v shellcheck")
