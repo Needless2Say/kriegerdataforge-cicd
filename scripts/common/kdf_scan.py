@@ -33,13 +33,15 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
+import time
 import tokenize
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Mapping, TextIO
+from typing import Callable, Mapping, TextIO
 
 # ======================================================================================================================
 # The pins, each with where it was read
@@ -172,8 +174,19 @@ ZIZMOR_EXITS      = frozenset({0, 10, 11, 12, 13, 14})
 ZIZMOR_NO_INPUTS  = 3
 ZIZMOR_NO_IGNORES = True
 ZIZMOR_COMPLETED  = re.compile(r"completed (?P<path>\S.*?)\s*$")
-# the only names the scanners' environment holds, every other variable, a token or SEMGREP_RULES, never reaching them
+# the only names the scanners' environment holds, every other variable, a token or SEMGREP_RULES, never reaching them,
+# each value the wrapper's own, Windows' folder written out and USERPROFILE a profile of the run's own, since Opengrep
+# unpacks its engine and Python under %USERPROFILE%\AppData\Local\opengrep\<version> and reuses them, measured on
+# 2026-10-22 (Round Table 59's L8)
 TOOL_ENVIRONMENT = ("SYSTEMROOT", "PATH", "TEMP", "TMP", "USERPROFILE", "PYTHONUTF8", "NO_COLOR")
+SYSTEM_ROOT      = "C:\\Windows"
+# the file that marks a run folder as the wrapper's, and the age past which a folder a run left is swept
+RUN_MARKER = "kdf-scan.run"
+STALE_RUNS = 24 * 60 * 60
+RUN_PREFIX = "kdf-scan-"
+# the environment every git call takes instead of the caller's, which the scan before a merge sets with neutral_git so
+# neither the session's variables nor its git configuration reach git, None for every other scan
+NEUTRAL_GIT: dict[str, str] | None = None
 # git and gh where only an administrator can write, so a session's PATH chooses neither
 GIT_PATHS = ("C:/Program Files/Git/cmd/git.exe", "C:/Program Files/Git/bin/git.exe")
 # the cicd clone a scan compares its bundle with, offline, and the files whose change makes a new bundle
@@ -362,15 +375,42 @@ def content_sha256(data: bytes) -> str:
 # Git, read with replacement refs and lazy fetching off
 # ======================================================================================================================
 
+def neutral_git(git: str, work: Path) -> dict[str, str]:
+    """
+    A git environment of the run's own, Windows' folders and git's alone on the PATH, no system configuration and an
+    empty global one in the run's folder, for the scan before a merge (Round Table 59's L9 and L10).
+
+    Args:
+        git: git's absolute path
+        work: the run's folder
+
+    Returns:
+        dict[str, str]: the environment, which the caller sets as NEUTRAL_GIT
+    """
+    (work / "empty.gitconfig").write_bytes(b"")
+    folders = [str(Path(SYSTEM_ROOT) / "System32"), SYSTEM_ROOT, str(Path(git).parent)]
+    return {
+        "SYSTEMROOT": SYSTEM_ROOT,
+        "PATH": os.pathsep.join(folders),
+        "TEMP": str(work),
+        "TMP": str(work),
+        "HOME": str(work),
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": str(work / "empty.gitconfig"),
+        "GIT_ATTR_NOSYSTEM": "1",
+    }
+
+
 def git_environment() -> dict[str, str]:
     """
     The environment of every git call, no inherited GIT_ variable, replacement objects and lazy fetching off, and no
-    optional lock, so a read never writes the index.
+    optional lock, so a read never writes the index, NEUTRAL_GIT in place of the caller's when it is set.
 
     Returns:
         dict[str, str]: the environment
     """
-    environment = {key: value for key, value in os.environ.items() if not key.upper().startswith("GIT_")}
+    environment = (dict(NEUTRAL_GIT) if NEUTRAL_GIT is not None
+                   else {key: value for key, value in os.environ.items() if not key.upper().startswith("GIT_")})
     environment.update({
         "GIT_NO_REPLACE_OBJECTS": "1",
         "GIT_NO_LAZY_FETCH": "1",
@@ -879,26 +919,47 @@ def commit_inventory(git: str, repo: Path, commit: str, policy: Policy) -> Inven
 # The scanners, each by absolute path with a named environment
 # ======================================================================================================================
 
-def tool_environment(git: str, temp: Path) -> dict[str, str]:
+def private_profile(work: Path) -> Path:
     """
-    The scanners' environment, named variables alone, a temp folder of this run's own and a PATH of the system folders
-    and git's.
+    A profile of this run's own, holding the AppData\\Local Opengrep unpacks into, so its engine and Python come from a
+    folder made moments before and removed with the run, never one a session wrote before it (Round Table 59's L8).
+
+    Args:
+        work: this run's folder
+
+    Returns:
+        Path: the profile
+    """
+    profile = work / "profile"
+    (profile / "AppData" / "Local").mkdir(parents = True)
+    return profile
+
+
+def tool_environment(git: str, temp: Path, profile: Path) -> dict[str, str]:
+    """
+    The scanners' environment, named variables alone, each value the wrapper's own, a temp folder and a profile of this
+    run's own and a PATH of the system folders and git's.
 
     Args:
         git: git's absolute path
         temp: this run's temp folder
+        profile: this run's profile
 
     Returns:
         dict[str, str]: the environment
     """
-    system  = os.environ.get("SYSTEMROOT", "C:\\Windows")
-    folders = [str(Path(system) / "System32"), system, str(Path(system) / "System32" / "Wbem"), str(Path(git).parent)]
+    folders = [
+        str(Path(SYSTEM_ROOT) / "System32"),
+        SYSTEM_ROOT,
+        str(Path(SYSTEM_ROOT) / "System32" / "Wbem"),
+        str(Path(git).parent),
+    ]
     return {
-        "SYSTEMROOT": system,
+        "SYSTEMROOT": SYSTEM_ROOT,
         "PATH": os.pathsep.join(folders),
         "TEMP": str(temp),
         "TMP": str(temp),
-        "USERPROFILE": os.environ.get("USERPROFILE", str(temp)),
+        "USERPROFILE": str(profile),
         "PYTHONUTF8": "1",
         "NO_COLOR": "1",
     }
@@ -968,7 +1029,8 @@ class Finding:
 
 def run_opengrep(machine: Machine, work: Path, environment: dict[str, str]) -> dict:
     """
-    Opengrep over the copied code with every rule folder and KDF's rules, nosem markers disabled.
+    Opengrep over the copied code with every rule folder and KDF's rules, nosem markers disabled, its answer read from
+    its output stream, so no file in the run's folder carries it (Round Table 59's L12).
 
     Args:
         machine: the machine
@@ -979,7 +1041,7 @@ def run_opengrep(machine: Machine, work: Path, environment: dict[str, str]) -> d
         dict: Opengrep's JSON
 
     Raises:
-        ToolFailure: when Opengrep fails or writes no JSON it can read
+        ToolFailure: when Opengrep fails or answers with no JSON it can read
     """
     configs = []
     for folder in (*machine.rule_folders, "kdf"):
@@ -993,8 +1055,6 @@ def run_opengrep(machine: Machine, work: Path, environment: dict[str, str]) -> d
         "--disable-nosem",
         "--disable-version-check",
         "--json",
-        "--output",
-        "opengrep.json",
         "--max-target-bytes",
         str(MAX_TARGET_BYTES),
         "--timeout",
@@ -1003,19 +1063,82 @@ def run_opengrep(machine: Machine, work: Path, environment: dict[str, str]) -> d
     ]
     done    = subprocess.run(command, cwd = work, env = environment, capture_output = True, check = False)
     if done.returncode != 0:
-        # an error Opengrep may write to its JSON alone, saying nothing on either stream
+        # an error Opengrep may give in its JSON alone, saying nothing else on either stream
         said = tail(done.stderr or done.stdout)
         try:
-            errors = json.loads((work / "opengrep.json").read_text(encoding = "utf-8")).get("errors", [])
+            errors = json.loads(done.stdout.decode("utf-8")).get("errors", [])
             if errors:
                 said = " ".join(str(errors[0].get("message", said)).split())[:2 * SHOWN]
-        except (OSError, ValueError, IndexError, AttributeError):
+        except (UnicodeDecodeError, ValueError, IndexError, AttributeError):
             pass
         raise ToolFailure(f"Opengrep exited {done.returncode}, {said}")
     try:
-        return json.loads((work / "opengrep.json").read_text(encoding = "utf-8"))
-    except (OSError, ValueError) as error:
-        raise ToolFailure("Opengrep wrote no JSON the wrapper can read") from error
+        answer = json.loads(done.stdout.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as error:
+        raise ToolFailure("Opengrep answered with no JSON the wrapper can read") from error
+    if not isinstance(answer, dict):
+        raise ToolFailure("Opengrep answered with no JSON the wrapper can read")
+    return answer
+
+
+def unpacked(profile: Path) -> None:
+    """
+    Check Opengrep unpacked its runtime into this run's profile, so a run that took a runtime from anywhere else stops.
+
+    Args:
+        profile: this run's profile
+
+    Raises:
+        ToolFailure: when the profile holds no unpacked runtime
+    """
+    folder = profile / "AppData" / "Local" / "opengrep"
+    if not folder.is_dir() or not any(folder.rglob("*")):
+        raise ToolFailure(
+            f"Opengrep unpacked nothing into the run's own profile, {folder}, so where it ran from is " f"unknown",
+        )
+
+
+def written(work: Path) -> dict[str, str]:
+    """
+    Every file the wrapper gave the tools, the rules, the copied code and workflows and zizmor's configuration, by its
+    path under the run's folder, with its SHA-256.
+
+    Args:
+        work: this run's folder
+
+    Returns:
+        dict[str, str]: each file's SHA-256
+    """
+    found = {}
+    for part in ("rules", "tree", "workflows"):
+        for place, _folders, names in os.walk(work / part):
+            for name in names:
+                path = Path(place) / name
+                found[path.relative_to(work).as_posix()] = file_sha256(path)
+    if (work / "kdf_zizmor.yml").is_file():
+        found["kdf_zizmor.yml"] = file_sha256(work / "kdf_zizmor.yml")
+    return found
+
+
+def read_back(work: Path, given: Mapping[str, str]) -> None:
+    """
+    Read back what the tools were given once they exit, a tripwire for a process that changed a file while they ran,
+    never a fence, since such a process could change one and put it back (Round Table 59's L12).
+
+    Args:
+        work: this run's folder
+        given: written's answer before the tools ran
+
+    Raises:
+        ToolFailure: when a file was changed, added or removed
+    """
+    now   = written(work)
+    moved = sorted(path for path in set(given) | set(now) if given.get(path) != now.get(path))
+    if moved:
+        more = len(moved) - 1
+        raise ToolFailure(
+            f"{moved[0]} changed while the tools ran, and {more} more, so the scan cannot vouch for " f"what they read",
+        )
 
 
 def opengrep_findings(data: dict) -> tuple[list[Finding], set[str], list[tuple[str | None, str]]]:
@@ -2062,11 +2185,72 @@ def scan(
     Returns:
         int: the exit code, 0 to 4
     """
-    work = Path(tempfile.mkdtemp(prefix = "kdf-scan-"))
+    work = make_run()
     try:
         return _scan(machine, repo, out, at_commit, policy_at, base, work)
     finally:
-        shutil.rmtree(work, ignore_errors = True)
+        remove_run(work)
+
+
+def make_run() -> Path:
+    """
+    A run folder in the temp folder, marked as the wrapper's, after sweeping the folders older runs left.
+
+    Returns:
+        Path: the folder
+    """
+    temp = Path(tempfile.gettempdir())
+    sweep_runs(temp, time.time())
+    work = Path(tempfile.mkdtemp(prefix = RUN_PREFIX, dir = temp))
+    (work / RUN_MARKER).write_text(f"{os.getpid()}\n", encoding = "ascii")
+    return work
+
+
+def remove_run(work: Path) -> None:
+    """
+    Remove a run folder, a read only file made writable first, since a run's unpacked runtime is 289 MB, and leave what
+    still cannot go to the next run's sweep (Round Table 59's L17).
+
+    Args:
+        work: the folder
+    """
+    def writable(function: Callable[[str], object], path: str, _error: BaseException) -> None:
+        """
+        Make one path writable and try its removal again.
+
+        Args:
+            function: the removal that failed
+            path: its path
+            _error: why
+        """
+        try:
+            os.chmod(path, stat.S_IWRITE)
+            function(path)
+        except OSError:
+            pass
+
+
+    shutil.rmtree(work, onexc = writable)
+
+
+def sweep_runs(temp: Path, now: float) -> None:
+    """
+    Remove the run folders an earlier run left, each named as the wrapper names them, holding its marker and older
+    than a day, never a link or a junction.
+
+    Args:
+        temp: the temp folder
+        now: the time, in seconds since the epoch
+    """
+    for folder in temp.glob(f"{RUN_PREFIX}*"):
+        marker = folder / RUN_MARKER
+        try:
+            if folder.is_symlink() or folder.is_junction() or not folder.is_dir() or not marker.is_file():
+                continue
+            if now - marker.stat().st_mtime > STALE_RUNS:
+                remove_run(folder)
+        except OSError:
+            continue
 
 
 def choose(
@@ -2159,11 +2343,16 @@ def _scan(
         outcome.marks.append(f"bundle-{behind}")
     copy_tree(work / "tree", inventory.code, inventory)
     copy_tree(work / "workflows", inventory.workflows, inventory)
-    environment = tool_environment(machine.git, work / "temp")
+    profile     = private_profile(work)
+    environment = tool_environment(machine.git, work / "temp", profile)
     (work / "temp").mkdir()
+    given = written(work)
     try:
-        findings, scanned, errors = opengrep_findings(run_opengrep(machine, work, environment))
+        answer = run_opengrep(machine, work, environment)
+        unpacked(profile)
         found, completed = run_zizmor(machine, work, environment) if inventory.workflows else ([], set())
+        read_back(work, given)
+        findings, scanned, errors = opengrep_findings(answer)
         z_findings, at_main = zizmor_findings(found)
     except ToolFailure as failure:
         out.write(f"kdf-scan  {failure}\n")

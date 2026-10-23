@@ -11,9 +11,12 @@ The tests need git, which GitHub's runners and the owner's machines have.
 from __future__ import annotations
 
 import io
+import os
 import re
+import stat
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import distribute_scripts as ds
@@ -700,6 +703,75 @@ def test_workflows_zizmor_could_load_none_of_make_the_scan_incomplete_not_failed
     code, text = run(rig)
     assert code == 4, text
     assert last(text)["result"].startswith("INCOMPLETE"), text
+
+# ======================================================================================================================
+# what a run trusts while it lasts, Round Table 59
+# ======================================================================================================================
+
+def test_each_tool_gets_a_profile_of_the_runs_own_and_windows_folder_written_out(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Opengrep unpacks its engine and Python under the profile it is given, so the session's own is never one
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "the-sessions-profile"))
+    rig = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n", ".github/workflows/ci.yml": "name: CI\n"})
+    assert run(rig)[0] == 0
+    for call in rig.calls("opengrep") + rig.calls("zizmor"):
+        profile = Path(call["env"]["USERPROFILE"])
+        assert profile.name == "profile" and profile.parent == Path(call["env"]["TEMP"]).parent, call["env"]
+        assert call["env"]["SYSTEMROOT"] == SCAN.SYSTEM_ROOT
+        assert not profile.exists()
+    assert not (tmp_path / "the-sessions-profile").exists()
+
+
+def test_an_opengrep_that_unpacks_anywhere_but_the_runs_profile_ends_exit_3(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n"})
+    rig.set_scenario(opengrep_unpack_elsewhere = True)
+    code, text = run(rig)
+    assert code == 3 and "unpacked nothing into the run's own profile" in text, text
+
+
+def test_a_copied_file_changed_while_the_tools_ran_ends_exit_3(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, SCAN, {"src/app.py": "eval(x)  # VULN(eval-detected)\n"})
+    rig.set_scenario(opengrep_edits_tree = True)
+    code, text = run(rig)
+    assert code == 3 and "tree/src/app.py changed while the tools ran" in text, text
+
+
+def test_opengreps_answer_comes_from_its_stream_and_a_decoy_answer_file_changes_nothing(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, SCAN, {"src/app.py": "eval(x)  # VULN(eval-detected)\n"})
+    rig.set_scenario(opengrep_decoy_file = True)
+    code, text = run(rig)
+    assert code == 1 and re.search(r"FAIL\s+src/app\.py:1\s+eval-detected", text), text
+    assert "--output" not in rig.calls("opengrep")[0]["args"]
+
+
+def test_a_run_folder_goes_with_its_run_and_one_an_older_run_left_is_swept(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    temp = tmp_path / "temp"
+    temp.mkdir()
+    monkeypatch.setattr(SCAN.tempfile, "tempdir", str(temp))
+    old = time.time() - 2 * SCAN.STALE_RUNS
+    for name, marked, when in (
+        ("kdf-scan-stale", True, old),
+        ("kdf-scan-young", True, None),
+        ("kdf-scan-other", False, old),
+    ):
+        folder = temp / name
+        folder.mkdir()
+        (folder / "runtime.dll").write_bytes(b"left behind")
+        os.chmod(folder / "runtime.dll", stat.S_IREAD)
+        if marked:
+            (folder / SCAN.RUN_MARKER).write_text("1\n", encoding = "ascii")
+            if when:
+                os.utime(folder / SCAN.RUN_MARKER, (when, when))
+    rig = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n"})
+    assert run(rig)[0] == 0
+    assert sorted(path.name for path in temp.iterdir()) == ["kdf-scan-other", "kdf-scan-young"]
+    for name in ("kdf-scan-other", "kdf-scan-young"):
+        os.chmod(temp / name / "runtime.dll", stat.S_IWRITE)
 
 # ======================================================================================================================
 # the pins printed for the install, and kdf_zizmor.yml

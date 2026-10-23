@@ -11,8 +11,10 @@ None of the hostile cases may end CLEAN.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
+import zlib
 from pathlib import Path
 
 import pytest
@@ -80,6 +82,21 @@ class Pull:
                 f"zizmor 1.30.1 limits 0: CLEAN (exit 0)")
 
 
+    def compare(self) -> dict:
+        # GitHub's compare answer, read from the remote, or main's own when the head names no commit there
+        found = subprocess.run(
+            ["git", "-C", str(self.remote), "merge-base", self.main, self.head],
+            capture_output = True,
+            text = True,
+            check = False,
+        ).stdout.strip()
+        if not found:
+            return {"merge_base_commit": {"sha": self.main}, "ahead_by": 0, "behind_by": 0}
+        ahead  = git(self.remote, "rev-list", "--count", f"{self.main}..{self.head}")
+        behind = git(self.remote, "rev-list", "--count", f"{self.head}..{self.main}")
+        return {"merge_base_commit": {"sha": found}, "ahead_by": int(ahead), "behind_by": int(behind)}
+
+
     def run(self, repo: Path | None = None, link: str = LINK, fence = None) -> int:
         answers = {
             "repos/Needless2Say/kriegerdataforge-cicd/commits": [{"sha": COMMIT}],
@@ -90,6 +107,7 @@ class Pull:
                 "body": self.body,
             },
             "repos/Needless2Say/tenant/commits/main": {"sha": self.main},
+            "repos/Needless2Say/tenant/compare": self.compare(),
         }
         answers.update(self.answers)
         program(self.rig.tools / "gh.py", FAKE_GH)
@@ -100,7 +118,12 @@ class Pull:
             return self.rig.machine_for(wrapper, bundle = bundle.commit, files = bundle.files, root = root)
 
 
-        hooks = LAUNCHER.Hooks(machine = machine, gh = (str(PYTHON), str(self.rig.tools / "gh.py")), git = GIT)
+        hooks = LAUNCHER.Hooks(
+            machine = machine,
+            gh = (str(PYTHON), str(self.rig.tools / "gh.py")),
+            git = GIT,
+            remote = lambda project: self.remote.as_uri(),
+        )
         return LAUNCHER.main(
             ["--repo", str(repo or self.rig.repo), "--pr", link],
             root = self.rig.base,
@@ -196,7 +219,13 @@ def test_a_base_other_than_main_or_a_malformed_answer_is_refused(
     assert verify(pull, capsys)[0] == 2
 
 
-@pytest.mark.parametrize("link", ["https://github.com/Needless2Say/tenant/issues/1", "Needless2Say/tenant#1", ""])
+@pytest.mark.parametrize("link", [
+    "https://github.com/Needless2Say/tenant/issues/1",
+    "Needless2Say/tenant#1",
+    "",
+    "https://github.com/another-account/tenant/pull/1",
+    "https://github.com/Needless2Say/../pull/1",
+])
 def test_a_link_that_is_not_a_pull_request_is_refused(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -243,17 +272,83 @@ def test_a_replacement_ref_over_a_blob_and_a_commit_changes_nothing(
     assert code == 1, out
 
 
-def test_a_missing_object_in_a_partial_clone_is_incomplete(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def hashes(folder: Path) -> dict[str, str]:
+    return {
+        path.relative_to(folder).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(folder.rglob("*"))
+        if path.is_file()
+    }
+
+
+def hostile(pull: Pull, tmp_path: Path) -> Path:
+    """
+    Make the clone hostile, a hook that writes a marker on any ref change, the same hook through core.hooksPath, an
+    alternates file, and the head's vulnerable blob stored loose under its id with clean bytes, Round Table 59's L13.
+    """
+    marker = tmp_path / "hook-ran"
+    hook   = f"#!/bin/sh\necho ran > '{marker.as_posix()}'\n"
+    hooks  = tmp_path / "hooks"
+    hooks.mkdir()
+    for folder in (pull.rig.repo / ".git" / "hooks", hooks):
+        (folder / "reference-transaction").write_text(hook, encoding = "utf-8", newline = "\n")
+        (folder / "reference-transaction").chmod(0o755)
+    git(pull.rig.repo, "config", "core.hooksPath", str(hooks))
+    (pull.rig.repo / ".git" / "objects" / "info").mkdir(exist_ok = True)
+    (pull.rig.repo / ".git" / "objects" / "info" / "alternates").write_text(str(tmp_path / "donor"), encoding = "utf-8")
+    vulnerable = git(pull.rig.repo, "rev-parse", f"{pull.head}:src/app.py")
+    loose      = pull.rig.repo / ".git" / "objects" / vulnerable[:2] / vulnerable[2:]
+    clean      = b"print(1)\n"
+    loose.chmod(0o644)
+    loose.write_bytes(zlib.compress(b"blob %d\0" % len(clean) + clean))
+    return marker
+
+
+def test_a_hostile_clone_is_never_read_and_nothing_in_it_runs(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     pull = Pull(tmp_path)
     pull.open({"src/app.py": VULN})
-    partial = tmp_path / "partial"
-    subprocess.run(
-        ["git", "clone", "-q", "--filter=blob:none", "--no-checkout", pull.remote.as_uri(), str(partial)],
-        check = True,
-        capture_output = True,
-    )
-    code, out = verify(pull, capsys, repo = partial)
-    assert code == 4, out
+    marker = hostile(pull, tmp_path)
+    before = hashes(pull.rig.repo / ".git")
+    code, out = verify(pull, capsys)
+    assert code == 1 and "src/app.py:1" in out, out
+    assert not marker.exists(), "a hook of the clone ran inside the scan before a merge"
+    assert hashes(pull.rig.repo / ".git") == before
+    # the negative control, a fetch in that clone as the old verify made runs its hook, so the check above can fire
+    git(pull.rig.repo, "fetch", "-q", "origin", f"+refs/pull/1/head:{LAUNCHER.HEAD_REF}")
+    assert marker.exists()
+
+
+@pytest.mark.parametrize("compare", [
+    {"merge_base_commit": {"sha": "1" * 40}, "ahead_by": 1, "behind_by": 0},
+    {"merge_base_commit": {"sha": "not a commit"}, "ahead_by": 1, "behind_by": 0},
+    {"merge_base_commit": {}, "ahead_by": 1, "behind_by": 0},
+])
+def test_a_merge_base_the_fetch_cannot_reach_or_a_malformed_compare_is_refused(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    compare: dict,
+) -> None:
+    pull = Pull(tmp_path)
+    pull.open({"src/app.py": VULN})
+    pull.answers["repos/Needless2Say/tenant/compare"] = compare
+    code, out = verify(pull, capsys)
+    assert code == 2, out
+    assert pull.rig.calls("opengrep") == []
+
+
+def test_a_gh_that_names_an_older_clean_head_is_refused_by_gits_own_fetch(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    pull  = Pull(tmp_path)
+    clean = pull.open({"src/more.py": "print(2)\n"})
+    pull.open({"src/app.py": VULN})
+    pull.head = clean
+    code, out = verify(pull, capsys)
+    assert code == 2 and "git's own fetch from GitHub names another head" in out, out
+    assert pull.rig.calls("opengrep") == []
 
 
 def test_a_symlink_and_a_gitlink_at_the_head_are_incomplete(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

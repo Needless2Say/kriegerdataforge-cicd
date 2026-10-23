@@ -43,15 +43,19 @@ scenario = json.loads(SCENARIO.read_text(encoding = "utf-8")) if SCENARIO.exists
 args     = sys.argv[1:]
 with open(HERE / "calls.jsonl", "a", encoding = "utf-8") as log:
     log.write(json.dumps({"tool": "opengrep", "args": args, "cwd": os.getcwd(), "env": dict(os.environ)}) + "\n")
+# the real one unpacks its runtime under %USERPROFILE%\AppData\Local\opengrep\<version>, measured on 2026-10-22
+unpack = Path(os.environ.get("USERPROFILE", "no-profile")) / "AppData" / "Local" / "opengrep" / "v1.30.2"
+if not scenario.get("opengrep_unpack_elsewhere") and unpack.parent.parent.is_dir():
+    unpack.mkdir(parents = True, exist_ok = True)
+    (unpack / "python313.dll").write_bytes(b"a stand in's runtime")
 if scenario.get("opengrep_json_error"):
-    output = args[args.index("--output") + 1]
-    Path(output).write_text(json.dumps({"errors": [{"message": scenario["opengrep_json_error"]}]}), encoding = "utf-8")
+    print(json.dumps({"errors": [{"message": scenario["opengrep_json_error"]}]}))
     sys.exit(7)
 if scenario.get("opengrep_exit"):
     sys.exit(scenario["opengrep_exit"])
 assert args[0] == "scan", args
+assert "--output" not in args, "the wrapper reads Opengrep's answer from its output stream"
 configs = [args[index + 1] for index, arg in enumerate(args) if arg == "--config"]
-output  = args[args.index("--output") + 1]
 limit   = int(args[args.index("--max-target-bytes") + 1])
 target  = args[-1]
 rules   = {}
@@ -105,9 +109,15 @@ if scenario.get("opengrep_outside"):
     results.append(dict(results[0], path = "elsewhere\\x.py"))
 if scenario.get("opengrep_pathless_error"):
     errors.append({"code": 2, "level": "error", "type": "Rule parse error", "message": "a rule failed"})
+if scenario.get("opengrep_decoy_file"):
+    # an answer file the wrapper must never read, claiming nothing was found
+    Path("opengrep.json").write_text(json.dumps({"version": "1.30.2", "results": [], "errors": [],
+                                                 "paths": {"scanned": scanned}}), encoding = "utf-8")
+if scenario.get("opengrep_edits_tree"):
+    edited = next(file for file in sorted(Path(target).rglob("*.py")) if file.is_file())
+    edited.write_bytes(edited.read_bytes() + b"# changed while the tools ran\n")
 if not scenario.get("opengrep_no_json"):
-    Path(output).write_text(json.dumps({"version": "1.30.2", "results": results, "errors": errors,
-                                        "paths": {"scanned": scanned}}), encoding = "utf-8")
+    print(json.dumps({"version": "1.30.2", "results": results, "errors": errors, "paths": {"scanned": scanned}}))
 '''
 
 FAKE_ZIZMOR = r'''

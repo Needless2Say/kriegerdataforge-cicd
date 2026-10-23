@@ -4613,13 +4613,18 @@ at no cost, but only if nothing a branch can change decides what runs, or a bran
    process and UAC values that leave the folder open, checks the bundle's manifest and runs the wrapper's checked
    bytes, and every pin is checked before each run.
 3. The wrapper reads the repo's files from git, the working tree's or one commit's raw blobs, copies them into a fresh
-   folder and runs each tool there by full path with an environment of named variables. Opengrep runs with
+   folder and runs each tool there by full path with an environment of named variables, each value its own, the temp
+   folder and the profile the run's own, since Opengrep's Windows executable unpacks its engine and Python under the
+   profile it is given and reuses them. Opengrep's answer is read from its output stream, what the tools were given is
+   read back once they exit, and a change ends the run, exit 3. Opengrep runs with
    `--disable-nosem` and zizmor with `--no-ignores`, and the wrapper binds every marker itself at the finding's line,
    `nosemgrep: <rule> <reason>` or `zizmor: ignore[<audit>] <reason>`, one rule and a reason of three words or more. A
    file a tool did not read whole makes the scan incomplete, unless a recorded limit names that file's content.
 4. The last line names the commit, the tree's state, the bundle, the pins and the result, and goes into the pull
-   request whole. The launcher's `--pr` mode is the scan before a merge, at the head GitHub names, with the exclusions
-   of the base's `main`.
+   request whole. The launcher's `--pr` mode is the scan before a merge, run at every merge, at the head GitHub names,
+   with the exclusions of the base's `main`. It fetches the head and `main` into a fresh repository of its own, under
+   no inherited git configuration, `https` alone and `gh`'s credential helper, checks git's ids against `gh`'s and the
+   merge base against GitHub's, and never reads the session's clone. A link must name the owner's account.
 5. The owner installs from the elevated window of an account kept for installs, with `kdf-scan-install.sh` fetched at
    a commit of cicd's `main`. It runs itself again under `env -i`, every program by full path, holds every part to its
    pin, checks Opengrep's signature with cosign against its exact workflow identity, reads every owner before it
@@ -4636,8 +4641,10 @@ at no cost, but only if nothing a branch can change decides what runs, or a bran
 - *A CI lane.* Minutes on every push, where the machine's scan costs nothing.
 
 **Trade-offs.** The scan runs only where the owner installed it, so a pull request shows it ran by its pasted line, and
-a missing or stale line is answered by the verify mode before the merge. Taint is followed within a file. A moved pin
-is a cicd pull request and an install on each machine.
+the verify mode runs before every merge, whatever the line says. Taint is followed within a file. A moved pin is a
+cicd pull request and an install on each machine. A fresh unpack costs about 6 seconds a run. A process of the same
+account running while a scan lasts can still change the run's own folder, which the read back catches only when the
+change is left in place, a limit the design names and a later design may close with a second account.
 
 **Consequences.** Every repo gains `make scan`, a later kit release requires it before a pull request, and CodeQL stays
 where it is free. What reopens this is a scan that passes code it should have caught, or a way for a session to change

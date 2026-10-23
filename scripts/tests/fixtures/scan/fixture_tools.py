@@ -1,10 +1,12 @@
 """
 The installed tools run directly, design 5.9's last parts and the side agent's note of 2026-10-21. Opengrep runs as the
-wrapper runs it, its temp folder watched while it runs, then again with a temp folder already holding a poisoned file at
-every path the first run used, and once with an empty profile and once with a profile poisoned the same way, and each
-second run must find what the first found, while nothing of a scanner's outside the run changes, by size or time. A
-folder a tool finds through Windows rather than its environment, and reads without writing, is beyond a fixture, a
-process monitor's question. Each tool runs with every proxy variable pointed at a closed port and finishes. Two parts
+wrapper runs it, a temp folder and a profile of its own, its temp watched while it runs, then again with a temp folder
+already holding a poisoned file at every path the first run used, and the second run must find what the first found,
+while nothing of a scanner's outside the run changes, by size or time. A scan through the installed launcher leaves
+the session's profile as it was, where Opengrep unpacked its engine and Python before Round Table 59, the check shown
+to fire on a stand in profile given to Opengrep as the wrapper once gave the real one. A folder a tool finds through
+Windows rather than its environment, and reads without writing, is beyond a fixture, a process monitor's question.
+Each tool runs with every proxy variable pointed at a closed port and finishes. Two parts
 need the owner's hand and run only when asked. KDF_SCAN_OFFLINE=1 under the owner's outbound firewall rule on the two
 executables, where a registry fetch must fail first as the control. KDF_SCAN_WRITE_PROBE=1, an unelevated try at a file
 in the scan folder, which Windows must refuse, removed at once if it does not. The elevated window's refusal of
@@ -24,7 +26,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from scanfix import Machine, installed, lines, pin
+from scanfix import Machine, installed, lines, make_repo, pin, scan
 
 PRINT_RULE = (
     "rules:\n- id: every-print\n  languages: [python]\n  message: a print\n  severity: ERROR\n"
@@ -44,19 +46,6 @@ PROXIES    = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_pro
 TOOLISH    = re.compile(r"(?i)opengrep|semgrep|_MEI|ocaml")
 # bytes no loader, YAML reader or rule parser accepts
 POISON = b"\0KDF poisoned, never load this\xff\xfe\0"
-# the profile paths Opengrep's source names for its settings, log and caches, Semgrep_envvars.ml, and the like
-PLANTED = (
-    ".semgrep/settings.yml",
-    ".semgrep/semgrep.log",
-    ".semgrep/cache/rules",
-    ".opengrep/settings.yml",
-    ".opengrep/opengrep.log",
-    ".cache/semgrep/rules",
-    ".cache/opengrep/rules",
-    "AppData/Local/semgrep/rules",
-    "AppData/Local/opengrep/rules",
-    "AppData/Roaming/semgrep/settings.yml",
-)
 
 
 def opengrep(machine: Machine) -> Path:
@@ -69,15 +58,16 @@ def zizmor(machine: Machine) -> Path:
 
 def environment(temp: Path, **extra: str) -> dict[str, str]:
     """
-    The scanners' environment as the wrapper builds it, its own temp folder and nothing else of the session's.
+    The scanners' environment as the wrapper builds it, its own temp folder and profile and nothing of the session's.
     """
-    system = os.environ.get("SYSTEMROOT", "C:\\Windows")
+    profile = temp.parent / f"{temp.name}-profile"
+    (profile / "AppData" / "Local").mkdir(parents = True, exist_ok = True)
     return {
-        "SYSTEMROOT": system,
-        "PATH": os.pathsep.join([str(Path(system) / "System32"), system]),
+        "SYSTEMROOT": "C:\\Windows",
+        "PATH": os.pathsep.join(["C:\\Windows\\System32", "C:\\Windows"]),
         "TEMP": str(temp),
         "TMP": str(temp),
-        "USERPROFILE": os.environ.get("USERPROFILE", str(temp)),
+        "USERPROFILE": str(profile),
         "PYTHONUTF8": "1",
         "NO_COLOR": "1",
         **extra,
@@ -121,10 +111,19 @@ def run_opengrep(machine: Machine, folder: Path, temp: Path, **extra: str) -> su
     )
 
 
-def places() -> dict[str, Path]:
+def places(profile: Path | None = None) -> dict[str, Path]:
     """
-    Each place outside a run's own temp where a single file executable could unpack to or cache in, the session's.
+    Each place outside a run's own temp where a single file executable could unpack to or cache in, the session's, or
+    a stand in profile's own places when one is named.
     """
+    if profile is not None:
+        return {
+            "LOCALAPPDATA": profile / "AppData" / "Local",
+            "APPDATA": profile / "AppData" / "Roaming",
+            "~/.cache": profile / ".cache",
+            "~/.semgrep": profile / ".semgrep",
+            "~/.opengrep": profile / ".opengrep",
+        }
     profile = Path(os.environ.get("USERPROFILE", "."))
     return {
         "TEMP": Path(os.environ.get("TEMP", profile)),
@@ -149,13 +148,13 @@ def files(folder: Path) -> dict[str, int]:
     return found
 
 
-def outside() -> dict[str, tuple[int, int]]:
+def outside(profile: Path | None = None) -> dict[str, tuple[int, int]]:
     """
     Every file under each place's entries a scanner could own, a tool's name at the top or anything in its own dot
     folder, with its size and time, so a change inside an old cache shows as plainly as a new one.
     """
     found: dict[str, tuple[int, int]] = {}
-    for name, place in places().items():
+    for name, place in places(profile).items():
         entries = sorted(place.iterdir()) if place.is_dir() else []
         for entry in entries:
             if not (name in ("~/.semgrep", "~/.opengrep") or TOOLISH.search(entry.name)):
@@ -233,21 +232,24 @@ def test_opengrep_reuses_nothing_it_unpacked_or_left_in_a_temp_folder(tmp_path: 
     assert not changed, f"Opengrep changed files outside its run's temp, {changed}"
 
 
-def test_opengrep_reads_nothing_planted_in_its_profile(tmp_path: Path) -> None:
-    # USERPROFILE is the one name the wrapper passes that points at a place of the session's, so Opengrep runs once
-    # with an empty profile, watched, and once with a profile holding a poisoned file at every path it wrote and at
-    # each its source names for settings, logs and caches
+def test_a_scan_leaves_the_sessions_profile_as_it_was(tmp_path: Path) -> None:
+    # the installed launcher scans with a profile of the run's own, so nothing under the session's profile changes,
+    # Round Table 59's L8 and L13
     machine = installed()
-    fresh   = tmp_path / "profile-fresh"
-    with watching(fresh) as seen:
-        first = run_opengrep(machine, tmp_path / "one", tmp_path / "temp-one", USERPROFILE = str(fresh))
-    assert first.returncode == 0, first.stderr
-    print(f"FIXTURE-NOTE opengrep wrote into an empty profile: {sorted(seen)}")
-    planted = tmp_path / "profile-planted"
-    poison(planted, {**dict.fromkeys(PLANTED, 0), **seen})
-    second = run_opengrep(machine, tmp_path / "two", tmp_path / "temp-two", USERPROFILE = str(planted))
-    assert second.returncode == 0, f"a poisoned profile broke Opengrep, so it reads its profile, {second}"
-    assert findings(tmp_path / "two") == findings(tmp_path / "one") != []
+    repo    = make_repo(tmp_path / "repo", {"src/app.py": "print(1)\n"})
+    before  = outside()
+    result  = scan(machine, repo)
+    assert result.result == "CLEAN", result.text
+    changed = sorted(set(outside().items()) ^ set(before.items()))
+    assert not changed, f"a scan changed files under the session's profile, {changed[:10]}"
+    # the negative control, Opengrep given a stand in for the session's profile as the wrapper once gave the real one,
+    # which the same reading finds changed
+    stand_in = tmp_path / "session-profile"
+    (stand_in / "AppData" / "Local").mkdir(parents = True)
+    control = outside(stand_in)
+    done    = run_opengrep(machine, tmp_path / "control", tmp_path / "temp-control", USERPROFILE = str(stand_in))
+    assert done.returncode == 0, done.stderr
+    assert set(outside(stand_in).items()) != set(control.items()), "the reading cannot see Opengrep's unpack"
 
 
 def test_each_tool_finishes_with_every_proxy_pointed_at_a_closed_port(tmp_path: Path) -> None:

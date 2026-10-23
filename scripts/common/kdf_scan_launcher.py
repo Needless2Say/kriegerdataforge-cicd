@@ -12,10 +12,13 @@ Then it reads `current` once, checks every file of that bundle against the bundl
 missing one refused, and runs the wrapper from the very bytes it hashed, so the whole run rests on one bundle however
 `current` changes meanwhile. `--check` prints the installed tools, the Python, the rules, the bundle, the launcher and
 the folder's permission, and asks GitHub whether the bundle is behind cicd's main. `--pr <link>` is the scan before a
-merge and the reviewer's local gate. It asks GitHub for the pull request's head and its base's main, fetches both into
-a private ref and checks their ids, compares the pasted last line's commit with the head, reads `not_docs` and the
-exclusions at that main, skips the pull request only when the bundle's own ci_paths.py calls it docs only, and scans
-the head. Nothing in a writable checkout decides whether or what it scans. Standard library only.
+merge and the reviewer's local gate, run at every merge. It asks GitHub for the pull request's head, its base's main
+and their merge base, fetches each into a fresh repository of the run's own under a neutral git configuration, https
+alone and gh's own credential helper, checks git's ids against gh's and the merge base against GitHub's, compares the
+pasted last line's commit with the head, reads `not_docs` and the exclusions at that main, skips the pull request
+only when the bundle's own ci_paths.py calls it docs only, and scans the head. The session's clone, its objects,
+configuration and hooks, is never read. A process of the same account running while the scan lasts is the limit
+design section 10 names. Standard library only.
 """
 
 from __future__ import annotations
@@ -30,7 +33,7 @@ import stat
 import subprocess
 import sys
 import types
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Mapping, TextIO
 
@@ -79,12 +82,19 @@ SHOWN_PROBLEMS = 20
 # fetches into
 GH_PATHS = ("C:/Program Files/GitHub CLI/gh.exe",)
 CICD     = "Needless2Say/kriegerdataforge-cicd"
-PR_LINK  = re.compile(r"https://github\.com/(?P<owner>[A-Za-z0-9-]+)/(?P<repo>[A-Za-z0-9._-]+)/pull/(?P<number>\d+)")
+# a pull request of the owner's account alone, so a link pasted in a body can never point the gate at another's
+# (Round Table 59's L16), and a repo name that opens with no dot
+PR_LINK  = re.compile(
+    r"https://github\.com/(?P<owner>Needless2Say)/(?P<repo>[A-Za-z0-9_-][A-Za-z0-9._-]*)/pull/(?P<number>\d+)",
+)
 HEAD_REF = "refs/kdf-scan/verify/head"
 MAIN_REF = "refs/kdf-scan/verify/main"
 PASTED   = re.compile(r"kdf-scan (?P<commit>[0-9a-f]{7,40}) (?:clean-tree|dirty-tree|at-commit) ")
 NOT_DOCS = re.compile(r"(?P<indent>\s*)not_docs:\s*(?P<value>.*?)\s*")
 REFUSED  = f"kdf-scan {'-' * 12} REFUSED (exit 2)"
+# --repo is never read by --pr, and --at reads the clone's objects, a developer's tool and never a gate
+HELP_REPO = "the repo or clone, the current folder by default, never read by --pr"
+HELP_AT   = "scan this commit's tree in the clone with origin/main's policy, a developer's tool and never a gate"
 
 # ======================================================================================================================
 # The shapes
@@ -120,11 +130,12 @@ class Bundle:
 @dataclass(frozen = True)
 class Hooks:
     """
-    What a test replaces, how the machine is built, gh's command and git's path.
+    What a test replaces, how the machine is built, gh's command, git's path and the remote's address for a project.
     """
     machine: Callable | None = None
     gh:      tuple[str, ...] | None = None
     git:     str | None = None
+    remote:  Callable[[str], str] | None = None
 
 # ======================================================================================================================
 # The fence's tripwire, an elevated token and UAC's values
@@ -770,13 +781,14 @@ def verify(
     machine: object,
     bundle: Bundle,
     link: str,
-    repo: Path,
     gh_command: tuple[str, ...],
     out: TextIO,
+    remote: Callable[[str], str] | None = None,
 ) -> int:
     """
-    The scan before a merge, the head and main from GitHub, the pasted line compared, docs only by the bundle's own
-    ci_paths.py, and the head scanned with main's exclusions and limits.
+    The scan before a merge, the head, main and their merge base from GitHub, fetched into a fresh repository of the
+    run's own and never read from the session's clone, the pasted line compared, docs only by the bundle's own
+    ci_paths.py, and the head scanned with main's exclusions and limits (Round Table 59's L2, L9 and L10).
 
     Args:
         wrapper: the bundle's wrapper
@@ -784,9 +796,9 @@ def verify(
         machine: the machine
         bundle: the bundle
         link: the pull request's link
-        repo: the clone
         gh_command: gh's command
         out: where the report goes
+        remote: a test's address for a project, github.com's when None
 
     Returns:
         int: the scan's exit code, 0 for a docs only pull request, 2 for a refusal
@@ -824,33 +836,192 @@ def verify(
         return refuse(f"the pull request's base is {base}, and the scan before a merge reads main's policy")
     if not COMMIT.fullmatch(head) or not COMMIT.fullmatch(main):
         return refuse("GitHub's answer names no commit for the head or main")
-    git     = machine.git
-    fetched = wrapper.run_git(
+    try:
+        compared = gh_json(gh_command, f"repos/{project}/compare/{main}...{head}")
+        merged   = str(compared["merge_base_commit"]["sha"])
+        ahead    = int(compared["ahead_by"])
+        behind   = int(compared["behind_by"])
+    except (Refusal, KeyError, TypeError, ValueError) as error:
+        return refuse(f"GitHub could not name the merge base, {error}")
+    if not COMMIT.fullmatch(merged) or ahead < 0 or behind < 0:
+        return refuse("GitHub's compare answer names no merge base or a count below zero")
+    work = wrapper.make_run()
+    try:
+        wrapper.NEUTRAL_GIT = wrapper.neutral_git(machine.git, work)
+        fresh               = work / "repo.git"
+        (work / "template").mkdir()
+        if wrapper.run_git(
+            machine.git,
+            work,
+            "init",
+            "-q",
+            "--bare",
+            f"--template={work / 'template'}",
+            str(fresh),
+        ).returncode != 0:
+            return refuse("a fresh repository could not be made in the run's folder")
+        address = remote(project) if remote else f"https://github.com/{project}.git"
+        for ref, target, depth in (
+            (f"refs/pull/{number}/head", HEAD_REF, ahead + 1),
+            ("refs/heads/main", MAIN_REF, behind + 1),
+        ):
+            fetched = fetch(
+                wrapper,
+                machine.git,
+                fresh,
+                address,
+                f"+{ref}:{target}",
+                depth,
+                gh_command,
+                remote is not None,
+            )
+            if fetched.returncode != 0:
+                return refuse(f"the fetch of {ref} failed, {wrapper.tail(fetched.stderr)}")
+        # git's own answer from GitHub is the second leg, so a gh that names other commits is refused here
+        if wrapper.resolve(
+            machine.git,
+            fresh,
+            HEAD_REF,
+        ) != head or wrapper.resolve(machine.git, fresh, MAIN_REF) != main:
+            return refuse("git's own fetch from GitHub names another head or main than gh, so nothing vouches for it")
+        found = wrapper.run_git(machine.git, fresh, "merge-base", main, head)
+        if found.returncode != 0 or found.stdout.decode().strip() != merged:
+            return refuse("the fetched history does not reach the merge base GitHub names")
+        out.write(f"verify    {link} head {head[:12]} main {main[:12]} pasted {pasted(body, head)}\n")
+        return verify_fresh(
+            wrapper,
+            ci_paths,
+            replace(machine, cicd = None),
+            bundle,
+            fresh,
+            (head, main, merged),
+            out,
+            refuse,
+        )
+    finally:
+        wrapper.NEUTRAL_GIT = None
+        wrapper.remove_run(work)
+
+
+def fetch(
+    wrapper: types.ModuleType,
+    git: str,
+    fresh: Path,
+    address: str,
+    refspec: str,
+    depth: int,
+    gh_command: tuple[str, ...],
+    local: bool,
+) -> subprocess.CompletedProcess[bytes]:
+    """
+    One fetch into the fresh repository, https alone, no inherited credential helper, and gh's own helper by its full
+    path, so the token passes from gh to git and never through the launcher, measured on two private repos on
+    2026-10-23 (Round Table 59's L11).
+
+    Args:
+        wrapper: the bundle's wrapper, its NEUTRAL_GIT set
+        git: git's absolute path
+        fresh: the fresh repository
+        address: the remote's address
+        refspec: what to fetch and where it lands
+        depth: how many commits of history from the tip
+        gh_command: gh's command
+        local: a test's file address, which allows the file protocol and needs no credential
+
+    Returns:
+        subprocess.CompletedProcess[bytes]: the finished fetch, its status unchecked
+    """
+    helper  = "!" + " ".join(f"'{part}'" for part in gh_command) + " auth git-credential"
+    options = [
+        "-c",
+        "protocol.allow=never",
+        "-c",
+        "protocol.https.allow=always",
+        "-c",
+        "credential.helper=",
+        "-c",
+        f"credential.helper={helper}",
+        "-c",
+        "credential.interactive=never",
+    ]
+    if local:
+        options += ["-c", "protocol.file.allow=always"]
+    command = [
         git,
-        repo,
+        "--no-replace-objects",
+        *options,
+        "-C",
+        str(fresh),
         "fetch",
         "--no-tags",
         "--quiet",
         "--no-write-fetch-head",
-        "origin",
-        f"+refs/pull/{number}/head:{HEAD_REF}",
-        f"+refs/heads/main:{MAIN_REF}",
-    )
-    if fetched.returncode != 0:
-        return refuse(f"the fetch of the head and main failed, {wrapper.tail(fetched.stderr)}")
-    if wrapper.resolve(git, repo, HEAD_REF) != head or wrapper.resolve(git, repo, MAIN_REF) != main:
-        return refuse("the fetched head or main is not the commit GitHub names, so nothing here vouches for it")
-    out.write(f"verify    {link} head {head[:12]} main {main[:12]} pasted {pasted(body, head)}\n")
-    merged   = wrapper.run_git(git, repo, "merge-base", main, head).stdout.decode().strip()
-    changed  = wrapper.split_z(
-        wrapper.run_git(git, repo, "diff", "--name-only", "--no-renames", "-z", merged or main, head).stdout,
-    )
-    caller   = wrapper.blob_at(git, repo, main, ".github/workflows/ci.yml")
+        f"--depth={depth}",
+        address,
+        refspec,
+    ]
+    return subprocess.run(command, capture_output = True, env = git_environment_for_gh(wrapper), check = False)
+
+
+def git_environment_for_gh(wrapper: types.ModuleType) -> dict[str, str]:
+    """
+    The neutral git environment the wrapper set, with the names gh's helper needs to find its own login, and gh's
+    tokens when the caller set them, as gh_json passes them.
+
+    Args:
+        wrapper: the bundle's wrapper, its NEUTRAL_GIT set
+
+    Returns:
+        dict[str, str]: the environment
+    """
+    environment = wrapper.git_environment()
+    for name in ("APPDATA", "LOCALAPPDATA", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "GH_TOKEN", "GITHUB_TOKEN"):
+        if os.environ.get(name):
+            environment[name] = os.environ[name]
+    environment.update({"GH_HOST": "github.com", "GH_PROMPT_DISABLED": "1", "GH_NO_UPDATE_NOTIFIER": "1"})
+    return environment
+
+
+def verify_fresh(
+    wrapper: types.ModuleType,
+    ci_paths: types.ModuleType,
+    machine: object,
+    bundle: Bundle,
+    fresh: Path,
+    commits: tuple[str, str, str],
+    out: TextIO,
+    refuse: Callable[[str], int],
+) -> int:
+    """
+    The docs only answer and the scan, each read from the fresh repository, a failed read refused.
+
+    Args:
+        wrapper: the bundle's wrapper
+        ci_paths: the bundle's ci_paths.py
+        machine: the machine, with no cicd clone
+        bundle: the bundle
+        fresh: the fresh repository
+        commits: the head, main and their merge base
+        out: where the report goes
+        refuse: how a refusal is printed
+
+    Returns:
+        int: the scan's exit code
+    """
+    head, main, merged = commits
+    git    = machine.git
+    listed = wrapper.run_git(git, fresh, "diff", "--name-only", "--no-renames", "-z", merged, head)
+    if listed.returncode != 0:
+        return refuse(f"git could not list the pull request's changes, {wrapper.tail(listed.stderr)}")
+    changed  = wrapper.split_z(listed.stdout)
+    caller   = wrapper.blob_at(git, fresh, main, ".github/workflows/ci.yml")
     patterns = read_not_docs(caller.decode("utf-8", "replace")) if caller else None
     if patterns is not None:
-        tracked = wrapper.split_z(wrapper.run_git(git, repo, "ls-tree", "-r", "-z", "--name-only", main).stdout)
+        tree = wrapper.run_git(git, fresh, "ls-tree", "-r", "-z", "--name-only", main)
+        if tree.returncode != 0:
+            return refuse(f"git could not list main's tree, {wrapper.tail(tree.stderr)}")
         try:
-            ci_paths.check_not_docs(patterns, tracked)
+            ci_paths.check_not_docs(patterns, wrapper.split_z(tree.stdout))
             docs = ci_paths.docs_only(changed, patterns)
         except ValueError:
             docs = False
@@ -858,7 +1029,7 @@ def verify(
             out.write(f"verify    docs only by the bundle's ci_paths.py, {len(changed)} paths, nothing to scan\n")
             out.write(f"kdf-scan {head[:12]} verify bundle {bundle.commit[:12]}: DOCS-ONLY (exit 0)\n")
             return 0
-    return wrapper.scan(machine, repo, out = out, at_commit = head, policy_at = main, base = main)
+    return wrapper.scan(machine, fresh, out = out, at_commit = head, policy_at = main, base = main)
 
 # ======================================================================================================================
 # The CLI
@@ -911,8 +1082,15 @@ def main(
         print(REFUSED)
         return 2
     parser = argparse.ArgumentParser(prog = LAUNCHER, description = "The local code scan (cicd D-085).")
-    parser.add_argument("--repo", default = ".", help = "the repo or clone, the current folder by default")
-    parser.add_argument("--at", help = "scan this commit's tree, with origin/main's exclusions and limits")
+    parser.add_argument(
+        "--repo",
+        default = ".",
+        help = HELP_REPO,
+    )
+    parser.add_argument(
+        "--at",
+        help = HELP_AT,
+    )
     parser.add_argument("--check", action = "store_true", help = "check the installed machine and print it")
     parser.add_argument("--pr", help = "the scan before a merge, at the pull request's head")
     args  = parser.parse_args(argv)
@@ -940,7 +1118,7 @@ def main(
         return check(wrapper, machine, bundle, root, platform or windows_platform(), command, sys.stdout)
     if args.pr is not None:
         ci_paths = load_module("ci_paths_installed", bundle, "ci_paths.py")
-        return verify(wrapper, ci_paths, machine, bundle, args.pr, repo, command, sys.stdout)
+        return verify(wrapper, ci_paths, machine, bundle, args.pr, command, sys.stdout, remote = hooks.remote)
     return wrapper.scan(machine, repo, out = sys.stdout, at_commit = args.at)
 
 

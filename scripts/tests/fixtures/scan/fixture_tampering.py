@@ -25,8 +25,9 @@ PRINT_RULE = (
     "rules:\n- id: every-print\n  languages: [python]\n  message: a print\n  severity: ERROR\n"
     "  metadata:\n    category: security\n    confidence: HIGH\n  pattern: print(...)\n"
 )
-# the right OpenProcess grants to hold and release a process
+# the right OpenProcess grants to hold and release a process, and the snapshot of every process
 SUSPEND_RESUME = 0x0800
+SNAP_PROCESSES = 0x0002
 
 
 @pytest.fixture(scope = "module")
@@ -139,18 +140,63 @@ def held(pid: int) -> Iterator[None]:
         kernel.CloseHandle(handle)
 
 
-def scanning(temp: Path, running: subprocess.Popen[bytes]) -> Path:
+def children(pid: int) -> list[str]:
     """
-    The wrapper's run folder once its tools' temp folder is there, made after the launcher read current and checked the
-    bundle, and the wrapper checked the pins and the rules, just before Opengrep starts.
+    The program names of a process's children, read from Windows' snapshot of every process.
+    """
+    from ctypes import wintypes
+
+
+    class Entry(ctypes.Structure):
+        """
+        One process in the snapshot, PROCESSENTRY32W.
+        """
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ProcessID", wintypes.DWORD),
+            ("th32DefaultHeapID", ctypes.c_size_t),
+            ("th32ModuleID", wintypes.DWORD),
+            ("cntThreads", wintypes.DWORD),
+            ("th32ParentProcessID", wintypes.DWORD),
+            ("pcPriClassBase", ctypes.c_long),
+            ("dwFlags", wintypes.DWORD),
+            ("szExeFile", ctypes.c_wchar * 260),
+        ]
+
+
+    kernel                                   = ctypes.WinDLL("kernel32", use_last_error = True)
+    kernel.CreateToolhelp32Snapshot.restype  = ctypes.c_void_p
+    kernel.CreateToolhelp32Snapshot.argtypes = (wintypes.DWORD, wintypes.DWORD)
+    kernel.Process32FirstW.argtypes          = (ctypes.c_void_p, ctypes.POINTER(Entry))
+    kernel.Process32NextW.argtypes           = (ctypes.c_void_p, ctypes.POINTER(Entry))
+    kernel.CloseHandle.argtypes              = (ctypes.c_void_p,)
+    snapshot                                 = kernel.CreateToolhelp32Snapshot(SNAP_PROCESSES, 0)
+    entry                                    = Entry()
+    entry.dwSize                             = ctypes.sizeof(entry)
+    names                                    = []
+    try:
+        more = kernel.Process32FirstW(snapshot, ctypes.byref(entry))
+        while more:
+            if entry.th32ParentProcessID == pid:
+                names.append(entry.szExeFile.lower())
+            more = kernel.Process32NextW(snapshot, ctypes.byref(entry))
+    finally:
+        kernel.CloseHandle(snapshot)
+    return names
+
+
+def scanning(running: subprocess.Popen[bytes]) -> None:
+    """
+    Wait until the launcher runs Opengrep, after it read current and checked the bundle, and the wrapper checked the
+    pins and the rules, while Opengrep's answer is still its own.
     """
     deadline = time.monotonic() + 600
     while time.monotonic() < deadline and running.poll() is None:
-        for work in temp.glob("kdf-scan-*"):
-            if (work / "temp").is_dir():
-                return work
+        if "opengrep.exe" in children(running.pid):
+            return
         time.sleep(0.01)
-    pytest.fail("the scan ended or stalled before its tools started, so no replacement could fall inside it")
+    pytest.fail("the scan ended or stalled before Opengrep started, so no replacement could fall inside it")
 
 
 def test_current_replaced_while_a_scan_runs_leaves_the_scan_on_its_own_bundle(
@@ -173,9 +219,10 @@ def test_current_replaced_while_a_scan_runs_leaves_the_scan_on_its_own_bundle(
         stderr = subprocess.STDOUT,
     )
     try:
-        work = scanning(temp, running)
+        scanning(running)
         with held(running.pid):
-            inside = running.poll() is None and (work / "temp").is_dir() and not (work / "opengrep.json").exists()
+            # Opengrep still running as the launcher's child, so its answer is unread and the last line unwritten
+            inside = running.poll() is None and "opengrep.exe" in children(running.pid)
             assert inside, "the scan read Opengrep's answer before it was held, so the replacement fell outside it"
             current.write_text("e" * 40 + "\n", encoding = "ascii")
         output, _ = running.communicate(timeout = 900)
