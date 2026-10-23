@@ -159,11 +159,17 @@ EXPRESSION_WORDS = frozenset({
     "return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw", "case", "do", "else", "yield",
     "await",
 })
-BLOCK_HEADER     = re.compile(r"[|>][0-9+-]{0,2}(?:[ \t]+(?P<comment>#.*)?)?$")
-DOCUMENT         = re.compile(r"---(?:[ \t]|$)")
-PROPERTY         = re.compile(r"[&!][^ \t]*")
-YAML_SUFFIXES    = (".yml", ".yaml")
-UNREADABLE       = "its comments could not be read whole, so no marker in it counts"
+# the words whose parenthesis a statement follows, and the marker words a slash after a brace must not leave unread
+CONTROL_WORDS = frozenset({"if", "while", "for", "with"})
+MARKER_HINT   = re.compile(r"(?i)nosem|noopengrep|zizmor")
+# a line break JavaScript or YAML honours where git's lines do not, which shifts a comment's end, so a file holding one
+# has its markers refused (Codex's read of fd624a6)
+ODD_BREAK     = re.compile("\r(?!\n)|[  \u0085]")
+BLOCK_HEADER  = re.compile(r"[|>][0-9+-]{0,2}(?:[ \t]+(?P<comment>#.*)?)?$")
+DOCUMENT      = re.compile(r"---(?:[ \t]|$)")
+PROPERTY      = re.compile(r"[&!][^ \t]*")
+YAML_SUFFIXES = (".yml", ".yaml")
+UNREADABLE    = "its comments could not be read whole, so no marker in it counts"
 # a hunk's header in a diff with no context, whose new side gives the lines the branch changed
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,(?P<count>\d+))? @@", re.MULTILINE)
 # what Opengrep and zizmor are given, Semgrep's defaults written out, zizmor's codes for its findings, and whether it
@@ -509,12 +515,15 @@ def read_blobs(git: str, repo: Path, oids: list[str]) -> dict[str, bytes | None]
         dict[str, bytes | None]: each blob, None when it is missing or not a blob
 
     Raises:
-        Refusal: when git's answer cannot be read
+        Refusal: when git fails, or its answer is cut short, malformed or longer than the ids asked
     """
     unique = list(dict.fromkeys(oids))
     if not unique:
         return {}
-    output   = run_git(git, repo, "cat-file", "--batch", stdin = "".join(f"{oid}\n" for oid in unique).encode()).stdout
+    done = run_git(git, repo, "cat-file", "--batch", stdin = "".join(f"{oid}\n" for oid in unique).encode())
+    if done.returncode != 0:
+        raise Refusal(f"git cat-file failed, {tail(done.stderr)}")
+    output   = done.stdout
     found    = {}
     position = 0
     for oid in unique:
@@ -526,11 +535,16 @@ def read_blobs(git: str, repo: Path, oids: list[str]) -> dict[str, bytes | None]
         if len(header) == 2 and header[1] == "missing":
             found[oid] = None
             continue
-        if len(header) != 3 or header[0] != oid:
+        if len(header) != 3 or header[0] != oid or not header[2].isdigit():
             raise Refusal("git cat-file's answer could not be read")
+        # every body whole, its declared length and the line feed after it, so a cut answer never reads as a short file
         size = int(header[2])
+        if output[position + size:position + size + 1] != b"\n":
+            raise Refusal(f"git cat-file's answer for {oid[:12]} was cut short")
         found[oid] = output[position:position + size] if header[1] == "blob" else None
         position  += size + 1
+    if position != len(output):
+        raise Refusal("git cat-file answered more than it was asked")
     return found
 
 
@@ -1449,7 +1463,10 @@ def script_comments(text: str, jsx: bool) -> list[tuple[int, int]]:
     """
     spans: list[tuple[int, int]] = []
     stack: list[list] = [["code", 0]]
+    # each open parenthesis, whether a control word opened it, so its close lets a regular expression follow
+    parens: list[bool] = []
     expression, dotted, index, size = True, False, 0, len(text)
+    word, after_brace = "", False
     if text.startswith("#!"):
         index = text.find("\n") if "\n" in text else size
     while index < size:
@@ -1496,6 +1513,7 @@ def script_comments(text: str, jsx: bool) -> list[tuple[int, int]]:
             spans.append((index, end + 2))
             index = end + 2
             continue
+        this_word = ""
         if char in "'\"":
             index, expression = string_end(text, index), False
         elif char == "`":
@@ -1503,6 +1521,21 @@ def script_comments(text: str, jsx: bool) -> list[tuple[int, int]]:
             index += 1
         elif char == "/" and expression:
             index, expression = regex_end(text, index), False
+        elif char == "/":
+            # after a block's closing brace a slash may open a regular expression the reader takes for a division, so
+            # marker words later on that line refuse the file rather than be read either way
+            line_end = text.find("\n", index)
+            line_end = size if line_end < 0 else line_end
+            if after_brace and MARKER_HINT.search(text, index, line_end):
+                raise Unreadable("a slash after a closing brace may open a regular expression holding marker words")
+            index, expression = index + 1, True
+        elif char == "(":
+            parens.append(word in CONTROL_WORDS)
+            index, expression = index + 1, True
+        elif char == ")":
+            if not parens:
+                raise Unreadable("a closing parenthesis with no opening one")
+            index, expression = index + 1, parens.pop()
         elif char == "<" and jsx and expression and (following.isalpha() or following in ("_", "$", ">")):
             stack.append(["tag", False])
             index += 1
@@ -1522,15 +1555,16 @@ def script_comments(text: str, jsx: bool) -> list[tuple[int, int]]:
             while end < size and (text[end].isalnum() or text[end] in "_$\\"):
                 end += 1
             expression = not dotted and text[index:end] in EXPRESSION_WORDS
+            this_word  = "" if dotted else text[index:end]
             index      = end
-        elif char in ")]":
+        elif char == "]":
             index, expression = index + 1, False
         elif char + following in ("++", "--"):
             index, expression = index + 2, False
         else:
             index, expression = index + 1, True
-        dotted = char == "."
-    if stack != [["code", 0]]:
+        word, dotted, after_brace = this_word, char == ".", char == "}"
+    if stack != [["code", 0]] or parens:
         raise Unreadable("the file ends inside a template, an element or a bracket")
     return spans
 
@@ -1629,6 +1663,8 @@ def comment_spans(path: str, text: str) -> list[tuple[int, int]] | None:
     language = LANGUAGES.get(suffix)
     if language == "python":
         return python_comments(text)
+    if (language or suffix in YAML_SUFFIXES) and ODD_BREAK.search(text):
+        raise Unreadable("a carriage return alone or a Unicode line separator, a line break git does not count")
     if language:
         return script_comments(text, jsx = suffix != ".ts")
     return yaml_comments(text) if suffix in YAML_SUFFIXES else None

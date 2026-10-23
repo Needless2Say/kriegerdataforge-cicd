@@ -19,7 +19,8 @@ REASON     = "the command is a constant"
 SHELL_FILE = "import subprocess\n\n\ndef run(command):\n{line}\n"
 JWT_LINE   = '  return jwt.sign(claims, "a-fixture-secret");'
 HMAC_LINE  = '  return crypto.createHmac("sha256", "a-fixture-key").update(body).digest("hex");'
-# each file, its text, whether it must accept its finding, and the words its bad marker must carry, None for none
+# each file, its text, whether it must accept its finding, and the words its bad marker must carry, None for a file
+# whose marker text is no marker at all
 OPENGREP  = {
     "src/end_of_line.py": (SHELL_FILE.format(line = f"    return {SHELL}  # nosemgrep: {RULE} {REASON}"), True, None),
     "src/line_above.py": (
@@ -106,6 +107,20 @@ OPENGREP  = {
             "module.exports = { sign };",
         ),
         True,
+        None,
+    ),
+    # marker text inside a regular expression after a control header, no comment at all, Codex's read of fd624a6
+    "src/regex_after_if.js": (
+        lines(
+            'const crypto = require("crypto");',
+            "",
+            "function sign(body) {",
+            f'{HMAC_LINE} if (true) /[ // nosemgrep: hardcoded-hmac-key the key signs fixture data]/.test("x");',
+            "}",
+            "",
+            "module.exports = { sign };",
+        ),
+        False,
         None,
     ),
     "vendor/copied.py": (
@@ -197,6 +212,10 @@ def test_each_opengrep_marker_binds_only_in_its_one_good_form(marked: tuple, pat
     if accepts:
         assert accepted and not flagged, (path, result.text)
         assert not {rule for where, rule in result.fails() if where == path}, result.text
+    elif bad is None:
+        # text that is no marker at all, so nothing is accepted, nothing flagged, and the finding fails
+        assert not accepted and not flagged, (path, result.text)
+        assert {rule for where, rule in result.fails() if where == path}, (path, result.text)
     else:
         assert not accepted, (path, result.text)
         assert any(bad in why for why in flagged), (path, flagged, result.text)

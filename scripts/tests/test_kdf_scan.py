@@ -48,6 +48,8 @@ LAST = re.compile(
 ACCEPT  = "  # nosemgrep: eval-detected the input is a module constant"
 GOOD_OG = "nosemgrep: rule-x the input is constant"
 GOOD_ZZ = "zizmor: ignore[template-injection] a caller sets this"
+# an object id for git cat-file's answers
+OID = "a" * 40
 # the address uv 0.13.1's download metadata names for CPython 3.14.7 on Windows, read on 2026-10-21
 UV_PYTHON_URL = (
     "https://github.com/astral-sh/python-build-standalone/releases/download/20260929/"
@@ -439,6 +441,9 @@ def test_without_no_ignores_every_zizmor_marker_is_refused(tmp_path: Path, monke
     ("a.tsx", f"const e = (\n  <p>\n    {{/* {GOOD_OG} */}}\n    <b>don't</b>\n  </p>\n);\n", [3]),
     ("a.jsx", f"const e = <a href=\"http://x.y/'z\" {{...p}}>x</a>; // {GOOD_OG}\n", [1]),
     ("a.mjs", f"#!/usr/bin/env node\nreturn /'/.test(s); // {GOOD_OG}\n", [2]),
+    ("a.js", f"x(); if (true) /[ // {GOOD_OG}]/.test(\"x\");\n", []),
+    ("a.js", f"while (a) /[ // {GOOD_OG}]/.test(\"x\");\n", []),
+    ("a.js", f"const r = f(a) / 2; // {GOOD_OG}\n", [1]),
     ("a.yml", f"jobs:\n  a:\n    steps:\n      - run: |\n          # {GOOD_ZZ}\n          echo\n", []),
     ("a.yml", f"steps:\n  - |\n    # {GOOD_ZZ}\n", []),
     ("a.yml", f"      - run: |  # {GOOD_ZZ}\n          echo\n", [1]),
@@ -465,12 +470,45 @@ def test_a_marker_counts_only_inside_a_comment_its_reader_finds(path: str, text:
     ("a.js", f"/* {GOOD_OG}\n"),
     ("a.tsx", f"const f = <T,>(x: T) => x; // {GOOD_OG}\n"),
     ("a.js", f"}} // {GOOD_OG}\n"),
+    # Codex's read of fd624a6, a regular expression after a control header, a slash after a block's brace, and line
+    # breaks JavaScript honours where git does not, each refused or read right
+    ("a.js", f"x(); // ordinary\rconst note = \"# {GOOD_OG}\";\n"),
+    ("a.js", f"x(); // ordinary const note = \"# {GOOD_OG}\";\n"),
+    ("a.js", f"x(); // ordinary const note = \"# {GOOD_OG}\";\n"),
+    ("a.yml", f"a: 1 # ordinary\rb: \"# {GOOD_ZZ}\"\n"),
+    ("a.js", f"function f() {{}}\n/[ // {GOOD_OG}]/.test(s);\n"),
+    ("a.js", f"f((a) // {GOOD_OG}\n"),
     ("a.yml", f'a: "b\n# {GOOD_ZZ}\n'),
     ("a.yml", f"a: [b,\n# {GOOD_ZZ}\n"),
 ])
 def test_a_file_whose_comments_cannot_be_read_whole_has_every_marker_refused(path: str, text: str) -> None:
     markers = SCAN.find_markers(path, text.encode("utf-8"))
     assert markers and all(SCAN.UNREADABLE in marker.bad for marker in markers), [vars(m) for m in markers]
+
+
+@pytest.mark.parametrize(("code", "stdout", "words"), [
+    (128, f"{OID} blob 200\nprint(1)\n".encode(), "cat-file failed"),
+    (0, f"{OID} blob 200\nprint(1)\n".encode(), "cut short"),
+    (0, f"{OID} blob 9\nprint(1)\n\nmore".encode(), "more than it was asked"),
+    (0, f"{OID} blob nine\nprint(1)\n\n".encode(), "could not be read"),
+])
+def test_a_cat_file_answer_that_failed_or_was_cut_is_refused_never_read_short(
+    monkeypatch: pytest.MonkeyPatch,
+    code: int,
+    stdout: bytes,
+    words: str,
+) -> None:
+    # Codex's read of fd624a6, a final blob cut mid body read as a whole short file
+    done = subprocess.CompletedProcess([], code, stdout = stdout, stderr = b"fatal: interrupted")
+    monkeypatch.setattr(SCAN, "run_git", lambda *args, **kwargs: done)
+    with pytest.raises(SCAN.Refusal, match = words):
+        SCAN.read_blobs("git", Path("."), [OID])
+
+
+def test_a_whole_cat_file_answer_is_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    done = subprocess.CompletedProcess([], 0, stdout = f"{OID} blob 9\nprint(1)\n\n".encode(), stderr = b"")
+    monkeypatch.setattr(SCAN, "run_git", lambda *args, **kwargs: done)
+    assert SCAN.read_blobs("git", Path("."), [OID]) == {OID: b"print(1)\n"}
 
 
 def test_marker_text_in_a_string_accepts_nothing(tmp_path: Path) -> None:
