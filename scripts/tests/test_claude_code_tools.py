@@ -1494,7 +1494,8 @@ def test_the_fifth_retrospective_s_changes_are_in_the_kit() -> None:
         "session drafts the dispatches and their bundles and publishes the page, section 2.",
         "every yes or unsure call of a later finding that does not name the pin.",
         "`<PFX>_REVIEW_<slice>_RETRO.md`, from the supporting session's draft where there is one, from",
-        "and every commit hash in the brief that resolves to no commit, in the repo or a clone beside it,",
+        "a commit hash in the commit paragraph that resolves to no commit, in the repo or a clone beside it,",
+        "and warns of an unresolved hash elsewhere, where a digest or a sibling not yet pulled can stand.",
         "every path to the same consumer, a builtin's subclass, and a closed set and its authority.",
         "its fourth the next four, and its fifth the last three.",
         "since v1.27.0 the fifth retrospective's changes",
@@ -2708,9 +2709,10 @@ def _head(repo: Path) -> str:
 def test_the_brief_tool_resolves_every_commit_hash_the_brief_names(rig: Rig) -> None:
     """
     Every hash the brief names is read, in its commit paragraph, a fixes table, a command span and a fenced block, and
-    a sibling clone's commit passes. One that names no commit anywhere is refused with its line, wherever it stands,
-    and so is a brief with a scope table and no commit paragraph, and a brief with no scope table is still read. A run
-    of digits is a number.
+    a sibling clone's commit passes. One that names no commit is refused in the commit paragraph and warned of
+    elsewhere, where a digest or a sibling not yet pulled can stand, so it never stops a launch there. A run id's tail
+    is no hash, a run of digits is a number, a brief with a scope table and no commit paragraph is refused, and a
+    brief with no scope table is still read.
     """
     sibling = rig.tmp / "sibling"
     sibling.mkdir()
@@ -2727,6 +2729,7 @@ def test_the_brief_tool_resolves_every_commit_hash_the_brief_names(rig: Rig) -> 
     brief = rig.tmp / "brief.md"
     good  = (
         f"**The commit.** The pin sits on `{own[:10]}`.\n\n"
+        "**The stopping rule.** Every finding carries Blocks.\n\n"
         "| Files | Lines |\n| --- | --- |\n| `src/app.py` | 1 |\n\n"
         f"| Fix | Landed |\n| --- | --- |\n| 1 | `{own[:7]}` |\n\n"
         f"Run `git diff --stat {own[:12]} HEAD`.\n\n"
@@ -2739,9 +2742,22 @@ def test_the_brief_tool_resolves_every_commit_hash_the_brief_names(rig: Rig) -> 
     assert "kdf-brief: every commit hash in the brief resolves, 6 read" in passed.stdout
 
     brief.write_text(good + "A slip names `deadbee`.\n", encoding = "utf-8", newline = "\n")
-    slipped = _brief_tool(rig, "check", brief.as_posix())
-    assert slipped.returncode == 1
-    assert "NO COMMIT deadbee at line 18, in the repo or a clone beside it" in slipped.stdout
+    warned = _brief_tool(rig, "check", brief.as_posix())
+    assert warned.returncode == 0, warned.stdout
+    assert "WARNING deadbee at line 20 names no commit in the repo or a clone beside it" in warned.stdout
+
+    slip = good.replace(f"`{own[:10]}`", "`deadbee`")
+    brief.write_text(slip, encoding = "utf-8", newline = "\n")
+    refused = _brief_tool(rig, "check", brief.as_posix())
+    assert refused.returncode == 1
+    assert "NO COMMIT deadbee at line 1, in the commit paragraph, in the repo or a clone beside it" in refused.stdout
+
+    others = "A run `20261023-143106-7ecf4cae` and a digest `877154fb05c9b57a`.\n"
+    brief.write_text(good + others, encoding = "utf-8", newline = "\n")
+    values = _brief_tool(rig, "check", brief.as_posix())
+    assert values.returncode == 0, values.stdout
+    assert "7ecf4cae" not in values.stdout, "a run id's tail was read as a hash"
+    assert "WARNING 877154fb05c9b57a at line 20" in values.stdout
 
     brief.write_text(good.replace("**The commit.**", "The commit."), encoding = "utf-8", newline = "\n")
     unheaded = _brief_tool(rig, "check", brief.as_posix())
@@ -2750,7 +2766,8 @@ def test_the_brief_tool_resolves_every_commit_hash_the_brief_names(rig: Rig) -> 
 
     brief.write_text("A brief with `deadbee` alone.\n", encoding = "utf-8", newline = "\n")
     untabled = _brief_tool(rig, "check", brief.as_posix())
-    assert untabled.returncode == 1
+    assert untabled.returncode == 0, untabled.stdout
+    assert "WARNING deadbee at line 1" in untabled.stdout
     assert "nothing more to check" in untabled.stdout
 
 

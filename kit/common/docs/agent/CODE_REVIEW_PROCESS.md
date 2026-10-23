@@ -592,7 +592,7 @@ So the rules of section 5 are enforced by machinery and not left to instruction.
 | A second shell bypasses a rule for the first | The PowerShell tool is denied and Git Bash is the default shell. The guard still reads PowerShell commands |
 | A session leaks or changes a secret | The env standard keeps every credential in `.env.kdf`, which is closed, and only local values in `.env.local`, which is open. No session reads, writes, copies, sources or passes a secret file, every `.env` file except the examples and an adopted repo's `.env.local`, which is closed only while it holds a credential, an untracked `.tfvars`, `.pem` and `keys/`, in the shell or to Read, Grep, Edit and Write. Only a check that one exists is allowed, and the owner's `.env.dev` and `.env.prod` are never touched. Every model is told the same, `AGENT_ROLES.md` rules 5 and 6. Codex on the owner's machine keeps that by instruction alone, since its sandbox limits writes, not reads. Codex in the cloud reads GitHub, where no ignored file exists |
 | A reviewer reads what `.gitignore` excludes | The guard refuses a Claude reviewer's Read, Grep, Glob and shell reads of a path git ignores, a recursive `grep`, `rg -u` and `git grep --no-index`. Glob still lists ignored names, which hold no value. Codex keeps rule 6 by instruction |
-| A brief states stale line counts, a commit that does not exist, or a pin nobody else can read | `--pin` refuses a pin no branch of origin holds, and `kdf-brief.js check` refuses a scope table whose counts differ from the pin and a commit hash in the brief that resolves to no commit, in the repo or a clone beside it |
+| A brief states stale line counts, a commit that does not exist, or a pin nobody else can read | `--pin` refuses a pin no branch of origin holds, and `kdf-brief.js check` refuses a scope table whose counts differ from the pin and a commit hash in the brief's commit paragraph that resolves to no commit, in the repo or a clone beside it, and warns of one elsewhere |
 | A cloud reviewer's branch carries more than its report | `--collect-branch` brings nothing in unless the branch is built on the pin and adds only new files under `docs/reviews`. No pull request is opened, and `main`'s ruleset refuses a direct push. Its environment holds no token, and its agent reaches `github.com` alone |
 | A reviewer changes something and hides it | The launcher snapshots git when a review opens and when it closes, and fails the review when anything but a new file under `docs/reviews` moved. Remote tracking refs are left out, an editor's background fetch moves them |
 | A reviewer outside Claude Code, Codex, has no guard | `--prepare` opens its turn in the folder at the pin and `--collect` closes it with the same check. Any change but its report is exit 3, and the review stays open until the orchestrator puts the folder right |
@@ -668,8 +668,9 @@ prints the scope table's rows with the line counts at the pin, and `facts`, run 
 own commit, prints the commit line, which names the state and says the pin is the commit that adds the brief.
 `check --repo <repo> --pin HEAD <brief>`, run by the launcher at the pin, and as `check --disk` by whoever places the
 brief before its commit, which reads the file about to be committed and never an older brief at the pin, refuses a
-scope table whose counts differ from the pin, a brief with a scope table and no commit paragraph, and every commit
-hash in the brief that resolves to no commit, in the repo or a clone beside it, or that git reads as ambiguous.
+scope table whose counts differ from the pin, a brief with a scope table and no commit paragraph, a commit hash in
+the commit paragraph that resolves to no commit, in the repo or a clone beside it, and a hash git reads as ambiguous
+anywhere, and warns of an unresolved hash elsewhere, where a digest or a sibling not yet pulled can stand.
 `cites --repo <repo> --pin HEAD [--since <commit>] [--only <paths>]` lists every `file:line` cite of the living docs
 beside the lines it names at the pin, a doc under `docs/reviews/`, a dated record under `docs/<kind>/` and a log
 keeping the lines of their own day, and flags a missing file, a line out of range, a backwards range and a basename
@@ -888,6 +889,6 @@ section 4 step 1. They are kit v1.26.0, cicd ADR D-083.
 
 **The fifth retrospective**, the kdf-sdk's S5, the owner's yeses of 2026-10-23. Three standing look for questions,
 every path to the same consumer, a builtin's subclass and a closed set and its authority, section 7, the answer key's
-pin column settled by a probe at the pin with the retrospective tool's reminder, section 14, every commit hash in a
-brief resolved by the brief tool, sections 10 and 11, and the supporting session drafting each slice's write ups for
+pin column settled by a probe at the pin with the retrospective tool's reminder, section 14, a brief's commit hashes
+resolved by the brief tool, sections 10 and 11, and the supporting session drafting each slice's write ups for
 the orchestrator to place and commit, section 2. They are kit v1.27.0, cicd ADR D-086.

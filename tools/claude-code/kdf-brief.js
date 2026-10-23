@@ -11,10 +11,12 @@
  *        one scope table row per argument, every file it names at the pin with its line count
  *   node kdf-brief.js check  --repo <root> --pin <commit> [--disk] <brief>
  *        checks every row of the brief's "| Files | Lines |" table against the pin, and every commit hash the brief
- *        names, a run of 7 to 40 lowercase hex characters in a backticked span or a fenced block, against the repo
- *        and the git clones beside it, refusing one that names no commit or that git calls ambiguous, and a brief
- *        with a scope table and no "**The commit.**" paragraph. A run of digits alone that names no commit is read
- *        as a number. The brief is read at the pin, or from disk when the pin lacks it, and --disk reads it from
+ *        names, a run of 7 to 40 lowercase hex characters in a backticked span or a fenced block and joined to no
+ *        letter, digit, dash or underscore, against the repo and the git clones beside it. It refuses a hash in the
+ *        "**The commit.**" paragraph that names no commit, a hash git calls ambiguous anywhere, and a brief with a
+ *        scope table and no commit paragraph, and warns of a hash outside the paragraph that names no commit, a
+ *        digest, a value or a sibling not yet pulled. A run of digits alone that names no commit is a
+ *        number. The brief is read at the pin, or from disk when the pin lacks it, and --disk reads it from
  *        disk alone, so whoever places a brief checks the file it is about to commit, never an older one at the pin
  *   node kdf-brief.js cites  --repo <root> --pin <commit> [--since <commit>] [--only <path or glob>]... [<doc>...]
  *        every `file:line` cite of the docs named, or of every living doc, beside the lines it names at the pin, for
@@ -463,20 +465,26 @@ for (const line of text.split(/\r?\n/)) {
   if (inTable && !/^-+$/.test(c[0].replace(/[:\s]/g, ''))) rows.push(c);
 }
 
-// Every commit hash the brief names resolves, read before the table so a brief with no scope table is read too. A
-// hash is a run of 7 to 40 lowercase hexadecimal characters, bounded by characters that are not, inside a backticked
-// span or on a line of a fenced block, the whole span or a run inside a command. One the repo resolves passes. One git
-// calls ambiguous is refused. One the repo does not hold is looked up in each git clone beside the repo, a sibling's
-// commit passing, and refused when none holds it. A run of digits alone that resolves nowhere is a number and passes.
+// Every commit hash the brief names is resolved, read before the table so a brief with no scope table is read too. A
+// hash is a run of 7 to 40 lowercase hexadecimal characters, joined to no letter, digit, dash or underscore, inside a
+// backticked span or on a line of a fenced block, the whole span or a run inside a command. One the repo resolves
+// passes. One git calls ambiguous is refused. One the repo does not hold is looked up in each git clone beside the
+// repo, a sibling's commit passing. One that resolves nowhere is refused in the commit paragraph, where the pin, the
+// state and the tip are named, and warned of elsewhere, where a digest, a value or a sibling not yet pulled can stand.
+// A run of digits alone that resolves nowhere is a number and passes.
 // A fence opens with three or more backticks or tildes and closes on a line of the same character, at least as many,
 // and nothing else, as Markdown's do. Outside a fence a code span opens and closes on backtick runs of one length and
 // may cross a line break, never a blank line. The commit paragraph is a line outside a fence that starts with it.
+// A hex run joined to a letter, a digit, a dash or an underscore is part of a longer word, a run id or a name, and is
+// not read as a hash.
 const hashes = [];
-const HEX = /(?<![0-9a-f])[0-9a-f]{7,40}(?![0-9a-f])/g;
+const HEX = /(?<![0-9A-Za-z_-])[0-9a-f]{7,40}(?![0-9A-Za-z_-])/g;
 const briefLines = text.split(/\r?\n/);
 let fence = null;
 let prose = [];
 let commitParagraph = false;
+let commitFrom = 0;
+let commitTo = 0;
 function readProse() {
   // an escaped backtick delimits nothing, so it reads as two spaces, the same length, so every index holds
   const joined = prose.map((p) => p.text).join('\n').replace(/\\`/g, '  ');
@@ -511,10 +519,16 @@ briefLines.forEach((line, k) => {
     fence = open[1];
     return;
   }
-  if (/^\s*(>\s*)?\*\*The commit\.\*\*/.test(line)) commitParagraph = true;
+  if (/^\s*(>\s*)?\*\*The commit\.\*\*/.test(line)) {
+    commitParagraph = true;
+    commitFrom = k + 1;
+  } else if (commitFrom && !commitTo && /^\s*(>\s*)?(\*\*[^*]+\*\*|#)/.test(line)) commitTo = k;
   prose.push({ text: line, line: k + 1 });
 });
 readProse();
+// the commit paragraph runs from its bold heading to the next bold heading or section heading, the pin, the state
+// and the tip it names being the hashes a review cannot start without
+const inCommitParagraph = (line) => commitFrom > 0 && line >= commitFrom && (!commitTo || line <= commitTo);
 function resolveIn(where, hash) {
   try {
     git(where, ['rev-parse', '--verify', hash + '^{commit}']);
@@ -539,6 +553,7 @@ function siblingClones() {
   return siblings;
 }
 let hashBad = 0;
+let hashWarned = 0;
 const seen = new Map();
 for (const { hash, line } of hashes) {
   if (!seen.has(hash)) {
@@ -555,9 +570,14 @@ for (const { hash, line } of hashes) {
   if (found === 'ambiguous') {
     hashBad++;
     process.stdout.write('AMBIGUOUS hash ' + hash + ' at line ' + line + ', git names more than one commit\n');
-  } else if (found === 'none') {
+  } else if (found === 'none' && inCommitParagraph(line)) {
     hashBad++;
-    process.stdout.write('NO COMMIT ' + hash + ' at line ' + line + ', in the repo or a clone beside it\n');
+    process.stdout.write('NO COMMIT ' + hash + ' at line ' + line + ', in the commit paragraph, in the repo or a '
+      + 'clone beside it\n');
+  } else if (found === 'none') {
+    hashWarned++;
+    process.stdout.write('WARNING ' + hash + ' at line ' + line + ' names no commit in the repo or a clone beside '
+      + 'it, a digest, a value or a sibling not yet pulled, or a slip to fix\n');
   }
 }
 if (scopeTable && !commitParagraph) {
@@ -566,7 +586,10 @@ if (scopeTable && !commitParagraph) {
 }
 const hashLine = hashBad
   ? 'kdf-brief: ' + hashBad + ' commit hash(es) or the commit paragraph do not hold\n'
-  : 'kdf-brief: every commit hash in the brief resolves, ' + hashes.length + ' read\n';
+  : hashWarned
+    ? 'kdf-brief: the commit paragraph\'s hashes resolve, ' + hashes.length + ' read, ' + hashWarned
+      + ' warned of outside it\n'
+    : 'kdf-brief: every commit hash in the brief resolves, ' + hashes.length + ' read\n';
 if (!rows.length) {
   process.stdout.write(hashLine);
   process.stdout.write('kdf-brief: no "| Files | Lines |" table in ' + briefRel + ', nothing more to check\n');

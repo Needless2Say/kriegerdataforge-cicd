@@ -287,10 +287,13 @@ row states them, ``| Code, `a.py`, `b.py` | 120, 1,203 |``. A path may be a dire
 number of lines an editor shows, so a last line without a newline counts. `check` reads the brief at the pin, finds its
 `| Files | Lines |` table, and compares each row, one count per path or one total for the row. A directory's files are
 summed, and a row with a line range or a placeholder is skipped. It also reads every commit hash the brief names, a
-run of 7 to 40 lowercase hex characters in a backticked span or on a line of a fenced block, the whole span or a run
-inside a command, and resolves each in the repo, then in each git clone beside it, so a sibling's commit passes. It
-refuses a hash that names no commit anywhere or that git calls ambiguous, with its line, and a brief that has a scope
-table and no `**The commit.**` paragraph, and reads a run of digits alone that names no commit as a number. A brief
+run of 7 to 40 lowercase hex characters in a backticked span or on a line of a fenced block, joined to no letter,
+digit, dash or underscore, so a run id's tail is no hash, and resolves each in the repo, then in each git clone beside
+it, so a sibling's commit passes. It refuses, with its line, a hash in the `**The commit.**` paragraph that names no
+commit, where the pin, the state and the tip are named, a hash git calls ambiguous anywhere, and a brief that has a
+scope table and no commit paragraph. A hash outside the paragraph that names no commit is a WARNING and passes, since
+a digest, a value or a sibling not yet pulled can stand there, and a run of digits alone that names no commit is read
+as a number. A brief
 not yet in the pin is read from disk, and `--disk` reads it from disk alone, so whoever places a brief runs `check
 --disk` before its commit and checks the file it is about to commit, never an older brief at the pin. It exits 1 on
 a count that differs, a path missing at the pin or a hash that does not hold, and the launcher runs it before every

@@ -4679,10 +4679,12 @@ say.
   decided names the pin. A no names the commit that brought the code in, and a finding whose halves differ says yes for
   the half that was. `kdf-retro.js` lists each later finding whose yes or unsure names no pin, a reminder that changes
   no count.
-- **Every commit hash a brief names resolves.** `kdf-brief.js check` reads every hex run in a backticked span or a
-  fenced block, resolves it in the repo or a git clone beside it, and refuses one that names no commit or that git
-  calls ambiguous, and a brief with a scope table and no commit paragraph. Whoever places a brief runs it with
-  `--disk` before the commit, reading the file about to be committed, and the launcher at the pin.
+- **The commit hashes a brief names resolve.** `kdf-brief.js check` reads every hex run in a backticked span or a
+  fenced block that is joined to no other word character, resolves it in the repo or a git clone beside it, and
+  refuses one in the commit paragraph that names no commit, one git calls ambiguous anywhere, and a brief with a
+  scope table and no commit paragraph. An unresolved hash elsewhere is a warning, since a digest, a value or a sibling
+  not yet pulled can stand there and must never stop a launch. Whoever places a brief runs it with `--disk` before
+  the commit, reading the file about to be committed, and the launcher at the pin.
 - **The supporting session drafts each slice's write ups**, the briefs, the Sol dispatches with their page and bundles,
   the answer key, the retrospective and the pull request's body, on the owner's yes in its own session, into the
   workspace's temp folder. The orchestrator places, checks and commits each, a brief alone as its pin, and pushes and
@@ -4693,8 +4695,11 @@ say.
 
 - *The supporting session committing a brief as its pin.* Declined, two sessions committing in one folder share its
   index, and the owner's yes kept every commit with the orchestrator.
-- *The hash check on the commit paragraph alone.* Declined, a fix check's table names the repo's own commits, and a
-  sibling's commit is told apart by resolving in a clone beside the repo.
+- *The hash check on the commit paragraph alone.* Declined, a fix check's table names the repo's own commits, so
+  every hash is read and one outside the paragraph warned of, and a sibling's commit is told apart by resolving in a
+  clone beside the repo.
+- *A refusal for every unresolved hash anywhere.* Declined, the gate runs before every launch, and a digest, a run
+  id's tail or a sibling not yet pulled outside the commit paragraph would stop a review that is sound.
 - *The pin warning keyed on any cell that says probe or read.* Declined, it would list question rows and pass a
   reading of the report, so it reads finding rows and the word pin, whole.
 - *The builtin value question folded into the callable question.* Declined, a value's methods and a callable's shape
