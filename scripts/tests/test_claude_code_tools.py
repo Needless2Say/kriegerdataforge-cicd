@@ -1124,13 +1124,13 @@ def test_the_second_retrospective_s_changes_are_in_the_kit() -> None:
     )
     for line in standing:
         assert line in brief, f"the brief template lost {line!r}"
-    assert "Keep the twelve standing bullets after the areas, word for word" in brief
+    assert "Keep the fifteen standing bullets after the areas, word for word" in brief
     assert "a loopback peer a probe needs, started inside a test" in brief
     assert brief.index("**Two parsers of one string.**") < brief.index("**What pins a constant.**")
     assert brief.index("**What pins a constant.**") < brief.index("**Whose text a message carries.**")
     assert brief.index("**Whose text a message carries.**") < brief.index("**The new tests.**")
     for words in (
-        "Twelve standing questions close every list, word for word from the template",
+        "Fifteen standing questions close every list, word for word from the template",
         "two parsers of one string, what pins a constant, whose text a message carries,",
         "with a pair for every number a rule reads, its value moved up and down by the smallest step its unit takes.",
         "Every number a rule reads, a bound, a limit or a default, gets the pair of step 0,",
@@ -1194,7 +1194,7 @@ def test_the_third_retrospective_s_changes_are_in_the_kit() -> None:
         outcome,
         hop,
         secret,
-        "Keep the twelve standing bullets after the areas, word for word",
+        "Keep the fifteen standing bullets after the areas, word for word",
         "a server a consumer runs, already installed in an environment the orchestrator names by its path, started",
         "inside a test on loopback, never the running stack",
         "a probe that needs what no environment holds goes under Could not settle.",
@@ -1212,7 +1212,7 @@ def test_the_third_retrospective_s_changes_are_in_the_kit() -> None:
     )
     assert [brief.index(lead) for lead in order] == sorted(brief.index(lead) for lead in order)
     for words in (
-        "Twelve standing questions close every list",
+        "Fifteen standing questions close every list",
         "what a success test reads of its outcome, a hop to another thread or loop, what a stored secret holds,",
         "and its second retrospective added the next two, its third the next three,",
         "**Step 3b. The fix check**, when step 3 landed a fix of code.",
@@ -1319,7 +1319,7 @@ def test_the_fourth_retrospective_s_changes_are_in_the_kit() -> None:
         "the format's grammar permits, read from the grammar and not from its examples, since a conversion can write",
         "a character after the filter ran.",
     ))
-    for line in (value, setting, shape, boundary, "Keep the twelve standing bullets after the areas, word for word"):
+    for line in (value, setting, shape, boundary, "Keep the fifteen standing bullets after the areas, word for word"):
         assert line in brief, f"the brief template lost {line!r}"
     order = (
         "**What a stored secret holds.**",
@@ -1362,13 +1362,120 @@ def test_the_fourth_retrospective_s_changes_are_in_the_kit() -> None:
         "The orchestrator rewrites it at each step, outside a pin's freeze. Its first bullet holds the open step",
         "then the open slice's adjudication log, its Closed steps section only where a Now line points there,",
         "what a stored secret holds, what a value of the right type can hold, a setting applied once, a callable read",
-        "for its shape, and every boundary a line's consumer honours.",
-        "and its second retrospective added the next two, its third the next three, and its fourth the last four.",
+        "for its shape, every boundary a line's consumer honours,",
+        "and its second retrospective added the next two, its third the next three, its fourth the next four,",
         "since v1.26.0 the fourth retrospective's changes",
         "**The fourth retrospective**, the kdf-sdk's S4",
         "They are kit v1.26.0, cicd ADR D-083.",
     ):
         assert words in process, f"the process lost {words!r}"
+
+
+def test_the_fifth_retrospective_s_changes_are_in_the_kit() -> None:
+    """
+    The owner approved the kdf-sdk's S5 retrospective (D-086). Every brief closes its look for list with fifteen standing
+    questions, the three new ones asking every other path to a rule's consumer, what a builtin's subclass answers, and
+    which authority a closed set follows, and a brief names that authority. A later finding's pin call is settled by a
+    probe at the pin, in a copy outside the reviewed folder. The supporting session drafts each slice's write ups into
+    the temp folder and the orchestrator places and commits them, so the old wording that named the orchestrator alone
+    stands nowhere. The templates, the process and the roles page name each, so they cannot drift apart in silence.
+    """
+    agent     = KIT / "docs" / "agent"
+    process   = " ".join((agent / "CODE_REVIEW_PROCESS.md").read_text(encoding = "utf-8").split())
+    roles     = " ".join((agent / "AGENT_ROLES.md").read_text(encoding = "utf-8").split())
+    templates = agent / "templates"
+    brief     = " ".join((templates / "review-brief.template.md").read_text(encoding = "utf-8").split())
+    key       = " ".join((templates / "review-answer-key.template.md").read_text(encoding = "utf-8").split())
+    path_line = " ".join((
+        "- **Every path to the same consumer.** Every rule a constructor, a default or a check holds, and every other",
+        "path a value reaches the same consumer by without passing that rule, a caller's explicit value beside the",
+        "default the rule was written for, the framework's own error or object beside the library's class, a value",
+        "changed after it was built, the type a signature declares beside the type the code accepts at run time. Probe",
+        "each path where it meets the consumer, and whether the rule stands at that last step too.",
+    ))
+    subclass  = " ".join((
+        "- **A builtin's subclass.** Every value of a builtin type a rule reads, a number, a string, a list, a mapping",
+        "or a date, and whether the rule reads it by the builtin's own method or a plain copy, or through methods a",
+        "caller's object can replace, a comparison, a length, an encoding, a conversion or an iteration. Probe each",
+        "with an object that overrides them and lies, in Python a subclass, read safely by `int.__int__(value)`,",
+        "`str.__str__(value)` or `list(list.__iter__(value))`, and in JavaScript a Proxy or an object with its own",
+        "`valueOf`, `toString` or `Symbol.iterator` passed where a primitive or an array was expected, since a check",
+        "made through the value's own methods passes whatever they answer.",
+    ))
+    authority = " ".join((
+        "- **A closed set and its authority.** Every closed list or character set a rule names, the names it refuses,",
+        "the spellings it maps, the characters it treats as invisible or forbidden, the authority the brief names for",
+        "it, a standard's section, a registry's list, a Unicode property such as `Default_Ignorable_Code_Point` or a",
+        "general category, and whether a test reads the set against that authority where the authority is data. Read",
+        "the set against its authority and the exceptions the brief settles, never against the cases the code was",
+        "written for, and name what the authority holds that the set lacks.",
+    ))
+    for line in (
+        path_line,
+        subclass,
+        authority,
+        "Where an area's rule names a closed set, name its authority and its version, with a citation or an excerpt",
+        "the reviewer can read, since a reviewer fetches nothing.",
+        "Keep the fifteen standing bullets after the areas, word for word",
+    ):
+        assert line in brief, f"the brief template lost {line!r}"
+    order = (
+        "**Every boundary a line's consumer honours.**",
+        "**Every path to the same consumer.**",
+        "**A builtin's subclass.**",
+        "**A closed set and its authority.**",
+        "**The new tests.**",
+    )
+    assert [brief.index(lead) for lead in order] == sorted(brief.index(lead) for lead in order)
+
+    pin_rule = " ".join((
+        "A finding a later source raised that was in the tree, or may have been, is settled by its own input, the",
+        "reporter's probe where it gave one, run against the step 2 pin's code where that code can run it, in a copy",
+        "of the pin's tree outside the reviewed repo's folder, its changed files written there by `git show",
+        "<pin>:<path>`, and How decided names that probe and the pin. A test, a table or a document is read at the",
+        "pin's commit, and How decided says read at the pin. A finding on code a later commit brought in says no, and",
+        "How decided names that commit, the same commit Present from names. A finding whose halves differ at the pin",
+        "says yes for the half that was, and names the commit that brought the other.",
+    ))
+    assert pin_rule in key, "the answer key template lost the pin rule"
+    assert "a read of the file at the pin, a probe, or the commit that brought the code in" not in key
+    assert "The orchestrator, from the supporting session's draft where there is one, copies this to" in key
+
+    drafts = " ".join((
+        "In a review that has one, the supporting session also drafts each slice's write ups, the briefs, the Sol",
+        "dispatches with their page and bundles, the answer key, the retrospective and the pull request's body, each",
+        "on the owner's yes in its own session, from the orchestrator's handoff and the slice's log, and writes each",
+        "draft into the workspace's temp folder, never into the reviewed repo's folder.",
+    ))
+    for words in (
+        drafts,
+        "The orchestrator reads each draft, places it in the repo, runs its checks, commits it, a brief alone as its",
+        "pin, and pushes and launches on the owner's word, and keeps every reproduction, verdict and log row.",
+        "writes the briefs, or places the supporting session's drafts, and pins them,",
+        "Drafts each slice's briefs, Sol dispatches, answer key, retrospective and pull request body, section 2",
+        "| Brief | `<PFX>_REVIEW_<slice>_PROMPT.md` | `step-2-review` | Orchestrator, from the supporting session's draft",
+        "session drafts the dispatches and their bundles and publishes the page, section 2.",
+        "every yes or unsure call of a later finding that does not name the pin.",
+        "`<PFX>_REVIEW_<slice>_RETRO.md`, from the supporting session's draft where there is one, from",
+        "and every commit hash in the brief that resolves to no commit, in the repo or a clone beside it,",
+        "every path to the same consumer, a builtin's subclass, and a closed set and its authority.",
+        "its fourth the next four, and its fifth the last three.",
+        "since v1.27.0 the fifth retrospective's changes",
+        "**The fifth retrospective**, the kdf-sdk's S5",
+        "They are kit v1.27.0, cicd ADR D-086.",
+    ):
+        assert words in process, f"the process lost {words!r}"
+    for old in ("writes and pins the briefs", "and its fourth the last four."):
+        assert old not in process, f"the process kept {old!r}"
+    for words in (
+        drafts,
+        "write, or place from the supporting session's draft, and pin review briefs,",
+        "outside the reviewed repo, and to draft each slice's write ups, and said so.",
+        "It never reviews, and never edits, commits, checks out or stashes anything in the reviewed repo's folder,",
+        "which is the orchestrator's for the whole review.",
+    ):
+        assert words in roles, f"the roles page lost {words!r}"
+    assert "in addition write and pin review briefs" not in roles
 
 
 def test_a_worker_keeps_its_session_s_role_and_never_reads_as_a_reviewer() -> None:
@@ -2305,7 +2412,10 @@ def test_a_brief_whose_scope_table_differs_from_the_pin_is_refused(rig: Rig) -> 
     The launcher measures the brief's line counts at the pin before a reviewer starts, and a stale count is exit 2.
     """
     brief = rig.repo / "docs" / "reviews" / "BRIEF.md"
-    table = "# brief\n\n| Files | Lines |\n| --- | --- |\n| `src/app.py` | {n} |\n"
+    table = (
+        "# brief\n\n**The commit.** The pin adds this brief.\n\n"
+        "| Files | Lines |\n| --- | --- |\n| `src/app.py` | {n} |\n"
+    )
     brief.write_text(table.replace("{n}", "7"), encoding = "utf-8", newline = "\n")
     _commit_and_push(rig, "a brief with a stale count")
     refused = _launch(rig, "--pin", "HEAD")
@@ -2502,7 +2612,10 @@ def test_the_brief_tool_checks_a_scope_table_and_states_the_commit(rig: Rig) -> 
     the brief sits on and describes the pin as the commit that adds the brief, since no commit holds its own hash.
     """
     brief = rig.tmp / "brief.md"
-    good  = "| Files | Lines |\n| --- | --- |\n| `src/app.py` | 1 |\n| Tests, `src`, `docs` | 2 |\n| {`p`} | {n} |\n"
+    good  = (
+        "**The commit.** The pin adds this brief.\n\n"
+        "| Files | Lines |\n| --- | --- |\n| `src/app.py` | 1 |\n| Tests, `src`, `docs` | 2 |\n| {`p`} | {n} |\n"
+    )
     brief.write_text(good, encoding = "utf-8", newline = "\n")
     passed = _brief_tool(rig, "check", brief.as_posix())
     assert passed.returncode == 0, passed.stdout
@@ -2533,6 +2646,7 @@ def test_the_brief_tool_checks_a_scope_table_with_its_destroys_column(rig: Rig) 
     """
     brief = rig.tmp / "brief.md"
     table = (
+        "**The commit.** The pin adds this brief.\n\n"
         "| Files | Lines | Destroys |\n| --- | --- | --- |\n"
         "| `src/app.py` | 1 | `git clean -fdx` at the `--worktree` path the caller names |\n"
         "| Tests, `docs` | 1 | |\n"
@@ -2543,6 +2657,87 @@ def test_the_brief_tool_checks_a_scope_table_with_its_destroys_column(rig: Rig) 
     assert "ok    src/app.py, 1" in passed.stdout
     brief.write_text(table.replace("| 1 | `git", "| 7 | `git"), encoding = "utf-8", newline = "\n")
     assert _brief_tool(rig, "check", brief.as_posix()).returncode == 1
+
+
+def _head(repo: Path) -> str:
+    return subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output = True, text = True, check = True
+    ).stdout.strip()
+
+
+AMBIGUOUS_GIT = r"""
+const { spawnSync } = require('child_process');
+const args = process.argv.slice(2);
+if (args.includes('abcdef1^{commit}')) {
+  process.stderr.write('error: short object ID abcdef1 is ambiguous\n');
+  process.exit(128);
+}
+const done = spawnSync('git', args, { stdio: 'inherit' });
+process.exit(done.status === null ? 1 : done.status);
+"""
+
+
+def test_the_brief_tool_resolves_every_commit_hash_the_brief_names(rig: Rig) -> None:
+    """
+    Every hash the brief names is read, in its commit paragraph, a fixes table, a command span and a fenced block, and
+    a sibling clone's commit passes. One that names no commit anywhere is refused with its line, wherever it stands,
+    and so is a brief with a scope table and no commit paragraph, and a brief with no scope table is still read. A run
+    of digits is a number. An ambiguous hash is refused, git's answer stood in for by a script, since a real seven
+    character collision cannot be made at test time.
+    """
+    sibling = rig.tmp / "sibling"
+    sibling.mkdir()
+    (sibling / "a.txt").write_text("a\n", encoding = "utf-8")
+    for args in (
+        ("init", "-q", "-b", "main"),
+        ("config", "user.email", "dev@example.com"),
+        ("config", "user.name", "Dev"),
+        ("add", "-A"),
+        ("commit", "-q", "-m", "start"),
+    ):
+        _git(sibling, *args)
+    own, theirs = _head(rig.repo), _head(sibling)
+    brief = rig.tmp / "brief.md"
+    good  = (
+        f"**The commit.** The pin sits on `{own[:10]}`.\n\n"
+        "| Files | Lines |\n| --- | --- |\n| `src/app.py` | 1 |\n\n"
+        f"| Fix | Landed |\n| --- | --- |\n| 1 | `{own[:7]}` |\n\n"
+        f"Run `git diff --stat {own[:12]} HEAD`.\n\n"
+        f"The hub sits at `{theirs[:7]}`, and `1234567` is a number.\n\n"
+        f"```bash\ngit log {own[:9]}\n```\n"
+    )
+    brief.write_text(good, encoding = "utf-8", newline = "\n")
+    passed = _brief_tool(rig, "check", brief.as_posix())
+    assert passed.returncode == 0, passed.stdout
+    assert "kdf-brief: every commit hash in the brief resolves, 6 read" in passed.stdout
+
+    brief.write_text(good + "A slip names `deadbee`.\n", encoding = "utf-8", newline = "\n")
+    slipped = _brief_tool(rig, "check", brief.as_posix())
+    assert slipped.returncode == 1
+    assert "NO COMMIT deadbee at line 18, in the repo or a clone beside it" in slipped.stdout
+
+    brief.write_text(good.replace("**The commit.**", "The commit."), encoding = "utf-8", newline = "\n")
+    unheaded = _brief_tool(rig, "check", brief.as_posix())
+    assert unheaded.returncode == 1
+    assert "NO COMMIT PARAGRAPH" in unheaded.stdout
+
+    brief.write_text("A brief with `deadbee` alone.\n", encoding = "utf-8", newline = "\n")
+    untabled = _brief_tool(rig, "check", brief.as_posix())
+    assert untabled.returncode == 1
+    assert "nothing more to check" in untabled.stdout
+
+    shim = rig.tmp / "ambiguous-git.js"
+    shim.write_text(AMBIGUOUS_GIT, encoding = "utf-8", newline = "\n")
+    brief.write_text(good + "A short hash `abcdef1`.\n", encoding = "utf-8", newline = "\n")
+    ambiguous = subprocess.run(
+        [str(NODE), str(BRIEF), "check", "--repo", rig.repo.as_posix(), "--pin", "HEAD", brief.as_posix()],
+        capture_output = True,
+        text = True,
+        check = False,
+        env = {**os.environ, "KDF_BRIEF_GIT": str(shim)},
+    )
+    assert ambiguous.returncode == 1, ambiguous.stdout + ambiguous.stderr
+    assert "AMBIGUOUS hash abcdef1 at line 18, git names more than one commit" in ambiguous.stdout
 
 
 def _numbered(count: int) -> str:
@@ -2777,6 +2972,49 @@ def test_the_retro_tool_counts_findings_escapes_minutes_and_missing_answers() ->
     ) in lines
     assert any(line.startswith("1 Sol dispatch(es) without an archived answer") for line in lines)
     assert _retro_tool(RETRO_SLICE).stdout == done.stdout
+    assert "Every yes or unsure call of a later finding names the pin in How decided." in lines
+
+
+def _key_row(*cells: str) -> str:
+    return "| " + " | ".join(cells) + " |"
+
+
+def test_the_retro_tool_lists_later_pin_calls_that_name_no_pin(tmp_path: Path) -> None:
+    """
+    A later finding's yes or unsure at the step 2 pin is settled at the pin, so its How decided names the pin. One that
+    does not is listed, the word read whole so "spinning" does not count, and the counts stay as they were. A no rests
+    on its commit, a question row makes no pin call, and a yes for the first half counts as yes and names the pin.
+    """
+    slice_ = tmp_path / "s1-example"
+    shutil.copytree(RETRO_SLICE, slice_)
+    key    = slice_ / "EX_REVIEW_S1_ANSWER_KEY.md"
+    late   = ("before the review", "`ddddddd`")
+    rows   = (
+        _key_row("EX-S1-FIN-2", "Step 5 final, Claude", "m", "L", "no", "Agreed", "`h.py:1`", *late, "yes",
+                 "the history", "the repo alone", "A bound has no pair.", "section 11"),
+        _key_row("EX-S1-FIN-3", "Step 5 final, Codex", "m", "L", "no", "Agreed", "`i.py:1`", *late,
+                 "yes, the first half", "a probe at the pin's tree", "the repo alone", "Half was there.", "section 11"),
+        _key_row("EX-S1-FIN-4", "Step 5 final, Codex", "m", "L", "no", "Agreed", "`j.py:1`", *late, "unsure",
+                 "spinning up a probe", "the repo alone", "A spin word.", "section 11"),
+        _key_row("EX-S1-NR-1", "Second read 1", "m", "L", "no", "Agreed", "`k.py:1`", "`eeeeeee`", "`fffffff`",
+                 "no", "the commit that brought it in", "the repo alone", "A later helper.", "section 11"),
+        _key_row("Q, a question", "Step 5 final, Claude", "m", "", "", "Acted on", "`l.py`", "", "`ddddddd`", "", "",
+                 "", "Whether to bound it.", "section 3"),
+    )
+    text   = key.read_text(encoding = "utf-8")
+    anchor = next(line for line in text.splitlines() if line.startswith("| EX-S1-C1 |"))
+    key.write_text(text.replace(anchor, anchor + "\n" + "\n".join(rows)), encoding = "utf-8", newline = "\n")
+    done   = _retro_tool(slice_)
+    assert done.returncode == 0, done.stderr
+    lines  = done.stdout.splitlines()
+    assert "## Pin calls to check" in lines
+    assert "| EX-S1-FIN-2 | yes | the history |" in lines
+    assert "| EX-S1-FIN-4 | unsure | spinning up a probe |" in lines
+    for quiet in ("| EX-S1-FIN-3 |", "| EX-S1-NR-1 |", "| Q, a question |", "| EX-S1-FIN-1 |"):
+        assert not any(line.startswith(quiet) for line in lines), f"{quiet} was listed\n{done.stdout}"
+    assert any(line.startswith("2 later finding(s) whose yes or unsure") for line in lines)
+    escapes = next(line for line in lines if line.startswith("Escapes,"))
+    assert "`EX-S1-FIN-3`" in escapes, "a yes for the first half dropped out of the count"
 
 
 def test_the_retro_tool_refuses_a_folder_without_a_key_or_a_key_it_does_not_know(tmp_path: Path) -> None:

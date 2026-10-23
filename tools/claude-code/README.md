@@ -12,8 +12,8 @@ from a clone of this repo.
 | `kdf-guard.js` | A Claude Code PreToolUse hook. It lets a Bash command through only when it is plain and on the owner's approved list (D-068), asks the owner before a removal, and checks each Read, Grep and Glob, each file edit and each outward facing tool call. It exits 2 to refuse with the reason. No dependencies, one file, the list inside it |
 | `guard-cases.json` | The table the guard is held to, one case per tool call with its role and whether it is allowed, refused or asked. Every rule change adds cases |
 | `kdf-review.sh` | Starts one fresh Claude reviewer with the reviewer role in the repo folder itself, for at most four hours by default, or opens and closes the folder for Codex, checking first that the pin is pushed, the folder is at it and the brief's counts match it. Compares git before and after and fails the review if the reviewer changed anything but a new file under `docs/reviews`, the review archive. A Claude run's log is claude's stream, one JSON event a line as the run goes, so a detached run is watched by its log, and after a clean run the launcher writes Claude Code's own count of it beside the report, `<report stem>.usage.json`, from the stream's last result event. Brings a report Codex wrote in the cloud in from its branch, and warns when a report it did not start lacks its time or usage line |
-| `kdf-brief.js` | Read only. The facts a brief states, measured at the pin, the commit line and the scope table's line counts, a check of a written brief's table, and every `file:line` cite of the living docs beside the lines it names |
-| `kdf-retro.js` | Read only. The numbers a slice's retrospective starts from, counted from its answer key, the launcher's counts beside its reports or else their headers, and its Sol rounds, the escapes first |
+| `kdf-brief.js` | Read only. The facts a brief states, measured at the pin, the commit line and the scope table's line counts, a check of a written brief's table and of every commit hash it names, and every `file:line` cite of the living docs beside the lines it names |
+| `kdf-retro.js` | Read only. The numbers a slice's retrospective starts from, counted from its answer key, the launcher's counts beside its reports or else their headers, and its Sol rounds, the escapes first, then the later pin calls that name no pin |
 | `kdf-ask-codex.sh` | Asks Codex for a read only review of a change, a plan or a decision, the one way every session does (D-052, D-053). Gives Codex a detached worktree of a commit, or a throwaway repo of a folder of patches with no secret file, link or token in it, sets the session's question in the standard frame, runs Codex with the verified flags and archives its answer in the workspace's `codex-archive`, never in a repo or in `temp` (D-069). Refuses a reviewer, and fails when Codex changed its folder or wrote no answer |
 | `kdf-preflight.sh` | Runs a repo's CI lanes on Linux in a container, the one way a session runs a Linux pre-flight (D-072). Exports a commit as an LF tar, builds the image in `preflight/` with `docker build` alone and options on the guard's list, and reads each lane's result and setup's from marker lines a last step prints. Runs the repo's `setup` first, and serves the owner's private Python packages through bare git mirrors this machine's git fetches, only for a repo GitHub calls private (D-078). Refuses a docker pointed at another machine, a dirty tree with no `--at`, a tracked secret file, an owner only lane and a pin off CI's allowlist |
 | `preflight/` | The pre-flight's image, `Dockerfile`, Python 3.14.7 slim by digest with git, make, ShellCheck, Node and actionlint, and `lanes.sh`, which runs setup and the lanes inside it |
@@ -284,8 +284,15 @@ the pin is the commit that adds the brief, since no commit holds its own hash.
 row states them, ``| Code, `a.py`, `b.py` | 120, 1,203 |``. A path may be a directory or a glob. A line count is the
 number of lines an editor shows, so a last line without a newline counts. `check` reads the brief at the pin, finds its
 `| Files | Lines |` table, and compares each row, one count per path or one total for the row. A directory's files are
-summed, and a row with a line range or a placeholder is skipped. It exits 1 on a count that differs or a path missing
-at the pin, and the launcher runs it before every pinned review.
+summed, and a row with a line range or a placeholder is skipped. It also reads every commit hash the brief names, a
+run of 7 to 40 lowercase hex characters in a backticked span or on a line of a fenced block, the whole span or a run
+inside a command, and resolves each in the repo, then in each git clone beside it, so a sibling's commit passes. It
+refuses a hash that names no commit anywhere or that git calls ambiguous, with its line, and a brief that has a scope
+table and no `**The commit.**` paragraph, and reads a run of digits alone that names no commit as a number. A brief
+not yet in the pin is read from disk, so whoever places a brief runs `check` before its commit. It exits 1 on a count
+that differs, a path missing at the pin or a hash that does not hold, and the launcher runs it before every pinned
+review. `KDF_BRIEF_GIT` names another git for it, and a Node script named there runs under the same Node, which is how
+the tests stand in for git's answer to an ambiguous hash.
 
 `cites` lists every `file:line` cite of the docs it is given, or of every living doc, beside the first and last lines
 it names at the pin (D-061). A living doc is a tracked Markdown file outside `docs/reviews/`, a dated record under
@@ -310,8 +317,11 @@ node kdf-retro.js docs/reviews/<YYYY-MM-DD>-<scope>/<slice folder>   # paste its
 It reads the slice's answer key, whose findings table must carry the answer key template's columns in their order, or
 it exits 2 rather than guess. It prints the findings by source (raised, agreed, declined, the agreed ones in the step 2
 pin's tree, and the escapes, the agreed findings in that tree that a later step found), the escape rate, every report's
-reviewer, minutes and tokens from its header, and every Sol dispatch without its archived answer. The output is the
-same every time for the same files, so a retrospective pastes it as printed, the process's section 14.
+reviewer, minutes and tokens from its header, and every Sol dispatch without its archived answer. Last it prints the
+pin calls to check, every finding a source after step 2 raised, never a question row, whose At the step 2 pin starts
+with yes or unsure and whose How decided does not name the pin as a whole word, a reminder of the answer key
+template's rule that changes no count and fails nothing. The output is the same every time for the same files, so a
+retrospective pastes it as printed, the process's section 14.
 
 ## Asking Codex
 

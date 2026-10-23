@@ -10,7 +10,11 @@
  *   node kdf-brief.js counts --repo <root> --pin <commit> [<label>=]<path or glob> ...
  *        one scope table row per argument, every file it names at the pin with its line count
  *   node kdf-brief.js check  --repo <root> --pin <commit> <brief>
- *        checks every row of the brief's "| Files | Lines |" table against the pin
+ *        checks every row of the brief's "| Files | Lines |" table against the pin, and every commit hash the brief
+ *        names, a run of 7 to 40 lowercase hex characters in a backticked span or a fenced block, against the repo
+ *        and the git clones beside it, refusing one that names no commit or that git calls ambiguous, and a brief
+ *        with a scope table and no "**The commit.**" paragraph. A run of digits alone that names no commit is read
+ *        as a number. Run it on the brief before its commit, since it reads the brief from disk when the pin lacks it
  *   node kdf-brief.js cites  --repo <root> --pin <commit> [--since <commit>] [--only <path or glob>]... [<doc>...]
  *        every `file:line` cite of the docs named, or of every living doc, beside the lines it names at the pin, for
  *        the orchestrator to read by eye. A living doc is a tracked Markdown file outside docs/reviews/, a dated record
@@ -29,8 +33,8 @@
  * holds its paths in backticks and its counts in the same order, "| `a.py`, `b.py` | 120, 1,203 |", or one count for
  * all of them. A path may be a directory, whose files are summed. A row with a line range or a placeholder is skipped.
  *
- * Exit codes. 0 done, or every checked row matches, or no cite is flagged. 1 a count differs, a path is missing at the
- * pin or a cite is flagged. 2 bad arguments.
+ * Exit codes. 0 done, or every checked row matches and every hash resolves, or no cite is flagged. 1 a count differs,
+ * a path is missing at the pin, a hash does not resolve or a cite is flagged. 2 bad arguments.
  */
 const { execFileSync } = require('child_process');
 const fs = require('fs');
@@ -71,8 +75,12 @@ function positionals() {
   return out;
 }
 
+// The git the tool runs, git on the PATH unless KDF_BRIEF_GIT names another, and a Node script named there runs under
+// this Node, which is how the tests stand in for git's answer to an ambiguous hash.
+const GIT = process.env.KDF_BRIEF_GIT || 'git';
 function git(repo, args, input) {
-  return execFileSync('git', ['-C', repo].concat(args), {
+  const [cmd, lead] = /\.js$/i.test(GIT) ? [process.execPath, [GIT]] : [GIT, []];
+  return execFileSync(cmd, lead.concat(['-C', repo], args), {
     input,
     maxBuffer: 1 << 30,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -446,10 +454,75 @@ for (const line of text.split(/\r?\n/)) {
   }
   if (inTable && !/^-+$/.test(c[0].replace(/[:\s]/g, ''))) rows.push(c);
 }
-if (!rows.length) {
-  process.stdout.write('kdf-brief: no "| Files | Lines |" table in ' + briefRel + ', nothing to check\n');
-  process.exit(0);
+
+// Every commit hash the brief names resolves, read before the table so a brief with no scope table is read too. A
+// hash is a run of 7 to 40 lowercase hexadecimal characters, bounded by characters that are not, inside a backticked
+// span or on a line of a fenced block, the whole span or a run inside a command. One the repo resolves passes. One git
+// calls ambiguous is refused. One the repo does not hold is looked up in each git clone beside the repo, a sibling's
+// commit passing, and refused when none holds it. A run of digits alone that resolves nowhere is a number and passes.
+const hashes = [];
+let fenced = false;
+text.split(/\r?\n/).forEach((line, k) => {
+  if (/^\s*(```|~~~)/.test(line)) {
+    fenced = !fenced;
+    return;
+  }
+  const spans = fenced ? [line] : [...line.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+  for (const span of spans) {
+    for (const m of span.matchAll(/(?<![0-9a-f])[0-9a-f]{7,40}(?![0-9a-f])/g)) hashes.push({ hash: m[0], line: k + 1 });
+  }
+});
+function resolveIn(where, hash) {
+  try {
+    git(where, ['rev-parse', '--verify', hash + '^{commit}']);
+    return 'commit';
+  } catch (err) {
+    return /ambiguous/i.test(String(err.stderr || '')) ? 'ambiguous' : 'none';
+  }
 }
+let siblings;
+function siblingClones() {
+  if (siblings) return siblings;
+  const parent = path.dirname(repo);
+  siblings = fs.readdirSync(parent).sort()
+    .map((d) => path.join(parent, d))
+    .filter((d) => d !== repo && fs.existsSync(path.join(d, '.git')));
+  return siblings;
+}
+let hashBad = 0;
+const seen = new Map();
+for (const { hash, line } of hashes) {
+  if (!seen.has(hash)) {
+    let found = resolveIn(repo, hash);
+    if (found === 'none') {
+      const elsewhere = siblingClones().map((d) => resolveIn(d, hash));
+      found = elsewhere.includes('commit') ? 'sibling' : elsewhere.includes('ambiguous') ? 'ambiguous' : 'none';
+    }
+    if (found === 'none' && /^[0-9]+$/.test(hash)) found = 'number';
+    seen.set(hash, found);
+  }
+  const found = seen.get(hash);
+  if (found === 'ambiguous') {
+    hashBad++;
+    process.stdout.write('AMBIGUOUS hash ' + hash + ' at line ' + line + ', git names more than one commit\n');
+  } else if (found === 'none') {
+    hashBad++;
+    process.stdout.write('NO COMMIT ' + hash + ' at line ' + line + ', in the repo or a clone beside it\n');
+  }
+}
+if (rows.length && !/\*\*The commit\.\*\*/.test(text)) {
+  hashBad++;
+  process.stdout.write('NO COMMIT PARAGRAPH, the brief has a scope table and no "**The commit.**" paragraph\n');
+}
+const hashLine = hashBad
+  ? 'kdf-brief: ' + hashBad + ' commit hash(es) or the commit paragraph do not hold\n'
+  : 'kdf-brief: every commit hash in the brief resolves, ' + hashes.length + ' read\n';
+if (!rows.length) {
+  process.stdout.write(hashLine);
+  process.stdout.write('kdf-brief: no "| Files | Lines |" table in ' + briefRel + ', nothing more to check\n');
+  process.exit(hashBad ? 1 : 0);
+}
+process.stdout.write(hashLine);
 
 const planned = [];
 for (const c of rows) {
@@ -487,4 +560,4 @@ for (const { paths, numbers, files } of planned) {
   }
 }
 process.stdout.write(bad ? 'kdf-brief: ' + bad + ' count(s) or path(s) do not match ' + pin.slice(0, 10) + '\n' : 'kdf-brief: the scope table matches ' + pin.slice(0, 10) + '\n');
-process.exit(bad ? 1 : 0);
+process.exit(bad || hashBad ? 1 : 0);
