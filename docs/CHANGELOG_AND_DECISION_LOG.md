@@ -4649,3 +4649,65 @@ change is left in place, a limit the design names and a later design may close w
 **Consequences.** Every repo gains `make scan`, a later kit release requires it before a pull request, and CodeQL stays
 where it is free. What reopens this is a scan that passes code it should have caught, or a way for a session to change
 what scans it. VERSION 0.2.169, scripts 1.6.0.
+
+## D-086. The fifth retrospective's changes, three standing questions, a pin call by probe, a brief's hashes, drafts
+
+- **Date.** 2026-10-23
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Follows.** D-034, D-039, D-061, D-076 and D-083, the supporting session and the review's records before these.
+- **Tier / scope:** Standard · `kit/common/docs/agent/CODE_REVIEW_PROCESS.md`, `AGENT_ROLES.md`, the brief and answer
+  key templates and their copies in `docs/agent/`, `tools/claude-code/kdf-retro.js` and `kdf-brief.js` with their
+  README, the tests · kit v1.27.0, synced by the Distribute
+
+**Context.** A review retrospective's measured proposals, approved by the owner, reach the kit here. Three are classes
+of defect a step 2 brief did not ask about. A rule a constructor or a default holds can be passed by another path to
+the same consumer, a value of a builtin type read through its own methods answers what a caller's object says, and a
+closed set built from the cases in hand lacks what its authority holds. An answer key's call on whether a later
+finding was in the step 2 tree was made from the history where the pin's own code could have been run. A brief named
+a commit by a hash that resolves to none, and each reader sized its delta against a prefix. And the long writing of
+a slice moved from the orchestrator to the supporting session on the owner's word, which the process did not yet
+say.
+
+**Decision.**
+
+- **Three standing look for questions**, every path to the same consumer, a builtin's subclass and a closed set and its
+  authority, after the twelve of D-039, D-061, D-076 and D-083 and before the brief's own two. The brief names a
+  closed set's authority and its version for the reviewer, who fetches nothing. The process says fifteen and names
+  them, and the template keeps all fifteen word for word in every brief.
+- **A later finding's pin call is settled at the pin.** Its own input runs against the step 2 pin's code in a copy of
+  the pin's tree outside the reviewed folder, or a test, a table or a document is read at the pin's commit, and How
+  decided names the pin. A no names the commit that brought the code in, and a finding whose halves differ says yes for
+  the half that was. `kdf-retro.js` lists each later finding whose yes or unsure names no pin, a reminder that changes
+  no count.
+- **The commit hashes a brief names resolve.** `kdf-brief.js check` reads every hex run in a backticked span or a
+  fenced block that is joined to no other word character, resolves it in the repo or a git clone beside it, and
+  refuses one in the commit paragraph that names no commit, one git calls ambiguous anywhere, and a brief with a
+  scope table and no commit paragraph. An unresolved hash elsewhere is a warning, since a digest, a value or a sibling
+  not yet pulled can stand there and must never stop a launch. Whoever places a brief runs it with `--disk` before
+  the commit, reading the file about to be committed, and the launcher at the pin.
+- **The supporting session drafts each slice's write ups**, the briefs, the Sol dispatches with their page and bundles,
+  the answer key, the retrospective and the pull request's body, on the owner's yes in its own session, into the
+  workspace's temp folder. The orchestrator places, checks and commits each, a brief alone as its pin, and pushes and
+  launches on the owner's word. D-034's two folders and two owners stand, since the supporting session still writes
+  nothing in the reviewed folder, and a review without one keeps the orchestrator writing.
+
+**Alternatives considered.**
+
+- *The supporting session committing a brief as its pin.* Declined, two sessions committing in one folder share its
+  index, and the owner's yes kept every commit with the orchestrator.
+- *The hash check on the commit paragraph alone.* Declined, a fix check's table names the repo's own commits, so
+  every hash is read and one outside the paragraph warned of, and a sibling's commit is told apart by resolving in a
+  clone beside the repo.
+- *A refusal for every unresolved hash anywhere.* Declined, the gate runs before every launch, and a digest, a run
+  id's tail or a sibling not yet pulled outside the commit paragraph would stop a review that is sound.
+- *The pin warning keyed on any cell that says probe or read.* Declined, it would list question rows and pass a
+  reading of the report, so it reads finding rows and the word pin, whole.
+- *The builtin value question folded into the callable question.* Declined, a value's methods and a callable's shape
+  take two probes.
+
+**Consequences.** Every brief written from kit v1.27.0 asks fifteen standing questions, about eighteen lines more,
+each weighed by its class's escapes where the class next appears, and a slice with no instance leaves it watched. A
+later finding's pin call costs a probe over a copy of the pin's tree. A brief with a stale hash is refused before its
+pin. Each draft takes the owner's yes in the supporting session and each commit its yes in the orchestrator's. The
+numbers each change should move are in the review bench's ledger. No workflow changes, and two tools gain a check
+each. VERSION 0.2.170, kit and cicd's own copies at v1.27.0.

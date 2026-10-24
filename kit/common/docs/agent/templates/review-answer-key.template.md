@@ -1,8 +1,9 @@
 # The {campaign} review, {slice {S1}, {slice name}, or the spot review of {scope}}. Answer key
 
-> **How to use.** The orchestrator copies this to `{PFX}_REVIEW_{slice}_ANSWER_KEY.md` at the root of the slice's
-> folder, beside the adjudication log, at step 6 when the slice closes, and at spot scale to `{PFX}_REVIEW_ANSWER_KEY.md`
-> at the root of the review folder when the review closes. It is written once, from the finished adjudication log and
+> **How to use.** The orchestrator, from the supporting session's draft where there is one, copies this to
+> `{PFX}_REVIEW_{slice}_ANSWER_KEY.md` at the root of the slice's folder, beside the adjudication log, at step 6 when
+> the slice closes, and at spot scale to `{PFX}_REVIEW_ANSWER_KEY.md` at the root of the review folder when the review
+> closes. It is written once, from the finished adjudication log and
 > from git, and it restates the log's verdicts as one table, so a later reader, or a benchmark that scores another
 > model's report on this slice, needs nothing else. It adds no verdict of its own. Every row cites the log row it
 > restates, and a log row corrected later is corrected here in the same commit. The process is
@@ -40,7 +41,13 @@ round, the final reviews and the second reads, real or not, plus every question 
 defect two readers of one step both raised, shown by one reproduction, keeps both rows, each naming the other's id in
 The defect, and the shared count lives in the retrospective alone. Severity and Blocks as adjudicated.
 **At the step 2 pin** says whether the defect was in the tree the step 2 reviewers read, yes, no or unsure, and **How
-decided** says how that was settled, a read of the file at the pin, a probe, or the commit that brought the code in.
+decided** says how that was settled. A finding a later source raised that was in the tree, or may have been, is
+settled by its own input, the reporter's probe where it gave one, run against the step 2 pin's code where that code
+can run it, in a copy of the pin's tree outside the reviewed repo's folder, its changed files written there by `git
+show <pin>:<path>`, and How decided names that probe and the pin. A test, a table or a document is read at the pin's
+commit, and How decided says read at the pin. A finding on code a later commit brought in says no, and How decided
+names that commit, the same commit Present from names. A finding whose halves differ at the pin says yes for the
+half that was, and names the commit that brought the other.
 **Needs** says what a reviewer had to have to find it, the repo alone, the sibling repos, or a running stack.
 **Source** uses the words `kdf-retro.js` places in the cycle, `Orchestrator, step 1`, `Orchestrator, after step 2`,
 `Step 2 Claude`, `Step 2 Codex`, `Fix check Claude, after step 3`, `Fix check Codex, after step 3`, `Sol R<n> D<m>`,

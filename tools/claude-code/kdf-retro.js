@@ -7,7 +7,9 @@
  *        reads the folder's answer key, the header of every report in its step folders and its Sol rounds, and prints
  *        three Markdown tables for the retrospective's section 1, pasted as printed. The findings by source (raised,
  *        agreed, declined, the agreed ones that were in the tree the step 2 reviewers read, and the escapes), the
- *        reports (reviewer, minutes, tokens), and the Sol rounds (every dispatch and whether its answer is archived)
+ *        reports (reviewer, minutes, tokens), and the Sol rounds (every dispatch and whether its answer is archived),
+ *        then the pin calls to check, each later finding whose yes or unsure at the step 2 pin names no pin in How
+ *        decided, a reminder that changes no count
  *
  * An escape is an agreed finding that was in the step 2 pin's tree and that a later source found, a Sol round, a final
  * review, a second read, or the orchestrator after step 2. The escape rate is the first number a retrospective reads,
@@ -85,7 +87,10 @@ for (let i = header + 1; i < lines.length && lines[i].trim().startsWith('|'); i+
     id: c[col('Id')],
     source: c[col('Source')].replace(/\s+/g, ' '),
     verdict: c[col('Verdict')] || '',
-    atPin: (c[col('At the step 2 pin')] || '').toLowerCase()
+    sev: c[col('Sev')] || '',
+    atPin: (c[col('At the step 2 pin')] || '').toLowerCase(),
+    atPinText: c[col('At the step 2 pin')] || '',
+    howDecided: c[col('How decided')] || ''
   });
 }
 
@@ -378,6 +383,33 @@ else {
     ? missing.length + ' Sol dispatch(es) without an archived answer, the slice does not close until each is in, '
       + 'section 14.'
     : 'Every Sol dispatch has its archived answer.');
+}
+
+// ------------------------------------------------------------ the pin calls to check
+
+// A later finding's yes or unsure at the step 2 pin is settled at the pin, by its own input run against the pin's code
+// or by a read at the pin's commit, the answer key template's section 3, so its How decided names the pin. A row whose
+// How decided does not is listed here, as a reminder to check the call. The word is read whole, "pin's" among its forms
+// and never inside another word, and a cell's words cannot show that a measurement was made, so this reminds and never
+// fails. A question row, whose Sev is empty, makes no pin call, and a no rests on the commit its Present from names.
+const namesPin = (text) => /(^|[^a-z0-9])pin('s)?($|[^a-z0-9])/i.test(text);
+const toCheck = findings.filter((f) => f.sev && rank(f.source) > 2
+  && (f.atPin.startsWith('yes') || f.atPin.startsWith('unsure')) && !namesPin(f.howDecided));
+out.push('');
+out.push('## Pin calls to check');
+out.push('');
+if (!toCheck.length) out.push('Every yes or unsure call of a later finding names the pin in How decided.');
+else {
+  out.push('| Id | At the step 2 pin | How decided |');
+  out.push('| --- | --- | --- |');
+  for (const f of toCheck) {
+    out.push('| ' + f.id + ' | ' + f.atPinText.replace(/\|/g, '\\|') + ' | '
+      + (f.howDecided || 'empty').replace(/\|/g, '\\|') + ' |');
+  }
+  out.push('');
+  out.push(toCheck.length + ' later finding(s) whose yes or unsure at the step 2 pin names no pin in How decided. '
+    + 'Each is settled by its own input run against the pin\'s code, or a read at the pin, the answer key template\'s '
+    + 'section 3. The counts above are unchanged.');
 }
 process.stdout.write(out.join('\n') + '\n');
 process.exit(0);

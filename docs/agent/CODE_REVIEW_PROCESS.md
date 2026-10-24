@@ -16,7 +16,9 @@
 > v1.25.0 a session's workers, a subagent for one job that keeps its session's role and limits and never reads a pin
 > as a reviewer, and since v1.26.0 the fourth retrospective's changes, four more standing look for questions, a Now
 > block of the open step and the one before it, and every commit of a fix running the floors and extras lanes where a
-> repo has them. Kept byte identical across every KDF repo by the kit sync engine,
+> repo has them, and since v1.27.0 the fifth retrospective's changes, three more standing look for questions, the
+> answer key's pin column settled by a probe, a brief's hashes resolved and the supporting session drafting each
+> slice's write ups. Kept byte identical across every KDF repo by the kit sync engine,
 > canonical source `kriegerdataforge-cicd/kit/common/docs/agent/CODE_REVIEW_PROCESS.md`. Never edit a synced copy,
 > change the canonical one. The tooling that keeps the process safe, the guard, the reviewer
 > launcher and the installer, is not synced. It lives in `kriegerdataforge-cicd/tools/claude-code/` and is installed on
@@ -76,8 +78,8 @@ pull request that the owner merges, when it changed anything.
 | Role | Who | What it does | What it never does |
 | --- | --- | --- | --- |
 | Owner | The person | Asks the question or approves the plan, answers decisions, runs Codex, pastes the Sol dispatches, reviews and merges every pull request, deploys | |
-| Orchestrator | One long running session of the strongest model the owner can spend, at high effort, started in the folder that holds the repos | Runs steps 0, 1, 1b, 1c, 3 and 6, writes and pins the briefs, launches the fresh reviewers, adjudicates, commits, opens the pull request, watches CI, notifies the owner | Merges, approves, pushes to `main` but a `STATUS.md` commit to `kriegerdataforge-context`, tags, releases, deploys |
-| Supporting session | A second long running session the owner starts beside the orchestrator, in the same folder, of a model the owner chooses | Takes the orchestrator's handoffs for what a review finds outside the reviewed repo, in cicd, this kit, the reviewer tooling or another repo, talks each through with the owner, then writes it into a backlog for a design session and a build session, or builds it as one pull request from a worktree when the owner says so, and reports back, section 2. Turns a closed slice's retrospective into the owner's list of proposals, and builds each approved one the owner marks to build here, section 14 | Reviews, edits or checks out anything in the reviewed repo's folder, lets a fix take effect under an open pin, merges, approves, pushes to `main` but a `STATUS.md` commit to `kriegerdataforge-context`, tags, releases, deploys |
+| Orchestrator | One long running session of the strongest model the owner can spend, at high effort, started in the folder that holds the repos | Runs steps 0, 1, 1b, 1c, 3 and 6, writes the briefs, or places the supporting session's drafts, and pins them, launches the fresh reviewers, adjudicates, commits, opens the pull request, watches CI, notifies the owner | Merges, approves, pushes to `main` but a `STATUS.md` commit to `kriegerdataforge-context`, tags, releases, deploys |
+| Supporting session | A second long running session the owner starts beside the orchestrator, in the same folder, of a model the owner chooses | Takes the orchestrator's handoffs for what a review finds outside the reviewed repo, in cicd, this kit, the reviewer tooling or another repo, talks each through with the owner, then writes it into a backlog for a design session and a build session, or builds it as one pull request from a worktree when the owner says so, and reports back, section 2. Turns a closed slice's retrospective into the owner's list of proposals, and builds each approved one the owner marks to build here, section 14. Drafts each slice's briefs, Sol dispatches, answer key, retrospective and pull request body, section 2 | Reviews, edits or checks out anything in the reviewed repo's folder, lets a fix take effect under an open pin, merges, approves, pushes to `main` but a `STATUS.md` commit to `kriegerdataforge-context`, tags, releases, deploys |
 | Worker | A subagent the orchestrator or the supporting session starts for one job, of the model the session names in the call, [`AGENT_ROLES.md`](AGENT_ROLES.md) sections 3 and 4 | A search, a scan, a read it need not make itself, a probe, or the same mechanical edit in many places, its answer returned to the session, which reads the evidence itself before a finding counts as reproduced, rule 10 | Reads a pin as a review's reader, answers a review's brief, makes step 1's read or the cite check's read, asks the owner, commits or pushes. While a pin is open it runs only read only git in the reviewed repo's folder, fetches nothing from its remote and makes no worktree of it |
 | Fresh Claude reviewer | A new session per review, in the repo folder at the pinned commit, with an empty memory | Reads the brief, reads and probes the code, writes one report | Edits anything but its report, commits, uses GitHub |
 | Codex reviewer | ChatGPT through Codex, in the same folder on the owner's machine, or in the cloud | Reads the same brief at the same pinned commit, writes its own report | The same |
@@ -112,9 +114,15 @@ backlog item, then the pull request, where a register row would have stood. The 
 never edits, commits, checks out or stashes anything in the reviewed repo's folder, and while the review runs, a
 design or build session started for one of its handoffs keeps the same limits, its plan's "Stop and ask" naming the
 open review. A review without one runs as before, the orchestrator does that work itself, between pins the same way,
-and talks each item larger than its window through with the owner as this paragraph says. When a slice closes, the
-supporting session also reads the slice's retrospective, turns its proposals into the owner's list, and builds each
-approved one the owner marks to build here, the rest going to a backlog the same way, section 14.
+and talks each item larger than its window through with the owner as this paragraph says. In a review that has one,
+the supporting session also drafts each slice's write ups, the briefs, the Sol dispatches with their page and
+bundles, the answer key, the retrospective and the pull request's body, each on the owner's yes in its own session,
+from the orchestrator's handoff and the slice's log, and writes each draft into the workspace's temp folder, never
+into the reviewed repo's folder. The orchestrator reads each draft, places it in the repo, runs its checks, commits
+it, a brief alone as its pin, and pushes and launches on the owner's word, and keeps every reproduction, verdict and
+log row. When a slice closes, the supporting session also reads the slice's retrospective, turns its proposals into
+the owner's list, and builds each approved one the owner marks to build here, the rest going to a backlog the same
+way, section 14.
 
 Each role's limits are written for every model and tool in [`AGENT_ROLES.md`](AGENT_ROLES.md). Every brief states the
 reviewer's role in its own text, word for word from the template, so Codex, Sol or any other model is told the same
@@ -206,20 +214,20 @@ README whenever a step closes.
 | --- | --- | --- | --- |
 | Index | `README.md` | The review folder | Orchestrator, when the review opens and whenever a step closes |
 | Plan | `<PFX>_REVIEW_PLAN.md` | The review folder | Orchestrator, approved by the owner |
-| Brief | `<PFX>_REVIEW_<slice>_PROMPT.md` | `step-2-review` | Orchestrator, one brief for both reviewers |
+| Brief | `<PFX>_REVIEW_<slice>_PROMPT.md` | `step-2-review` | Orchestrator, from the supporting session's draft where there is one, one brief for both reviewers |
 | Claude report | `<PFX>_REVIEW_<slice>_REPORT.md` | Beside the brief | Fresh Claude reviewer |
 | Codex report | `<PFX>_REVIEW_<slice>_CODEX_REPORT.md` | Beside the brief | Codex |
-| Fix check brief | `<PFX>_REVIEW_<slice>_FIXCHECK_PROMPT.md` | `step-3-fix-check` | Orchestrator, one brief for both readers, step 3b |
+| Fix check brief | `<PFX>_REVIEW_<slice>_FIXCHECK_PROMPT.md` | `step-3-fix-check` | Orchestrator, from the supporting session's draft where there is one, one brief for both readers, step 3b |
 | Fix check reports | `<PFX>_REVIEW_<slice>_FIXCHECK_REPORT.md`, `..._FIXCHECK_CODEX_REPORT.md` | Beside the fix check brief | Fresh Claude reviewer, Codex |
 | Adjudication log | `<PFX>_REVIEW_<slice>_ADJUDICATION.md` | The slice folder | Orchestrator, one row per finding from every source |
-| Answer key | `<PFX>_REVIEW_<slice>_ANSWER_KEY.md` | The slice folder, beside the log | Orchestrator, at step 6 when the slice closes, from the finished log and git |
-| Retrospective | `<PFX>_REVIEW_<slice>_RETRO.md` | The slice folder, beside the answer key | Orchestrator, at step 6 after the answer key, its numbers printed by `kdf-retro.js`, section 14 |
+| Answer key | `<PFX>_REVIEW_<slice>_ANSWER_KEY.md` | The slice folder, beside the log | Orchestrator, from the supporting session's draft where there is one, at step 6 when the slice closes, from the finished log and git |
+| Retrospective | `<PFX>_REVIEW_<slice>_RETRO.md` | The slice folder, beside the answer key | Orchestrator, from the supporting session's draft where there is one, at step 6 after the answer key, its numbers printed by `kdf-retro.js`, section 14 |
 | Campaign retrospective | `<PFX>_REVIEW_CAMPAIGN_RETRO.md` | The review folder | Orchestrator, when the whole review closes |
-| Sol dispatch | `<PFX>_REVIEW_<slice>_SOL_R<n>_D<m>_PROMPT.md` | `step-4-sol/round-<n>` | Orchestrator, word for word as the page holds it |
+| Sol dispatch | `<PFX>_REVIEW_<slice>_SOL_R<n>_D<m>_PROMPT.md` | `step-4-sol/round-<n>` | Orchestrator, from the supporting session's draft where there is one, word for word as the page holds it |
 | Sol answer | `<PFX>_REVIEW_<slice>_SOL_R<n>_D<m>_ANSWER.md` | Beside its dispatch | Orchestrator, word for word as the owner pasted it back |
-| Final brief | `<PFX>_REVIEW_<slice>_FINAL_PROMPT.md` | `step-5-final` | Orchestrator |
+| Final brief | `<PFX>_REVIEW_<slice>_FINAL_PROMPT.md` | `step-5-final` | Orchestrator, from the supporting session's draft where there is one |
 | Final reports | `<PFX>_REVIEW_<slice>_FINAL_REPORT.md`, `..._FINAL_CODEX_REPORT.md` | Beside the final brief | Fresh reviewers |
-| Sol dispatch page | A Claude Artifact, the page the owner copies from | Its URL in the README and the adjudication log | Orchestrator |
+| Sol dispatch page | A Claude Artifact, the page the owner copies from | Its URL in the README and the adjudication log | Orchestrator, from the supporting session's draft where there is one |
 | Register of deferred items | `DEFERRED_ITEMS.md` | `docs/security/`, one for the repo | Orchestrator |
 | Decisions | `docs/CHANGELOG_AND_DECISION_LOG.md`, the next `D-NNN` | The repo root's `docs/` | Orchestrator |
 
@@ -482,14 +490,15 @@ One brief serves both reviewers. Its shape, in this order, is the template's.
    reviewer never starts, stops or resets it. It reads the stack with the tests, a script, `docker ps`, `docker logs`
    and `curl` to this machine, `AGENT_ROLES.md` section 5. It reads no secret file, rule 5 there, and prints no value.
 8. **Settled.** Numbered, with the reasons, so a reviewer does not re-derive a decision.
-9. **Look for.** A starting list, by area. A question becomes a finding only when a probe proves it. Twelve standing
+9. **Look for.** A starting list, by area. A question becomes a finding only when a probe proves it. Fifteen standing
    questions close every list, word for word from the template, the paths a tool acts on, the environment a child is
    handed, two parsers of one string, what pins a constant, whose text a message carries, what a success test reads
    of its outcome, a hop to another thread or loop, what a stored secret holds, what a value of the right type can
-   hold, a setting applied once, a callable read for its shape, and every boundary a line's consumer honours. The
-   kdf-sdk's first retrospective found 26 of its 43 escapes in the first three classes, each one read past by a step
-   2 brief that did not ask, and its second retrospective added the next two, its third the next three, and its
-   fourth the last four.
+   hold, a setting applied once, a callable read for its shape, every boundary a line's consumer honours, every path
+   to the same consumer, a builtin's subclass, and a closed set and its authority. The kdf-sdk's first retrospective
+   found 26 of its 43 escapes in the first three classes, each one read past by a step 2 brief that did not ask, and
+   its second retrospective added the next two, its third the next three, its fourth the next four, and its fifth the
+   last three.
 10. **Rules of evidence.** Probe, quote the line, reproduce, and put what cannot be settled under "Could not settle".
 11. **The report.** Section 8.
 
@@ -541,15 +550,18 @@ is corrected in the key in the same commit.
 
 A dispatch is one self contained prompt over one area of the scope, small enough for one fresh ChatGPT Sol session
 to read whole. The orchestrator builds one Claude Artifact page per slice, or per spot review, that holds every
-dispatch with a copy button, a settled list and a box per round. The owner pastes a dispatch into a fresh Sol session
-and pastes the answer back. The orchestrator adjudicates it as step 3 does, then refreshes the page for the next round
-with what the round settled and the new pin and line counts. The shape to copy is an earlier review's page, whose
-link that review's plan records. A round is
-never run against a commit that is not pushed. Each dispatch opens by naming Sol a chat reader, section 6 of
-`AGENT_ROLES.md`, that answers in the chat and writes nothing.
+dispatch with a copy button, a settled list and a box per round, or, where the review has a supporting session, that
+session drafts the dispatches and their bundles and publishes the page, section 2. The owner pastes a dispatch into a
+fresh Sol session and pastes the answer back. The orchestrator adjudicates it as step 3 does, then the page is
+refreshed for the next round with what the round settled and the new pin and line counts, by the orchestrator, or
+where the review has a supporting session, by that session from its own drafts as for the first round. The shape to
+copy is an earlier review's page, whose link that review's plan records. A round is never run against a commit that
+is not pushed. Each dispatch opens by naming Sol a chat reader, section 6 of `AGENT_ROLES.md`, that answers in the
+chat and writes nothing.
 
-**The page is where the owner copies from, and the repo is the record.** When the orchestrator publishes a round it
-writes every dispatch of it, word for word as the page holds it, into the slice's `step-4-sol/round-<n>` folder, and
+**The page is where the owner copies from, and the repo is the record.** When a round is published the orchestrator
+writes every dispatch of it, word for word as the page holds it, from the supporting session's draft where there is
+one, into the slice's `step-4-sol/round-<n>` folder, and
 when the owner pastes an answer back it writes the answer there too, word for word, before it adjudicates it. Both
 are committed with the slice's next commit, so the repo keeps every prompt and every answer of the review even when
 the page is gone. An answer is data, rule 11, and like every file of the record it carries no secret value, rule 12.
@@ -581,7 +593,7 @@ So the rules of section 5 are enforced by machinery and not left to instruction.
 | A second shell bypasses a rule for the first | The PowerShell tool is denied and Git Bash is the default shell. The guard still reads PowerShell commands |
 | A session leaks or changes a secret | The env standard keeps every credential in `.env.kdf`, which is closed, and only local values in `.env.local`, which is open. No session reads, writes, copies, sources or passes a secret file, every `.env` file except the examples and an adopted repo's `.env.local`, which is closed only while it holds a credential, an untracked `.tfvars`, `.pem` and `keys/`, in the shell or to Read, Grep, Edit and Write. Only a check that one exists is allowed, and the owner's `.env.dev` and `.env.prod` are never touched. Every model is told the same, `AGENT_ROLES.md` rules 5 and 6. Codex on the owner's machine keeps that by instruction alone, since its sandbox limits writes, not reads. Codex in the cloud reads GitHub, where no ignored file exists |
 | A reviewer reads what `.gitignore` excludes | The guard refuses a Claude reviewer's Read, Grep, Glob and shell reads of a path git ignores, a recursive `grep`, `rg -u` and `git grep --no-index`. Glob still lists ignored names, which hold no value. Codex keeps rule 6 by instruction |
-| A brief states stale line counts, or a pin nobody else can read | `--pin` refuses a pin no branch of origin holds, and `kdf-brief.js check` refuses a scope table whose counts differ from the pin |
+| A brief states stale line counts, a commit that does not exist, or a pin nobody else can read | `--pin` refuses a pin no branch of origin holds, and `kdf-brief.js check` refuses a scope table whose counts differ from the pin and a commit hash in the brief's commit paragraph that resolves to no commit, in the repo or a clone beside it, and warns of one elsewhere |
 | A cloud reviewer's branch carries more than its report | `--collect-branch` brings nothing in unless the branch is built on the pin and adds only new files under `docs/reviews`. No pull request is opened, and `main`'s ruleset refuses a direct push. Its environment holds no token, and its agent reaches `github.com` alone |
 | A reviewer changes something and hides it | The launcher snapshots git when a review opens and when it closes, and fails the review when anything but a new file under `docs/reviews` moved. Remote tracking refs are left out, an editor's background fetch moves them |
 | A reviewer outside Claude Code, Codex, has no guard | `--prepare` opens its turn in the folder at the pin and `--collect` closes it with the same check. Any change but its report is exit 3, and the review stays open until the orchestrator puts the folder right |
@@ -655,6 +667,11 @@ other reviewer of the pin reads it waits outside the tree with the first report'
 **The brief's facts.** `node <cicd>/tools/claude-code/kdf-brief.js counts --repo <repo> --pin HEAD <label>=<paths>`
 prints the scope table's rows with the line counts at the pin, and `facts`, run on the state commit before the brief's
 own commit, prints the commit line, which names the state and says the pin is the commit that adds the brief.
+`check --repo <repo> --pin HEAD <brief>`, run by the launcher at the pin, and as `check --disk` by whoever places the
+brief before its commit, which reads the file about to be committed and never an older brief at the pin, refuses a
+scope table whose counts differ from the pin, a brief with a scope table and no commit paragraph, a commit hash in
+the commit paragraph that resolves to no commit, in the repo or a clone beside it, and a hash git reads as ambiguous
+anywhere, and warns of an unresolved hash elsewhere, where a digest or a sibling not yet pulled can stand.
 `cites --repo <repo> --pin HEAD [--since <commit>] [--only <paths>]` lists every `file:line` cite of the living docs
 beside the lines it names at the pin, a doc under `docs/reviews/`, a dated record under `docs/<kind>/` and a log
 keeping the lines of their own day, and flags a missing file, a line out of range, a backwards range and a basename
@@ -826,12 +843,14 @@ plan, it does not reopen this one.
 model improves in training, by measuring, changing one thing and measuring again. Once the answer key is written, the
 orchestrator runs `node <cicd>/tools/claude-code/kdf-retro.js <slice folder>`, which counts from the slice's own record
 what every source raised, agreed and declined, the escapes, which are the agreed findings in the tree the step 2
-reviewers read that a later step found, each report's minutes and tokens, and every Sol dispatch without its answer.
-The orchestrator writes `<PFX>_REVIEW_<slice>_RETRO.md` from
+reviewers read that a later step found, each report's minutes and tokens, every Sol dispatch without its answer, and
+every yes or unsure call of a later finding that does not name the pin. The orchestrator writes
+`<PFX>_REVIEW_<slice>_RETRO.md`, from the supporting session's draft where there is one, from
 [`templates/review-retro.template.md`](templates/review-retro.template.md), the tool's tables pasted as printed, then
-its own analysis, why each escape was missed, what cost time or tokens or confused the owner, how the changes earlier
-retrospectives made did here, and its proposals. Phase B and a spot review write one the same way, and the whole
-review closes with `<PFX>_REVIEW_CAMPAIGN_RETRO.md`.
+the analysis, why each escape was missed, what cost time or tokens or confused the owner, how the changes earlier
+retrospectives made did here, and the proposals, the supporting session's draft of it where there is one, which the
+orchestrator reads and checks against the log before it commits it. Phase B and a spot review write one the same
+way, and the whole review closes with `<PFX>_REVIEW_CAMPAIGN_RETRO.md`.
 
 **The owner decides every change.** The supporting session, or the orchestrator in a review without one, turns the
 proposals into a short list in the chat, each with the problem, the change, the number it should move and its cost,
@@ -868,3 +887,9 @@ what a value of the right type can hold, a setting applied once, a callable read
 line's consumer honours, section 7, a Now block of the open step and the one before it, its closed steps kept in the
 adjudication log, section 11, and every commit of a fix running the floors and extras lanes where a repo has them,
 section 4 step 1. They are kit v1.26.0, cicd ADR D-083.
+
+**The fifth retrospective**, the kdf-sdk's S5, the owner's yeses of 2026-10-23. Three standing look for questions,
+every path to the same consumer, a builtin's subclass and a closed set and its authority, section 7, the answer key's
+pin column settled by a probe at the pin with the retrospective tool's reminder, section 14, a brief's commit hashes
+resolved by the brief tool, sections 10 and 11, and the supporting session drafting each slice's write ups for
+the orchestrator to place and commit, section 2. They are kit v1.27.0, cicd ADR D-086.

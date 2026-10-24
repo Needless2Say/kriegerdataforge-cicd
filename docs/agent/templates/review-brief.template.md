@@ -141,8 +141,10 @@ implementation does not do what the decision says, and then the finding names wh
 
 {The plan's list for this slice is the starting point. What step 1 settled is above, what is left, and what step 1
 added, is where a finding is likeliest. One bullet per area, each naming the specific question, not the topic. In a
-final brief, every Blocks fix of the last Sol round comes first, with its finding id. Keep the twelve standing bullets
-after the areas, word for word, and delete a stack's readers only when the slice holds none of that stack.}
+final brief, every Blocks fix of the last Sol round comes first, with its finding id. Where an area's rule names a
+closed set, name its authority and its version, with a citation or an excerpt the reviewer can read, since a reviewer
+fetches nothing. Keep the fifteen standing bullets after the areas, word for word, and delete a stack's readers only
+when the slice holds none of that stack.}
 
 - **{Area}.** {Whether X could ever Y, whether Z holds when W, what happens to V when U.}
 - **Paths a tool acts on.** Every path a tool is told to act on, by an argument, a setting or the environment, and
@@ -197,6 +199,24 @@ after the areas, word for word, and delete a stack's readers only when the slice
   line, or the line terminators a JavaScript pattern's anchors match, and every conversion the format's grammar
   permits, read from the grammar and not from its examples, since a conversion can write a character after the
   filter ran.
+- **Every path to the same consumer.** Every rule a constructor, a default or a check holds, and every other path a
+  value reaches the same consumer by without passing that rule, a caller's explicit value beside the default the
+  rule was written for, the framework's own error or object beside the library's class, a value changed after it
+  was built, the type a signature declares beside the type the code accepts at run time. Probe each path where it
+  meets the consumer, and whether the rule stands at that last step too.
+- **A builtin's subclass.** Every value of a builtin type a rule reads, a number, a string, a list, a mapping or a
+  date, and whether the rule reads it by the builtin's own method or a plain copy, or through methods a caller's
+  object can replace, a comparison, a length, an encoding, a conversion or an iteration. Probe each with an object
+  that overrides them and lies, in Python a subclass, read safely by `int.__int__(value)`, `str.__str__(value)` or
+  `list(list.__iter__(value))`, and in JavaScript a Proxy or an object with its own `valueOf`, `toString` or
+  `Symbol.iterator` passed where a primitive or an array was expected, since a check made through the value's own
+  methods passes whatever they answer.
+- **A closed set and its authority.** Every closed list or character set a rule names, the names it refuses, the
+  spellings it maps, the characters it treats as invisible or forbidden, the authority the brief names for it, a
+  standard's section, a registry's list, a Unicode property such as `Default_Ignorable_Code_Point` or a general
+  category, and whether a test reads the set against that authority where the authority is data. Read the set
+  against its authority and the exceptions the brief settles, never against the cases the code was written for,
+  and name what the authority holds that the set lacks.
 - **The new tests.** Whether each pins what its name claims. A test that would pass against a broken implementation
   is a finding.
 - **The docs.** Every `file:line` cite into this slice against the code, and every claim in the adjudication log's

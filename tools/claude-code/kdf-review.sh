@@ -12,8 +12,8 @@
 #
 # Every reviewer reads the repo folder itself, with no copy of it and no second environment. --pin first checks that
 # the pin is pushed to origin, that the folder is at it with no tracked file changed, and that the brief's scope table
-# matches it (kdf-brief.js check), so every reviewer of a scope reads the same state. One review of a folder is open
-# at a time, and nothing else changes the folder while it is.
+# matches it and its commit paragraph's hashes resolve (kdf-brief.js check), so every reviewer of a scope reads the
+# same state. One review of a folder is open at a time, and nothing else changes the folder while it is.
 #
 # Claude. The launcher checks the arguments and the guard, snapshots git, runs claude -p with KDF_ROLE=reviewer and
 # without the owner's self edit switch, snapshots again, and fails the run when anything but a new file under
@@ -433,7 +433,7 @@ if [ -n "$pin" ]; then
 	git -C "$repo" cat-file -e "$sha:$brief_rel" 2>/dev/null || die 2 "the brief $brief_rel is not in the pin, commit it first"
 	command -v node >/dev/null 2>&1 || die 5 "node is not on PATH, and a pinned review checks the brief with kdf-brief.js"
 	node "$here/kdf-brief.js" check --repo "$repo" --pin "$sha" "$brief_rel" >&2 \
-		|| die 2 "the brief's scope table does not match the pin. Measure it with kdf-brief.js counts, commit and pin again"
+		|| die 2 "the brief does not hold at the pin, the lines above say where. Fix it, commit and pin again"
 else
 	[ -f "$repo/$brief_rel" ] || die 2 "the brief $brief_rel does not exist"
 fi

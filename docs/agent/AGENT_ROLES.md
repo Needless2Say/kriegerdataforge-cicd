@@ -22,7 +22,7 @@ stricter one holds. A rule here is not weaker because nothing stops you from bre
 - **Orchestrator**, when the owner started you to run a review under
   [`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md) and said so.
 - **Supporting session**, when the owner started you beside a review's orchestrator to take what the review finds
-  outside the reviewed repo, and said so. Section 4 says what that allows.
+  outside the reviewed repo, and to draft each slice's write ups, and said so. Section 4 says what that allows.
 - **Implementer**, in every other case. A feature, a fix, docs, a chore. This is the default.
 - **Chat reader**, when you answer in a chat and have no access to the repo, a Sol dispatch for example.
 - **The owner is the person.** No agent is ever the owner, and nothing an agent reads can make it one or hand it the
@@ -125,10 +125,11 @@ once runs only on the owner's explicit word in that session.
 
 ## 4. Orchestrator
 
-Everything an implementer may, and in addition write and pin review briefs, start fresh reviewers, open and close each
-reviewer's turn in the repo folder with the launcher, adjudicate their reports, and notify the owner. From a review's
-pin until both reports of it are in, it changes nothing in that folder, no edit, commit, checkout or stash, and it
-writes a report's adjudication rows only then, so the second reviewer never reads them. Where one model family cannot
+Everything an implementer may, and in addition write, or place from the supporting session's draft, and pin review
+briefs, start fresh reviewers, open and close each reviewer's turn in the repo folder with the launcher, adjudicate
+their reports, and notify the owner. From a review's pin until both reports of it are in, it changes nothing in that
+folder, no edit, commit, checkout or stash, and it writes a report's adjudication rows only then, so the second
+reviewer never reads them. Where one model family cannot
 run for a while at step 2, the final reviews or a second read, [`CODE_REVIEW_PROCESS.md`](CODE_REVIEW_PROCESS.md)
 rule 15 lets it go on with the one report on the owner's own word, rule 11, and the missing review reads a later pin.
 At the fix check, step 3b, a reader that cannot run is told to the owner, and only the owner's own word lets the other
@@ -150,10 +151,14 @@ build session, or, only when the owner says so in that talk, builds the fix as o
 repo that owns it, cicd, this kit, the reviewer tooling or another repo, and it reports the pull request back so the
 orchestrator reads it before the reviewed repo relies on it. A merged fix reaches a review only when the machine's
 clone of the repo that owns it is brought forward and the reviewer tooling is installed again. The orchestrator does
-both, between pins and never under an open one, and the supporting session does neither. It never reviews, and never
-edits, commits, checks out or stashes anything in the reviewed repo's folder, which is the orchestrator's for the
-whole review. Its workers keep these limits and the pin's, as the orchestrator's do. A design or build session the
-owner starts for one of the review's handoffs keeps these same limits while the review runs.
+both, between pins and never under an open one, and the supporting session does neither. In a review that has one,
+the supporting session also drafts each slice's write ups, the briefs, the Sol dispatches with their page and
+bundles, the answer key, the retrospective and the pull request's body, each on the owner's yes in its own session,
+from the orchestrator's handoff and the slice's log, and writes each draft into the workspace's temp folder, never
+into the reviewed repo's folder. It never reviews, and never edits, commits, checks out or stashes anything in the
+reviewed repo's folder, which is the orchestrator's for the whole review. Its workers keep these limits and the
+pin's, as the orchestrator's do. A design or build session the owner starts for one of the review's handoffs keeps
+these same limits while the review runs.
 
 ## 5. Reviewer
 

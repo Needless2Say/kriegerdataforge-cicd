@@ -1,12 +1,13 @@
 # The {campaign} review, {slice {S1}, {slice name}, the spot review of {scope}, or the whole campaign}. Retrospective
 
-> **How to use.** The orchestrator copies this to `{PFX}_REVIEW_{slice}_RETRO.md` at the root of the slice's folder,
-> beside the answer key, at step 6 once the answer key is written, and at spot scale to `{PFX}_REVIEW_RETRO.md` at the
-> root of the review folder. When the whole review closes, the campaign's own retrospective is
-> `{PFX}_REVIEW_CAMPAIGN_RETRO.md` at the root of the review folder, and its section 1 sums the slices' tables. The
-> numbers come from the tool and are pasted as it printed them, never retyped or rounded. The rest is the
-> orchestrator's analysis, short and with its evidence. Section 6 is filled only after the owner answers. The process
-> is [`../CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md) section 14. Name a secret's variable, never its value.
+> **How to use.** The orchestrator, from the supporting session's draft where there is one, copies this to
+> `{PFX}_REVIEW_{slice}_RETRO.md` at the root of the slice's folder, beside the answer key, at step 6 once the answer
+> key is written, and at spot scale to `{PFX}_REVIEW_RETRO.md` at the root of the review folder. When the whole
+> review closes, the campaign's own retrospective is `{PFX}_REVIEW_CAMPAIGN_RETRO.md` at the root of the review
+> folder, and its section 1 sums the slices' tables. The numbers come from the tool and are pasted as it printed
+> them, never retyped or rounded. The rest is the analysis of whoever writes it, the orchestrator or the supporting
+> session's draft, short and with its evidence. Section 6 is filled only after the owner answers. The process is
+> [`../CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md) section 14. Name a secret's variable, never its value.
 > Under 150 lines. Delete this box and every hint in braces when you fill a section.
 
 ## 1. The numbers
