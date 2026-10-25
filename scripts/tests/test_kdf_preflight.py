@@ -76,6 +76,10 @@ FMT_PIN    = {"requirements-dev.in": f"kdf-fmt @ git+https://github.com/Needless
 NPM_HOST = "https://npm.pkg.github.com/"
 WIDGET   = "@needless2say/widget"
 
+# a tarball member whose top folder GNU tar would read as an option that runs a command, and the file it would make
+DASH_MARKER = "kdf-preflight-dash-probe"
+DASH_MEMBER = f"--checkpoint-action=exec=touch${{IFS}}{DASH_MARKER};#/package.json"
+
 # the line a missing tarball's refusal ends with, the fresh install that puts it in npm's cache (Round Table 64's L2)
 FRESH_INSTALL = (
     "install the repo into a fresh tree on this machine, one with no node_modules, such as a new worktree's make"
@@ -2532,6 +2536,7 @@ def test_the_cache_is_npms_default_folder_when_no_test_names_one(rig: Rig, where
     ("tops", "holds other/index.js, outside the one top folder package"),
     ("loose", "holds README, outside the one top folder package"),
     ("doubled", "holds package//package.json, outside the one top folder package"),
+    ("dash", f"holds {DASH_MEMBER}, whose name begins with a dash, which tar could read as an option"),
     ("listing", f"tar could not list the tarball of {WIDGET} 1.2.3"),
 ])
 def test_bytes_that_do_not_match_their_lock_entry_are_refused_before_docker(rig: Rig, case: str, says: str) -> None:
@@ -2550,12 +2555,17 @@ def test_bytes_that_do_not_match_their_lock_entry_are_refused_before_docker(rig:
         tarball = _tarball(members = {**manifest, stray.get(case, "README"): b"X=1\n"})
     elif case == "listing":
         tarball = _as_tarball(b"not a tarball\n")
+    elif case == "dash":
+        # a top folder GNU tar would read as an option, which runs a command at a checkpoint (the Codex read of
+        # c6daba3), refused before tar is handed any member
+        tarball = _tarball(members = {DASH_MEMBER: _manifest(WIDGET, "1.2.3")})
     else:
         tarball = _tarball()
     _cached(rig.npm_cache, tarball, data = _tarball(version = "1.2.4").data if case == "hash" else None)
     done = _preflight(rig, "ci-lint", env = _private(rig, _widget_lock(tarball)))
     _refused(done, rig, says)
     assert _served(rig) == []
+    assert not Path(DASH_MARKER).exists() and not (rig.repo / DASH_MARKER).exists(), "no command of a member ran"
 
 
 # ----------------------------------------------------------------------------------------------------------------------

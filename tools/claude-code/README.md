@@ -535,7 +535,8 @@ setting, so a commit's `.npmrc` cannot steer it, and an owner who moved npm's ca
 looked in. It reads, handles and passes no token. Each tarball is copied into the run's folder and judged there,
 so what is judged is what enters. Its `sha512sum` must equal the lock's, its member list by `tar -tzf` is judged path
 by path by the secret file rule below, every member must sit under one top folder, since npm drops each member's first
-folder as it unpacks, a name with `..`, `.` or a doubled slash counting as outside it, and its own `package.json`
+folder as it unpacks, a name with `..`, `.` or a doubled slash counting as outside it and one beginning with a dash
+refused, since tar could read it as an option, and its own `package.json`
 directly under that folder, read by `tar -xzOf` and parsed by node, must name the entry's package and version, so a
 digest in a crafted lock cannot pass another cached tarball off as an allowed package. A failure of any refuses the
 run for the owner to decide. The tarball then goes into the context at `npm/_cacache/content-v2/sha512/...`, placed

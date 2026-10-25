@@ -4750,7 +4750,9 @@ private.
    refuses the run before any mirror is fetched, naming an install into a fresh tree, the one that fills the cache.
 4. **What of a tarball enters.** Each is copied into the run's folder and judged there. Its `sha512sum` must equal the
    lock's, every member's name passes the secret file rule and sits under one top folder, a name with `..`, `.` or a
-   doubled slash counting as outside it, and its own `package.json` names the entry's package and version. It is then
+   doubled slash counting as outside it, a name beginning with a dash is refused before tar is handed any member, and
+   `tar` takes the one it extracts after `--`, so no name is read as an option, and its own `package.json` names the
+   entry's package and version. It is then
    placed in the context's `npm/` folder at its digest's path, which the read back holds to the digests placed.
 5. **How the container reads them.** The lanes stage copies that folder into `/home/runner/.npm/` by an instruction
    of its own, runner's, so setup's install reads each tarball from the cache by the lock's integrity with no token and

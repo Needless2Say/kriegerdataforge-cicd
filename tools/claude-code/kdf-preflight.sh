@@ -740,6 +740,11 @@ if [ "$serve" -eq 1 ] && [ "${#npm_entries[@]}" -gt 0 ]; then
 			while IFS= read -r member; do
 				member="${member%$'\r'}"
 				[ -n "$member" ] || continue
+				# a name a tar argument could be read as an option from, whatever follows it, never reaches tar
+				case "$member" in -*)
+					die 2 "the tarball of $package $version holds $member, whose name begins with a dash, which tar could" \
+						"read as an option, so nothing is served. The owner decides" ;;
+				esac
 				[ -n "$top" ] || top="${member%%/*}"
 				under=0
 				case "$member" in "$top"/|"$top"/?*) under=1 ;; esac
@@ -759,7 +764,7 @@ if [ "$serve" -eq 1 ] && [ "${#npm_entries[@]}" -gt 0 ]; then
 		fi
 		# its own package.json, the one directly under the top folder, names the entry's package and version, so a digest
 		# in a crafted lock cannot pass another cached tarball off as an allowed package
-		named_as="$(tar -xzOf "$copy" "${tops[$digest]}/package.json" 2>>"$log" | node -e "$npm_manifest" 2>>"$log")" \
+		named_as="$(tar -xzOf "$copy" -- "${tops[$digest]}/package.json" 2>>"$log" | node -e "$npm_manifest" 2>>"$log")" \
 			|| die 2 "the tarball of $package $version holds no package.json under ${tops[$digest]}/ that node can read," \
 				"so it cannot be judged and the run is refused. The owner decides"
 		named_as="${named_as%$'\r'}"
