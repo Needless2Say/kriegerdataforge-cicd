@@ -4711,3 +4711,78 @@ later finding's pin call costs a probe over a copy of the pin's tree. A brief wi
 pin. Each draft takes the owner's yes in the supporting session and each commit its yes in the orchestrator's. The
 numbers each change should move are in the review bench's ledger. No workflow changes, and two tools gain a check
 each. VERSION 0.2.170, kit and cicd's own copies at v1.27.0.
+
+## D-087. The Linux pre-flight serves private npm packages from the host's npm cache and narrows its mirrors' tags
+
+- **Date.** 2026-10-25
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Follows.** D-072 and D-078, the pre-flight's tool and its setup and mirrors.
+- **Tier / scope:** Standard · `tools/claude-code/kdf-preflight.sh`, `tools/claude-code/preflight/Dockerfile`, their
+  tests, the tools' README and the module map · the tool changes, no workflow, input, output or secret changed
+
+**Context.** The owner's private Next.js repos depend on a package of the owner's scope from GitHub's npm registry,
+and a git mirror cannot serve an npm package, so their setup failed on a 401 and their pull requests reported a
+skipped pre-flight, D-078's item 8. CI holds no token free pattern to copy, since every Next.js lane names its npm
+token. Each Python mirror took every tag of its repo while CI's fetch takes only the tag a pin names, so the context
+held refs CI never sees. And once past setup those repos' lanes would have run on the image's Node 22, D-072's pick
+from the runner's default, while every Node lane here installs Node 24 by its `node_version` default. On 2026-10-25
+the owner chose the host's own npm cache read by digest over a stored npm login, a tarball missing from it refused
+before anything is built, and Node 24 folded in, a design judged by a panel and revised by its findings, its record
+private.
+
+**Decision.**
+
+1. **What the npm scan reads.** When a make lane is named, node reads the commit's `package-lock.json`, lockfile
+   version 2 or 3, and each entry whose `resolved` URL starts with `https://npm.pkg.github.com/` is a private package,
+   its name the entry's `name` else the path after its last `node_modules/`, its sha512 taken from among any other
+   hashes its `integrity` lists. No lock, or no such entry, serves nothing. The scan is a convenience and not the
+   fence, as D-078's item 4 says of the pins.
+2. **The fence, the mirrors' own.** D-078's item 4 runs when the scan finds a private entry as when it finds a pin,
+   and in a clone the base's own lock, read the same way, must lock each package the commit's does, any version,
+   else the run is refused, so a commit made on a known id of a private `main` gets only what that `main` locks. Only
+   once GitHub says the repo is private do the scan's refusals apply, an entry outside the scope `@needless2say/`, one
+   with no sha512 or two different ones, and a lock that is not JSON, so a public repo serves nothing and runs as
+   before.
+3. **Where the bytes come from.** Each tarball is read from this machine's npm cache at
+   `_cacache/content-v2/sha512/<two hex>/<two hex>/<the rest>`, npm's cache library's path by digest, the cache being
+   npm's default for the platform, `%LOCALAPPDATA%/npm-cache` through `cygpath` on Windows, else `~/.npm`, or
+   `KDF_NPM_CACHE` for a test. The tool runs no npm command, reads no npm setting and no token. A tarball not there
+   refuses the run before any mirror is fetched, naming an install into a fresh tree, the one that fills the cache.
+4. **What of a tarball enters.** Each is copied into the run's folder and judged there. Its `sha512sum` must equal the
+   lock's, every member's name passes the secret file rule and sits under one top folder, a name with `..`, `.` or a
+   doubled slash counting as outside it, and its own `package.json` names the entry's package and version. It is then
+   placed in the context's `npm/` folder at its digest's path, which the read back holds to the digests placed.
+5. **How the container reads them.** The lanes stage copies that folder into `/home/runner/.npm/` by an instruction
+   of its own, runner's, so setup's install reads each tarball from the cache by the lock's integrity with no token and
+   no request, measured on the pre-flight's own base before the change landed, an empty cache reading 401 and the
+   content file alone reading no request.
+6. **The hints.** A 401 or 403 from GitHub's npm registry in a private or unnamed repo's run now reads as a failed
+   pre-flight naming what was served, never a skipped one, and in a public repo's as a lane for the host. D-078's item
+   8 is settled.
+7. **The tags a pin names.** Each mirror takes `main`, each pinned commit and only the tags a pin names. A ref that is
+   neither a full commit id nor `main` is looked up once by `git ls-remote --tags --refs` through the same pinned git
+   and fetched only when a tag of that whole name exists, so a ref's text never reaches a refspec unchecked. D-078's
+   item 5 is settled for tags, and `main` stays in every mirror.
+8. **The image's Node follows CI's Node lanes.** The base takes the newest Node 24 release by its sum, its major held
+   by a test equal to the `node_version` default of every workflow that takes one, in place of D-072's runner default.
+   A caller passing another `node_version` still runs on 24 here.
+
+**Alternatives considered.**
+
+- *The host's own npm login and `npm pack`.* It fetches any version a branch locks, but needs a token stored in plain
+  text on each machine and an npm run on the host under the repo's `.npmrc`.
+- *The npm token from the repo's `.env.kdf`, to the host or to a BuildKit secret.* A public tool would read a secret
+  file, and a secret mount puts the token in the build beside the commit's code.
+- *Asking npm where its cache is.* Exact where an owner moved it, but it reads the `.npmrc` a commit controls.
+- *`npm cache add` inside the container.* npm's own command, but the content file alone suffices and one copy has
+  fewer parts.
+- *The tarballs through GitHub's packages API.* It lists versions and serves no tarball.
+- *No tags at all.* Simpler, but a pin at a tag, which CI's fetch serves, would fail here and pass there.
+- *`main` narrowed too.* Closer still to CI, but every repo's requirement file names each private repo at `main`, so it
+  would change nothing today.
+- *Node left to the runner pins work.* Smaller, but a green Next.js pre-flight on Node 22 would not predict CI.
+
+**Consequences.** A private Next.js repo's pre-flight is a pass or a failure, its setup and lanes running on Linux and
+Node 24 before a push, and a tarball the cache lacks reads not run until a fresh host install on that machine fills
+it, the owner's to do since that install reads the npm token. Python mirrors lose every tag no pin names, at nearly no
+change in bytes. Each machine's first run after the change builds a new base. No workflow changes. VERSION 0.2.171.

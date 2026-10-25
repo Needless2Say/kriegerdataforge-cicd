@@ -464,8 +464,9 @@ refuses the run before anything is exported, since a build's layers outlive the 
 content is listed as a warning and not refused, since that text is already in git, and this repo's own tests hold
 fake keys as fixtures. The run's folder, `<workspace>/temp/kdf-preflight/<run id>/`, holds `build.log` and
 `context/`, which is the commit's tar from `git archive` with LF line ends beside `preflight/Dockerfile`,
-`preflight/lanes.sh` and `mirrors/`, empty unless the owner's private packages are mirrored, and nothing else, so a
-repo's own `.dockerignore` or `Dockerfile` never selects or replaces anything. The context is read back whole before
+`preflight/lanes.sh`, `mirrors/`, empty unless the owner's private Python packages are mirrored, and `npm/`, empty
+unless the owner's private npm packages are served, and nothing else, so a repo's own `.dockerignore` or `Dockerfile`
+never selects or replaces anything. The context is read back whole before
 anything is built. The tar is unpacked inside the image by `runner`, uid 1001, an unprivileged user as on GitHub's
 runner, so modes, case and links land as a Linux checkout puts them, and made a repo of one commit.
 
@@ -497,17 +498,51 @@ nothing, so its lanes that need a private package, such as this repo's `ci-style
 repo's commit, from a pull request or a fork, gets no private history. A commit built on a private repo's history
 gets only what that history already pins, and a fork of a private repo needs read access to it, the owner's alone
 today, so that route reopens if anyone else gets it. `gh` and git use their own logins, and the tool reads no token.
-For a private repo, this machine's git fetches each pinned repo into a bare mirror of `main`, every tag and each
-pinned commit, prompts off, an empty template and hooks folder of the run's own, the formats written out, automatic
-maintenance off, each fetch's URL and TLS check pinned to itself and read back from git before it runs, so no host
-setting shapes a mirror or runs during its fetch, and git's errors redacted of any URL's user part. Each ref of a
-mirror must resolve to a commit, through any chain of tags, since a tag naming a tree or a blob would bring objects
-no commit names, else the run is refused. Every path any commit of each mirror adds, changes or removes is judged by
-the secret file rule below, a match refusing the run for the owner to decide. The context gains each mirror's
+For a private repo, this machine's git fetches each pinned repo into a bare mirror of `main`, each pinned commit and
+each tag a pin names, as CI's fetch takes them (D-087), prompts off, an empty template and hooks folder of the run's
+own, the formats written out, automatic maintenance off, each fetch's URL and TLS check pinned to itself and read
+back from git before it runs, so no host setting shapes a mirror or runs during its fetch, and git's errors redacted
+of any URL's user part. A pin's ref that is neither a full commit id nor `main` is looked up once per repo by
+`git ls-remote --tags --refs` through the same pinned git, and fetched as `+refs/tags/<ref>:refs/tags/<ref>` only when
+the name after the tab of one of its lines equals `refs/tags/<ref>` as a whole string, never matched as a pattern, so
+a pin at `v1.*` fetches nothing and a ref's text never reaches a refspec unchecked. No `ls-remote` runs when no pin
+names such a ref. A ref no tag names is not fetched and fails in the container, as a ref a mirror lacks does, and a
+tag pinned where the scan does not read, behind an include, fails in the container's checkout with no hint. Each ref
+of a mirror must resolve to a commit, through any chain of tags, since a tag naming a tree or a blob would bring
+objects no commit names, else the run is refused. Every path any commit of each mirror adds, changes or removes is
+judged by the secret file rule below, a match refusing the run for the owner to decide. The context gains each mirror's
 `HEAD`, `refs`, `objects` and a `config` the tool writes, and the image reads them through CI's own rewrite of each
-repo's https URL to the mirror on disk, so no token and no host setting enters. Each mirror's line says its size and
-the seconds its fetch took, a few MiB and seconds for a product repo's three, and the mirrors are removed however the
-run ends.
+repo's https URL to the mirror on disk, so no token and no host setting enters. Each mirror's line says the tags it
+took, or no tag, its size and the seconds its fetch took, a few MiB and seconds for a product repo's three, and the
+mirrors are removed however the run ends.
+
+**The owner's private npm packages (D-087).** When a make lane is named, the commit's `package-lock.json`, lockfile
+version 2 or 3, is read by node, and each entry whose `resolved` URL starts with `https://npm.pkg.github.com/` is a
+private package, its name the entry's `name` else the path after its last `node_modules/`. Such an entry brings the
+same fence as a pin, so nothing is served unless GitHub says the repo is private and holds the commit's base, and in
+a clone the base's own lock must lock each package the commit's does, any version, else the run is refused. Once
+GitHub says the repo is private, an entry outside the scope `@needless2say/`, one with no `sha512-` hash in its
+`integrity` or two different ones, and a lock that is not JSON each refuse the run, another hash beside the one
+`sha512-`, such as a sha1, changing nothing, while a public repo serves nothing and runs as before. An entry of the
+scope that resolves elsewhere or not at all is left alone. Each tarball is read from this machine's npm cache, where
+the host's own install put it, at `_cacache/content-v2/sha512/<two hex>/<two hex>/<the rest>`, the path npm's cache
+library names by digest. The cache is
+npm's default for the platform, `%LOCALAPPDATA%/npm-cache` on Windows, read through `cygpath -u`, else `~/.npm`, and a
+tarball not there refuses the run before any mirror is fetched, naming the package, its version and the folder, and
+the fix, an install into a fresh tree on this machine, one with no `node_modules`, such as a new worktree's
+`make setup`, since an install fills the cache only when it fetches. The tool runs no npm command and reads no npm
+setting, so a commit's `.npmrc` cannot steer it, and an owner who moved npm's cache sees the refusal name the folder
+looked in. It reads, handles and passes no token. Each tarball is copied into the run's folder and judged there,
+so what is judged is what enters. Its `sha512sum` must equal the lock's, its member list by `tar -tzf` is judged path
+by path by the secret file rule below, every member must sit under one top folder, since npm drops each member's first
+folder as it unpacks, a name with `..`, `.` or a doubled slash counting as outside it, and its own `package.json`
+directly under that folder, read by `tar -xzOf` and parsed by node, must name the entry's package and version, so a
+digest in a crafted lock cannot pass another cached tarball off as an allowed package. A failure of any refuses the
+run for the owner to decide. The tarball then goes into the context at `npm/_cacache/content-v2/sha512/...`, placed
+once however many entries lock it, and the context's read back admits under `npm/` only the digests this run placed.
+The lanes stage copies that folder into `/home/runner/.npm/`, npm's own folder for `runner`, so setup's `npm install`
+or `npm ci` reads each tarball from the cache by the lock's integrity before any request, with no token and no
+network. Each package's line says its version and size, and the copies are removed however the run ends.
 
 **The lanes.** A lane is a `ci-*` target on its own line in the repo's `Makefile` at the commit, or `actionlint`,
 the image's actionlint over the repo's workflows with ShellCheck, which actionlint runs over every `run:` script as on
@@ -519,21 +554,31 @@ have. Each lane runs with `ENVIRONMENT=local` and `GIT_TERMINAL_PROMPT=0`, witho
 `PYTHON_VERSION`, which a runner never sets, and under its own `timeout`, so a red or a hung lane never stops the
 lanes after it. A lane or a setup that fails on git's credential refusal, in a repo the tool mirrored for or one it
 could not name, means a pin the scan missed or a ref a mirror lacks, a defect to find, so the run failed and the pull
-request reports a failed pre-flight, never a skipped one, and the tool's hint names the repos it mirrored. In a repo
-GitHub calls public the hint says the lane runs on the host, which the pull request reports so. A private npm
-package, which a git mirror cannot serve, is not served yet, so a setup or lane that fails with a 401 or 403 from
-`npm.pkg.github.com` is reported as a skipped pre-flight, and the tool says so.
+request reports a failed pre-flight, never a skipped one, and the tool's hint names the repos it mirrored. A setup or
+lane that fails with a 401 or 403 from `npm.pkg.github.com` in such a repo is a defect alike, an entry the scan does
+not serve, one that resolves elsewhere or not at all, a lock it does not read, a `package.json` its lock does not
+satisfy, which sends `npm install` to the registry, or an `.npmrc` that moves npm's cache or prefers the network, so
+the run failed, and the hint names the packages it served. In a repo GitHub calls public either hint says nothing
+private is served or mirrored, so that lane runs on the host, which the pull request reports so.
 
 **The image.** `preflight/Dockerfile` is Python 3.14.7 slim from AWS ECR Public's gallery by its index digest (D-064),
 git, make and ShellCheck from the digest's own Debian release, unpinned since its mirror keeps only the current
-package, Node 22, the major `ubuntu-latest` runs by default, from its official tarball, and actionlint at the version
-and sha256 `ci.yml` pins, both checked by `ADD --checksum`. Node's version is a hand edit when the runner's major
-moves, its comment naming where it was read. The base stage is built first and alone, tagged
+package, Node 24 from its official tarball, and actionlint at the version and sha256 `ci.yml` pins, both checked by
+`ADD --checksum`. Node's major is the default of the `node_version` input of every workflow in `.github/workflows`
+that takes one, "24" in all six Node lanes, since those lanes install their own Node and never run the runner's, and a
+test holds the image's major equal to every one of them, so a change of the default without the image, or the image
+without the default, fails the unit lane (D-087). Its release is the newest of that major on nodejs.org at the
+change, its sum the line that release's `SHASUMS256.txt` gives. A caller that passes another `node_version` still
+runs on Node 24 here, and a Node chosen per lane is a later item. This repo's own lanes run no `setup-node`, so in CI
+they take the runner's Node and here Node 24. The lanes stage takes the npm folder by an instruction of its own,
+`COPY --chown=runner:runner npm /home/runner/.npm/`, beside the mirrors', so the folder `runner` owns is npm's own.
+The base stage is built first and alone, tagged
 `kdf-preflight-base:<the Dockerfile's hash>`, so a failure there is the tool's and the image shows in `docker images`.
 The first run on a machine builds it, a few minutes. The lanes stage is tagged `kdf-preflight-run:<run id>` and
 removed with `docker rmi` when the run ends, failed or not, under a timeout so a stalled daemon never holds the run,
 and the tool warns when the image may be left behind, the lanes' result standing. Docker's build cache keeps each
-run's mirror layer and its setup's venv on this machine, so the owner prunes the build cache from time to time. The
+run's mirror and npm layers and its setup's venv on this machine, so the owner prunes the build cache from time to
+time. The
 image is never pushed to a registry.
 
 **The result.** The run id is a build argument used in the step that runs the lanes, so that step is never taken from
@@ -562,12 +607,14 @@ given, bounds the whole run, each build running under what remains of it.
 | --- | --- |
 | 0 | Setup passed, where it was due, and every lane passed. The run's folder is removed unless `--keep` is given |
 | 1 | Setup or a lane failed, each named with its exit status and the excerpt of its own output, each make lane after a red setup said not run. The folder and its `build.log` are kept |
-| 2 | A refusal before anything was built. Bad arguments, the reviewer role, a docker pointed elsewhere, a folder that is no repo, a commit it lacks, a dirty tree with no `--at`, a lane or a setup target that is not the session's to run or not in the `Makefile`, `actionlint` with no workflows, a tracked secret file, a pin off CI's allowlist, a repo with a pin GitHub cannot be asked about, a commit on no base GitHub holds, a commit that pins a private repo its base does not pin, a host git setting that would send a fetch elsewhere or weaken TLS, a mirror ref that names no commit, or a secret file's name in a mirror's history. Nothing is kept |
-| 3 | The run could not complete. A base that would not build, docker unreachable, the run past its timeout, an allowlist that cannot be read, a visibility or a base GitHub cannot answer for, a fetch git cannot finish, or marker lines that are not one whole and consistent set, with the log's tail printed. The folder is kept, its mirrors removed, once the run has made it. An allowlist that cannot be read and a visibility or a base GitHub cannot answer for come before it, so they leave no folder |
+| 2 | A refusal before anything was built. Bad arguments, the reviewer role, a docker pointed elsewhere, a folder that is no repo, a commit it lacks, a dirty tree with no `--at`, a lane or a setup target that is not the session's to run or not in the `Makefile`, `actionlint` with no workflows, a tracked secret file, a pin off CI's allowlist, a repo with a pin GitHub cannot be asked about, a commit on no base GitHub holds, a commit that pins a private repo its base does not pin, a host git setting that would send a fetch elsewhere or weaken TLS, a mirror ref that names no commit, or a secret file's name in a mirror's history. In a repo GitHub calls private, a lock entry from `npm.pkg.github.com` outside `@needless2say/` or with no single sha512, a lock that is not JSON, a package the commit locks and its base does not, a tarball this machine's npm cache does not hold, with the fresh install that fills it, or a tarball whose hash, top folder, member names or `package.json` do not match its lock entry. Nothing is kept |
+| 3 | The run could not complete. A base that would not build, docker unreachable, the run past its timeout, an allowlist that cannot be read, a visibility or a base GitHub cannot answer for, a fetch git cannot finish, node failing as it reads a lock, `tar` or `sha512sum` that cannot run, or marker lines that are not one whole and consistent set, with the log's tail printed. The folder is kept, its mirrors and npm packages removed, once the run has made it. An allowlist that cannot be read, a lock node cannot read and a visibility or a base GitHub cannot answer for come before it, so they leave no folder |
 
-`KDF_DOCKER_BIN`, `KDF_GH_BIN`, `KDF_PREFLIGHT_DIR` and `KDF_PREFLIGHT_GIT_BASE` override the docker program, gh, the
-runs folder and where the mirrors are fetched from, the tests use them, and `scripts/tests/test_kdf_preflight.py`
-plays docker and gh with stand ins that record every call and fetches from local bare remotes.
+`KDF_DOCKER_BIN`, `KDF_GH_BIN`, `KDF_PREFLIGHT_DIR`, `KDF_PREFLIGHT_GIT_BASE` and `KDF_NPM_CACHE` override the docker
+program, gh, the runs folder, where the mirrors are fetched from and the npm cache the tarballs are read from, the
+tests use them, and `scripts/tests/test_kdf_preflight.py` plays docker and gh with stand ins that record every call,
+fetches from local bare remotes, reads a test npm cache of tarballs it builds, and puts a stand in `npm` first on the
+`PATH` that fails any test that calls it, so no test reads the owner's npm cache or runs npm on the host.
 
 ## The repo map
 
