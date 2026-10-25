@@ -13,7 +13,10 @@ tests need bash, git and node, which GitHub's runners and the image have, and a 
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import io
+import json
 import os
 import re
 import shutil
@@ -22,6 +25,7 @@ import subprocess
 import sys
 import tarfile
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,7 +39,8 @@ GUARD      = TOOLS / "kdf-guard.js"
 PREFLIGHT  = TOOLS / "preflight"
 DOCKERFILE = PREFLIGHT / "Dockerfile"
 LANES      = PREFLIGHT / "lanes.sh"
-CI_YML     = ROOT / ".github" / "workflows" / "ci.yml"
+WORKFLOWS  = ROOT / ".github" / "workflows"
+CI_YML     = WORKFLOWS / "ci.yml"
 GIT        = shutil.which("git")
 NODE       = shutil.which("node")
 BASH       = os.environ.get("KDF_TEST_BASH") or shutil.which("bash")
@@ -65,6 +70,21 @@ FMT        = "kriegerdataforge-fmt"
 SDK        = "kriegerdataforge-sdk"
 UNDER_TEST = "kriegerdataforge-product"
 FMT_PIN    = {"requirements-dev.in": f"kdf-fmt @ git+https://github.com/Needless2Say/{FMT}.git@main\n"}
+
+# the registry GitHub serves npm packages from, and a private npm package of the owner's scope the npm tests lock
+# (D-087)
+NPM_HOST = "https://npm.pkg.github.com/"
+WIDGET   = "@needless2say/widget"
+
+# a tarball member whose top folder GNU tar would read as an option that runs a command, and the file it would make
+DASH_MARKER = "kdf-preflight-dash-probe"
+DASH_MEMBER = f"--checkpoint-action=exec=touch${{IFS}}{DASH_MARKER};#/package.json"
+
+# the line a missing tarball's refusal ends with, the fresh install that puts it in npm's cache (Round Table 64's L2)
+FRESH_INSTALL = (
+    "install the repo into a fresh tree on this machine, one with no node_modules, such as a new worktree's make"
+    " setup, which puts the tarball in npm's cache, then run again"
+)
 
 # the rig's Makefile with a setup target and another a session may name
 SETUP_MAKEFILE = MAKEFILE + "setup:\n\t@echo setup\ninstall:\n\t@echo install\n"
@@ -103,8 +123,9 @@ PIN_SAMPLES = [
     "two git+https://github.com/Needless2Say/a.git@1 git+https://github.com/Needless2Say/b.git@2",
 ]
 
-# a stand in for docker, it records each call, lists a build's context, copies the tar and the mirrors it was handed,
-# and plays a build's log as FAKE_MODE says, setup's status as FAKE_SETUP says, a red setup skipping each make lane
+# a stand in for docker, it records each call, lists a build's context, copies the tar, the mirrors and the npm folder
+# it was handed, and plays a build's log as FAKE_MODE says, setup's status as FAKE_SETUP says, a red setup skipping
+# each make lane
 FAKE = r"""#!/usr/bin/env bash
 export LC_ALL=C
 echo "call $*" >> "$FAKE_LOG"
@@ -133,6 +154,7 @@ fi
 echo "setup [$setup]" >> "$FAKE_LOG"
 [ -z "${FAKE_TAR:-}" ] || cp "$context/repo.tar" "$FAKE_TAR"
 [ -z "${FAKE_MIRRORS:-}" ] || { rm -rf "$FAKE_MIRRORS"; cp -r "$context/mirrors" "$FAKE_MIRRORS"; }
+[ -z "${FAKE_NPM:-}" ] || { rm -rf "$FAKE_NPM"; cp -r "$context/npm" "$FAKE_NPM"; }
 case "$mode" in
     hang) exec sleep 60 ;;
     nomarker) echo "#9 0.1 nothing here" >&2; exit 0 ;;
@@ -247,6 +269,40 @@ done
 exec "$REAL_GIT" "$@"
 """
 
+# a stand in for git that records each call and runs the real git
+LOGGING_GIT = r"""#!/usr/bin/env bash
+echo "git $*" >> "$KDF_TEST_GIT_LOG"
+exec "$REAL_GIT" "$@"
+"""
+
+# a stand in for git that puts a stray file in the run's context npm folder as it fetches a mirror, which the npm
+# packages were placed in before, and runs the real git
+STRAY_GIT = r"""#!/usr/bin/env bash
+dir="" fetch=0
+for word in "$@"; do
+    case "$word" in
+        --git-dir=*) dir="${word#--git-dir=}" ;;
+        fetch) fetch=1 ;;
+    esac
+done
+case "$fetch:$dir" in 1:*/mirrors/*) echo stray > "${dir%/mirrors/*}/context/npm/stray.txt" ;; esac
+exec "$REAL_GIT" "$@"
+"""
+
+# a stand in for npm first on every run's PATH, since the tool runs no npm on the host, so a call is recorded and fails
+# the test (D-087)
+NPM_STUB = r"""#!/usr/bin/env bash
+echo "npm $*" >> "$FAKE_LOG"
+exit 97
+"""
+
+# a stand in for cygpath, which Linux lacks, that records each call and answers -u with the path's slashes turned
+CYGPATH_STUB = r"""#!/usr/bin/env bash
+echo "cygpath $*" >> "$FAKE_LOG"
+[ "$1" = -u ] || exit 1
+printf '%s\n' "${2//\\//}"
+"""
+
 
 def _instructions(text: str) -> list[tuple[str, str]]:
     """
@@ -318,16 +374,40 @@ def test_actionlint_is_the_version_and_sha256_ci_yml_pins() -> None:
     assert f"--checksum=sha256:{sha256}" in adds[0].split() and url in adds[0].split()
 
 
-def test_node_is_its_official_tarball_checked_against_its_sum() -> None:
+def _node_version_defaults() -> dict[str, str]:
+    """
+    The default of the node_version input of every workflow in .github/workflows that takes one, by its file name.
+    """
+    found: dict[str, str] = {}
+    for path in sorted(WORKFLOWS.glob("*.y*ml")):
+        text  = path.read_text(encoding = "utf-8")
+        block = re.search(r"^( +)node_version:\n((?:\1 +.*\n)+)", text, re.M)
+        if block:
+            default = re.search(r'^ +default: "?([^"\s]+)"?$', block.group(2), re.M)
+            assert default, f"{path.name} takes node_version with no default"
+            found[path.name] = default.group(1)
+    return found
+
+
+def test_node_is_the_major_every_node_lane_defaults_to_from_its_tarball_checked_against_its_sum() -> None:
     adds = [rest for keyword, rest in _stages()[0] if keyword == "ADD" and "nodejs.org" in rest]
     assert len(adds) == 1, "one ADD of Node in the base stage"
     url = re.search(r"https://nodejs\.org/dist/v(\d+)\.(\d+)\.(\d+)/node-v\1\.\2\.\3-linux-x64\.tar\.gz", adds[0])
     assert url, "Node's own tarball, its version named twice alike"
     assert re.search(r"(^| )--checksum=sha256:[0-9a-f]{64}( |$)", adds[0]), "checked against its SHASUMS256.txt line"
-    # the comment names the major and where it was read, so the move to a new runner image is a one line fix
+    # the major every Node lane installs by its node_version default, six workflows on 2026-10-25, since none runs the
+    # runner's own Node, so a change of either alone fails here (D-087)
+    defaults = _node_version_defaults()
+    assert defaults, "no workflow in .github/workflows takes node_version, so the image's Node has no source"
+    assert set(defaults.values()) == {url.group(1)}, defaults
+    # the comment names the major and its source, so a change of the default is a one line fix here
     text = DOCKERFILE.read_text(encoding = "utf-8")
-    assert re.search(rf"^# Node {url.group(1)}, the major ubuntu-latest", text, re.M)
-    assert "actions/runner-images" in text and "SHASUMS256.txt" in text
+    assert re.search(
+        rf"^# Node {url.group(1)}, the major every Node lane of cicd's installs by its node_version",
+        text,
+        re.M,
+    )
+    assert "SHASUMS256.txt" in text
 
 
 def test_the_base_stage_makes_an_unprivileged_runner_and_the_last_stage_runs_as_it() -> None:
@@ -375,12 +455,12 @@ def test_setup_is_an_argument_of_the_lanes_step_and_its_line_comes_from_a_file_o
     assert marker.count("out/results") == 2, "the results file read by the sed for results and by --tails alone"
 
 
-def test_the_lane_stage_fixes_its_environment_and_takes_the_three_files_and_the_mirrors_alone() -> None:
+def test_the_lane_stage_fixes_its_environment_and_takes_the_three_files_the_mirrors_and_npm_alone() -> None:
     last = _stages()[-1]
     env  = " ".join(rest for keyword, rest in last if keyword == "ENV").split()
     assert "ENVIRONMENT=local" in env and "GIT_TERMINAL_PROMPT=0" in env
     copies = [rest.split() for keyword, rest in last if keyword in ("COPY", "ADD")]
-    assert len(copies) == 2, "two COPYs into the lane stage, root's and the mirrors'"
+    assert len(copies) == 3, "three COPYs into the lane stage, root's, the mirrors' and npm's"
     root    = next(words for words in copies if "/opt/kdf/" in words)
     sources = [word for word in root if not word.startswith("--")][:-1]
     assert sorted(sources) == ["lanes.sh", "repo.tar"] and root[-1] == "/opt/kdf/"
@@ -388,11 +468,16 @@ def test_the_lane_stage_fixes_its_environment_and_takes_the_three_files_and_the_
     assert not [word for word in root if word.startswith("--chown")]
     # the mirrors by an instruction of their own, the folder named alone so it lands as itself, runner's, so git's
     # ownership check passes as on GitHub's runner (D-078)
-    mirrors = next(words for words in copies if words is not root)
+    mirrors = next(words for words in copies if "mirrors" in words)
     assert mirrors == ["--chown=runner:runner", "mirrors", "/home/runner/mirrors/"], mirrors
-    order = [index for index, (keyword, rest) in enumerate(last) if keyword == "COPY" and "mirrors" in rest]
+    # the npm packages served by an instruction of their own, the folder named alone so its contents land in npm's own
+    # folder for runner, whose parent useradd made, so npm reads each tarball from its cache by digest (D-087)
+    npm = next(words for words in copies if "npm" in words)
+    assert npm == ["--chown=runner:runner", "npm", "/home/runner/.npm/"], npm
     lanes = [index for index, (keyword, rest) in enumerate(last) if keyword == "RUN" and "--setup" in rest]
-    assert order and lanes and order[0] < lanes[0], "the mirrors are in place before setup runs"
+    for source in ("mirrors", "npm"):
+        order = [index for index, (keyword, rest) in enumerate(last) if keyword == "COPY" and source in rest.split()]
+        assert order and lanes and order[0] < lanes[0], f"the {source} folder is in place before setup runs"
 
 
 def test_the_lane_stage_unpacks_the_tar_and_makes_a_repo_of_one_commit() -> None:
@@ -804,17 +889,22 @@ def test_a_green_setup_has_no_excerpt_and_a_long_one_keeps_the_budget(tmp_path: 
 class Rig:
     """
     A repo with two commits, a home for docker's and git's configuration, the runs folder, the stand ins for docker and
-    gh, the folder of bare remotes the wrapper fetches from, and where the stand in for docker copies the mirrors.
+    gh, the folder of bare remotes the wrapper fetches from, where the stand in for docker copies the mirrors and the
+    npm folder, the test's own npm cache and LOCALAPPDATA, and the folder of stand ins first on the PATH.
     """
-    repo:    Path
-    home:    Path
-    runs:    Path
-    fake:    Path
-    log:     Path
-    tar:     Path
-    gh:      Path
-    remotes: Path
-    mirrors: Path
+    repo:      Path
+    home:      Path
+    runs:      Path
+    fake:      Path
+    log:       Path
+    tar:       Path
+    gh:        Path
+    remotes:   Path
+    mirrors:   Path
+    npm_seen:  Path
+    npm_cache: Path
+    local:     Path
+    stubs:     Path
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -834,8 +924,19 @@ def _commit(repo: Path, files: dict[str, str], message: str) -> None:
     _git(repo, "commit", "-q", "-m", message)
 
 
+def _long(path: Path) -> Path:
+    """
+    The path as Windows reads one past 260 characters whatever its long paths setting, by its extended length prefix,
+    and the path itself elsewhere, since a tarball's digest path in npm's cache layout runs past that limit under
+    pytest's temp folder. The tool's own copies run in Git Bash, whose runtime reads such a path either way.
+    """
+    if sys.platform != "win32":
+        return path
+    return Path("\\\\?\\" + os.path.abspath(path))
+
+
 @pytest.fixture()
-def rig(tmp_path: Path) -> Rig:
+def rig(tmp_path: Path) -> Iterator[Rig]:
     if (BASH is None or GIT is None or NODE is None) and not os.environ.get("CI"):
         pytest.skip("kdf-preflight.sh needs bash, git and node")
     repo = tmp_path / "repo"
@@ -853,7 +954,13 @@ def rig(tmp_path: Path) -> Rig:
     _commit(repo, {"b.txt": "second\n"}, "second")
     home = tmp_path / "home"
     home.mkdir()
-    return Rig(
+    local = tmp_path / "local"
+    local.mkdir()
+    stubs = tmp_path / "stubs"
+    stubs.mkdir()
+    _program(stubs / "npm", NPM_STUB)
+    _program(stubs / "cygpath", CYGPATH_STUB)
+    made = Rig(
         repo = repo,
         home = home,
         runs = tmp_path / "runs",
@@ -863,7 +970,16 @@ def rig(tmp_path: Path) -> Rig:
         gh = _program(tmp_path / "fake-gh", FAKE_GH),
         remotes = tmp_path / "remotes",
         mirrors = tmp_path / "seen-mirrors",
+        npm_seen = tmp_path / "seen-npm",
+        npm_cache = tmp_path / "npm-cache",
+        local = local,
+        stubs = stubs,
     )
+    yield made
+    # the npm folders hold digest paths past 260 characters, which pytest's later removal of an old temp folder may not
+    # reach on a Windows machine whose long paths setting is off, so they are removed here
+    for folder in (made.npm_cache, made.npm_seen, local / "npm-cache", home / ".npm"):
+        shutil.rmtree(_long(folder), ignore_errors = True)
 
 
 def _program(path: Path, text: str) -> Path:
@@ -876,35 +992,44 @@ def _run(
     rig: Rig,
     *args: str,
     mode: str = "pass",
-    env: dict[str, str] | None = None,
+    env: dict[str, str | None] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """
-    Run the tool with exactly these arguments, the stand ins playing docker in the given mode and gh, git fetching from
-    the rig's remotes, with no docker or git variable of this machine's and a home of the rig's own.
+    Run the tool with exactly these arguments, the stand ins playing docker in the given mode, gh, npm and cygpath, git
+    fetching from the rig's remotes, with no docker or git variable of this machine's, a home and a LOCALAPPDATA of the
+    rig's own, and the rig's npm cache, so no test reads the owner's (D-087). A variable given as None is unset.
     """
-    environment = {
-        key: value for key, value in os.environ.items() if key not in DOCKER_ENV and not key.startswith("GIT_")
+    environment: dict[str, str | None] = {
+        key: value for key, value in os.environ.items()
+        if key not in DOCKER_ENV and not key.startswith("GIT_") and key != "KDF_NPM_CACHE"
     }
     environment.update({
         "KDF_DOCKER_BIN": rig.fake.as_posix(),
         "KDF_GH_BIN": rig.gh.as_posix(),
         "KDF_PREFLIGHT_DIR": rig.runs.as_posix(),
         "KDF_PREFLIGHT_GIT_BASE": rig.remotes.as_uri(),
+        "KDF_NPM_CACHE": rig.npm_cache.as_posix(),
         "HOME": rig.home.as_posix(),
         "USERPROFILE": str(rig.home),
+        "LOCALAPPDATA": str(rig.local),
         "FAKE_MODE": mode,
         "FAKE_LOG": rig.log.as_posix(),
         "FAKE_TAR": rig.tar.as_posix(),
         "FAKE_MIRRORS": rig.mirrors.as_posix(),
+        "FAKE_NPM": rig.npm_seen.as_posix(),
     })
     environment.update(env or {})
-    return subprocess.run(
+    # the stand ins for npm and cygpath first, before any PATH a test gives
+    environment["PATH"] = f"{rig.stubs.as_posix()}{os.pathsep}{environment['PATH']}"
+    done = subprocess.run(
         [str(BASH), str(TOOL), *args],
         capture_output = True,
         text = True,
-        env = environment,
+        env = {key: value for key, value in environment.items() if value is not None},
         timeout = 120,
     )
+    assert not [line for line in _logged(rig) if line.startswith("npm ")], "the tool ran npm on the host"
+    return done
 
 
 def _preflight(
@@ -912,7 +1037,7 @@ def _preflight(
     *lanes: str,
     extra: tuple[str, ...] = (),
     mode: str = "pass",
-    env: dict[str, str] | None = None,
+    env: dict[str, str | None] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     args = ["--repo", rig.repo.as_posix()]
     for lane in lanes:
@@ -1105,15 +1230,17 @@ def test_a_clean_run_builds_the_base_then_the_lanes_and_reads_every_lane_green(r
     assert not _left(rig), "a green run's folder removed"
 
 
-def test_the_context_holds_the_tar_the_dockerfile_the_lane_script_and_the_mirrors_alone(rig: Rig) -> None:
-    # the mirrors folder is always made, empty when nothing is mirrored, since the lane stage copies it (D-078)
+def test_the_context_holds_the_tar_the_dockerfile_the_lane_script_the_mirrors_and_npm_alone(rig: Rig) -> None:
+    # the mirrors and npm folders are always made, empty when nothing is mirrored or served, since the lane stage copies
+    # each (D-078, D-087)
     assert _preflight(rig, "ci-lint").returncode == 0
     contexts = [line.rstrip() for line in _logged(rig) if line.startswith("context ")]
     assert contexts == [
-        "context base Dockerfile lanes.sh mirrors repo.tar",
-        "context lanes Dockerfile lanes.sh mirrors repo.tar",
+        "context base Dockerfile lanes.sh mirrors npm repo.tar",
+        "context lanes Dockerfile lanes.sh mirrors npm repo.tar",
     ]
     assert rig.mirrors.is_dir() and not list(rig.mirrors.iterdir())
+    assert rig.npm_seen.is_dir() and not list(rig.npm_seen.iterdir())
 
 
 def test_every_docker_option_the_wrapper_passes_is_on_the_guards_list(rig: Rig) -> None:
@@ -1368,9 +1495,19 @@ def _a_tree_holding_a_secret(work: Path) -> str:
     return tree
 
 
+def _one_more_tag(work: Path) -> None:
+    # v1.1.0 on main's newest commit, beside the first commit's v1.0.0
+    _git(work, "tag", "v1.1.0")
+
+
+def _two_more_tags(work: Path) -> None:
+    _git(work, "tag", "v1.1.0")
+    _git(work, "tag", "v2.0.0")
+
+
 def _lightweight_tag_on_a_tree(work: Path) -> None:
-    # a tag may name a tree or a blob as well as a commit, and fetching every tag brings that tree's objects, which no
-    # commit's diff names
+    # a tag may name a tree or a blob as well as a commit, and fetching a tag a pin names brings that tree's objects,
+    # which no commit's diff names
     _git(work, "tag", "a-tree", _a_tree_holding_a_secret(work))
 
 
@@ -1486,9 +1623,10 @@ def test_the_scan_finds_a_pin_in_each_of_the_seven_files_and_mirrors_it(rig: Rig
     done   = _preflight(rig, "ci-lint", env = env)
     assert done.returncode == 0, done.stderr
     assert _handed(rig) == [f"{FMT}.git"]
-    assert f"kdf-preflight: {UNDER_TEST} is private on GitHub, so its pins are mirrored" in done.stdout
-    # each mirror's cost said, its size and its seconds
-    said = rf"^kdf-preflight: mirroring {FMT}, main at {remote.main}, \d+ KiB fetched and screened in \d+ seconds$"
+    assert f"kdf-preflight: {UNDER_TEST} is private on GitHub, so its private packages are served" in done.stdout
+    # each mirror's cost said, the tags a pin names, none here, its size and its seconds
+    said = rf"^kdf-preflight: mirroring {FMT}, main at {remote.main}, no tag, \d+ KiB fetched and screened in \d+"
+    said += r" seconds$"
     assert re.search(said, done.stdout, re.M), done.stdout
 
 
@@ -1585,7 +1723,7 @@ def test_a_repo_github_calls_public_mirrors_nothing_and_says_so(rig: Rig) -> Non
     done = _preflight(rig, "ci-lint", env = {**env, "FAKE_GH": "public"})
     assert done.returncode == 0, done.stderr
     assert _handed(rig) == [] and "mirroring" not in done.stdout
-    assert f"kdf-preflight: {UNDER_TEST} is public on GitHub, so nothing private is mirrored" in done.stdout
+    assert f"kdf-preflight: {UNDER_TEST} is public on GitHub, so nothing private is served" in done.stdout
     assert _gh_calls(rig) == [f"gh api repos/Needless2Say/{UNDER_TEST} --jq .private"]
 
 
@@ -1707,7 +1845,7 @@ def test_no_pin_with_a_public_origin_says_public_and_a_credential_failure_gets_t
     env  = {**_private(rig, {"c.txt": "no pin\n"}), "FAKE_GH": "public"}
     done = _preflight(rig, "ci-lint", mode = "cred", env = env)
     assert done.returncode == 1, done.stderr
-    assert f"kdf-preflight: {UNDER_TEST} is public on GitHub, so nothing private is mirrored" in done.stdout
+    assert f"kdf-preflight: {UNDER_TEST} is public on GitHub, so nothing private is served" in done.stdout
     assert "runs on the host" in done.stdout and "the run failed" not in done.stdout
     assert _gh_calls(rig) == [f"gh api repos/Needless2Say/{UNDER_TEST} --jq .private"], "no base is asked"
 
@@ -1766,7 +1904,7 @@ def test_a_mirror_enters_as_its_parts_alone_and_serves_main_a_tag_and_a_pinned_c
         f"refs/heads/main {remote.main}",
         f"refs/heads/kdf-pin-{remote.side[:12]} {remote.side}",
         f"refs/tags/v1.0.0 {remote.tag}",
-    ]), "main, every tag and the pinned commit, and never a branch in progress"
+    ]), "main, the tag a pin names and the pinned commit, and never a branch in progress"
     clone = tmp_path / "clone"
     _clone_as_pip(mirror, FMT, clone)
     for ref, commit in (("main", remote.main), ("v1.0.0", remote.tag), (remote.side, remote.side)):
@@ -1885,16 +2023,19 @@ def test_a_secret_files_name_anywhere_in_a_mirrors_history_is_refused_before_doc
 ])
 def test_a_mirror_ref_that_names_no_commit_is_refused_before_docker(rig: Rig, tags, ref: str) -> None:
     # the screen walks commits alone and the copy takes every object, so a ref resolved whole by ^{commit} to no commit
-    # refuses the run, through any chain of tags, before the screen and the copy (D-078)
+    # refuses the run, through any chain of tags, before the screen and the copy (D-078). A pin names the tag, since a
+    # mirror takes only the tags a pin names (D-087)
     _remote(rig, FMT, later = (tags,))
-    done = _preflight(rig, "ci-lint", env = _private(rig, FMT_PIN))
+    pins = {"requirements-dev.in": f"kdf-fmt @ {_pin(FMT, 'main')}\nx @ {_pin(FMT, ref.removeprefix('refs/tags/'))}\n"}
+    done = _preflight(rig, "ci-lint", env = _private(rig, pins))
     _refused(done, rig, f"the mirror of {FMT} holds {ref}, which names no commit")
     assert _handed(rig) == []
 
 
 def test_a_tag_naming_a_tag_naming_a_commit_is_mirrored(rig: Rig) -> None:
     _remote(rig, FMT, later = (_tag_naming_a_tag_naming_a_commit,))
-    done = _preflight(rig, "ci-lint", env = _private(rig, FMT_PIN))
+    pins = "".join(f"x @ {_pin(FMT, tag)}\n" for tag in ("inner", "outer", "v1.0.0"))
+    done = _preflight(rig, "ci-lint", env = _private(rig, {"requirements-dev.in": pins}))
     assert done.returncode == 0, done.stderr
     tags = _git(rig.mirrors / f"{FMT}.git", "for-each-ref", "--format=%(refname)", "refs/tags/").splitlines()
     assert sorted(tags) == ["refs/tags/inner", "refs/tags/outer", "refs/tags/v1.0.0"]
@@ -2060,7 +2201,486 @@ def test_a_credential_failure_names_the_repos_mirrored_and_says_the_run_failed(r
     assert f"mirrored {FMT}" in done.stdout and "the run failed" in done.stdout and "skipped" not in done.stdout
 
 
-def test_a_private_npm_package_gets_the_skipped_hint(rig: Rig) -> None:
+def test_a_401_from_githubs_npm_registry_in_an_unnamed_repo_says_the_run_failed_and_served_none(rig: Rig) -> None:
+    # a repo GitHub does not name may be private, so the hint is the private one, a defect and never a skip (D-087)
     done = _preflight(rig, "ci-lint", mode = "npm")
     assert done.returncode == 1, done.stderr
-    assert "npm.pkg.github.com" in done.stdout and "skipped pre-flight" in done.stdout
+    assert "npm.pkg.github.com" in done.stdout and "the run served no private npm package" in done.stdout
+    assert "the run failed" in done.stdout and "skipped" not in done.stdout, done.stdout
+
+# ======================================================================================================================
+# the owner's private npm packages, served from this machine's npm cache by the digest each lock names (D-087)
+# ======================================================================================================================
+
+@dataclass
+class Tarball:
+    """
+    A package's tarball, its bytes, its sha512 in hex and its integrity as a lock names it.
+    """
+    data: bytes
+    hex:  str
+    sri:  str
+
+
+def _as_tarball(data: bytes) -> Tarball:
+    digest = hashlib.sha512(data).digest()
+    return Tarball(data = data, hex = digest.hex(), sri = "sha512-" + base64.b64encode(digest).decode("ascii"))
+
+
+def _manifest(name: str, version: str) -> bytes:
+    return json.dumps({"name": name, "version": version}).encode("utf-8")
+
+
+def _tarball(name: str = WIDGET, version: str = "1.2.3", members: dict[str, bytes] | None = None) -> Tarball:
+    """
+    A gzipped tar of these members, by default a package.json naming the package and version and one file beside it,
+    both under package/, as npm packs a package.
+    """
+    if members is None:
+        members = {"package/package.json": _manifest(name, version), "package/index.js": b"module.exports = 1;\n"}
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj = buffer, mode = "w:gz") as archive:
+        for path, data in members.items():
+            info      = tarfile.TarInfo(path)
+            info.size = len(data)
+            info.mode = 0o644
+            archive.addfile(info, io.BytesIO(data))
+    return _as_tarball(buffer.getvalue())
+
+
+def _digest_path(hex_digest: str) -> str:
+    """
+    Where npm's cache keeps a tarball by its sha512, cacache's content path.
+    """
+    return f"_cacache/content-v2/sha512/{hex_digest[:2]}/{hex_digest[2:4]}/{hex_digest[4:]}"
+
+
+def _cached(cache: Path, tarball: Tarball, data: bytes | None = None) -> None:
+    """
+    Put the tarball, or other bytes in its place, in an npm cache at its digest's path, as a host install leaves it.
+    """
+    path = _long(cache) / _digest_path(tarball.hex)
+    path.parent.mkdir(parents = True, exist_ok = True)
+    path.write_bytes(tarball.data if data is None else data)
+
+
+def _entry(tarball: Tarball, package: str = WIDGET, version: str = "1.2.3", **fields: object) -> dict[str, object]:
+    """
+    A lock entry resolving the tarball from GitHub's npm registry as npm writes one, any field given in its place.
+    """
+    entry: dict[str, object] = {
+        "version": version,
+        "resolved": f"{NPM_HOST}download/{package}/{version}/{tarball.hex}",
+        "integrity": tarball.sri,
+    }
+    entry.update(fields)
+    return entry
+
+
+def _lock(entries: dict[str, dict[str, object]]) -> dict[str, str]:
+    """
+    A package-lock.json of lockfile version 3, the root package, one public package and these entries by their paths.
+    """
+    packages = {
+        "": {"name": "app", "version": "0.1.0"},
+        "node_modules/left-pad": {
+            "version": "1.3.0",
+            "resolved": "https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz",
+            "integrity": _as_tarball(b"left-pad").sri,
+        },
+        **entries,
+    }
+    lock     = {"name": "app", "version": "0.1.0", "lockfileVersion": 3, "requires": True, "packages": packages}
+    return {"package-lock.json": json.dumps(lock, indent = 2) + "\n"}
+
+
+def _widget_lock(tarball: Tarball, **fields: object) -> dict[str, str]:
+    return _lock({f"node_modules/{WIDGET}": _entry(tarball, **fields)})
+
+
+def _sha1(tarball: Tarball) -> str:
+    return "sha1-" + base64.b64encode(hashlib.sha1(tarball.data).digest()).decode("ascii")
+
+
+def _served(rig: Rig) -> list[str]:
+    """
+    The files the stand in for docker was handed under the context's npm folder, by their paths there.
+    """
+    seen = _long(rig.npm_seen)
+    if not seen.exists():
+        return []
+    return sorted(path.relative_to(seen).as_posix() for path in seen.rglob("*") if path.is_file())
+
+
+def _git_stand_in(programs: Path, text: str) -> dict[str, str]:
+    """
+    A stand in for git in a folder of its own, and the variables that put it first and name the real git.
+    """
+    programs.mkdir(exist_ok = True)
+    _program(programs / "git", text)
+    return {"PATH": f"{programs.as_posix()}{os.pathsep}{os.environ['PATH']}", "REAL_GIT": Path(str(GIT)).as_posix()}
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# what is served
+# ----------------------------------------------------------------------------------------------------------------------
+def test_a_private_repos_locked_npm_package_is_served_by_its_digest_and_nothing_else(rig: Rig) -> None:
+    tarball = _tarball()
+    _cached(rig.npm_cache, tarball)
+    env  = {**_private(rig, _widget_lock(tarball)), "GH_NPM_TOKEN": "kdf-test-token-value"}
+    done = _preflight(rig, "ci-lint", env = env)
+    assert done.returncode == 0, done.stderr
+    assert _served(rig) == [_digest_path(tarball.hex)], "the locked tarball alone, the public package left to npm"
+    assert (_long(rig.npm_seen) / _digest_path(tarball.hex)).read_bytes() == tarball.data
+    lines = done.stdout.splitlines()
+    assert f"kdf-preflight: {UNDER_TEST} is private on GitHub, so its private packages are served" in lines
+    assert f"kdf-preflight: serving {WIDGET} 1.2.3 from this machine's npm cache, {len(tarball.data)} bytes" in lines
+    contexts = [line.rstrip() for line in _logged(rig) if line.startswith("context ")]
+    assert contexts[-1] == "context lanes Dockerfile lanes.sh mirrors npm repo.tar", "nothing else new"
+    # no token and no npm setting reaches docker (Round Table 64's L8)
+    for call in _calls(rig):
+        assert not [word for word in call if re.search(r"GH_NPM_TOKEN|npm_config_|kdf-test-token-value", word, re.I)]
+    assert not _left(rig)
+
+
+def test_a_sha1_beside_the_sha512_and_the_same_tarball_locked_twice_serve_it_once(rig: Rig) -> None:
+    # the sha512 taken from among any other hashes the integrity lists (Round Table 64's L16), and a tarball placed once
+    tarball = _tarball()
+    _cached(rig.npm_cache, tarball)
+    entries = {
+        f"node_modules/{WIDGET}": _entry(tarball, integrity = f"{_sha1(tarball)} {tarball.sri}"),
+        f"node_modules/app-kit/node_modules/{WIDGET}": _entry(tarball),
+    }
+    done    = _preflight(rig, "ci-lint", env = _private(rig, _lock(entries)))
+    assert done.returncode == 0, done.stderr
+    assert _served(rig) == [_digest_path(tarball.hex)]
+    assert done.stdout.count(f"serving {WIDGET} 1.2.3 ") == 1, done.stdout
+
+
+def test_an_entrys_package_is_its_name_else_the_path_after_its_last_node_modules(rig: Rig) -> None:
+    # an alias keeps the real package in the entry's name, which the tarball's package.json names
+    tarball = _tarball()
+    _cached(rig.npm_cache, tarball)
+    files = _lock({"node_modules/widget": _entry(tarball, name = WIDGET)})
+    done  = _preflight(rig, "ci-lint", env = _private(rig, files))
+    assert done.returncode == 0, done.stderr
+    assert _served(rig) == [_digest_path(tarball.hex)] and f"serving {WIDGET} 1.2.3 " in done.stdout
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# the fence, the mirrors' own, over pins alone, lock entries alone and both (Round Table 64's L1)
+# ----------------------------------------------------------------------------------------------------------------------
+def _what(rig: Rig, what: str) -> tuple[dict[str, str], Tarball]:
+    """
+    The files a commit holds for pins alone, a lock entry alone or both, the lock's tarball in the rig's cache and fmt
+    on the rig's remotes.
+    """
+    _remote(rig, FMT)
+    tarball = _tarball()
+    _cached(rig.npm_cache, tarball)
+    files = {**(FMT_PIN if what != "npm" else {}), **(_widget_lock(tarball) if what != "pins" else {})}
+    return files, tarball
+
+
+@pytest.mark.parametrize("what", ["pins", "npm", "both"])
+@pytest.mark.parametrize("case, code, says", [
+    ("no origin", 2, "is unknown"),
+    ("two origins", 2, "is unknown"),
+    ("foreign", 2, "shares no history with origin/main"),
+    ("no origin/main", 2, "no origin/main"),
+    ("not on GitHub", 2, "GitHub does not hold"),
+    ("base unanswered", 3, "could not say whether GitHub holds"),
+    ("visibility unknown", 3, "HTTP 404"),
+])
+def test_a_refused_admission_reads_no_cache_file_and_hands_nothing_to_docker(
+    rig: Rig,
+    what: str,
+    case: str,
+    code: int,
+    says: str,
+) -> None:
+    files, _ = _what(rig, what)
+    extra: tuple[str, ...] = ()
+    if case in ("no origin", "two origins"):
+        if case == "two origins":
+            for name in (UNDER_TEST, FMT):
+                _git(rig.repo, "config", "--add", "remote.origin.url", f"https://github.com/Needless2Say/{name}.git")
+        _commit(rig.repo, files, "files")
+        env = {"FAKE_GH_COMMITS": _git(rig.repo, "rev-parse", "HEAD")}
+    else:
+        env = _private(rig, files)
+    if case == "foreign":
+        _git(rig.repo, "checkout", "-q", "--orphan", "foreign")
+        _commit(rig.repo, {"x.txt": "foreign\n"}, "foreign")
+        extra = ("--at", _git(rig.repo, "rev-parse", "HEAD"))
+        _git(rig.repo, "checkout", "-q", "main")
+    elif case == "no origin/main":
+        _git(rig.repo, "update-ref", "-d", "refs/remotes/origin/main")
+    elif case == "not on GitHub":
+        env["FAKE_GH_COMMITS"] = "0" * 40
+    elif case == "base unanswered":
+        env["FAKE_GH_COMMIT"] = "error"
+    elif case == "visibility unknown":
+        env["FAKE_GH"] = "404"
+    done = _preflight(rig, "ci-lint", extra = extra, env = env)
+    assert done.returncode == code and says in done.stderr, done.stderr
+    # refused before the run's folder, whose making the first line of stdout follows, so before any cache read
+    assert not done.stdout and not _calls(rig) and not _left(rig)
+    assert _served(rig) == [] and _handed(rig) == []
+
+
+@pytest.mark.parametrize("what", ["pins", "npm", "both"])
+def test_github_admits_a_fresh_repos_commit_itself_for_pins_lock_entries_and_both(rig: Rig, what: str) -> None:
+    files, tarball = _what(rig, what)
+    _commit(rig.repo, files, "files")
+    head = _git(rig.repo, "rev-parse", "HEAD")
+    done = _preflight(rig, "ci-lint", extra = ("--github", UNDER_TEST), env = {"FAKE_GH_COMMITS": head})
+    assert done.returncode == 0, done.stderr
+    assert _handed(rig) == ([] if what == "npm" else [f"{FMT}.git"])
+    assert _served(rig) == ([] if what == "pins" else [_digest_path(tarball.hex)])
+    assert f"gh api repos/Needless2Say/{UNDER_TEST}/commits/{head} --jq .sha" in _gh_calls(rig)
+
+
+def test_a_clones_commit_locking_a_package_its_base_does_not_is_refused_before_any_cache_read(rig: Rig) -> None:
+    tarball = _tarball()
+    _cached(rig.npm_cache, tarball)
+    env  = _private(rig, {"c.txt": "no lock\n"})
+    base = env["FAKE_GH_COMMITS"]
+    _commit(rig.repo, _widget_lock(tarball), "a lock its base does not hold")
+    done = _preflight(rig, "ci-lint", env = env)
+    _refused(done, rig, f"locks {WIDGET} from npm.pkg.github.com, which its base {base} on GitHub does not lock")
+    assert not done.stdout and _served(rig) == []
+
+
+def test_a_clones_commit_moving_a_package_its_base_locks_to_another_version_is_served(rig: Rig) -> None:
+    old, new = _tarball(version = "1.2.2"), _tarball()
+    _cached(rig.npm_cache, new)
+    env = _private(rig, _widget_lock(old, version = "1.2.2"))
+    _commit(rig.repo, _widget_lock(new), "a new version")
+    done = _preflight(rig, "ci-lint", env = env)
+    assert done.returncode == 0, done.stderr
+    assert _served(rig) == [_digest_path(new.hex)]
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# the scan's refusals, once GitHub says the repo is private, and nothing served in a public one (Round Table 64's L10)
+# ----------------------------------------------------------------------------------------------------------------------
+@pytest.mark.parametrize("case, says", [
+    ("scope", "@someone/widget from npm.pkg.github.com, outside the owner's scope @needless2say/"),
+    ("no sha512", f"{WIDGET} 1.2.3 with no sha512 in its integrity"),
+    ("two sha512", f"{WIDGET} 1.2.3 with two different sha512 values in its integrity"),
+    ("not json", "is not JSON"),
+])
+def test_a_lock_the_scan_cannot_serve_is_refused_in_a_private_repo_and_serves_nothing_in_a_public_one(
+    rig: Rig,
+    case: str,
+    says: str,
+) -> None:
+    tarball = _tarball()
+    _cached(rig.npm_cache, tarball)
+    if case == "scope":
+        files = _lock({"node_modules/@someone/widget": _entry(tarball, package = "@someone/widget")})
+    elif case == "no sha512":
+        files = _widget_lock(tarball, integrity = _sha1(tarball))
+    elif case == "two sha512":
+        files = _widget_lock(tarball, integrity = f"{tarball.sri} {_tarball(version = '9.9.9').sri}")
+    else:
+        files = {"package-lock.json": "{ not json\n"}
+    env = _private(rig, files)
+    _refused(_preflight(rig, "ci-lint", env = env), rig, says)
+    assert _served(rig) == []
+    done = _preflight(rig, "ci-lint", env = {**env, "FAKE_GH": "public"})
+    assert done.returncode == 0, done.stderr
+    assert _served(rig) == [] and "serving" not in done.stdout
+    assert f"kdf-preflight: {UNDER_TEST} is public on GitHub, so nothing private is served" in done.stdout
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# the cache, npm's default folder or the test's, read and never written
+# ----------------------------------------------------------------------------------------------------------------------
+def test_a_tarball_missing_from_the_cache_is_refused_with_the_fresh_install_before_any_mirror(rig: Rig) -> None:
+    _remote(rig, FMT)
+    tarball = _tarball()
+    done    = _preflight(rig, "ci-lint", env = _private(rig, {**FMT_PIN, **_widget_lock(tarball)}))
+    _refused(done, rig, f"{WIDGET} 1.2.3 is not in this machine's npm cache, {rig.npm_cache.as_posix()}")
+    assert FRESH_INSTALL in done.stderr, done.stderr
+    assert "mirroring" not in done.stdout and _handed(rig) == [] and _served(rig) == []
+
+
+@pytest.mark.parametrize("where", ["LOCALAPPDATA", "HOME"])
+def test_the_cache_is_npms_default_folder_when_no_test_names_one(rig: Rig, where: str) -> None:
+    # %LOCALAPPDATA%/npm-cache through cygpath, else $HOME/.npm (Round Table 64's L14)
+    tarball = _tarball()
+    if where == "LOCALAPPDATA":
+        _cached(rig.local / "npm-cache", tarball)
+        unset: dict[str, str | None] = {"KDF_NPM_CACHE": None}
+    else:
+        _cached(rig.home / ".npm", tarball)
+        unset = {"KDF_NPM_CACHE": None, "LOCALAPPDATA": None}
+    done = _preflight(rig, "ci-lint", env = {**_private(rig, _widget_lock(tarball)), **unset})
+    assert done.returncode == 0, done.stderr
+    assert _served(rig) == [_digest_path(tarball.hex)]
+    asked = [line for line in _logged(rig) if line.startswith("cygpath ")]
+    assert asked == ([f"cygpath -u {rig.local}"] if where == "LOCALAPPDATA" else []), asked
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# what of a tarball enters, judged in the run's own folder (Round Table 64's L15)
+# ----------------------------------------------------------------------------------------------------------------------
+@pytest.mark.parametrize("case, says", [
+    ("hash", f"the tarball of {WIDGET} 1.2.3 in this machine's npm cache does not hash to the sha512 its lock names"),
+    ("name", f"a package.json naming @needless2say/other 1.2.3, not {WIDGET} 1.2.3"),
+    ("version", f"a package.json naming {WIDGET} 9.9.9, not {WIDGET} 1.2.3"),
+    ("env", f"the tarball of {WIDGET} 1.2.3 holds package/.env.kdf, named like a secret file"),
+    ("keys", f"the tarball of {WIDGET} 1.2.3 holds package/keys/notes.txt, named like a secret file"),
+    ("tops", "holds other/index.js, outside the one top folder package"),
+    ("loose", "holds README, outside the one top folder package"),
+    ("doubled", "holds package//package.json, outside the one top folder package"),
+    ("dash", f"holds {DASH_MEMBER}, whose name begins with a dash, which tar could read as an option"),
+    ("listing", f"tar could not list the tarball of {WIDGET} 1.2.3"),
+])
+def test_bytes_that_do_not_match_their_lock_entry_are_refused_before_docker(rig: Rig, case: str, says: str) -> None:
+    manifest = {"package/package.json": _manifest(WIDGET, "1.2.3")}
+    if case == "name":
+        tarball = _tarball(name = "@needless2say/other")
+    elif case == "version":
+        tarball = _tarball(version = "9.9.9")
+    elif case in ("env", "keys", "tops", "loose", "doubled"):
+        stray   = {
+            "env": "package/.env.kdf",
+            "keys": "package/keys/notes.txt",
+            "tops": "other/index.js",
+            "doubled": "package//package.json",
+        }
+        tarball = _tarball(members = {**manifest, stray.get(case, "README"): b"X=1\n"})
+    elif case == "listing":
+        tarball = _as_tarball(b"not a tarball\n")
+    elif case == "dash":
+        # a top folder GNU tar would read as an option, which runs a command at a checkpoint (the Codex read of
+        # c6daba3), refused before tar is handed any member
+        tarball = _tarball(members = {DASH_MEMBER: _manifest(WIDGET, "1.2.3")})
+    else:
+        tarball = _tarball()
+    _cached(rig.npm_cache, tarball, data = _tarball(version = "1.2.4").data if case == "hash" else None)
+    done = _preflight(rig, "ci-lint", env = _private(rig, _widget_lock(tarball)))
+    _refused(done, rig, says)
+    assert _served(rig) == []
+    assert not Path(DASH_MARKER).exists() and not (rig.repo / DASH_MARKER).exists(), "no command of a member ran"
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# the context, read back whole, and the npm folder removed however the run ends (Round Table 64's L11)
+# ----------------------------------------------------------------------------------------------------------------------
+def test_a_stray_file_in_the_contexts_npm_folder_reads_3_and_nothing_is_built(rig: Rig, tmp_path: Path) -> None:
+    # the stand in for git writes the stray as fmt's mirror is fetched, after the tarball was placed
+    _remote(rig, FMT)
+    tarball = _tarball()
+    _cached(rig.npm_cache, tarball)
+    env  = {**_private(rig, {**FMT_PIN, **_widget_lock(tarball)}), **_git_stand_in(tmp_path / "bin", STRAY_GIT)}
+    done = _preflight(rig, "ci-lint", env = env)
+    assert done.returncode == 3, done.stderr
+    assert "the context holds npm/stray.txt, which is no tarball this run placed" in done.stderr, done.stderr
+    assert not _calls(rig)
+    run, = _left(rig)
+    assert not (run / "context" / "npm").exists() and not (run / "tarballs").exists()
+
+
+@pytest.mark.parametrize("mode, extra, code", [
+    ("pass", ("--keep",), 0),
+    ("red", (), 1),
+    ("nomarker", (), 3),
+    ("pass", (), 2),
+])
+def test_the_served_packages_are_removed_whatever_the_run_ends_with(
+    rig: Rig,
+    mode: str,
+    extra: tuple[str, ...],
+    code: int,
+) -> None:
+    tarball = _tarball()
+    _cached(rig.npm_cache, tarball)
+    entries = {f"node_modules/{WIDGET}": _entry(tarball)}
+    if code == 2:
+        # a second package after the first, its tarball missing, so the run is refused once the first was placed
+        later = "@needless2say/zz-later"
+        entries[f"node_modules/{later}"] = _entry(_tarball(name = later), package = later)
+    done = _preflight(rig, "ci-lint", extra = extra, mode = mode, env = _private(rig, _lock(entries)))
+    assert done.returncode == code, done.stderr
+    if code == 2:
+        assert "zz-later 1.2.3 is not in this machine's npm cache" in done.stderr, done.stderr
+        assert not _left(rig) and not _calls(rig)
+        return
+    assert _served(rig) == [_digest_path(tarball.hex)], "the build was handed the package"
+    run, = _left(rig)
+    assert not (run / "context" / "npm").exists() and not (run / "tarballs").exists()
+    assert (run / "build.log").is_file() and (run / "context" / "repo.tar").is_file()
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# the hints and the usage
+# ----------------------------------------------------------------------------------------------------------------------
+def test_a_served_runs_401_from_githubs_npm_registry_says_the_run_failed_and_names_what_it_served(rig: Rig) -> None:
+    # a defect, an entry the scan does not serve, or a lock or .npmrc that sends npm to the registry (Round Table 64's
+    # L6)
+    tarball = _tarball()
+    _cached(rig.npm_cache, tarball)
+    done = _preflight(rig, "ci-lint", mode = "npm", env = _private(rig, _widget_lock(tarball)))
+    assert done.returncode == 1, done.stderr
+    assert f"the run served {WIDGET} 1.2.3" in done.stdout and "the run failed" in done.stdout, done.stdout
+    assert "a package.json its lock does not satisfy" in done.stdout and "prefers the network" in done.stdout
+    assert "skipped" not in done.stdout
+
+
+def test_a_public_repos_401_from_githubs_npm_registry_says_the_lane_runs_on_the_host(rig: Rig) -> None:
+    tarball = _tarball()
+    _cached(rig.npm_cache, tarball)
+    env  = {**_private(rig, _widget_lock(tarball)), "FAKE_GH": "public"}
+    done = _preflight(rig, "ci-lint", mode = "npm", env = env)
+    assert done.returncode == 1, done.stderr
+    assert "nothing private is served, and a lane that needs a private npm package runs on the host" in done.stdout
+    assert "the run failed" not in done.stdout and "skipped" not in done.stdout
+
+
+def test_the_usage_names_kdf_npm_cache(rig: Rig) -> None:
+    # the words only the new copy prints, which a session checks before it reports a Next.js run (Round Table 64's L4)
+    done = _run(rig, "--help")
+    assert done.returncode == 0 and "KDF_NPM_CACHE" in done.stdout, done.stdout
+
+# ======================================================================================================================
+# the tags a pin names, a mirror's only tags (D-087)
+# ======================================================================================================================
+
+def _mirror_tags(rig: Rig) -> list[str]:
+    return sorted(_git(rig.mirrors / f"{FMT}.git", "for-each-ref", "--format=%(refname)", "refs/tags/").splitlines())
+
+
+def test_a_pin_at_a_tag_mirrors_that_tag_alone(rig: Rig) -> None:
+    remote = _remote(rig, FMT, later = (_two_more_tags,))
+    done   = _preflight(rig, "ci-lint", env = _private(rig, {"requirements-dev.in": f"x @ {_pin(FMT, 'v1.1.0')}\n"}))
+    assert done.returncode == 0, done.stderr
+    assert _mirror_tags(rig) == ["refs/tags/v1.1.0"], "of v1.0.0, v1.1.0 and v2.0.0, the one a pin names"
+    said = rf"^kdf-preflight: mirroring {FMT}, main at {remote.main}, tag v1\.1\.0, \d+ KiB"
+    assert re.search(said, done.stdout, re.M), done.stdout
+
+
+def test_pins_at_main_and_at_a_commit_mirror_no_tag_and_look_up_none(rig: Rig, tmp_path: Path) -> None:
+    remote = _remote(rig, FMT, later = (_one_more_tag,))
+    pins   = {"requirements-dev.in": f"kdf-fmt @ {_pin(FMT, 'main')}\nside @ {_pin(FMT, remote.side)}\n"}
+    calls  = tmp_path / "git-calls.log"
+    env    = {**_private(rig, pins), **_git_stand_in(tmp_path / "bin", LOGGING_GIT)}
+    done   = _preflight(rig, "ci-lint", env = {**env, "KDF_TEST_GIT_LOG": calls.as_posix()})
+    assert done.returncode == 0, done.stderr
+    assert _mirror_tags(rig) == [] and f"main at {remote.main}, no tag, " in done.stdout, done.stdout
+    logged = calls.read_text(encoding = "utf-8")
+    assert " fetch " in logged and "ls-remote --tags" not in logged, "no tag is looked up when no pin names one"
+
+
+@pytest.mark.parametrize("ref", ["v9.9.9", "v1.*", "refs/tags/v1.0.0"])
+def test_a_pin_at_a_ref_no_tag_names_whole_fetches_no_tag(rig: Rig, ref: str) -> None:
+    # the name after the tab of a line ls-remote prints must equal refs/tags/<ref> as a whole string, never as a
+    # pattern, so a pin at v1.* fetches neither v1.0.0 nor v1.1.0 (Round Table 64's L5)
+    _remote(rig, FMT, later = (_one_more_tag,))
+    pins = {"requirements-dev.in": f"kdf-fmt @ {_pin(FMT, 'main')}\nold @ {_pin(FMT, ref)}\n"}
+    done = _preflight(rig, "ci-lint", env = _private(rig, pins))
+    assert done.returncode == 0, done.stderr
+    assert _mirror_tags(rig) == [] and ", no tag, " in done.stdout, done.stdout

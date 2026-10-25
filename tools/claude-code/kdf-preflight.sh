@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # kdf-preflight.sh, a Linux pre-flight of a repo's CI lanes in a container, the one way every session runs one (D-072,
-# D-078).
+# D-078, D-087).
 #
 #   bash kdf-preflight.sh --repo <root> --lane <lane> [--lane <lane>]... [--at <commit>] [--setup <target>]
 #                         [--no-setup] [--github <name>] [--keep] [--timeout <seconds>]
@@ -21,25 +21,42 @@
 # requirements-test.in and pyproject.toml, are read at the commit for each pin of
 # git+https://github.com/Needless2Say/<repo>.git, as CI's PIN finds one, a comment skipped, and each repo must be on
 # CI's allowlist in scripts/fetch_private_packages.py, read beside this tool. The scan is a convenience and not the
-# fence, since a pin it does not read fails at once in the container, which asks for no login. Nothing is mirrored
-# unless GitHub says the repo under test is private, the repo named by the clone's one origin, or by --github <name>
-# for a fresh repo with no origin, and unless GitHub holds the commit's base in that repo's network, its merge base
-# with origin/main, or the commit itself with --github. gh answers both with its own login, and its HTTP 422 alone
-# says GitHub holds no such commit. A commit names its parent by its id alone, so a base shows what a commit is built
-# on and not who wrote it, and a clone's commit is mirrored only the private repos its base already pins, one it adds
-# refusing the run. So a public repo's commit, from a pull request or a fork, gets no private history, a commit
-# built on a private repo's history gets only what that history already pins, and a fork of a private repo needs read
-# access to it, the owner's alone today. A private repo's pins are fetched by this machine's git with its own
-# credential helper, prompts off, into bare mirrors of main, every tag and each pinned commit, none of the host's git
-# settings shaping them. Each ref of a mirror must resolve to a commit, through any chain of tags, else the run is
-# refused, and every path in each mirror's history is judged by the secret file rule below. The context gains each
-# mirror's HEAD, refs and objects and a config of the tool's own, which the image reads through CI's rewrite of the
-# repo's https URL, so no token enters.
+# fence, since a pin it does not read fails at once in the container, which asks for no login. Nothing private is
+# mirrored or served unless GitHub says the repo under test is private, the repo named by the clone's one origin, or by
+# --github <name> for a fresh repo with no origin, and unless GitHub holds the commit's base in that repo's network,
+# its merge base with origin/main, or the commit itself with --github. gh answers both with its own login, and its
+# HTTP 422 alone says GitHub holds no such commit. A commit names its parent by its id alone, so a base shows what a
+# commit is built on and not who wrote it, and a clone's commit is mirrored only the private repos its base already
+# pins, one it adds refusing the run. So a public repo's commit, from a pull request or a fork, gets no private
+# history, a commit built on a private repo's history gets only what that history already pins, and a fork of a
+# private repo needs read access to it, the owner's alone today. A private repo's pins are fetched by this machine's
+# git with its own credential helper, prompts off, into bare mirrors of main, each pinned commit and each tag a pin
+# names, none of the host's git settings shaping them. A pin's ref that is neither a full commit id nor main is looked
+# up once per repo by git ls-remote and fetched only when a tag of that whole name exists, so a tag pinned where the
+# scan does not read, behind an include, fails in the container's checkout with no hint. Each ref of a mirror must
+# resolve to a commit, through any chain of tags, else the run is refused, and every path in each mirror's history is
+# judged by the secret file rule below. The context gains each mirror's HEAD, refs and objects and a config of the
+# tool's own, which the image reads through CI's rewrite of the repo's https URL, so no token enters.
+#
+# The owner's private npm packages, from this machine's npm cache (D-087). When a make lane is named, the commit's
+# package-lock.json, lockfile version 2 or 3, is read by node, and each entry whose resolved URL starts with
+# https://npm.pkg.github.com/ is a private package, its name the entry's name else the path after its last
+# node_modules/. Such an entry brings the same fence as a pin, and in a clone the base's own lock must lock each package
+# the commit's does, any version. Once GitHub says the repo is private, an entry outside the scope @needless2say/, one
+# with no sha512 in its integrity or two different ones, and a lock that is not JSON each refuse the run, and a public
+# repo serves nothing. Each tarball is read from this machine's npm cache, where a host install put it, at its digest's
+# path under _cacache/content-v2/sha512/, %LOCALAPPDATA%/npm-cache read through cygpath on Windows, else ~/.npm, and
+# one not there refuses the run, naming the fresh install that puts it there. No npm runs on the host, no npm setting
+# is read and no token is read or passed. Each tarball is copied into the run, its sha512 held to the lock's, every
+# member's name judged by the secret file rule below and held under one top folder, and its own package.json held to
+# the entry's package and version, then placed in the context's npm folder at its digest's path, which the image
+# copies into npm's own folder, so setup's install reads it from the cache with no token and no request.
 #
 # A lane that fails on git's credential refusal means a pin the scan missed or a ref a mirror lacks, a defect, so the
-# run failed and the pull request reports a failed pre-flight. A repo GitHub calls public mirrors nothing, so its lanes
-# that need a private package, such as ci-style, run on the host and the pull request says so. A private npm package
-# is not served yet, so a lane that fails on one from npm.pkg.github.com is reported as a skipped pre-flight.
+# run failed and the pull request reports a failed pre-flight. A 401 or 403 from npm.pkg.github.com likewise means an
+# entry the scan does not serve, a lock it does not read, a package.json its lock does not satisfy or an .npmrc that
+# moves npm's cache or prefers the network, a defect, so the run failed. A repo GitHub calls public mirrors and serves
+# nothing, so its lanes that need a private package, such as ci-style, run on the host and the pull request says so.
 #
 # The commit is --at, resolved to its full hash, or HEAD on a clean tree. A tree with changes or with untracked files
 # git does not ignore is refused with no --at, since the run would leave them out unseen. Every GIT_ variable is dropped
@@ -55,7 +72,7 @@
 # run, exec or anything that cleans the daemon as a whole.
 #
 # The run's folder, <workspace>/temp/kdf-preflight/<run id>/, holds context/, which is the commit's tar from git archive
-# with LF line ends beside the image's Dockerfile and lane script and the mirrors folder and nothing else, and
+# with LF line ends beside the image's Dockerfile and lane script and the mirrors and npm folders and nothing else, and
 # build.log. The base stage is built first and alone, tagged kdf-preflight-base:<the Dockerfile's hash>, then the lanes
 # stage, tagged kdf-preflight-run:<run id> and removed with docker rmi when the run ends, failed or not. The fetches and
 # each build run under timeout with what remains of --timeout, 1800 seconds unless given, and setup and each lane under
@@ -66,11 +83,13 @@
 #
 # Exit 0 when setup passed, where it was due, and every lane passed, 1 when setup or a lane failed, 2 on a refusal
 # before anything was built, 3 when the run could not complete, a base that would not build, docker unreachable, the
-# run past its timeout, a visibility GitHub could not give, a fetch git could not finish, or marker lines that are not
-# one whole and consistent set, with the log's tail. The folder is removed on 0 unless --keep is given and on 2, and
-# kept on 1 and 3 once the run has made it, the questions to GitHub and the allowlist's read coming before it, and its
-# mirrors are removed however it ends. KDF_DOCKER_BIN names the docker program, KDF_GH_BIN gh, KDF_PREFLIGHT_DIR the
-# runs folder and KDF_PREFLIGHT_GIT_BASE where the mirrors are fetched from, each for a test.
+# run past its timeout, a visibility GitHub could not give, a fetch git could not finish, node failing as it reads a
+# lock, tar or sha512sum that cannot run, or marker lines that are not one whole and consistent set, with the log's
+# tail. The folder is removed on 0 unless --keep is given and on 2, and kept on 1 and 3 once the run has made it, the
+# questions to GitHub and the allowlist's read coming before it, and its mirrors and npm packages are removed however
+# it ends. KDF_DOCKER_BIN names the docker program, KDF_GH_BIN gh, KDF_PREFLIGHT_DIR the runs folder,
+# KDF_PREFLIGHT_GIT_BASE where the mirrors are fetched from and KDF_NPM_CACHE the npm cache the tarballs are read from,
+# each for a test.
 set -uo pipefail
 export LC_ALL=C
 # git finds its repo, its config and its programs through GIT_ variables first, and the tool needs none of them. git
@@ -96,6 +115,67 @@ pin_pattern="git\\+https://github\\.com/Needless2Say/[A-Za-z0-9._-]+\\.git@[^][:
 # the files CI's fetch plan reads by default, its requirement_files input
 pin_files=(requirements.txt requirements.in requirements-dev.txt requirements-dev.in requirements-test.txt
 	requirements-test.in pyproject.toml)
+# node reading a lock on stdin, lockfile version 2 or 3's packages (D-087). Each entry resolved from GitHub's npm
+# registry is a private package, its name the entry's name else the path after its last node_modules/. One of the
+# owner's scope prints "locks <name>", then "entry <name> <version> <its sha512 in hex>", or "problem <kind> <what>"
+# where it cannot be served by digest, one outside the scope prints "problem scope <what>", and a lock that is not JSON
+# prints "unreadable", the problems refusing the run only once GitHub says the repo is private
+npm_scan='
+	let text = "";
+	process.stdin.setEncoding("utf8");
+	process.stdin.on("data", (chunk) => { text += chunk; });
+	process.stdin.on("end", () => {
+		const host = "https://npm.pkg.github.com/", scope = "@needless2say/";
+		const plain = (value) => typeof value === "string" && /^[\x21-\x7e]{1,214}$/.test(value);
+		let lock;
+		try { lock = JSON.parse(text); } catch (err) { console.log("unreadable"); return; }
+		const packages = lock !== null && typeof lock === "object" ? lock.packages : null;
+		if (packages === null || typeof packages !== "object" || Array.isArray(packages)) return;
+		for (const [where, entry] of Object.entries(packages)) {
+			if (entry === null || typeof entry !== "object" || typeof entry.resolved !== "string") continue;
+			if (!entry.resolved.startsWith(host)) continue;
+			const at = where.lastIndexOf("node_modules/");
+			const name = typeof entry.name === "string" ? entry.name : where.slice(at < 0 ? 0 : at + 13);
+			if (!plain(name) || !name.startsWith(scope) || !/^[a-z0-9][a-z0-9._~-]*$/.test(name.slice(scope.length))) {
+				console.log("problem scope " + (plain(name) ? name : JSON.stringify(where)));
+				continue;
+			}
+			console.log("locks " + name);
+			const version = entry.version;
+			if (!plain(version) || !/^[0-9A-Za-z][0-9A-Za-z.+-]*$/.test(version)) {
+				console.log("problem version " + name);
+				continue;
+			}
+			const found = new Set();
+			let unread = false;
+			for (const part of (typeof entry.integrity === "string" ? entry.integrity : "").split(/\s+/)) {
+				if (!part.startsWith("sha512-")) continue;
+				const value = part.slice(7).split("?")[0];
+				const bytes = Buffer.from(value, "base64");
+				if (bytes.length === 64 && bytes.toString("base64") === value) found.add(bytes.toString("hex"));
+				else unread = true;
+			}
+			const what = name + " " + version;
+			if (unread) console.log("problem unread " + what);
+			else if (found.size === 0) console.log("problem none " + what);
+			else if (found.size > 1) console.log("problem two " + what);
+			else console.log("entry " + what + " " + [...found][0]);
+		}
+	});
+'
+# node reading a tarball's package.json on stdin and printing its name and version, each written out as JSON where it
+# is not plain text, so no other text can pass for an entry's
+npm_manifest='
+	let text = "";
+	process.stdin.setEncoding("utf8");
+	process.stdin.on("data", (chunk) => { text += chunk; });
+	process.stdin.on("end", () => {
+		const manifest = JSON.parse(text);
+		const plain = (value) => typeof value === "string" && /^[\x21-\x7e]{1,214}$/.test(value);
+		const shown = (value) => plain(value) ? value : String(JSON.stringify(value)).slice(0, 100);
+		console.log(shown(manifest.name) + " " + shown(manifest.version));
+	});
+'
 
 die() { local code=$1; shift; printf 'kdf-preflight: %s\n' "$*" >&2; exit "$code"; }
 say() { printf 'kdf-preflight: %s\n' "$*"; }
@@ -170,6 +250,31 @@ pins_at() {
 		printf '%s\n' "$text" | sed -E 's/(^|[[:space:]])#.*$//' | grep -o -E -e "$pin_pattern"
 	done
 	return 0
+}
+# the npm scan's lines for package-lock.json at a commit, none when it has none, under what remains of the run's
+# deadline. On a lock git cannot read or node failing as it reads one, why and 1
+npm_at() {
+	local left scanned
+	git -C "$top" cat-file -e "$1:package-lock.json" 2>/dev/null || return 0
+	left=$(remaining)
+	[ "$left" -gt 0 ] || { printf 'the run passed its timeout before package-lock.json at %s was read' "$1"; return 1; }
+	scanned="$(git -C "$top" show "$1:package-lock.json" 2>/dev/null \
+		| timeout --kill-after=5 "$left" node -e "$npm_scan" 2>&1)" \
+		|| { printf 'git or node could not read package-lock.json at %s, %s' "$1" "$(printf '%s' "$scanned" \
+			| tr -d '\r' | tail -n 1)"; return 1; }
+	printf '%s\n' "$scanned"
+}
+# the words for a problem the npm scan printed, without its "problem "
+npm_why() {
+	local what="${1#* }"
+	case "$1" in
+		"scope "*) printf "the entry %s from npm.pkg.github.com, outside the owner's scope @needless2say/" "$what" ;;
+		"version "*) printf 'the entry %s with no plain version' "$what" ;;
+		"unread "*) printf 'the entry %s with a sha512 in its integrity that cannot be read' "$what" ;;
+		"none "*) printf 'the entry %s with no sha512 in its integrity' "$what" ;;
+		"two "*) printf 'the entry %s with two different sha512 values in its integrity' "$what" ;;
+		*) printf 'an entry the scan could not read, %s' "$1" ;;
+	esac
 }
 
 repo="" at="" keep=0 timeout_s=1800 setup_target="" setup_named=0 no_setup=0 github="" github_named=0
@@ -341,11 +446,12 @@ done < <(git -C "$top" ls-tree -r -z --name-only "$commit")
 hits="$(git -C "$top" -c core.quotepath=off grep -I -l -E -e "$token_shapes" "$commit" 2>&1)"
 case $? in 0|1) ;; *) die 3 "git grep could not screen $short, $hits" ;; esac
 
-# ---- 7. the owner's private repos the commit pins, and whether any may be mirrored (D-078). The run's one deadline
-# starts here, so the questions to GitHub and the fetches count against it as the builds do
+# ---- 7. the owner's private repos the commit pins and the private npm packages it locks, and whether any may be
+# mirrored or served (D-078, D-087). The run's one deadline starts here, so the scans, the questions to GitHub, the
+# copies and the fetches count against it as the builds do
 deadline=$(( $(date +%s) + timeout_s ))
 remaining() { echo $(( deadline - $(date +%s) )); }
-pinned=() pin_shas=()
+pinned=() pin_shas=() pin_refs=()
 if [ "$make_lane" -eq 1 ]; then
 	matches="$(pins_at "$commit")" || die 3 "git could not read the pin files at $short, $matches"
 	if [ -n "${matches//[[:space:]]/}" ]; then
@@ -362,11 +468,37 @@ if [ "$make_lane" -eq 1 ]; then
 					"scripts/fetch_private_packages.py, so the run is refused" ;;
 			esac
 			named_repos[$name]=1
+			pin_refs+=("$name $ref")
 			if [[ "$ref" =~ ^[0-9a-f]{40}$ ]]; then pin_shas+=("$name $ref"); fi
 		done <<< "$matches"
 		mapfile -t pinned < <(printf '%s\n' "${!named_repos[@]}" | sort)
 	fi
 fi
+# the private npm packages the commit's lock resolves from GitHub's npm registry, each brought under the fence as a
+# pin is, its problems kept for once GitHub has said whether the repo is private (D-087)
+npm_entries=() npm_private=0 npm_problem="" npm_unreadable=0
+if [ "$make_lane" -eq 1 ]; then
+	scanned="$(npm_at "$commit")" || die 3 "$scanned"
+	while IFS= read -r line; do
+		case "$line" in
+			"entry "*) npm_entries+=("${line#entry }") npm_private=1 ;;
+			"locks "*) npm_private=1 ;;
+			"problem "*) npm_private=1; [ -n "$npm_problem" ] || npm_problem="${line#problem }" ;;
+			unreadable) npm_unreadable=1 ;;
+		esac
+	done <<< "$scanned"
+	# the same tarball locked at two paths is served once
+	[ "${#npm_entries[@]}" -eq 0 ] || mapfile -t npm_entries < <(printf '%s\n' "${npm_entries[@]}" | sort -u)
+fi
+# the scan's refusals, applied once GitHub says the repo is private, so a public repo runs as today
+npm_refusals() {
+	[ "$npm_unreadable" -eq 0 ] \
+		|| die 2 "package-lock.json at $short is not JSON, so the private npm packages it may lock cannot be served by" \
+			"digest and the run is refused"
+	[ -z "$npm_problem" ] \
+		|| die 2 "package-lock.json at $short holds $(npm_why "$npm_problem"), so it cannot be served by digest and the" \
+			"run is refused"
+}
 
 # the repo under test, named by the clone's one origin, which no commit carries, or by --github for a fresh repo
 origins="$(git -C "$top" config --local --get-all remote.origin.url 2>/dev/null)"
@@ -405,9 +537,9 @@ ask_private() {
 			return 1 ;;
 	esac
 }
-visibility="" visibility_said="" mirror=0
-if [ "${#pinned[@]}" -gt 0 ]; then
-	unknown="so whether it is private on GitHub is unknown, and its pins are not mirrored"
+visibility="" visibility_said="" serve=0
+if [ "${#pinned[@]}" -gt 0 ] || [ "$npm_private" -eq 1 ]; then
+	unknown="so whether it is private on GitHub is unknown, and nothing private is served"
 	[ "$origin_count" -le 1 ] || die 2 "$given has $origin_count origin URLs, which name no one GitHub repo, $unknown"
 	if [ -z "$named" ] && [ "$origin_count" -eq 1 ]; then
 		die 2 "$given's origin, $(printf '%s' "$origins" | redact), is not a repo of github.com/Needless2Say, $unknown"
@@ -415,19 +547,20 @@ if [ "${#pinned[@]}" -gt 0 ]; then
 	[ -n "$named" ] || die 2 "$given has no origin, $unknown. A fresh repo names its repo with --github <name>"
 	visibility="$(ask_private "$named")" || die 3 "$visibility"
 	if [ "$visibility" = true ]; then
+		npm_refusals
 		# a commit fetched from anywhere into a private repo's clone keeps the clone's origin, so it must be built on
 		# that repo's own history, a base GitHub confirms in the repo's network. A commit names its parent by its id
 		# alone, so a base shows what a commit is built on and not who wrote it, and a commit gets only the private
-		# repos its base already pins
+		# repos its base already pins and the private npm packages its base already locks
 		if [ "$github_named" -eq 1 ]; then
 			base="$commit"
 		else
 			git -C "$top" rev-parse -q --verify "refs/remotes/origin/main^{commit}" >/dev/null 2>&1 \
 				|| die 2 "$given has no origin/main, so no base of $short can be confirmed on GitHub, and nothing" \
-					"private is mirrored. Fetch origin, then run again"
+					"private is served. Fetch origin, then run again"
 			base="$(git -C "$top" merge-base "$commit" refs/remotes/origin/main 2>/dev/null)" \
 				|| die 2 "$short shares no history with origin/main, so it is built on no base GitHub confirms in" \
-					"$named, and nothing private is mirrored"
+					"$named, and nothing private is served"
 		fi
 		left=$(remaining)
 		[ "$left" -gt 0 ] || die 3 "the run passed its timeout before GitHub was asked about $base"
@@ -441,7 +574,7 @@ if [ "${#pinned[@]}" -gt 0 ]; then
 			# GitHub's 422 alone says it holds no such commit, and any other failure is an answer it could not give
 			case "$said" in *"HTTP 422"*)
 				die 2 "GitHub does not hold $base in Needless2Say/$named, so $short is built on no base GitHub confirms" \
-					"there, and nothing private is mirrored" ;;
+					"there, and nothing private is served" ;;
 			esac
 			die 3 "gh could not say whether GitHub holds $base in Needless2Say/$named, ${said:-no answer}. When gh is" \
 				"signed out, the owner signs it in with gh auth login"
@@ -459,23 +592,42 @@ if [ "${#pinned[@]}" -gt 0 ]; then
 				case "$allowlist" in *" $name:private "*) ;; *) continue ;; esac
 				case "$base_repos" in *" $name "*) ;; *)
 					die 2 "$short pins Needless2Say/$name, which its base $base on GitHub does not pin, so nothing" \
-						"private is mirrored. A commit is mirrored only the private repos its base already pins, so its" \
+						"private is served. A commit is mirrored only the private repos its base already pins, so its" \
 						"pre-flight is reported not run, for the owner to decide" ;;
 				esac
 			done
+			# the base's own lock, read the same way, must lock each package the commit's does, any version (D-087)
+			if [ "${#npm_entries[@]}" -gt 0 ]; then
+				base_scan="$(npm_at "$base")" || die 3 "$base_scan"
+				base_locks=" "
+				while IFS= read -r line; do
+					case "$line" in "locks "*) base_locks="$base_locks${line#locks } " ;; esac
+				done <<< "$base_scan"
+				for entry in "${npm_entries[@]}"; do
+					package="${entry%% *}"
+					case "$base_locks" in *" $package "*) ;; *)
+						die 2 "$short locks $package from npm.pkg.github.com, which its base $base on GitHub does not" \
+							"lock, so nothing private is served. A commit is served only the private npm packages its" \
+							"base already locks, so its pre-flight is reported not run, for the owner to decide" ;;
+					esac
+				done
+			fi
 		fi
-		mirror=1
+		serve=1
 	fi
 elif [ -n "$named" ]; then
-	# nothing to mirror, so the answer only says what the repo is, and one GitHub cannot give changes nothing else
+	# nothing to mirror or serve, so the answer says what the repo is and decides whether a lock that is not JSON is
+	# refused, and one GitHub cannot give changes nothing else
 	visibility="$(ask_private "$named")" || {
 		visibility_said="whether $named is private on GitHub could not be read, which changes nothing else, since"
-		visibility_said="$visibility_said nothing is mirrored. $visibility"
+		visibility_said="$visibility_said nothing is mirrored or served. $visibility"
 		visibility=""
 	}
+	[ "$visibility" != true ] || npm_refusals
 fi
 
-# ---- 8. the run's own folder, id and image, kept or removed by how it ends, and its mirrors removed however it ends
+# ---- 8. the run's own folder, id and image, kept or removed by how it ends, and its mirrors and npm packages removed
+# however it ends
 mkdir -p "$runs" 2>/dev/null || die 3 "the runs folder $runs could not be made"
 runs="$(cd "$runs" && pwd)"
 run="" id=""
@@ -489,8 +641,10 @@ lanes_built=0
 finish() {
 	local code=$?
 	trap - EXIT
-	# no mirror's history is kept past the run, a red one included, which keeps its log and tar
-	rm -rf "$run/mirrors" "$context/mirrors" "$run/template" "$run/hooks" "$run/paths" "$run/fetch.err"
+	# no mirror's history and no private npm package is kept past the run, a red one included, which keeps its log and
+	# tar (D-087)
+	rm -rf "$run/mirrors" "$context/mirrors" "$run/tarballs" "$context/npm" "$run/template" "$run/hooks" "$run/paths" \
+		"$run/fetch.err"
 	# this run's image alone, never a prune, so another run's image or cache is never touched, bounded so a stalled
 	# daemon never holds the run, and said when it fails, the result unchanged since the lanes' result stands
 	local left_behind=""
@@ -512,10 +666,10 @@ trap 'exit 3' INT TERM HUP
 
 say "testing $(basename "$top") at $commit, lanes ${lanes[*]}, run $id"
 say "$setup_said"
-case "$visibility:$mirror" in
-	true:1) say "$named is private on GitHub, so its pins are mirrored" ;;
-	true:0) say "$named is private on GitHub, and the scan found no pin of the owner's to mirror" ;;
-	false:*) say "$named is public on GitHub, so nothing private is mirrored" ;;
+case "$visibility:$serve" in
+	true:1) say "$named is private on GitHub, so its private packages are served" ;;
+	true:0) say "$named is private on GitHub, and the scan found no private package of the owner's to serve" ;;
+	false:*) say "$named is public on GitHub, so nothing private is served" ;;
 esac
 [ -z "$visibility_said" ] || say "$visibility_said"
 while IFS= read -r hit; do
@@ -523,7 +677,8 @@ while IFS= read -r hit; do
 		"container with the rest, so it should be a fixture"
 done <<< "$hits"
 
-# ---- 9. the context, the commit's tar with LF line ends beside the image's two files and the mirrors, and nothing else
+# ---- 9. the context, the commit's tar with LF line ends beside the image's two files, the mirrors and the npm
+# packages, and nothing else
 tail_log() {
 	printf 'kdf-preflight: the last lines of %s\n' "$log" >&2
 	tail -n 40 "$log" | tr -d '\r' >&2
@@ -533,19 +688,108 @@ expired() {
 	tail_log
 	die 3 "the run passed its timeout of $timeout_s seconds $*, so it could not complete. The run is kept at $run"
 }
-mkdir "$context" "$context/mirrors" || die 3 "the context folder could not be made in $run"
+mkdir "$context" "$context/mirrors" "$context/npm" || die 3 "the context folder could not be made in $run"
 git -C "$top" -c core.autocrlf=false -c core.eol=lf archive --format=tar -o "$context/repo.tar" "$commit" 2>>"$log" \
 	|| die 3 "git archive could not export $short, the log is $log"
 cp "$here/preflight/Dockerfile" "$here/preflight/lanes.sh" "$context/" 2>>"$log" \
 	|| die 3 "the image's files could not be copied from $here/preflight"
 
-# ---- 10. the mirrors, fetched by this machine's git with its own login and prompts off, and shaped by none of its
+# ---- 10. the private npm packages, each tarball read from this machine's npm cache at the digest its lock names,
+# before any mirror is fetched so a miss spares the fetches, and judged in the run's own folder, so what is judged is
+# what enters. No npm runs here and no npm setting is read, so a commit's .npmrc cannot steer where the bytes come from
+# (D-087)
+served=() served_said=() npm_parts=()
+if [ "$serve" -eq 1 ] && [ "${#npm_entries[@]}" -gt 0 ]; then
+	for program in sha512sum tar; do
+		command -v "$program" >/dev/null 2>&1 \
+			|| die 3 "$program is not on PATH, so the private npm packages cannot be judged and the run could not complete"
+	done
+	# npm's own default for the platform, read and never written, or the folder a test names
+	if [ -n "${KDF_NPM_CACHE:-}" ]; then
+		npm_cache="$KDF_NPM_CACHE"
+	elif [ -n "${LOCALAPPDATA:-}" ]; then
+		local_data="$(cygpath -u "$LOCALAPPDATA" 2>&1 | tr -d '\r')" && [ -n "$local_data" ] \
+			|| die 3 "cygpath could not read LOCALAPPDATA as a path, ${local_data:-no answer}, so npm's cache is unknown"
+		npm_cache="$local_data/npm-cache"
+	else
+		npm_cache="$HOME/.npm"
+	fi
+	mkdir "$run/tarballs" || die 3 "the folder for the npm packages could not be made in $run"
+	declare -A tops=() placed=()
+	for entry in "${npm_entries[@]}"; do
+		read -r package version digest <<< "$entry"
+		[ "$(remaining)" -gt 0 ] || expired "while the private npm packages were read from this machine's npm cache"
+		part="_cacache/content-v2/sha512/${digest:0:2}/${digest:2:2}/${digest:4}" copy="$run/tarballs/$digest.tgz"
+		if [ -z "${tops[$digest]+set}" ]; then
+			[ -f "$npm_cache/$part" ] \
+				|| die 2 "$package $version is not in this machine's npm cache, $npm_cache, so nothing is served. To serve" \
+					"it, install the repo into a fresh tree on this machine, one with no node_modules, such as a new" \
+					"worktree's make setup, which puts the tarball in npm's cache, then run again"
+			cp "$npm_cache/$part" "$copy" 2>>"$log" \
+				|| die 3 "the tarball of $package $version could not be copied from $npm_cache, the log is $log"
+			sum="$(sha512sum "$copy" 2>>"$log")" || die 3 "sha512sum could not hash the tarball of $package $version"
+			[ "${sum%% *}" = "$digest" ] \
+				|| die 2 "the tarball of $package $version in this machine's npm cache does not hash to the sha512 its" \
+					"lock names, so nothing is served. The owner decides"
+			members="$(tar -tzf "$copy" 2>>"$log")" \
+				|| die 2 "tar could not list the tarball of $package $version, so it cannot be judged and the run is" \
+					"refused. The owner decides"
+			# every member under one top folder, which npm drops as it unpacks, so nothing lands outside the package, and
+			# each named as no secret file is (Round Table 64's L15)
+			top=""
+			while IFS= read -r member; do
+				member="${member%$'\r'}"
+				[ -n "$member" ] || continue
+				# a name a tar argument could be read as an option from, whatever follows it, never reaches tar
+				case "$member" in -*)
+					die 2 "the tarball of $package $version holds $member, whose name begins with a dash, which tar could" \
+						"read as an option, so nothing is served. The owner decides" ;;
+				esac
+				[ -n "$top" ] || top="${member%%/*}"
+				under=0
+				case "$member" in "$top"/|"$top"/?*) under=1 ;; esac
+				# a name npm would normalize onto another, through .., . or a doubled slash, is under no one folder
+				case "/$member/" in */../*|*/./*) under=0 ;; esac
+				case "$member" in *//*) under=0 ;; esac
+				[ -n "$top" ] && [ "$under" -eq 1 ] \
+					|| die 2 "the tarball of $package $version holds $member, outside the one top folder $top every" \
+						"member sits under, so nothing is served. The owner decides"
+				! secret_name "$member" \
+					|| die 2 "the tarball of $package $version holds $member, named like a secret file, which never" \
+						"enters a container, since a build's layers outlive the run. The owner decides"
+			done <<< "$members"
+			[ -n "$top" ] \
+				|| die 2 "the tarball of $package $version holds no member, so nothing is served. The owner decides"
+			tops[$digest]="$top"
+		fi
+		# its own package.json, the one directly under the top folder, names the entry's package and version, so a digest
+		# in a crafted lock cannot pass another cached tarball off as an allowed package
+		named_as="$(tar -xzOf "$copy" -- "${tops[$digest]}/package.json" 2>>"$log" | node -e "$npm_manifest" 2>>"$log")" \
+			|| die 2 "the tarball of $package $version holds no package.json under ${tops[$digest]}/ that node can read," \
+				"so it cannot be judged and the run is refused. The owner decides"
+		named_as="${named_as%$'\r'}"
+		[ "$named_as" = "$package $version" ] \
+			|| die 2 "the tarball of $package $version holds a package.json naming $named_as, not $package $version, so" \
+				"nothing is served. The owner decides"
+		# placed once by its digest, as npm's cache keeps it, however many entries lock it
+		if [ -z "${placed[$digest]+set}" ]; then
+			{ mkdir -p "$context/npm/${part%/*}" && cp "$copy" "$context/npm/$part"; } 2>>"$log" \
+				|| die 3 "the tarball of $package $version could not be placed in the context, the log is $log"
+			placed[$digest]=1
+			npm_parts+=("$part")
+		fi
+		served+=("$package $version")
+		served_said+=("serving $package $version from this machine's npm cache, $(wc -c < "$copy" | tr -d ' ') bytes")
+	done
+fi
+
+# ---- 11. the mirrors, fetched by this machine's git with its own login and prompts off, and shaped by none of its
 # settings, an empty template and hooks folder of the run's own, the formats written out, and automatic maintenance
 # off as in CI (D-045). Each fetch's URL is pinned to itself, which beats any shorter rewrite since git takes the
 # longest, and its TLS check to on, the most specific URL a setting can name, and both are read back from git before it
 # runs, since a rewrite of the whole URL ties the pin and git keeps the first it read
 mirrored=()
-if [ "$mirror" -eq 1 ]; then
+if [ "$serve" -eq 1 ] && [ "${#pinned[@]}" -gt 0 ]; then
 	mkdir "$run/template" "$run/hooks" "$run/mirrors" || die 3 "the mirrors' folders could not be made in $run"
 	isolated=(-c "core.hooksPath=$run/hooks" -c gc.auto=0 -c gc.autoDetach=false -c maintenance.auto=false
 		-c maintenance.autoDetach=false -c core.askPass=)
@@ -577,8 +821,30 @@ if [ "$mirror" -eq 1 ]; then
 		[ "$tls" = true ] \
 			|| die 2 "the fetch of $name would not check TLS, since git reads http.sslVerify as" \
 				"$(printf '%s' "$tls" | redact) for $url. The owner checks git's http.*.sslVerify settings"
+		# the tags a pin of this repo names, as CI's fetch takes them. A ref that is neither a full commit id nor main is
+		# looked up once per repo and fetched only when the name after the tab of a line ls-remote prints equals
+		# refs/tags/<ref> as a whole string, never matched as a pattern, so a pin at v1.* fetches nothing and a ref's text
+		# never reaches a refspec unchecked, git refusing *, :, ^ and .. in a tag's name (D-087)
+		wanted=() tags=() tag_specs=()
+		for entry in "${pin_refs[@]}"; do
+			[ "${entry%% *}" = "$name" ] || continue
+			ref="${entry#* }"
+			[[ "$ref" =~ ^[0-9a-f]{40}$ ]] || [ "$ref" = main ] || wanted+=("$ref")
+		done
+		if [ "${#wanted[@]}" -gt 0 ]; then
+			listed_tags="$(mirror_git --git-dir="$bare" "${pinning[@]}" ls-remote --tags --refs "$url" \
+				2>"$run/fetch.err" | tr -d '\r')" || fetch_failed $? "$name"
+			for ref in "${wanted[@]}"; do
+				case " ${tags[*]} " in *" $ref "*) continue ;; esac
+				while IFS= read -r line; do
+					[ "${line#*$'\t'}" = "refs/tags/$ref" ] || continue
+					tags+=("$ref") tag_specs+=("+refs/tags/$ref:refs/tags/$ref")
+					break
+				done <<< "$listed_tags"
+			done
+		fi
 		mirror_git --git-dir="$bare" "${pinning[@]}" fetch -q --no-tags --no-auto-maintenance "$url" \
-			'+refs/heads/main:refs/heads/main' '+refs/tags/*:refs/tags/*' 2>"$run/fetch.err" \
+			'+refs/heads/main:refs/heads/main' "${tag_specs[@]}" 2>"$run/fetch.err" \
 			|| fetch_failed $? "$name"
 		# each pinned commit the mirror lacks, under a ref of its own, as CI's fetch script does, so the screen walks it
 		# and pip's clone checks it out
@@ -623,20 +889,36 @@ if [ "$mirror" -eq 1 ]; then
 			&& printf '[core]\n\trepositoryformatversion = 0\n\tbare = true\n' > "$copy/config"; } 2>>"$log" \
 			|| die 3 "the mirror of $name could not be copied into the context, the log is $log"
 		mirrored+=("$name")
-		# its cost said, since every run with a pin fetches each history whole
-		say "mirroring $name, main at $(git --git-dir="$bare" rev-parse -q --verify refs/heads/main)," \
+		# its tags and its cost said, since every run with a pin fetches each history whole
+		tags_said="no tag"
+		if [ "${#tags[@]}" -eq 1 ]; then
+			tags_said="tag ${tags[0]}"
+		elif [ "${#tags[@]}" -gt 1 ]; then
+			printf -v tags_said '%s, ' "${tags[@]}"
+			tags_said="tags ${tags_said%, }"
+		fi
+		say "mirroring $name, main at $(git --git-dir="$bare" rev-parse -q --verify refs/heads/main), $tags_said," \
 			"$(du -sk "$bare" | cut -f1) KiB fetched and screened in $(( $(date +%s) - began )) seconds"
 	done
 fi
-# the context read back whole, each entry one of its parts, before anything is built
+for said in "${served_said[@]}"; do say "$said"; done
+# the context read back whole, each entry one of its parts, under npm/ only the folders and files of the digests this
+# run placed, before anything is built
 config_text="$(printf '[core]\n\trepositoryformatversion = 0\n\tbare = true')"
 read_back=0
 while IFS= read -r -d '' entry; do
 	read_back=$((read_back + 1))
 	part="${entry#"$context"/}"
 	case "$part" in
-		Dockerfile|lanes.sh|repo.tar|mirrors) continue ;;
+		Dockerfile|lanes.sh|repo.tar|mirrors|npm) continue ;;
 		mirrors/*) ;;
+		npm/*)
+			inside="${part#npm/}" allowed=0
+			for placed_part in "${npm_parts[@]}"; do
+				case "$placed_part/" in "$inside"/*) allowed=1; break ;; esac
+			done
+			[ "$allowed" -eq 1 ] || die 3 "the context holds $part, which is no tarball this run placed, so nothing is built"
+			continue ;;
 		*) die 3 "the context holds $part, which is none of its parts, so nothing is built" ;;
 	esac
 	inside="${part#mirrors/}"
@@ -650,13 +932,13 @@ while IFS= read -r -d '' entry; do
 		*) die 3 "the context holds $part, which is no part of a mirror the image reads, so nothing is built" ;;
 	esac
 done < <(find "$context" -mindepth 1 -print0)
-[ "$read_back" -ge 4 ] || die 3 "the context of run $id could not be read back"
+[ "$read_back" -ge 5 ] || die 3 "the context of run $id could not be read back"
 for name in "${mirrored[@]}"; do
 	[ "$(cat "$context/mirrors/$name.git/config" 2>/dev/null)" = "$config_text" ] \
 		|| die 3 "the mirror of $name holds a config other than the tool's own, so nothing is built"
 done
 
-# ---- 11. the builds, each under what remains of the timeout
+# ---- 12. the builds, each under what remains of the timeout
 base_tag="kdf-preflight-base:$(sha256sum "$context/Dockerfile" | cut -c1-16)"
 left=$(remaining)
 [ "$left" -gt 0 ] || expired "before the base was built"
@@ -680,7 +962,7 @@ timeout --kill-after=10 "$left" "$docker_bin" build --target=lanes --tag="kdf-pr
 status=$?
 case "$status" in 124|137) expired "while the lanes ran" ;; esac
 
-# ---- 12. the result, from the marker lines of this run alone, never from the build's status. BuildKit opens each
+# ---- 13. the result, from the marker lines of this run alone, never from the build's status. BuildKit opens each
 # step's output with a line of its own, "#<n> [lanes i/j] RUN <the step>", which no lane can print, since every line a
 # step prints follows "#<n> <seconds> ". The marker step is found by that line, its run id written out or as the
 # Dockerfile names it, and only lines of that step that open with a marker count, so neither a lane's output nor an
@@ -773,8 +1055,8 @@ for lane in "${lanes[@]}"; do
 		printf '%s\n' "$excerpt" | sed 's/^/    /'
 	fi
 done
-# the hints. git's credential failure is a defect where the repo is private or unnamed, and the host's lane where it
-# is public, and a private npm package is a skipped pre-flight until one is served (D-078)
+# the hints. git's credential failure and a 401 or 403 from GitHub's npm registry are each a defect where the repo is
+# private or unnamed, and the host's lane where it is public (D-078, D-087)
 if [ "$failed" -gt 0 ] || [ "$setup_red" -eq 1 ]; then
 	if grep -q -E "could not read (Username|Password)|terminal prompts disabled" "$log"; then
 		if [ "$visibility" = false ]; then
@@ -789,8 +1071,18 @@ if [ "$failed" -gt 0 ] || [ "$setup_red" -eq 1 ]; then
 		fi
 	fi
 	if grep -E 'npm\.pkg\.github\.com' "$log" | grep -q -E '(^|[^0-9.])(401|403)([^0-9.]|$)'; then
-		say "a private npm package could not be fetched from npm.pkg.github.com. Private npm packages are not served" \
-			"yet, so the pull request reports a skipped pre-flight"
+		if [ "$visibility" = false ]; then
+			say "$named is public on GitHub, so nothing private is served, and a lane that needs a private npm package" \
+				"runs on the host, which the pull request reports so"
+		else
+			printf -v list '%s, ' "${served[@]}"
+			list="${list%, }"
+			say "setup or a lane met a 401 or 403 from npm.pkg.github.com, and the run served" \
+				"${list:-no private npm package}. An entry the scan does not serve, one that resolves elsewhere or not at" \
+				"all, a lock it does not read, a package.json its lock does not satisfy, or an .npmrc that moves npm's" \
+				"cache or prefers the network, is a defect to find, so the run failed and the pull request reports a" \
+				"failed pre-flight"
+		fi
 	fi
 fi
 if [ "$setup_red" -eq 1 ]; then
