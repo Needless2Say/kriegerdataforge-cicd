@@ -4846,5 +4846,6 @@ run a merge, measured before it is required, and holds only while the owner star
 required check is shown safe. The image's digest moves by two pull requests.
 
 **Consequences.** `make scan`, `scan-setup` and `scan-pr` in every repo run the image by digest, and the gate's caller
-arrives with the scripts sync once `scan_caller` allows it, by a bootstrap pull request before. What reopens this is a scan that passes code it should have caught, a branch or a
+arrives with the scripts sync once `scan_caller` allows it, by a bootstrap pull request before. What reopens this is
+a scan that passes code it should have caught, a branch or a
 session that satisfies the gate, or an image that holds the stock rules. VERSION 0.2.172, scripts 1.7.0.
