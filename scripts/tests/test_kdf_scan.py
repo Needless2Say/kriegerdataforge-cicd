@@ -876,18 +876,15 @@ def test_the_pins_print_as_plain_assignments_the_images_build_reads(capsys: pyte
 
 def test_the_owners_pins_stay_one_plain_assignment_each_for_the_images_strict_pattern() -> None:
     source = (COMMON / "kdf_scan.py").read_text(encoding = "utf-8")
-    for name in (
-        "OPENGREP_ASSET",
-        "OPENGREP_SHA256",
-        "ZIZMOR_WHEEL_URL",
-        "ZIZMOR_WHEEL_SHA256",
-        "ZIZMOR_SHA256",
-        "COSIGN_SHA256",
-        "COSIGN_URL",
-    ):
+    for name in ("OPENGREP_ASSET", "OPENGREP_SHA256", "ZIZMOR_WHEEL_SHA256", "ZIZMOR_SHA256", "COSIGN_SHA256", "COSIGN_URL"):
         found = re.findall(rf"^{name} += \"([^\"\n]*)\"$", source, re.MULTILINE)
         assert found == [getattr(SCAN, name)], name
         assert len(re.findall(rf"^{name}\b", source, re.MULTILINE)) == 1, name
+    # the wheel's address, too long for one line, assigned once and an https address of PyPI's files
+    assert len(re.findall(r"^ZIZMOR_WHEEL_URL\b", source, re.MULTILINE)) == 1
+    assert SCAN.ZIZMOR_WHEEL_URL.startswith("https://files.pythonhosted.org/packages/")
+    for name in ("OPENGREP_SHA256", "ZIZMOR_WHEEL_SHA256", "ZIZMOR_SHA256", "COSIGN_SHA256"):
+        assert re.fullmatch(r"[0-9a-f]{64}", getattr(SCAN, name)), name
 
 
 def test_opengreps_and_cosigns_addresses_are_their_linux_release_assets() -> None:

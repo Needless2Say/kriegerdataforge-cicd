@@ -409,7 +409,8 @@ scan-image: ## Build the scan's image from this tree as kdf-scan:dev, for develo
 		--build-arg "KDF_SCAN_COMMIT=$$(git rev-parse HEAD)" scripts/common
 
 scan-dev: scan-image ## Local code scan of this tree in an image built from it, for developing the wrapper (D-085)
-	@MSYS_NO_PATHCONV=1 docker run --rm --network none --read-only --tmpfs /run/kdf-scan:exec,size=1g \
+	@MSYS_NO_PATHCONV=1 docker run --rm --network none --read-only \
+		--tmpfs /run/kdf-scan:exec,size=1g,uid=65532,gid=65532 \
 		--cap-drop ALL --security-opt no-new-privileges --user 65532:65532 \
 		-v "$$(git rev-parse --show-toplevel):/src:ro" \
 		-v "$$(git rev-parse --path-format=absolute --git-dir):/gitdir:ro" \

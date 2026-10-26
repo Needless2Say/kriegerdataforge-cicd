@@ -156,7 +156,8 @@ KDF_SCAN_ENGINE ?= docker
 KDF_SCAN_RULES ?= $(HOME)/.cache/kdf-scan/semgrep-rules.git
 kdf_scan_native = $$(cd "$(1)" && (pwd -W 2>/dev/null || pwd))
 KDF_SCAN_RUN = MSYS_NO_PATHCONV=1 $(KDF_SCAN_ENGINE) run --rm --pull never --network none --read-only \\
-  --tmpfs /run/kdf-scan:exec,size=1g --cap-drop ALL --security-opt no-new-privileges --user 65532:65532
+  --tmpfs /run/kdf-scan:exec,size=1g,uid=65532,gid=65532 --cap-drop ALL --security-opt no-new-privileges \\
+  --user 65532:65532
 .PHONY: scan scan-setup scan-pr
 scan: ## Local code scan in cicd's image, before every pull request, never the gate
 \t@$(KDF_SCAN_RUN) -v "$$(git rev-parse --show-toplevel):/src:ro" \\

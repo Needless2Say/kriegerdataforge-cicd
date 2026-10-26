@@ -142,8 +142,8 @@ jobs:
           # a public repo's log names rule ids and never a rule's message (design 5.3)
           extra=()
           if [ "$VISIBILITY" != "private" ]; then extra+=(--public); fi
-          docker run --rm --network none --read-only --tmpfs /run/kdf-scan:exec,size=1g --cap-drop ALL \
-            --security-opt no-new-privileges --user 65532:65532 \
+          docker run --rm --network none --read-only --tmpfs /run/kdf-scan:exec,size=1g,uid=65532,gid=65532 \
+            --cap-drop ALL --security-opt no-new-privileges --user 65532:65532 \
             -v "$PWD/repo.git:/repo:ro" -v "$PWD/rules.git:/rules:ro" "$image" \
             pr-tree --head "$HEAD_SHA" --main "$MAIN_SHA" --merge-base "$MERGED" \
             --caller-sha "$KDF_SCAN_CALLER_SHA" "${extra[@]}" | tee report.txt

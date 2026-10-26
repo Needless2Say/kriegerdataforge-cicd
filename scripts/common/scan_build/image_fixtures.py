@@ -26,7 +26,7 @@ LOCKED = [
     "none",
     "--read-only",
     "--tmpfs",
-    "/run/kdf-scan:exec,size=1g",
+    "/run/kdf-scan:exec,size=1g,uid=65532,gid=65532",
     "--cap-drop",
     "ALL",
     "--security-opt",
@@ -35,7 +35,10 @@ LOCKED = [
     "65532:65532",
 ]
 # a line KDF's rule flags, whose message, "is written to a log", a public run never prints, and a clean one
-VULNERABLE = 'import logging\n\nlogging.getLogger("x").info(f"the token is {access_token}")\n'
+VULNERABLE = (
+    "import logging\n\nlogger = logging.getLogger(__name__)\n\n\ndef send(access_token):\n"
+    '    logger.info(f"the token is {access_token}")\n'
+)
 CLEAN      = "print('hello')\n"
 FENCE_ONLY = "import urllib.request\nurllib.request.urlopen('https://example.com', timeout = 5)\n"
 NO_ROOT    = "open('/opt/kdf-scan/written', 'w').write('x')\n"

@@ -52,30 +52,33 @@ from typing import Callable, Iterator, Mapping, TextIO
 
 # where the image keeps the tools and the wrapper's own files, root's and read only at run time (design 5.1)
 IMAGE_ROOT = Path("/opt/kdf-scan")
-# Opengrep's Linux asset, its name and SHA-256 the owner's match against the release page, owner step 3, empty until
-# then, which the image's build refuses, and the exact identity of the workflow that signed the release, read from its
-# certificate on 2026-10-21, a branch ref
+# Opengrep's Linux asset, its name and SHA-256 the owner's match against the release page on 2026-10-26, owner step
+# 3, and the exact identity of the workflow that signed the release, read from its certificate on 2026-10-21, a branch
+# ref
 OPENGREP_VERSION  = "v1.30.2"
-OPENGREP_ASSET    = ""
-OPENGREP_SHA256   = ""
+OPENGREP_ASSET    = "opengrep_manylinux_x86"
+OPENGREP_SHA256   = "a66aa3278457f02b287b985a45b6762aebcaba5000f2689245fd1ed86d1456c7"
 OPENGREP_IDENTITY = (
     "https://github.com/opengrep/opengrep/.github/workflows/rolling-release.yml@refs/heads/release-v1.30.2"
 )
 OPENGREP_ISSUER   = "https://token.actions.githubusercontent.com"
 # the asset's release address, its .cert and .sig beside it under the same name
 OPENGREP_URL = f"https://github.com/opengrep/opengrep/releases/download/{OPENGREP_VERSION}/{OPENGREP_ASSET}"
-# zizmor from PyPI's Linux wheel for x86_64, its name and SHA-256 the owner's read of PyPI's files, owner step 3,
-# empty until then, and the program inside it, read when the image is first built
+# zizmor from PyPI's Linux wheel for x86_64, its address and SHA-256 the owner's read of PyPI's files on 2026-10-26,
+# owner step 3, and the program inside it, measured by the image's first build on 2026-10-26 from that wheel
 ZIZMOR_VERSION      = "1.30.1"
-ZIZMOR_WHEEL_URL    = ""
-ZIZMOR_WHEEL_SHA256 = ""
-ZIZMOR_SHA256       = ""
+ZIZMOR_WHEEL_URL    = (
+    "https://files.pythonhosted.org/packages/63/55/1900b53d34dcebc207cf3ceb7957b3748e8bb40958f062e3853ab72f2395/"
+    "zizmor-1.30.1-py3-none-manylinux_2_28_x86_64.whl"
+)
+ZIZMOR_WHEEL_SHA256 = "eee12266b793cb87ad4a7e3af2e72404f8a63e3de5eb099b80bf7b1cfd232a8e"
+ZIZMOR_SHA256       = "9be5ac955a59e43a111152ee2e0315d3863866a8df4a15a9be7aaa94af72d74a"
 # cosign's Linux program, which the image's build runs to verify Opengrep, its SHA-256 the owner's match against the
-# release's checksums, owner step 3, the 2.6 line, whose verify-blob still takes the separate .sig and .cert Opengrep
+# release page on 2026-10-26, owner step 3, the 2.6 line, whose verify-blob still takes the separate .sig and .cert Opengrep
 # publishes, 3.1's taking a bundle alone, and 2.6.5 the release that carries the fix of GHSA-fx35-mq7g-6g98
 COSIGN_VERSION = "v2.6.5"
 COSIGN_URL     = "https://github.com/sigstore/cosign/releases/download/v2.6.5/cosign-linux-amd64"
-COSIGN_SHA256  = ""
+COSIGN_SHA256  = "c3b4f5410e608af03a5eb0aaac84a4313d8da131248e08ff1759ac70c79d1644"
 # the rules of Semgrep at the commit the web survey read, the digest of every rule file of RULE_FOLDERS at it, read on
 # 2026-10-21 with rules_digest below, and the page of the rules' licence the record keeps whole with its date
 RULES_REPO        = "https://github.com/semgrep/semgrep-rules"

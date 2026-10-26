@@ -35,7 +35,7 @@ LOCKED   = (
     "none",
     "--read-only",
     "--tmpfs",
-    "/run/kdf-scan:exec,size=1g",
+    "/run/kdf-scan:exec,size=1g,uid=65532,gid=65532",
     "--cap-drop",
     "ALL",
     "--security-opt",
