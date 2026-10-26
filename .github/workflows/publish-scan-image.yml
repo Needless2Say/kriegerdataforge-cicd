@@ -1,0 +1,129 @@
+# The local code scan's image (D-085, design 5.1), built from scripts/common/scan_build/Dockerfile on main alone and
+# published to ghcr.io/needless2say/kdf-scan, public and free from this public repo.
+#
+# The build job holds no permission. It checks out the public source, builds the image into an OCI archive, inspects
+# every layer of it so Semgrep's rules never reach a public image, loads that same archive and runs the image's own
+# fixtures against it, KDF's rules alone and no rule's message printed, then hands the archive on by an artifact. The
+# publish job alone holds packages, attestations and id-token write. It pushes that exact archive with skopeo tagged
+# with its cicd commit, checks the pushed digest is the archive's, attests the build's provenance and tries an
+# anonymous read, which passes once the owner has made the package public. Nothing is ever deleted, so a pinned digest
+# never vanishes. An image published here runs nowhere until an activating pull request names its digest in
+# scripts/common/SCAN_IMAGE and the gate's reusable workflow together.
+name: publish-scan-image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/common/kdf_scan.py
+      - scripts/common/ci_paths.py
+      - scripts/common/kdf_zizmor.yml
+      - scripts/common/scan_rules/**
+      - scripts/common/scan_build/**
+      - .github/workflows/publish-scan-image.yml
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: publish-scan-image
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/needless2say/kdf-scan
+  ARCHIVE: kdf-scan.oci.tar
+
+jobs:
+  build:
+    name: Build, inspect and test the image
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions: {}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+
+      - name: Build the image into an OCI archive
+        env:
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          docker buildx create --use --name kdf-scan-build
+          # one image manifest, its provenance attested by the publish job rather than inside the archive
+          docker buildx build --file scripts/common/scan_build/Dockerfile --build-arg "KDF_SCAN_COMMIT=$COMMIT" \
+            --provenance=false --sbom=false --output "type=oci,dest=$ARCHIVE" scripts/common
+
+      - name: Inspect every layer for Semgrep's rules
+        run: python3 -I -B scripts/common/scan_build/inspect_layers.py "$ARCHIVE"
+
+      - name: Run the image's own fixtures against that archive
+        run: |
+          set -euo pipefail
+          skopeo copy --quiet "oci-archive:$ARCHIVE" docker-daemon:kdf-scan:candidate
+          python3 -I -B scripts/common/scan_build/image_fixtures.py kdf-scan:candidate
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: kdf-scan-image
+          path: ${{ env.ARCHIVE }}
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    name: Publish the tested archive
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      packages: write
+      attestations: write
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: kdf-scan-image
+
+      - name: Push the archive by its digest, tagged with its cicd commit
+        id: push
+        env:
+          COMMIT: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$TOKEN" | skopeo login --username "$ACTOR" --password-stdin ghcr.io
+          expected="$(skopeo inspect --format '{{ .Digest }}' "oci-archive:$ARCHIVE")"
+          skopeo copy --quiet --preserve-digests "oci-archive:$ARCHIVE" "docker://$IMAGE:$COMMIT"
+          pushed="$(skopeo inspect --format '{{ .Digest }}' "docker://$IMAGE:$COMMIT")"
+          skopeo logout ghcr.io
+          if [ "$pushed" != "$expected" ]; then
+            echo "publish  the pushed digest $pushed is not the tested archive's $expected"
+            exit 1
+          fi
+          echo "digest=$pushed" >> "$GITHUB_OUTPUT"
+          echo "publish  $IMAGE:$COMMIT is $pushed, the tested archive's"
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Read the image anonymously, as any developer and the gate pull it
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if skopeo inspect --no-creds --raw "docker://$IMAGE@$DIGEST" > /dev/null; then
+            echo "publish  $IMAGE@$DIGEST reads anonymously"
+          else
+            echo "::warning::$IMAGE@$DIGEST does not read anonymously, the owner makes the package public once"
+          fi
+          {
+            echo "## kdf-scan image"
+            echo
+            echo "\`$IMAGE@$DIGEST\`, built from \`$GITHUB_SHA\`, runs nowhere until an activating pull request pins it."
+          } >> "$GITHUB_STEP_SUMMARY"

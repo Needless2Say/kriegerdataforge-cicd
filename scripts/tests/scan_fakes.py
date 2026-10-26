@@ -1,6 +1,5 @@
 """
-Stand ins for the local code scan's tests (D-085), shared by test_kdf_scan.py, test_kdf_scan_launcher.py and
-test_kdf_scan_verify.py.
+Stand ins for the local code scan's tests (D-085), shared by test_kdf_scan.py and test_kdf_scan_modes.py.
 
 The wrapper runs each tool by an absolute path with an environment of named variables alone, so a stand in reads its
 scenario from the files it is given and from scenario.json beside itself, and logs each call to calls.jsonl beside
@@ -23,12 +22,10 @@ import types
 from dataclasses import dataclass, field
 from pathlib import Path
 
-ROOT     = Path(__file__).resolve().parents[2]
-COMMON   = ROOT / "scripts" / "common"
-GIT      = shutil.which("git")
-PYTHON   = Path(sys.executable)
-COMMIT   = "c" * 40
-EMPTY_GH = {"calls": []}
+ROOT   = Path(__file__).resolve().parents[2]
+COMMON = ROOT / "scripts" / "common"
+GIT    = shutil.which("git")
+PYTHON = Path(sys.executable)
 
 FAKE_OPENGREP = r'''
 import json
@@ -43,11 +40,12 @@ scenario = json.loads(SCENARIO.read_text(encoding = "utf-8")) if SCENARIO.exists
 args     = sys.argv[1:]
 with open(HERE / "calls.jsonl", "a", encoding = "utf-8") as log:
     log.write(json.dumps({"tool": "opengrep", "args": args, "cwd": os.getcwd(), "env": dict(os.environ)}) + "\n")
-# the real one unpacks its runtime under %USERPROFILE%\AppData\Local\opengrep\<version>, measured on 2026-10-22
-unpack = Path(os.environ.get("USERPROFILE", "no-profile")) / "AppData" / "Local" / "opengrep" / "v1.30.2"
+# the real Windows one unpacks its runtime under the profile, measured on 2026-10-22, and the Linux one is held to
+# unpack under the cache until the image's first build measures it
+unpack = Path(os.environ.get("XDG_CACHE_HOME", "no-cache")) / "opengrep" / "v1.30.2"
 if not scenario.get("opengrep_unpack_elsewhere") and unpack.parent.parent.is_dir():
     unpack.mkdir(parents = True, exist_ok = True)
-    (unpack / "python313.dll").write_bytes(b"a stand in's runtime")
+    (unpack / "libpython3.13.so").write_bytes(b"a stand in's runtime")
 if scenario.get("opengrep_json_error"):
     print(json.dumps({"errors": [{"message": scenario["opengrep_json_error"]}]}))
     sys.exit(7)
@@ -193,28 +191,6 @@ print(json.dumps(found))
 sys.exit(14 if found else 0)
 '''
 
-FAKE_GH = r'''
-import json
-import sys
-from pathlib import Path
-
-HERE     = Path(__file__).resolve().parent
-scenario = json.loads((HERE / "gh.json").read_text(encoding = "utf-8"))
-args     = sys.argv[1:]
-with open(HERE / "gh-calls.jsonl", "a", encoding = "utf-8") as log:
-    log.write(json.dumps(args) + "\n")
-endpoint = next((arg for arg in args if arg.startswith("repos/")), "")
-for prefix, answer in scenario["answers"].items():
-    if endpoint.startswith(prefix):
-        if answer is None:
-            sys.stderr.write("HTTP 404\n")
-            sys.exit(1)
-        print(json.dumps(answer))
-        sys.exit(0)
-sys.stderr.write(f"no answer for {endpoint}\n")
-sys.exit(1)
-'''
-
 # the rule files of the rig's rules clone, each id's metadata as Semgrep's rules write it
 RULES        = {
     "python/lang/security/audit/eval-detected.yaml": ("eval-detected", "security", "MEDIUM"),
@@ -252,14 +228,15 @@ KDF_RULE     = """rules:
   pattern: secret_value($X)
 """
 
-BLOCK = """# >>> kdf-scan, managed by cicd's scripts sync
-# The local code scan, Opengrep over the code and zizmor over the workflows (cicd D-085).
-SCAN_EXCLUDE ?=
-{lines}.PHONY: scan
-scan: ## Local code scan, Opengrep and zizmor, before every pull request
-\t@D:/KriegerDataForge-scan/python/3.14.7/python.exe -I -S -B D:/KriegerDataForge-scan/kdf-scan.py
-# <<< kdf-scan
-"""
+# the active set the rig's Makefiles name, so the scan's tests read the block the scripts sync writes
+ACTIVE = {
+    "image": "ghcr.io/needless2say/kdf-scan",
+    "digest": "sha256:" + "d" * 64,
+    "commit": "c" * 40,
+    "rules_commit": "1" * 40,
+    "rules_digest": "e" * 64,
+    "contract": "1",
+}
 
 
 def rule_text(rule_id: str, category: str, confidence: str) -> str:
@@ -270,7 +247,11 @@ def rule_text(rule_id: str, category: str, confidence: str) -> str:
 
 
 def makefile(*lines: str) -> str:
-    return "help:\n\t@echo help\n\n" + BLOCK.format(lines = "".join(f"{line}\n" for line in lines))
+    import distribute_scripts
+    own = "".join(f"{line}\n" for line in lines)
+    return "help:\n\t@echo help\n\n" + distribute_scripts.SCAN_BLOCK_HEAD + own + distribute_scripts.scan_block_tail(
+        ACTIVE,
+    )
 
 
 def sha256(path: Path) -> str:
@@ -347,7 +328,6 @@ class Rig:
     repo:      Path
     scan:      types.ModuleType
     files:    dict[str, bytes] = field(default_factory = dict)
-    cicd:     Path | None = None
     scenario: dict = field(default_factory = dict)
 
 
@@ -357,7 +337,7 @@ class Rig:
 
     def machine_for(self, module: types.ModuleType, **changes: object) -> object:
         """
-        The rig's machine built from a given wrapper module, the one a launcher loaded from its bundle among them.
+        The rig's machine built from a given wrapper module.
         """
         opengrep = self.tools / "opengrep.py"
         zizmor   = self.tools / "zizmor.py"
@@ -365,15 +345,13 @@ class Rig:
             "root": self.base,
             "opengrep": module.Tool("opengrep", "1.30.2", opengrep, sha256(opengrep), (str(PYTHON), str(opengrep))),
             "zizmor": module.Tool("zizmor", "1.30.1", zizmor, sha256(zizmor), (str(PYTHON), str(zizmor))),
-            "python": module.Tool("python", "3.14.7", PYTHON, sha256(PYTHON), (str(PYTHON),)),
             "rules": self.rules,
             "rules_commit": self.commit,
             "rules_digest": self.digest,
             "rule_folders": RULE_FOLDERS,
             "git": GIT,
-            "bundle": "b" * 40,
+            "image": "b" * 40,
             "files": self.files,
-            "cicd": self.cicd,
         }
         values.update(changes)
         return module.Machine(**values)
@@ -392,57 +370,6 @@ class Rig:
         return [call for call in (json.loads(line) for line in lines) if call["tool"] == tool]
 
 
-def bundle_files() -> dict[str, bytes]:
-    """
-    A bundle's files as this source tree holds them, with the rig's KDF rule in place of KDF's own.
-    """
-    files = {name: (COMMON / name).read_bytes() for name in ("kdf_scan.py", "kdf_scan_launcher.py", "ci_paths.py")}
-    files["kdf_zizmor.yml"] = (COMMON / "kdf_zizmor.yml").read_bytes()
-    files["scan_rules/kdf-test-rule.yaml"] = KDF_RULE.encode("utf-8")
-    return files
-
-
-def install_bundle(root: Path, files: dict[str, bytes], commit: str = COMMIT, current: bool = True) -> Path:
-    """
-    Write a bundle as the install would, its files, its manifest, `current` naming it, and the launcher at the root.
-    """
-    folder = root / "bundles" / commit
-    for name, data in files.items():
-        (folder / name).parent.mkdir(parents = True, exist_ok = True)
-        (folder / name).write_bytes(data)
-    manifest = "".join(f"{hashlib.sha256(files[name]).hexdigest()}  {name}\n" for name in sorted(files))
-    (folder / "manifest.sha256").write_text(manifest, encoding = "utf-8", newline = "\n")
-    if current:
-        (root / "current").write_text(f"{commit}\n", encoding = "utf-8", newline = "\n")
-        (root / "kdf-scan.py").write_bytes(files["kdf_scan_launcher.py"])
-    return folder
-
-
-def fake_python(root: Path, version: str = "3.14.7") -> Path:
-    """
-    A stand in for the installed Python's folder, a few files and the manifest the install writes from its archive.
-    """
-    folder = root / "python" / version
-    files  = {"python.exe": b"MZ a stand in\n", "Lib/os.py": b"# os\n", "DLLs/_ssl.pyd": b"pyd\n"}
-    for name, data in files.items():
-        (folder / name).parent.mkdir(parents = True, exist_ok = True)
-        (folder / name).write_bytes(data)
-    manifest = "".join(f"{hashlib.sha256(files[name]).hexdigest()}  {name}\n" for name in sorted(files))
-    (folder / "manifest.sha256").write_text(manifest, encoding = "utf-8", newline = "\n")
-    return folder
-
-
-def platform(elevated: bool = False, uac: dict | None = None, acl: list[str] | None = None) -> types.SimpleNamespace:
-    """
-    A stand in for the launcher's Windows checks, an elevated token, UAC's values and the folder's permission.
-    """
-    return types.SimpleNamespace(
-        elevated = lambda: elevated,
-        uac = lambda: dict(uac or {}),
-        acl = lambda root: list(acl or []),
-    )
-
-
 def make_rig(tmp_path: Path, scan: types.ModuleType, files: dict[str, str | bytes] | None = None) -> Rig:
     """
     Build the rig, its repo's first commit holding the given files and a Makefile with the managed block unless they
@@ -459,6 +386,7 @@ def make_rig(tmp_path: Path, scan: types.ModuleType, files: dict[str, str | byte
     digest       = scan.rules_digest(scan.rule_files(GIT, rules, rules_commit, RULE_FOLDERS))
     bundle       = {
         "kdf_zizmor.yml": (COMMON / "kdf_zizmor.yml").read_bytes(),
+        "ci_paths.py": (COMMON / "ci_paths.py").read_bytes(),
         "scan_rules/kdf-test-rule.yaml": KDF_RULE.encode("utf-8"),
     }
     repo         = init_repo(tmp_path / "repo")

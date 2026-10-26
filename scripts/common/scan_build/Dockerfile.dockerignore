@@ -1,0 +1,9 @@
+# The scan image's build context is an allowlist (design 5.1), every file of scripts/common left out but these, so
+# nothing else of cicd can enter a layer
+*
+!kdf_scan.py
+!ci_paths.py
+!kdf_zizmor.yml
+!scan_rules/
+!scan_rules/*.yaml
+!scan_build/fetch.py

@@ -582,6 +582,41 @@ jobs:
     uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/secret-scan.yml@main
 ```
 
+#### `kdf-scan-gate-reusable.yml`
+
+The local code scan's gate (D-088), Opengrep over the code and zizmor over the workflows of one pull request's head,
+in `ghcr.io/needless2say/kdf-scan` by the digest written in the workflow, which `scripts/common/SCAN_IMAGE` names
+too. A caller never writes its own caller. `.github/workflows/kdf-scan-gate.yml` is the text of
+`scripts/common/kdf-scan-gate-caller.yml`, which the scripts sync writes whole once the registry's `scan_caller` says
+its credential may write workflow files, a bootstrap pull request bringing it before, and the owner starts it on
+`main` at each merge attempt.
+
+| Input | Type | Default | Required |
+|---|---|---|---|
+| `pr` | number | none | yes |
+
+- **Secrets.** None, the job's own `GITHUB_TOKEN` alone. **Outputs.** None, its summary names the caller workflow,
+  cicd's `main` when the run began, the head, the base's `main`, the image, the scanner's cicd commit and the rules'
+  commit, and its last line is the scan's.
+- **Permissions.** Workflow `{}`, the job `contents: read` and `pull-requests: read`.
+- **What it refuses.** Any event but `workflow_dispatch` and any ref but `refs/heads/main`, a pull request whose base
+  is not `main`, an unpinned image, fetched ids unlike GitHub's, and a head, `main` or pin that moved during the run.
+  The scan itself runs with the network off, the root read only, no capability and a user that is not root. It fails
+  a pull request that changes the caller to other than the canonical text, or changes a workflow that names the gate
+  in any case or through YAML's escapes, cicd's own reusable workflow apart in cicd alone, the repository named by
+  `github.repository`. A name an expression builds at run time is beyond the text, so the owner reads the run's path
+  and event.
+- **Consumers.** Every repo with a Makefile, once its caller arrives. A public repo's log names rule
+  ids and never a rule's message.
+
+```yaml
+jobs:
+  kdf-scan-gate:
+    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/kdf-scan-gate-reusable.yml@main
+    with:
+      pr: ${{ inputs.pr }}
+```
+
 ### The docs only fast path (D-075)
 
 A pull request whose every change is docs runs the secret scan alone in a repo whose `ci.yml` is wired for it, every
@@ -856,7 +891,7 @@ shown where it differs from top level):
 
 ## Repo internal event triggered workflows
 
-The remaining twenty `.github/workflows/*.yml` (of 48 total, 28 `workflow_call` and these 20) are
+The remaining twenty one `.github/workflows/*.yml` (of 50 total, 29 `workflow_call` and these 21) are
 **not** `workflow_call`, so they cannot be `uses:`-d by a tenant. They run inside `kriegerdataforge-cicd` on schedules / issues / dispatch, and the ops ones are
 owner gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for completeness of the
 `.github/workflows/` enumeration.
@@ -883,6 +918,7 @@ owner gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for 
 | `hub-prune-tokens.yml` | daily `schedule` (04:17 UTC) + `workflow_dispatch` (`environment`) | POSTs the auth hub's `CRON_SECRET` gated `/internal/cron/prune-tokens` once per environment, which deletes expired denylist rows, spent verification tokens, audit rows past retention, abandoned registrations and expired OIDC rows in the hub (hub DEFERRED row 21). **Disarmed at birth**, the schedule job requires `vars.RUN_HUB_PRUNE == 'true'`, arm it with the hub release whose route answers POST. Per environment secrets `KDF_HUB_URL_{DEV,PROD}` and `KDF_HUB_CRON_SECRET_{DEV,PROD}`, an environment missing either is skipped with a notice. Prints the per table counts only | n/a (dispatch is maintainer only by repo perms, schedule gated by `RUN_HUB_PRUNE`) |
 | `codeql.yml` | `push` / `pull_request` → `main` + weekly `schedule` (Sun 00:00 UTC) | CodeQL over the Playwright suite under `e2e/`, through the centralized reusable workflow. The analyze job stays skipped until `vars.ENABLE_CODEQL == 'true'` (a public repo or GitHub Code Security) | n/a |
 | `mirror-ci-images.yml` | `push` `main`, `paths` its own file alone, + `workflow_dispatch` with no `inputs` + daily `schedule` (06:23 UTC) | The copier of every image CI pulls (D-077, D-080), the next section | n/a (`main` guard on its copy job, `packages: write` to that job alone, both proof jobs and the workflow `{}`) |
+| `publish-scan-image.yml` | `push` `main`, `paths` the scan's sources and its own file, + `workflow_dispatch` | Builds the local code scan's image into an OCI archive, inspects every layer for the stock rules, runs the image's own fixtures, then pushes that archive to `ghcr.io/needless2say/kdf-scan` tagged with its commit, attests it and reads it anonymously (D-088). Nothing is deleted, and an image runs nowhere until an activating pull request pins its digest | n/a (`main` guard on both jobs, the build job `{}`, `packages`, `attestations` and `id-token` write to the publish job alone) |
 
 `GH_PACKAGES_PAT` distribution, Vercel/kit ops, and the App secret distribution mint short lived
 **GitHub App** tokens when `vars.USE_GITHUB_APP == 'true'`, falling back to `CICD_PAT`

@@ -85,12 +85,15 @@ SCRIPTS_SYNC_BRANCH_PREFIX    = "chore/scripts-sync-"
 # Python toolchain pins into every repo (ADR D-013). Without it a scripts-sync PR that
 # adds the kdf-fmt pin would trip the strict +1 gate it is itself exempt from, in every
 # repo at once. ci.yml is deliberately ABSENT: the distributor only READS it.
+# The local code scan's gate caller joined it when the distributor began writing it whole beside the scan block (D-085,
+# design 5.3), so the sync PR that brings it passes the gate it is itself exempt from.
 SCRIPTS_SYNC_PATCHED_CONFIGS = {
     "Makefile",
     "kdf-fmt.toml",
     "ruff.toml",
     "pyproject.toml",
     "requirements-dev.in",
+    ".github/workflows/kdf-scan-gate.yml",
 }
 # The kit sync writes one line into a repo's own AGENTS.md, the ecosystem context pointer (cicd D-046), and the
 # Dependabot limits into .github/dependabot.yml (D-047), so a `chore/kit-sync-*` PR may carry both. Off that branch a

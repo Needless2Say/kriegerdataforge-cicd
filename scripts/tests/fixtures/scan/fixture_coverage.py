@@ -129,12 +129,12 @@ def test_a_symlink_and_a_gitlink_at_a_commit_are_incomplete(tmp_path: Path) -> N
     assert result.result == "INCOMPLETE", result.text
 
 
-def test_a_clean_repo_ends_clean_and_names_its_commit_and_the_bundle(tmp_path: Path) -> None:
+def test_a_clean_repo_ends_clean_and_names_its_commit_and_the_image(tmp_path: Path) -> None:
     machine = installed()
     repo    = make_repo(tmp_path / "repo", {"src/app.py": "print(1)\n"})
     result  = scan(machine, repo)
     assert result.result == "CLEAN" and result.last["code"] == "0", result.text
     assert result.last["commit"] == git(repo, "rev-parse", "HEAD")[:12]
-    assert result.last["bundle"] == machine.bundle[:12]
+    assert result.last["image"] != "local" or machine.image == "kdf-scan:local", result.text
     commit(repo, {"src/more.py": "print(2)\n"})
     assert scan(machine, repo).last["state"] == "clean-tree"

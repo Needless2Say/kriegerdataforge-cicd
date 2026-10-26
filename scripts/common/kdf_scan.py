@@ -1,18 +1,20 @@
 """
 The local code scan's wrapper, Opengrep over the code and zizmor over the workflows, before every pull request (D-085).
 
-`make scan` runs the owner's installed launcher, `D:/KriegerDataForge-scan/kdf-scan.py`, under the scan folder's own
-Python with -I, -S and -B. The launcher refuses an elevated process or an open UAC value, reads `current` once, checks
-that bundle's manifest and runs this file's checked text, so no repo holds a scan script a branch could edit. cicd's
-`make scan-dev` runs this source directly while it is developed, and its last line says `bundle dev`.
+The wrapper is the entrypoint of one Linux image cicd builds and every run names by digest, `make scan` on a
+developer's machine and the gate on GitHub's runners alike, run with -I, -S and -B as a user that is not root, the
+network off and the root read only (design 5.1). So no repo holds a scan script a branch could edit. A local run is a
+check against accidents and branch edits and never the gate, since the engine and the recipe answer to the account
+that runs them, and the gate is the same image dispatched from each repo's main (design 5.3).
 
-A scan checks every pin first, both executables, the Python and the digest of the rules as the pinned commit's raw
-blobs give them. Its inventory is every file of a scanned language and every workflow file, less tests and the
-repo's declared exclusions. The working tree's form reads `git ls-files` and the untracked files git does not ignore,
-so uncommitted work is scanned too. The form at a commit reads `git ls-tree -r -z` of that commit and each raw blob by
-`git cat-file`, never `git archive`, with replacement refs and lazy fetching off, and takes its exclusions and limits
-from the base, so a branch cannot widen its own. Each file is copied into a fresh folder outside the repo, which the
-tools read alone, run by absolute path with an environment of named variables and a temp folder of their own. Opengrep
+A scan checks both executables and the digest of the rules as the pinned commit's raw blobs give them, the rules read
+from a cache of the user's mounted read only, never from the image. Its inventory is every file of a scanned language
+and every workflow file, less tests and the repo's declared exclusions, derived inside the container. `scan` reads a
+mounted working tree's `git ls-files` and the untracked files git does not ignore, so uncommitted work is scanned too,
+each git folder named explicitly and the host's core.autocrlf given. `pr-tree` and `--at` read a commit's
+`git ls-tree -r -z` and each raw blob by `git cat-file`, never `git archive`, with replacement refs and lazy fetching
+off, and take their exclusions and limits from the base, so a branch cannot widen its own. Each file is copied into the
+run's own folder, which the tools read alone, run by absolute path with an environment of named variables. Opengrep
 runs with --disable-nosem and zizmor with --no-ignores, and the wrapper checks every marker itself, binding each to a
 finding by its place before the policy filters what remains. A file a tool did not read, a parse error, a timeout or a
 size skip makes the result incomplete, unless a recorded limit names that file's content.
@@ -37,64 +39,52 @@ import stat
 import subprocess
 import sys
 import tempfile
-import time
 import tokenize
+import types
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Mapping, TextIO
+from typing import Callable, Iterator, Mapping, TextIO
 
 # ======================================================================================================================
 # The pins, each with where it was read
 # ======================================================================================================================
 
-# the machine folder outside the workspace, which only an elevated process writes (design 5.1)
-SCAN_ROOT = Path("D:/KriegerDataForge-scan")
-# the Windows asset of Opengrep, its SHA-256 matched by the owner against the release page on 2026-10-21 at 15:04, and
-# the exact identity of the workflow that signed it, read from that release's certificate on 2026-10-21, a branch ref
+# where the image keeps the tools and the wrapper's own files, root's and read only at run time (design 5.1)
+IMAGE_ROOT = Path("/opt/kdf-scan")
+# Opengrep's Linux asset, its name and SHA-256 the owner's match against the release page on 2026-10-26, owner step
+# 3, and the exact identity of the workflow that signed the release, read from its certificate on 2026-10-21, a branch
+# ref
 OPENGREP_VERSION  = "v1.30.2"
-OPENGREP_ASSET    = "opengrep_windows_x86.exe"
-OPENGREP_SHA256   = "523b1074a81006436fec457e2daccf7cf7cacc04000d4482f1072a1b19bc6372"
+OPENGREP_ASSET    = "opengrep_manylinux_x86"
+OPENGREP_SHA256   = "a66aa3278457f02b287b985a45b6762aebcaba5000f2689245fd1ed86d1456c7"
 OPENGREP_IDENTITY = (
     "https://github.com/opengrep/opengrep/.github/workflows/rolling-release.yml@refs/heads/release-v1.30.2"
 )
 OPENGREP_ISSUER   = "https://token.actions.githubusercontent.com"
 # the asset's release address, its .cert and .sig beside it under the same name
 OPENGREP_URL = f"https://github.com/opengrep/opengrep/releases/download/{OPENGREP_VERSION}/{OPENGREP_ASSET}"
-# zizmor from PyPI's Windows wheel, pinned by the wheel's SHA-256 as the trial installed it and by its address as PyPI
-# names it, read on 2026-10-22, and the zizmor.exe inside it, read on 2026-10-21 from the trial's venv
+# zizmor from PyPI's Linux wheel for x86_64, its address and SHA-256 the owner's read of PyPI's files on 2026-10-26,
+# owner step 3, and the program inside it, measured by the image's first build on 2026-10-26 from that wheel
 ZIZMOR_VERSION      = "1.30.1"
 ZIZMOR_WHEEL_URL    = (
-    "https://files.pythonhosted.org/packages/db/fe/2889fcbcf7728dd5e013bae7cf5c4e634d981a9e26d55e1da6ab9006404f/"
-    "zizmor-1.30.1-py3-none-win_amd64.whl"
+    "https://files.pythonhosted.org/packages/63/55/1900b53d34dcebc207cf3ceb7957b3748e8bb40958f062e3853ab72f2395/"
+    "zizmor-1.30.1-py3-none-manylinux_2_28_x86_64.whl"
 )
-ZIZMOR_WHEEL_SHA256 = "06e039fae8e185e2a1a8b002f2d95a6f5c3b548048bdd79e004dcb501fcd0868"
-ZIZMOR_SHA256       = "c39ef6b4c975ed3bf07a3a88fcfe228cb4b073993d76192fe09faba21478df91"
-# cosign's Windows program, which the install fetches into its staging folder and runs to verify Opengrep, its
-# SHA-256 as GitHub's release page lists it on 2026-10-22, for the owner's match against the release's checksums,
-# the 2.6 line, whose verify-blob still takes the separate .sig and .cert Opengrep publishes, 3.1's taking a
-# bundle alone, and 2.6.5 the release that carries the fix of GHSA-fx35-mq7g-6g98
+ZIZMOR_WHEEL_SHA256 = "eee12266b793cb87ad4a7e3af2e72404f8a63e3de5eb099b80bf7b1cfd232a8e"
+ZIZMOR_SHA256       = "9be5ac955a59e43a111152ee2e0315d3863866a8df4a15a9be7aaa94af72d74a"
+# cosign's Linux program, which the image's build runs to verify Opengrep, its SHA-256 the owner's match against the
+# release page on 2026-10-26, owner step 3, the 2.6 line, whose verify-blob still takes the separate .sig and .cert
+# Opengrep publishes, 3.1's taking a bundle alone, and 2.6.5 the release that carries the fix of GHSA-fx35-mq7g-6g98
 COSIGN_VERSION = "v2.6.5"
-COSIGN_URL     = "https://github.com/sigstore/cosign/releases/download/v2.6.5/cosign-windows-amd64.exe"
-COSIGN_SHA256  = "19ec346d0050f59ffad9694da97ef9704be34ec60ddc41c5f1d16d8619385825"
+COSIGN_URL     = "https://github.com/sigstore/cosign/releases/download/v2.6.5/cosign-linux-amd64"
+COSIGN_SHA256  = "c3b4f5410e608af03a5eb0aaac84a4313d8da131248e08ff1759ac70c79d1644"
 # the rules of Semgrep at the commit the web survey read, the digest of every rule file of RULE_FOLDERS at it, read on
-# 2026-10-21 with rules_digest below, and the page of the rules' licence the install saves with its date
+# 2026-10-21 with rules_digest below, and the page of the rules' licence the record keeps whole with its date
 RULES_REPO        = "https://github.com/semgrep/semgrep-rules"
 RULES_COMMIT      = "17e31e11ebac99fb7dfe1cd288f7a32151b6f3f9"
 RULES_DIGEST      = "e2ec51f90a9d26ff7fac7a4a268ad24f935ab357add11304b9da141fc9181ff1"
 RULES_LICENSE_URL = "https://semgrep.dev/legal/rules-license"
-# the CPython uv 0.13.1 would install for 3.14.7, python-build-standalone's build 20260929, read from uv's own
-# download metadata on 2026-10-21. The install reads these four by a strict pattern before any Python runs, so each
-# stays one plain assignment, and builds the archive's address from them as below, which --pins must then print. The
-# installed Python is held to the manifest the install writes from the archive's own listing, Round Table 54's L4
-PYTHON_VERSION        = "3.14.7"
-PYTHON_BUILD          = "20260929"
-PYTHON_ARCHIVE_SHA256 = "6378385d5e42ec0874656e5efd707fb92334a6972b1aca90fd254eb924a8f404"
-PYTHON_ARCHIVE_BASE   = "https://github.com/astral-sh/python-build-standalone/releases/download"
-PYTHON_ARCHIVE_URL    = (
-    f"{PYTHON_ARCHIVE_BASE}/{PYTHON_BUILD}/"
-    f"cpython-{PYTHON_VERSION}%2B{PYTHON_BUILD}-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
-)
-PYTHON_MANIFEST       = "manifest.sha256"
 # the security folders of Semgrep's rules for this stack (design 5.6)
 RULE_FOLDERS = (
     "python/lang/security",
@@ -181,35 +171,58 @@ ZIZMOR_NO_INPUTS  = 3
 ZIZMOR_NO_IGNORES = True
 ZIZMOR_COMPLETED  = re.compile(r"completed (?P<path>\S.*?)\s*$")
 # the only names the scanners' environment holds, every other variable, a token or SEMGREP_RULES, never reaching them,
-# each value the wrapper's own, Windows' folder written out and USERPROFILE a profile of the run's own, since Opengrep
-# unpacks its engine and Python under %USERPROFILE%\AppData\Local\opengrep\<version> and reuses them, measured on
-# 2026-10-22 (Round Table 59's L8)
-TOOL_ENVIRONMENT = ("SYSTEMROOT", "PATH", "TEMP", "TMP", "USERPROFILE", "PYTHONUTF8", "NO_COLOR")
-SYSTEM_ROOT      = "C:\\Windows"
-# the file that marks a run folder as the wrapper's, and the age past which a folder a run left is swept
-RUN_MARKER = "kdf-scan.run"
-STALE_RUNS = 24 * 60 * 60
+# each value the wrapper's own, HOME, TMPDIR and the cache inside the run's own folder, so whatever Opengrep's Linux
+# build unpacks or logs lands there and goes with the run (Round Table 59's L8, Round Table 66's L8)
+TOOL_ENVIRONMENT = ("PATH", "HOME", "TMPDIR", "XDG_CACHE_HOME", "LANG", "PYTHONUTF8", "NO_COLOR")
+TOOL_PATH        = "/usr/local/bin:/usr/bin:/bin"
+# whether Opengrep's Linux build unpacks a runtime at run time, as its Windows build does under the profile, held true
+# until the image's first build measures it, so a build that unpacks elsewhere stops rather than passes
+OPENGREP_UNPACKS = True
+# where run folders go, the container's tmpfs, gone with it under --rm, so nothing is swept (Round Table 66's L9), the
+# temp folder where it is missing, a test's run
+RUN_ROOT   = Path("/run/kdf-scan")
 RUN_PREFIX = "kdf-scan-"
-# where run folders go, on D beside the workspace's scratch files, since a run holds Opengrep's 289 MB unpack and the
-# owner keeps room on C, the owner's choice of 2026-10-23, the temp folder where that folder's parent is missing
-RUN_ROOT = Path("D:/KriegerDataForge/temp/kdf-scan-runs")
-# the environment every git call takes instead of the caller's, which the scan before a merge sets with neutral_git so
-# neither the session's variables nor its git configuration reach git, None for every other scan
+# the environment every git call takes instead of the caller's, which neutral_git sets so neither the caller's
+# variables nor any global or system configuration reach git, None for a test's own git
 NEUTRAL_GIT: dict[str, str] | None = None
-# git and gh where only an administrator can write, so a session's PATH chooses neither
-GIT_PATHS = ("C:/Program Files/Git/cmd/git.exe", "C:/Program Files/Git/bin/git.exe")
-# the cicd clone a scan compares its bundle with, offline, and the files whose change makes a new bundle
-CICD_CLONE     = Path("D:/KriegerDataForge/kriegerdataforge-cicd")
-BUNDLE_SOURCES = (
-    "scripts/common/kdf_scan.py",
-    "scripts/common/kdf_scan_launcher.py",
-    "scripts/common/kdf_zizmor.yml",
-    "scripts/common/scan_rules",
-    "scripts/common/ci_paths.py",
-)
-BASE_REF       = "origin/main"
-INSTALL        = "tools/claude-code/kdf-scan-install.sh"
-SHOWN          = 140
+# the git folders a scan names explicitly, the paths git may own other than the scan's user, and the host's
+# core.autocrlf for a mounted working tree, each set by its mode (Round Table 66's L5)
+GIT_FOLDERS: dict[str, dict[str, str]] = {}
+SAFE_PATHS:  tuple[str, ...] = ()
+AUTOCRLF:    str | None = None
+# git as the image installs it
+GIT_PATH = "/usr/bin/git"
+# the read only mounts each mode reads, the working tree, the common git folder, the rules' cache and a bare repository
+# fetched before the scan (design 5.3 and 5.5). A worktree's own git folder is named inside the common one, never
+# mounted apart, since git finds a worktree's refs through its commondir file, ../.. from its own folder, and never
+# through GIT_COMMON_DIR, measured by the probe of 2026-10-26
+SRC_MOUNT   = "/src"
+GIT_MOUNT   = "/git"
+RULES_MOUNT = "/rules"
+REPO_MOUNT  = "/repo"
+# the file the image's build writes, the cicd commit it was built from, and its stand in outside an image
+COMMIT_FILE = IMAGE_ROOT / "COMMIT"
+# cicd's file naming the active set, each key once (design 5.1), and the marker it holds until the first activation
+SCAN_IMAGE_KEYS = ("image", "digest", "commit", "rules_commit", "rules_digest", "contract")
+UNPINNED        = "unpinned"
+DIGEST          = re.compile(r"sha256:[0-9a-f]{64}")
+# the invocation contract this wrapper speaks, its arguments and mounts, which an activation names (design 5.1)
+CONTRACT = "1"
+# a repository's own configuration that runs a program or reads another file, refused in a mounted working tree,
+# since turning hooks and fsmonitor off leaves these to run (Codex's revision plan read)
+UNSAFE_CONFIG = re.compile(r"(?i)(?:filter|include|includeif)\..*")
+# the gate's caller by its path in every repo, and the names of the gate a pull request's other workflows must not use
+CALLER_PATH   = ".github/workflows/kdf-scan-gate.yml"
+REUSABLE_PATH = ".github/workflows/kdf-scan-gate-reusable.yml"
+GATE_NAME     = "kdf-scan-gate"
+CICD_REPO     = "needless2say/kriegerdataforge-cicd"
+# a YAML double quoted scalar's escapes and escaped line breaks, which could spell the gate's name in a display name
+YAML_ESCAPE = re.compile(r"\\(?:x([0-9A-Fa-f]{2})|u([0-9A-Fa-f]{4})|U([0-9A-Fa-f]{8})|\r?\n[ \t]*)")
+# a caller's ci.yml line naming the paths that are not docs, which the docs only answer reads at main
+NOT_DOCS = re.compile(r"(?P<indent>\s*)not_docs:\s*(?P<value>.*?)\s*")
+BASE_REF = "origin/main"
+SETUP    = "make scan-setup"
+SHOWN    = 140
 
 # ======================================================================================================================
 # The machine
@@ -236,7 +249,7 @@ class Unreadable(Exception):
 @dataclass(frozen = True)
 class Tool:
     """
-    One installed program, its version, the file whose SHA-256 is pinned, and the command that runs it.
+    One program of the image, its version, the file whose SHA-256 is pinned, and the command that runs it.
     """
     name:    str
     version: str
@@ -248,74 +261,117 @@ class Tool:
 @dataclass(frozen = True)
 class Machine:
     """
-    What a scan runs, the tools, the rules clone at its pinned commit, git, the bundle and its checked files.
+    What a scan runs, the tools, the rules' cache at its pinned commit, git, the image's cicd commit and the wrapper's
+    own files, whether Semgrep's rules run or KDF's alone, and whether the output is a public repo's.
     """
     root:         Path
     opengrep:     Tool
     zizmor:       Tool
-    python:       Tool
     rules:        Path
     rules_commit: str
     rules_digest: str
     rule_folders: tuple[str, ...]
     git:          str
-    bundle:       str
+    image:        str
     files:        Mapping[str, bytes]
-    cicd:         Path | None = None
+    kdf_only: bool = False
+    public:   bool = False
 
 
 def find_git() -> str:
     """
-    Git at a path only an administrator can write.
+    Git as the image installs it.
 
     Returns:
         str: git's absolute path
 
     Raises:
-        Refusal: when no git is at a protected path
+        Refusal: when the image holds no git there
     """
-    for candidate in GIT_PATHS:
-        if Path(candidate).is_file():
-            return candidate
-    raise Refusal(f"no git at a protected path, looked for {', '.join(GIT_PATHS)}")
+    if Path(GIT_PATH).is_file():
+        return GIT_PATH
+    raise Refusal(f"no git at {GIT_PATH}, so this is not the scan's image")
 
 
-def machine(root: Path, bundle: str, files: Mapping[str, bytes], git: str, cicd: Path | None = CICD_CLONE) -> Machine:
+def image_commit(root: Path = IMAGE_ROOT) -> str:
     """
-    The installed machine the pins describe, under the scan folder.
+    The cicd commit the image was built from, as its build wrote it.
 
     Args:
-        root: the scan folder
-        bundle: the bundle's cicd commit, or dev
-        files: the bundle's checked files by their path inside it
+        root: the image's folder
+
+    Returns:
+        str: the commit, or local outside a built image or for one built with no commit named
+    """
+    try:
+        named = (root / COMMIT_FILE.name).read_text(encoding = "ascii").strip()
+    except (OSError, UnicodeDecodeError):
+        return "local"
+    return named if re.fullmatch(r"[0-9a-f]{40}", named) else "local"
+
+
+def image_files(root: Path = IMAGE_ROOT) -> dict[str, bytes]:
+    """
+    The wrapper's own files as the image holds them beside it, its zizmor configuration, ci_paths.py and KDF's rules.
+
+    Args:
+        root: the image's folder, or a source tree's scripts/common
+
+    Returns:
+        dict[str, bytes]: each file by its path beside the wrapper
+    """
+    files = {name: (root / name).read_bytes() for name in ("kdf_zizmor.yml", "ci_paths.py") if (root / name).is_file()}
+    for rule in sorted((root / "scan_rules").glob("*")):
+        if rule.is_file():
+            files[f"scan_rules/{rule.name}"] = rule.read_bytes()
+    return files
+
+
+def machine(
+    root: Path,
+    image: str,
+    files: Mapping[str, bytes],
+    git: str,
+    rules: Path,
+    kdf_only: bool = False,
+    public: bool = False,
+) -> Machine:
+    """
+    The image's machine the pins describe.
+
+    Args:
+        root: the image's folder
+        image: the cicd commit the image was built from, or dev
+        files: the wrapper's own files by their path beside it
         git: git's absolute path
-        cicd: the cicd clone the bundle is compared with, offline
+        rules: the rules' cache, a git folder holding the pinned commit
+        kdf_only: whether KDF's rules run alone
+        public: whether the output is a public repo's, rule ids and never a message
 
     Returns:
         Machine: the machine
     """
-    opengrep = root / "opengrep" / OPENGREP_VERSION / "opengrep.exe"
-    zizmor   = root / "zizmor" / ZIZMOR_VERSION / "Scripts" / "zizmor.exe"
-    python   = root / "python" / PYTHON_VERSION / "python.exe"
+    opengrep = root / "bin" / "opengrep"
+    zizmor   = root / "bin" / "zizmor"
     return Machine(
         root = root,
         opengrep = Tool("opengrep", OPENGREP_VERSION.removeprefix("v"), opengrep, OPENGREP_SHA256, (str(opengrep),)),
         zizmor = Tool("zizmor", ZIZMOR_VERSION, zizmor, ZIZMOR_SHA256, (str(zizmor),)),
-        python = Tool("python", PYTHON_VERSION, python, "", (str(python),)),
-        rules = root / "rules" / "semgrep-rules.git",
+        rules = rules,
         rules_commit = RULES_COMMIT,
         rules_digest = RULES_DIGEST,
         rule_folders = RULE_FOLDERS,
         git = git,
-        bundle = bundle,
+        image = image,
         files = files,
-        cicd = cicd,
+        kdf_only = kdf_only,
+        public = public,
     )
 
 
 def pins() -> dict[str, str]:
     """
-    The declared pins, which the install reads before anything is installed.
+    The declared pins, which the image's build reads before it downloads anything.
 
     Returns:
         dict[str, str]: each pin by its name
@@ -338,11 +394,7 @@ def pins() -> dict[str, str]:
         "RULES_COMMIT",
         "RULES_DIGEST",
         "RULES_LICENSE_URL",
-        "PYTHON_VERSION",
-        "PYTHON_BUILD",
-        "PYTHON_ARCHIVE_BASE",
-        "PYTHON_ARCHIVE_URL",
-        "PYTHON_ARCHIVE_SHA256",
+        "CONTRACT",
     )
     return {name: str(globals()[name]) for name in names}
 
@@ -384,42 +436,49 @@ def content_sha256(data: bytes) -> str:
 # Git, read with replacement refs and lazy fetching off
 # ======================================================================================================================
 
-def neutral_git(git: str, work: Path) -> dict[str, str]:
+def neutral_git(work: Path) -> dict[str, str]:
     """
-    A git environment of the run's own, Windows' folders and git's alone on the PATH, no system configuration and an
-    empty global one in the run's folder, for the scan before a merge (Round Table 59's L9 and L10).
+    A git environment of the run's own, the image's folders alone on the PATH, no system configuration and an empty
+    global one in the run's folder, so nothing of the caller's reaches git (Round Table 59's L9 and L10).
 
     Args:
-        git: git's absolute path
         work: the run's folder
 
     Returns:
         dict[str, str]: the environment, which the caller sets as NEUTRAL_GIT
     """
     (work / "empty.gitconfig").write_bytes(b"")
-    folders = [str(Path(SYSTEM_ROOT) / "System32"), SYSTEM_ROOT, str(Path(git).parent)]
-    return {
-        "SYSTEMROOT": SYSTEM_ROOT,
-        "PATH": os.pathsep.join(folders),
-        "TEMP": str(work),
-        "TMP": str(work),
+    environment = {
+        "PATH": TOOL_PATH,
         "HOME": str(work),
+        "TMPDIR": str(work),
+        "LANG": "C.UTF-8",
         "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_CONFIG_GLOBAL": str(work / "empty.gitconfig"),
         "GIT_ATTR_NOSYSTEM": "1",
     }
+    if os.name == "nt":
+        # a test's run on Windows, whose programs cannot start without these
+        environment.update({name: os.environ[name] for name in ("SYSTEMROOT", "PATH") if name in os.environ})
+    return environment
 
 
-def git_environment() -> dict[str, str]:
+def git_environment(repo: Path | None = None) -> dict[str, str]:
     """
-    The environment of every git call, no inherited GIT_ variable, replacement objects and lazy fetching off, and no
-    optional lock, so a read never writes the index, NEUTRAL_GIT in place of the caller's when it is set.
+    The environment of every git call, no inherited GIT_ variable, the git folders a mode names for that repo alone,
+    so the rules' cache is never read through a working tree's folders, replacement objects and lazy fetching off, and
+    no optional lock, so a read never writes the index, NEUTRAL_GIT in place of the caller's when it is set.
+
+    Args:
+        repo: the repo the call reads, whose named git folders apply
 
     Returns:
         dict[str, str]: the environment
     """
     environment = (dict(NEUTRAL_GIT) if NEUTRAL_GIT is not None
                    else {key: value for key, value in os.environ.items() if not key.upper().startswith("GIT_")})
+    if repo is not None:
+        environment.update(GIT_FOLDERS.get(str(repo), {}))
     environment.update({
         "GIT_NO_REPLACE_OBJECTS": "1",
         "GIT_NO_LAZY_FETCH": "1",
@@ -431,7 +490,8 @@ def git_environment() -> dict[str, str]:
 
 def run_git(git: str, repo: Path, *args: str, stdin: bytes | None = None) -> subprocess.CompletedProcess[bytes]:
     """
-    One git call, never fetching, never honouring a replacement ref and never running an fsmonitor.
+    One git call, never fetching, never honouring a replacement ref, never running an fsmonitor or a hook, and trusting
+    another owner's folder only at the paths a mode names.
 
     Args:
         git: git's absolute path
@@ -443,11 +503,16 @@ def run_git(git: str, repo: Path, *args: str, stdin: bytes | None = None) -> sub
         subprocess.CompletedProcess[bytes]: the finished call, its status unchecked
     """
     command = [git, "--no-replace-objects", "-c", "core.fsmonitor=false", "-c", "core.quotePath=false"]
+    command += ["-c", f"core.hooksPath={os.devnull}"]
+    for path in SAFE_PATHS:
+        command += ["-c", f"safe.directory={path}"]
+    if AUTOCRLF is not None:
+        command += ["-c", f"core.autocrlf={AUTOCRLF}"]
     return subprocess.run(
         [*command, "-C", str(repo), *args],
         input = stdin,
         capture_output = True,
-        env = git_environment(),
+        env = git_environment(repo),
         check = False,
     )
 
@@ -877,7 +942,14 @@ def worktree_inventory(git: str, repo: Path, policy: Policy) -> Inventory:
     """
     head = resolve(git, repo, "HEAD")
     if head is None:
-        raise Refusal("the repo has no commit to name")
+        # git's own words and the folders it read, since a mount it cannot read or join refuses as plainly as a repo
+        # with no commit
+        said    = run_git(git, repo, "rev-parse", "--verify", "--end-of-options", "HEAD^{commit}")
+        folders = run_git(git, repo, "rev-parse", "--git-dir", "--git-common-dir").stdout.decode("utf-8", "replace")
+        named   = run_git(git, repo, "symbolic-ref", "-q", "HEAD").stdout.decode("utf-8", "replace").strip()
+        read    = " and ".join(folders.split()) or "no git"
+        raise Refusal(f"the repo has no commit to name, {tail(said.stderr)}, git read {read} folder, HEAD naming "
+                      + (named or "no branch"))
     dirty     = git_out(git, repo, "status", "--porcelain=v1", "-z", "--untracked-files=normal")
     inventory = Inventory(head, "dirty-tree" if dirty else "clean-tree")
     entries   = {}
@@ -936,50 +1008,47 @@ def commit_inventory(git: str, repo: Path, commit: str, policy: Policy) -> Inven
 # The scanners, each by absolute path with a named environment
 # ======================================================================================================================
 
-def private_profile(work: Path) -> Path:
+def private_home(work: Path) -> Path:
     """
-    A profile of this run's own, holding the AppData\\Local Opengrep unpacks into, so its engine and Python come from a
-    folder made moments before and removed with the run, never one a session wrote before it (Round Table 59's L8).
+    A home of this run's own, holding the cache a single file build unpacks into, so its engine comes from a folder
+    made moments before and removed with the run, never one written before it (Round Table 59's L8).
 
     Args:
         work: this run's folder
 
     Returns:
-        Path: the profile
+        Path: the home
     """
-    profile = work / "profile"
-    (profile / "AppData" / "Local").mkdir(parents = True)
-    return profile
+    home = work / "home"
+    (home / ".cache").mkdir(parents = True)
+    return home
 
 
-def tool_environment(git: str, temp: Path, profile: Path) -> dict[str, str]:
+def tool_environment(temp: Path, home: Path) -> dict[str, str]:
     """
-    The scanners' environment, named variables alone, each value the wrapper's own, a temp folder and a profile of this
-    run's own and a PATH of the system folders and git's.
+    The scanners' environment, named variables alone, each value the wrapper's own, a temp folder, a home and a cache
+    of this run's own and a PATH of the image's folders.
 
     Args:
-        git: git's absolute path
         temp: this run's temp folder
-        profile: this run's profile
+        home: this run's home
 
     Returns:
         dict[str, str]: the environment
     """
-    folders = [
-        str(Path(SYSTEM_ROOT) / "System32"),
-        SYSTEM_ROOT,
-        str(Path(SYSTEM_ROOT) / "System32" / "Wbem"),
-        str(Path(git).parent),
-    ]
-    return {
-        "SYSTEMROOT": SYSTEM_ROOT,
-        "PATH": os.pathsep.join(folders),
-        "TEMP": str(temp),
-        "TMP": str(temp),
-        "USERPROFILE": str(profile),
+    environment = {
+        "PATH": TOOL_PATH,
+        "HOME": str(home),
+        "TMPDIR": str(temp),
+        "XDG_CACHE_HOME": str(home / ".cache"),
+        "LANG": "C.UTF-8",
         "PYTHONUTF8": "1",
         "NO_COLOR": "1",
     }
+    if os.name == "nt":
+        # a test's run on Windows, whose stand ins cannot start without these
+        environment.update({name: os.environ[name] for name in ("SYSTEMROOT", "PATH") if name in os.environ})
+    return environment
 
 
 def tail(data: bytes) -> str:
@@ -1079,6 +1148,9 @@ def run_opengrep(machine: Machine, work: Path, environment: dict[str, str]) -> d
         "tree",
     ]
     done    = subprocess.run(command, cwd = work, env = environment, capture_output = True, check = False)
+    if done.returncode != 0 and machine.public:
+        # a public repo's log never carries what Opengrep said, which may quote a rule (Round Table 66's L7)
+        raise ToolFailure(f"Opengrep exited {done.returncode}, its words withheld from a public repo's log")
     if done.returncode != 0:
         # an error Opengrep may give in its JSON alone, saying nothing else on either stream
         said = tail(done.stderr or done.stdout)
@@ -1098,20 +1170,23 @@ def run_opengrep(machine: Machine, work: Path, environment: dict[str, str]) -> d
     return answer
 
 
-def unpacked(profile: Path) -> None:
+def unpacked(home: Path) -> None:
     """
-    Check Opengrep unpacked its runtime into this run's profile, so a run that took a runtime from anywhere else stops.
+    Check Opengrep unpacked its runtime into this run's cache, so a run that took a runtime from anywhere else stops,
+    while OPENGREP_UNPACKS says its build unpacks at run time.
 
     Args:
-        profile: this run's profile
+        home: this run's home
 
     Raises:
-        ToolFailure: when the profile holds no unpacked runtime
+        ToolFailure: when the cache holds no unpacked runtime
     """
-    folder = profile / "AppData" / "Local" / "opengrep"
+    if not OPENGREP_UNPACKS:
+        return
+    folder = home / ".cache" / "opengrep"
     if not folder.is_dir() or not any(folder.rglob("*")):
         raise ToolFailure(
-            f"Opengrep unpacked nothing into the run's own profile, {folder}, so where it ran from is " f"unknown",
+            f"Opengrep unpacked nothing into the run's own cache, {folder}, so where it ran from is unknown",
         )
 
 
@@ -1204,7 +1279,7 @@ def opengrep_findings(data: dict) -> tuple[list[Finding], set[str], list[tuple[s
 
 def run_zizmor(machine: Machine, work: Path, environment: dict[str, str]) -> tuple[list, set[str]]:
     """
-    zizmor over the copied workflows, offline, at Medium severity and confidence and above, with the bundle's
+    zizmor over the copied workflows, offline, at Medium severity and confidence and above, with the image's
     configuration.
 
     Args:
@@ -1907,26 +1982,61 @@ def changed_lines(git: str, repo: Path, branch: Branch, path: str, commit: str, 
     return branch.lines[path]
 
 # ======================================================================================================================
-# A bundle behind cicd's main
+# The active set on cicd's main, and an image behind it
 # ======================================================================================================================
 
-def bundle_behind(machine: Machine) -> str:
+def parse_scan_image(text: str) -> dict[str, str]:
     """
-    Whether the bundle is older than the last change to its files on the cicd clone's origin/main, as last fetched.
+    cicd's SCAN_IMAGE, one key and value a line, each key of SCAN_IMAGE_KEYS once, its digest and commits well formed,
+    or the unpinned marker alone before the first activation (design 5.1).
 
     Args:
-        machine: the machine
+        text: the file's text
 
     Returns:
-        str: behind, unknown, or empty when it is current or there is nothing to compare with
+        dict[str, str]: each key's value, empty for the unpinned marker
+
+    Raises:
+        Refusal: when a key is missing, doubled or unknown, or a value is malformed
     """
-    if machine.bundle == "dev" or machine.cicd is None or not (machine.cicd / ".git").exists():
-        return ""
-    last = git_out(machine.git, machine.cicd, "log", "-1", "--format=%H", BASE_REF, "--", *BUNDLE_SOURCES).strip()
-    if not last:
-        return ""
-    done = run_git(machine.git, machine.cicd, "merge-base", "--is-ancestor", last.decode(), machine.bundle)
-    return {0: "", 1: "behind"}.get(done.returncode, "unknown")
+    lines = [line.strip() for line in text.replace("\r\n", "\n").split("\n") if line.strip()]
+    lines = [line for line in lines if not line.startswith("#")]
+    if lines == [UNPINNED]:
+        return {}
+    found: dict[str, str] = {}
+    for line in lines:
+        key, _, value = line.partition("=")
+        key, value = key.strip(), value.strip()
+        if key not in SCAN_IMAGE_KEYS or key in found or not value:
+            raise Refusal(f"SCAN_IMAGE holds a line it cannot take, {line[:80]!r}")
+        found[key] = value
+    missing = [key for key in SCAN_IMAGE_KEYS if key not in found]
+    if missing:
+        raise Refusal(f"SCAN_IMAGE names no {', '.join(missing)}")
+    if not DIGEST.fullmatch(found["digest"]) or not DIGEST.fullmatch(f"sha256:{found['rules_digest']}"):
+        raise Refusal("SCAN_IMAGE's digests are not sha256 digests")
+    if not all(re.fullmatch(r"[0-9a-f]{40}", found[key]) for key in ("commit", "rules_commit")):
+        raise Refusal("SCAN_IMAGE's commits are not full commit ids")
+    return found
+
+
+def image_behind(pinned: str, cicd_digest: str) -> str:
+    """
+    How the digest a repo's managed block pins stands against the one cicd's main pins, which the recipe reads offline
+    from a cicd clone's origin/main as last fetched.
+
+    Args:
+        pinned: the digest the block names
+        cicd_digest: the digest cicd's SCAN_IMAGE names there, empty when there is no cicd clone
+
+    Returns:
+        str: a warning's words, empty when the two agree
+    """
+    if not cicd_digest:
+        return "no cicd clone beside the repo, so this image's freshness against cicd's main is unknown"
+    if cicd_digest != pinned:
+        return f"the block pins {pinned[:19]}, cicd's main {cicd_digest[:19]} as last fetched, a sync brings it"
+    return ""
 
 # ======================================================================================================================
 # The scan
@@ -1934,8 +2044,7 @@ def bundle_behind(machine: Machine) -> str:
 
 def check_pins(machine: Machine) -> list[str]:
     """
-    Every pin checked, both executables by SHA-256, and the Python as the one running, which --check holds to the
-    manifest of its whole install.
+    Both executables checked by SHA-256, a check against a damaged image, the digest being the image's identity.
 
     Args:
         machine: the machine
@@ -1946,53 +2055,15 @@ def check_pins(machine: Machine) -> list[str]:
     lines = []
     for tool in (machine.opengrep, machine.zizmor):
         found = file_sha256(tool.path)
-        state = "ok" if found == tool.sha256 else f"FAIL, {tool.path} is {found or 'missing'}"
+        state = "ok" if tool.sha256 and found == tool.sha256 else f"FAIL, {tool.path} is {found or 'missing'}"
         lines.append(f"{tool.name} {tool.version} sha256 {state}")
-    if Path(sys.executable).resolve() != machine.python.path.resolve():
-        lines.append(f"FAIL, the wrapper runs under {sys.executable}, not {machine.python.path}")
     return lines
-
-
-def python_manifest(folder: Path) -> list[str]:
-    """
-    How the folder's Python differs from the manifest the install wrote from its archive's listing, an extra file, a
-    missing one or a changed one, which shows damage on disk, the fence being what keeps a session out.
-
-    Args:
-        folder: the Python's folder
-
-    Returns:
-        list[str]: each difference, empty when the install is whole
-    """
-    try:
-        lines = (folder / PYTHON_MANIFEST).read_text(encoding = "utf-8").splitlines()
-    except (OSError, UnicodeDecodeError):
-        return [f"{folder / PYTHON_MANIFEST} cannot be read"]
-    listed = {}
-    for line in lines:
-        sha, _, path = line.partition("  ")
-        if len(sha) != 64 or not plain_path(path) or path in listed:
-            return [f"{folder / PYTHON_MANIFEST} holds a line it cannot take, {line[:80]!r}"]
-        listed[path] = sha
-    present = set()
-    for place, _folders, names in os.walk(folder):
-        for name in names:
-            path = (Path(place) / name).relative_to(folder).as_posix()
-            if path != PYTHON_MANIFEST:
-                present.add(path)
-    problems = [f"{path} is not in the manifest" for path in sorted(present - set(listed))]
-    problems += [f"{path} is missing" for path in sorted(set(listed) - present)]
-    problems += [
-        f"{path} differs from the manifest"
-        for path in sorted(present & set(listed))
-        if file_sha256(folder / path) != listed[path]
-    ]
-    return problems
 
 
 def prepare(machine: Machine, work: Path) -> dict[str, int]:
     """
-    Check the pins and materialise the rules and the zizmor configuration into this run's folder.
+    Check the pins and materialise the rules and the zizmor configuration into this run's folder, Semgrep's rules from
+    the cache unless KDF's run alone.
 
     Args:
         machine: the machine
@@ -2002,14 +2073,19 @@ def prepare(machine: Machine, work: Path) -> dict[str, int]:
         dict[str, int]: how many rules run under each id's last part
 
     Raises:
-        Refusal: when a pin fails
+        Refusal: when a pin fails, or the rules' cache is missing or off its digest
     """
     failed = [line for line in check_pins(machine) if "FAIL" in line]
     if failed:
         raise Refusal("; ".join(failed))
-    files = rule_files(machine.git, machine.rules, machine.rules_commit, machine.rule_folders)
-    if rules_digest(files) != machine.rules_digest:
-        raise Refusal(f"the rules' digest at {machine.rules_commit[:8]} is not the pinned one")
+    files: dict[str, bytes] = {}
+    if not machine.kdf_only:
+        try:
+            files = rule_files(machine.git, machine.rules, machine.rules_commit, machine.rule_folders)
+        except Refusal as refusal:
+            raise Refusal(f"{refusal}, {SETUP} fills the rules' cache") from refusal
+        if rules_digest(files) != machine.rules_digest:
+            raise Refusal(f"the rules' digest at {machine.rules_commit[:8]} is not the pinned one, {SETUP} again")
     kdf = {
         f"kdf/{name.removeprefix('scan_rules/')}": data
         for name, data in machine.files.items()
@@ -2020,7 +2096,7 @@ def prepare(machine: Machine, work: Path) -> dict[str, int]:
         target.parent.mkdir(parents = True, exist_ok = True)
         target.write_bytes(data)
     if "kdf_zizmor.yml" not in machine.files:
-        raise Refusal("the bundle holds no kdf_zizmor.yml")
+        raise Refusal("the image holds no kdf_zizmor.yml")
     (work / "kdf_zizmor.yml").write_bytes(machine.files["kdf_zizmor.yml"])
     return rule_ids({**files, **kdf})
 
@@ -2064,10 +2140,11 @@ def coverage(
     errors: list,
     completed: set[str],
     ran_zizmor: bool,
+    public: bool = False,
 ) -> None:
     """
     Hold what each tool read against the inventory, a recorded limit passing a file's errors only while its content
-    is the one recorded.
+    is the one recorded, and in a public repo no word of an Opengrep error but that there was one.
 
     Args:
         outcome: the scan's outcome, changed in place
@@ -2077,6 +2154,7 @@ def coverage(
         errors: Opengrep's errors by path
         completed: the workflow files zizmor completed
         ran_zizmor: whether zizmor ran
+        public: whether the output is a public repo's
     """
     limits   = {path: (sha, reason) for path, sha, reason in policy.limits}
     troubled = {path for path, _kind in errors if path} | (set(inventory.code) - scanned)
@@ -2088,7 +2166,8 @@ def coverage(
             outcome.lines.append(f"LIMIT     {path}  {recorded[1]}")
     for path, kind in errors:
         if path not in passed:
-            outcome.lines.append(f"INCOMPLETE {path or 'no file named'}  Opengrep {kind}")
+            said = "reported an error, its words withheld" if public else kind
+            outcome.lines.append(f"INCOMPLETE {path or 'no file named'}  Opengrep {said}")
             outcome.incomplete += 1
     for path in sorted(set(inventory.code) - scanned - passed):
         outcome.lines.append(f"INCOMPLETE {path}  not read by Opengrep")
@@ -2105,10 +2184,18 @@ def coverage(
     outcome.limits = len(passed)
 
 
-def report(outcome: Outcome, markers: list[Marker], findings: list[Finding], branch: Branch, look) -> int:
+def report(
+    outcome: Outcome,
+    markers: list[Marker],
+    findings: list[Finding],
+    branch: Branch,
+    look,
+    public: bool = False,
+) -> int:
     """
     The findings and markers as report lines, every accepted finding printed with the branch's new and changed ones
-    marked, a failing finding in a file the branch did not change named older than it.
+    marked, a failing finding in a file the branch did not change named older than it, and in a public repo no rule's
+    message, only its id, path and line (Round Table 66's L7).
 
     Args:
         outcome: the scan's outcome, changed in place
@@ -2116,6 +2203,7 @@ def report(outcome: Outcome, markers: list[Marker], findings: list[Finding], bra
         findings: every finding
         branch: the branch
         look: a function giving the changed lines of a file
+        public: whether the output is a public repo's
 
     Returns:
         int: how many findings were accepted
@@ -2144,10 +2232,11 @@ def report(outcome: Outcome, markers: list[Marker], findings: list[Finding], bra
             outcome.lines.append(f"ACCEPTED  {where}  {marker.reason}{note}")
             count += 1
             continue
-        older = "" if branch.base is None or finding.path in branch.changed else "  (older than the branch)"
-        outcome.lines.append(
-            f"FAIL      {where}  {finding.message.splitlines()[0][:SHOWN] if finding.message else ''}" f"{older}",
-        )
+        older   = "" if branch.base is None or finding.path in branch.changed else "  (older than the branch)"
+        message = finding.message.splitlines()[0][:SHOWN] if finding.message else ""
+        if public and finding.tool == "opengrep":
+            message = "its message withheld from a public repo's log"
+        outcome.lines.append(f"FAIL      {where}  {message}{older}")
         outcome.failing += 1
     return count
 
@@ -2179,8 +2268,8 @@ def policy_marks(outcome: Outcome, applied: Policy, branch_policy: Policy, branc
 
 def last_line(inventory_commit: str, state: str, machine: Machine, outcome: Outcome, code: int, result: str) -> str:
     """
-    The scan's last line, the commit, the tree's state, the bundle, each pin, the limits passed, the marks and the
-    result.
+    The scan's last line, the commit, the tree's state, the image's cicd commit, each pin, the limits passed, the marks
+    and the result, the rules named kdf-only when Semgrep's did not run, so reduced coverage is never mistaken.
 
     Args:
         inventory_commit: the commit scanned
@@ -2194,10 +2283,10 @@ def last_line(inventory_commit: str, state: str, machine: Machine, outcome: Outc
         str: the line
     """
     marks = f" marks {','.join(outcome.marks)}" if outcome.marks else ""
+    rules = "kdf-only" if machine.kdf_only else machine.rules_commit[:8]
     return (
-        f"kdf-scan {inventory_commit[:12]} {state} bundle {machine.bundle[:12]} opengrep {machine.opengrep.version} "
-        f"rules {machine.rules_commit[:8]} zizmor {machine.zizmor.version} limits {outcome.limits}{marks}: "
-        f"{result} (exit {code})"
+        f"kdf-scan {inventory_commit[:12]} {state} image {machine.image[:12]} opengrep {machine.opengrep.version} "
+        f"rules {rules} zizmor {machine.zizmor.version} limits {outcome.limits}{marks}: {result} (exit {code})"
     )
 
 
@@ -2208,6 +2297,7 @@ def scan(
     at_commit: str | None = None,
     policy_at: str | None = None,
     base: str = BASE_REF,
+    notes: tuple[tuple[str, str, str], ...] = (),
 ) -> int:
     """
     Scan a repo's working tree, or one commit of it, and print the report and the last line.
@@ -2220,37 +2310,33 @@ def scan(
         policy_at: the commit whose managed block gives a scan at a commit its exclusions and limits, the base when
             None
         base: the ref the branch is compared with
+        notes: lines a mode adds, each its kind, WARN or BAD, its words and the mark it puts on the last line, a BAD
+            one failing the scan
 
     Returns:
         int: the exit code, 0 to 4
     """
     work = make_run()
     try:
-        return _scan(machine, repo, out, at_commit, policy_at, base, work)
+        return _scan(machine, repo, out, at_commit, policy_at, base, work, notes)
     finally:
         remove_run(work)
 
 
 def make_run() -> Path:
     """
-    A run folder under RUN_ROOT, or the temp folder where RUN_ROOT's parent is missing, marked as the wrapper's, after
-    sweeping the folders older runs left.
+    A run folder under RUN_ROOT, the container's tmpfs, or the temp folder where RUN_ROOT is missing, a test's run.
 
     Returns:
         Path: the folder
     """
-    temp = RUN_ROOT if RUN_ROOT.parent.is_dir() else Path(tempfile.gettempdir())
-    temp.mkdir(exist_ok = True)
-    sweep_runs(temp, time.time())
-    work = Path(tempfile.mkdtemp(prefix = RUN_PREFIX, dir = temp))
-    (work / RUN_MARKER).write_text(f"{os.getpid()}\n", encoding = "ascii")
-    return work
+    temp = RUN_ROOT if RUN_ROOT.is_dir() else Path(tempfile.gettempdir())
+    return Path(tempfile.mkdtemp(prefix = RUN_PREFIX, dir = temp))
 
 
 def remove_run(work: Path) -> None:
     """
-    Remove a run folder, a read only file made writable first, since a run's unpacked runtime is 289 MB, and leave what
-    still cannot go to the next run's sweep (Round Table 59's L17).
+    Remove a run folder, a read only file made writable first, whatever the container's end leaves aside.
 
     Args:
         work: the folder
@@ -2272,26 +2358,6 @@ def remove_run(work: Path) -> None:
 
 
     shutil.rmtree(work, onexc = writable)
-
-
-def sweep_runs(temp: Path, now: float) -> None:
-    """
-    Remove the run folders an earlier run left, each named as the wrapper names them, holding its marker and older
-    than a day, never a link or a junction.
-
-    Args:
-        temp: the temp folder
-        now: the time, in seconds since the epoch
-    """
-    for folder in temp.glob(f"{RUN_PREFIX}*"):
-        marker = folder / RUN_MARKER
-        try:
-            if folder.is_symlink() or folder.is_junction() or not folder.is_dir() or not marker.is_file():
-                continue
-            if now - marker.stat().st_mtime > STALE_RUNS:
-                remove_run(folder)
-        except OSError:
-            continue
 
 
 def choose(
@@ -2339,6 +2405,7 @@ def _scan(
     policy_at: str | None,
     base: str,
     work: Path,
+    notes: tuple[tuple[str, str, str], ...] = (),
 ) -> int:
     """
     The scan in its run folder, which the caller removes.
@@ -2351,6 +2418,7 @@ def _scan(
         policy_at: the commit whose policy a scan at a commit applies
         base: the ref the branch is compared with
         work: this run's folder
+        notes: lines a mode adds, as scan takes them
 
     Returns:
         int: the exit code
@@ -2358,7 +2426,7 @@ def _scan(
     try:
         ids = prepare(machine, work)
     except Refusal as refusal:
-        out.write(f"kdf-scan  refused, {refusal}\nkdf-scan  the owner's install sets the pins right, {INSTALL}\n")
+        out.write(f"kdf-scan  refused, {refusal}\n")
         out.write(f"kdf-scan {'-' * 12} REFUSED (exit 2)\n")
         return 2
     try:
@@ -2368,29 +2436,30 @@ def _scan(
         out.write(f"kdf-scan  refused, {refusal}\nkdf-scan {named[:12]} REFUSED (exit 2)\n")
         return 2
     outcome = Outcome()
+    rules   = "kdf-only, Semgrep's rules not run" if machine.kdf_only else (
+        f"{machine.rules_commit[:8]} digest {machine.rules_digest} ok"
+    )
     out.write(
-        f"kdf-scan  opengrep {machine.opengrep.version} sha256 ok  rules {machine.rules_commit[:8]} digest ok  "
-        f"zizmor {machine.zizmor.version} sha256 ok  python {machine.python.version} path ok  "
-        f"env {len(TOOL_ENVIRONMENT)} names\n"
+        f"kdf-scan  opengrep {machine.opengrep.version} sha256 ok  rules {rules}  zizmor {machine.zizmor.version} "
+        f"sha256 ok  image {machine.image[:12]}  env {len(TOOL_ENVIRONMENT)} names\n"
     )
     for folder, reason in applied.excludes:
         outcome.lines.append(f"EXCLUDED  {folder}  {reason}")
-    behind = bundle_behind(machine)
-    if behind:
-        outcome.lines.append(
-            f"WARN      the bundle {machine.bundle[:12]} is {behind} against cicd's origin/main as last fetched, the "
-            f"owner reinstalls with {INSTALL}"
-        )
-        outcome.marks.append(f"bundle-{behind}")
+    for kind, words, mark in notes:
+        outcome.lines.append(f"{kind:<9} {words}")
+        if mark:
+            outcome.marks.append(mark)
+        if kind == "BAD":
+            outcome.failing += 1
     copy_tree(work / "tree", inventory.code, inventory)
     copy_tree(work / "workflows", inventory.workflows, inventory)
-    profile     = private_profile(work)
-    environment = tool_environment(machine.git, work / "temp", profile)
+    home        = private_home(work)
+    environment = tool_environment(work / "temp", home)
     (work / "temp").mkdir()
     given = written(work)
     try:
         answer = run_opengrep(machine, work, environment)
-        unpacked(profile)
+        unpacked(home)
         found, completed = run_zizmor(machine, work, environment) if inventory.workflows else ([], set())
         read_back(work, given)
         findings, scanned, errors = opengrep_findings(answer)
@@ -2399,7 +2468,7 @@ def _scan(
         out.write(f"kdf-scan  {failure}\n")
         out.write(last_line(inventory.commit, inventory.state, machine, outcome, 3, "FAILED") + "\n")
         return 3
-    coverage(outcome, inventory, applied, scanned, errors, completed, bool(inventory.workflows))
+    coverage(outcome, inventory, applied, scanned, errors, completed, bool(inventory.workflows), machine.public)
     markers = []
     for path, data in {**inventory.code, **inventory.workflows}.items():
         markers.extend(find_markers(path, data))
@@ -2420,6 +2489,7 @@ def _scan(
         every,
         branch,
         lambda path: changed_lines(machine.git, repo, branch, path, inventory.commit, at_commit is not None),
+        machine.public,
     )
     kept_og  = [finding for finding in findings if kept(finding)]
     out.write(f"opengrep  {len(scanned & set(inventory.code))} of {len(inventory.code)} inventory files read, "
@@ -2439,53 +2509,371 @@ def _scan(
     return code
 
 # ======================================================================================================================
-# --check and the CLI
+# The modes, a mounted working tree and a pull request's fetched tree
 # ======================================================================================================================
 
-def check(machine: Machine, out: TextIO = sys.stdout) -> list[str]:
+@contextmanager
+def git_view(
+    work: Path,
+    folders: Mapping[str, Mapping[str, str]],
+    safe: tuple[str, ...],
+    autocrlf: str | None,
+) -> Iterator[None]:
     """
-    The installed tools, the Python and the rules checked and printed, for the launcher's --check.
+    Set the git view a mode reads through, a neutral environment, each repo's git folders named explicitly, the paths
+    git may own other than the scan's user, and the host's core.autocrlf, put back when the mode ends.
+
+    Args:
+        work: a folder for the neutral environment's empty configuration
+        folders: each repo's path with the GIT_ variables that name its folders
+        safe: the paths git may trust though another user owns them
+        autocrlf: the host's core.autocrlf, None for none
+
+    Returns:
+        Iterator[None]: the view, set while the block runs
+    """
+    global NEUTRAL_GIT, GIT_FOLDERS, SAFE_PATHS, AUTOCRLF
+    before = (NEUTRAL_GIT, GIT_FOLDERS, SAFE_PATHS, AUTOCRLF)
+    NEUTRAL_GIT, GIT_FOLDERS, SAFE_PATHS, AUTOCRLF = (
+        neutral_git(work),
+        {path: dict(names) for path, names in folders.items()},
+        safe,
+        autocrlf,
+    )
+    try:
+        yield
+    finally:
+        NEUTRAL_GIT, GIT_FOLDERS, SAFE_PATHS, AUTOCRLF = before
+
+
+def unsafe_config(git: str, repo: Path) -> list[str]:
+    """
+    The keys of a repository's own configuration that would run a program or read another file, a filter or an
+    include, which turning hooks and fsmonitor off leaves to run (Codex's revision plan read).
+
+    Args:
+        git: git's absolute path
+        repo: the working tree
+
+    Returns:
+        list[str]: each such key
+
+    Raises:
+        Refusal: when git cannot read the configuration
+    """
+    done = run_git(git, repo, "config", "--list", "--name-only", "--show-scope")
+    if done.returncode != 0:
+        raise Refusal(f"git could not read the repository's configuration, {tail(done.stderr)}")
+    found = set()
+    for line in done.stdout.decode("utf-8", "replace").splitlines():
+        scope, _, name = line.partition("\t")
+        if scope in ("local", "worktree") and UNSAFE_CONFIG.fullmatch(name):
+            found.add(name)
+    return sorted(found)
+
+
+def read_not_docs(text: str) -> list[str] | None:
+    """
+    The `not_docs` patterns of a caller's ci.yml, a quoted value or a folded block, None when it names none or two.
+
+    Args:
+        text: the ci.yml's text
+
+    Returns:
+        list[str] | None: the patterns, None when there is no single answer
+    """
+    lines = text.replace("\r\n", "\n").split("\n")
+    found = [(index, NOT_DOCS.fullmatch(line)) for index, line in enumerate(lines)]
+    found = [(index, match) for index, match in found if match]
+    if len(found) != 1:
+        return None
+    index, match = found[0]
+    value = match["value"]
+    if value in (">", ">-", "|", "|-", ">+", "|+"):
+        block = []
+        for line in lines[index + 1:]:
+            if line.strip() and len(line) - len(line.lstrip()) <= len(match["indent"]):
+                break
+            block.append(line.strip())
+        return " ".join(block).split()
+    if value[:1] in ("'", '"'):
+        closing = value.find(value[0], 1)
+        return value[1:closing].split() if closing > 0 else None
+    return value.split("#", 1)[0].split()
+
+
+def load_ci_paths(files: Mapping[str, bytes]) -> types.ModuleType:
+    """
+    The image's own copy of cicd's ci_paths.py as a module, so a branch's copy never decides what is docs only.
+
+    Args:
+        files: the wrapper's own files
+
+    Returns:
+        types.ModuleType: the module
+
+    Raises:
+        Refusal: when the image holds no ci_paths.py
+    """
+    source = files.get("ci_paths.py")
+    if source is None:
+        raise Refusal("the image holds no ci_paths.py")
+    module = types.ModuleType("kdf_scan_ci_paths")
+    exec(compile(source, "ci_paths.py", "exec"), module.__dict__)  # noqa: S102 the image's own file beside the wrapper
+    return module
+
+
+def names_gate(data: bytes) -> bool:
+    """
+    Whether a workflow's text names the gate, in any case and through YAML's escapes, so a job key, a quoted key or a
+    display name under the gate's name all count. A name an expression builds at run time is beyond any reading of the
+    text, so the owner's reading of the run's path and event stays the authority (design 5.3).
+
+    Args:
+        data: the workflow's bytes
+
+    Returns:
+        bool: whether it names the gate
+    """
+    def unescape(match: re.Match[str]) -> str:
+        """
+        One escape's character, or nothing for an escaped line break.
+
+        Args:
+            match: the escape
+
+        Returns:
+            str: its character
+        """
+        digits = match.group(1) or match.group(2) or match.group(3)
+        if not digits:
+            return ""
+        code = int(digits, 16)
+        return chr(code) if code <= sys.maxunicode else ""
+
+
+    return GATE_NAME in YAML_ESCAPE.sub(unescape, data.decode("utf-8", "replace")).casefold()
+
+
+def gate_notes(
+    git: str,
+    repo: Path,
+    changed: list[str],
+    head: str,
+    caller_sha: str,
+    repo_name: str = "",
+) -> list[tuple[str, str, str]]:
+    """
+    A pull request's change to the gate's caller, passing and printed first when it equals the canonical caller whose
+    SHA-256 the gate holds, failing otherwise, and any other workflow it changes that names the gate, failing, cicd's
+    own reusable workflow apart in cicd alone, which the caller names by its repo (design 5.3, Codex's revision plan
+    read and its step 6 read).
+
+    Args:
+        git: git's absolute path
+        repo: the fetched repository
+        changed: the paths the pull request changes
+        head: its head
+        caller_sha: the canonical caller's SHA-256
+        repo_name: the repository's owner and name as GitHub names it, empty when unknown
+
+    Returns:
+        list[tuple[str, str, str]]: the notes, as scan takes them
+    """
+    in_cicd = repo_name.casefold() == CICD_REPO
+    notes: list[tuple[str, str, str]] = []
+    for path in changed:
+        data = blob_at(git, repo, head, path)
+        if path == CALLER_PATH:
+            if data is not None and caller_sha and hashlib.sha256(data).hexdigest() == caller_sha:
+                notes.insert(0, ("WARN", f"{path} becomes cicd's canonical caller, read the change", "caller-changed"))
+            else:
+                notes.append(("BAD", f"{path} changes to other than cicd's canonical caller", "caller-changed"))
+        elif (path != REUSABLE_PATH or not in_cicd) and is_workflow(path) and data and names_gate(data):
+            notes.append(("BAD", f"{path} names the gate, which only the canonical caller may", "gate-named"))
+    return notes
+
+
+def pr_tree(
+    machine: Machine,
+    repo: Path,
+    commits: tuple[str, str, str],
+    caller_sha: str,
+    out: TextIO = sys.stdout,
+    repo_name: str = "",
+) -> int:
+    """
+    The gate's scan, and a local --pr's, of a pull request's head fetched before the scan into a bare repository, each
+    id resolving to itself, the merge base the one GitHub named, docs only by the image's own ci_paths.py, and the head
+    scanned with main's exclusions and limits, never falling back to the branch's (design 5.3).
 
     Args:
         machine: the machine
-        out: where the lines go
+        repo: the bare repository
+        commits: the head, main and their merge base as GitHub named them
+        caller_sha: the canonical caller's SHA-256
+        out: where the report goes
+        repo_name: the repository's owner and name as GitHub names it, empty when unknown
 
     Returns:
-        list[str]: each failure
+        int: the scan's exit code, 0 for a docs only pull request, 2 for a refusal
     """
-    lines = check_pins(machine)
+    def refuse(reason: str) -> int:
+        """
+        Print a refusal and its last line.
+
+        Args:
+            reason: why the scan refuses
+
+        Returns:
+            int: 2
+        """
+        out.write(f"kdf-scan  refused, {reason}\nkdf-scan {'-' * 12} REFUSED (exit 2)\n")
+        return 2
+
+
+    head, main, merged = commits
+    git = machine.git
+    for name, value in (("head", head), ("main", main), ("merge base", merged)):
+        if not re.fullmatch(r"[0-9a-f]{40}", value) or resolve(git, repo, value) != value:
+            return refuse(f"the {name} {value[:40]!r} does not resolve in the fetched repository")
+    found = run_git(git, repo, "merge-base", main, head)
+    if found.returncode != 0 or found.stdout.decode().strip() != merged:
+        return refuse("the fetched history does not reach the merge base GitHub names")
+    listed = run_git(git, repo, "diff", "--name-only", "--no-renames", "-z", merged, head)
+    if listed.returncode != 0:
+        return refuse(f"git could not list the pull request's changes, {tail(listed.stderr)}")
+    changed = split_z(listed.stdout)
+    rules   = "kdf-only" if machine.kdf_only else machine.rules_digest
+    out.write(f"verify    head {head} main {main} merge base {merged} image {machine.image} rules {rules}\n")
     try:
-        files = rule_files(machine.git, machine.rules, machine.rules_commit, machine.rule_folders)
-        state = "ok" if rules_digest(files) == machine.rules_digest else "FAIL, the digest is not the pinned one"
+        ci_paths = load_ci_paths(machine.files)
     except Refusal as refusal:
-        state = f"FAIL, {refusal}"
-    lines.append(f"rules {machine.rules_commit[:8]} digest {state}")
-    damaged = python_manifest(machine.root / "python" / machine.python.version)
-    shown   = "; ".join(damaged[:5]) + (f", and {len(damaged) - 5} more" if len(damaged) > 5 else "")
-    lines.append(f"python {machine.python.version} manifest " + (f"FAIL, {shown}" if damaged else "ok"))
-    for line in lines:
-        out.write(f"check     {line}\n")
-    return [line for line in lines if "FAIL" in line]
+        return refuse(str(refusal))
+    caller   = blob_at(git, repo, main, ".github/workflows/ci.yml")
+    patterns = read_not_docs(caller.decode("utf-8", "replace")) if caller else None
+    if patterns is not None:
+        tree = run_git(git, repo, "ls-tree", "-r", "-z", "--name-only", main)
+        if tree.returncode != 0:
+            return refuse(f"git could not list main's tree, {tail(tree.stderr)}")
+        try:
+            ci_paths.check_not_docs(patterns, split_z(tree.stdout))
+            docs = ci_paths.docs_only(changed, patterns)
+        except ValueError:
+            docs = False
+        if docs:
+            out.write(f"verify    docs only by the image's ci_paths.py, {len(changed)} paths, nothing to scan\n")
+            out.write(f"kdf-scan {head[:12]} verify image {machine.image[:12]}: DOCS-ONLY (exit 0)\n")
+            return 0
+    notes = tuple(gate_notes(git, repo, changed, head, caller_sha, repo_name))
+    return scan(machine, repo, out = out, at_commit = head, policy_at = main, base = main, notes = notes)
 
 
-def dev_files() -> dict[str, bytes]:
+def autocrlf_value(value: str) -> str | None:
     """
-    The bundle's files as this source tree holds them, for scan-dev.
+    The host's core.autocrlf as git reads it, a boolean's every spelling folded to true or false, any case, and an
+    integer true unless zero, as git-config(1)'s "Values" says, so a value the host's git takes is never refused.
+
+    Args:
+        value: what the host's `git config core.autocrlf` printed, empty for none
 
     Returns:
-        dict[str, bytes]: each file by its path inside a bundle
+        str | None: true, false or input, None for none
+
+    Raises:
+        Refusal: when git takes none of it
     """
-    here  = Path(__file__).resolve().parent
-    files = {name: (here / name).read_bytes() for name in ("kdf_zizmor.yml", "ci_paths.py") if (here / name).is_file()}
-    for rule in sorted((here / "scan_rules").glob("*")):
-        if rule.is_file():
-            files[f"scan_rules/{rule.name}"] = rule.read_bytes()
-    return files
+    folded = value.strip().casefold()
+    if folded in ("", "input"):
+        return folded or None
+    if folded in ("true", "yes", "on"):
+        return "true"
+    if folded in ("false", "no", "off"):
+        return "false"
+    if re.fullmatch(r"[+-]?[0-9]+", folded):
+        return "false" if int(folded) == 0 else "true"
+    raise Refusal(f"core.autocrlf {value!r} is none git takes")
+
+
+def mounted_scan(machine: Machine, args: argparse.Namespace, out: TextIO = sys.stdout) -> int:
+    """
+    `make scan`'s scan of a mounted working tree, each git folder named explicitly and trusted though another user
+    owns it, a worktree's own folder inside the common one, the host's core.autocrlf given, a repository's own filter
+    or include refused, and an image behind cicd's main warned of (design 5.4 and 5.5).
+
+    Args:
+        machine: the machine
+        args: the scan mode's arguments
+        out: where the report goes
+
+    Returns:
+        int: the exit code
+    """
+    try:
+        autocrlf = autocrlf_value(args.autocrlf)
+    except Refusal as refusal:
+        out.write(f"kdf-scan  refused, {refusal}\n")
+        out.write(f"kdf-scan {'-' * 12} REFUSED (exit 2)\n")
+        return 2
+    common, own = Path(args.common_dir), Path(args.git_dir)
+    if own != common and own.parent != common / "worktrees":
+        # git reads a worktree's refs through its commondir file, so its folder must sit inside the common one
+        out.write(f"kdf-scan  refused, the git folder {own} is neither {common} nor a worktree's folder inside it\n")
+        out.write(f"kdf-scan {'-' * 12} REFUSED (exit 2)\n")
+        return 2
+    src     = str(Path(args.src))
+    folders = {src: {"GIT_DIR": args.git_dir, "GIT_COMMON_DIR": args.common_dir, "GIT_WORK_TREE": src}}
+    safe    = (src, args.git_dir, args.common_dir, str(machine.rules))
+    view    = make_run()
+    try:
+        with git_view(view, folders, safe, autocrlf):
+            try:
+                unsafe = unsafe_config(machine.git, Path(src))
+            except Refusal as refusal:
+                unsafe = [str(refusal)]
+            if unsafe:
+                out.write(f"kdf-scan  refused, the repository's own configuration runs or reads more, "
+                          f"{', '.join(unsafe)}\nkdf-scan {'-' * 12} REFUSED (exit 2)\n")
+                return 2
+            warning = image_behind(args.pinned, args.cicd_digest) if args.pinned else ""
+            notes   = (("WARN", warning, "image-behind"),) if warning else ()
+            return scan(machine, Path(src), out = out, notes = notes)
+    finally:
+        remove_run(view)
+
+
+def fetched_scan(machine: Machine, args: argparse.Namespace, out: TextIO = sys.stdout) -> int:
+    """
+    The gate's scan, and a local --pr's, of a bare repository fetched before the scan.
+
+    Args:
+        machine: the machine
+        args: the pr-tree mode's arguments
+        out: where the report goes
+
+    Returns:
+        int: the exit code
+    """
+    repo = str(Path(args.repo))
+    view = make_run()
+    try:
+        with git_view(view, {}, (repo, str(machine.rules)), None):
+            return pr_tree(
+                machine,
+                Path(repo),
+                (args.head, args.main, args.merge_base),
+                args.caller_sha,
+                out,
+                args.repo_name,
+            )
+    finally:
+        remove_run(view)
 
 
 def main(argv: list[str] | None = None) -> int:
     """
-    scan-dev's scan of this source against the installed tools, --pins for the install, or --rules-digest of a clone.
+    The image's entrypoint, a scan of a mounted working tree, a pull request's fetched tree or a commit, --pins for the
+    image's build, or --rules-digest of a rules clone.
 
     Args:
         argv: the arguments, sys.argv when None
@@ -2493,14 +2881,46 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         int: the exit code
     """
-    parser = argparse.ArgumentParser(description = "The local code scan's wrapper, run from source (D-085).")
+    parser = argparse.ArgumentParser(description = "The local code scan's wrapper, the image's entrypoint (D-085).")
     parser.add_argument("--pins", action = "store_true", help = "print the declared pins and stop")
     parser.add_argument("--rules-digest", metavar = "GIT_DIR", help = "print the rules' digest at the pinned commit")
-    parser.add_argument("--git", help = "the git --rules-digest runs, the install's own, else git at a protected path")
-    parser.add_argument("--repo", default = ".", help = "the repo to scan, the current folder by default")
-    parser.add_argument("--at", help = "scan this commit's tree instead of the working tree")
-    parser.add_argument("--policy-at", help = "the commit whose exclusions and limits a scan at a commit applies")
-    parser.add_argument("--base", default = BASE_REF, help = "the ref the branch is compared with")
+    parser.add_argument("--git", help = "the git a run uses, the image's own by default")
+    modes = parser.add_subparsers(dest = "mode")
+    each  = []
+    tree  = modes.add_parser("scan", help = "a mounted working tree, make scan's")
+    tree.add_argument("--src", default = SRC_MOUNT, help = "the working tree")
+    tree.add_argument(
+        "--git-dir",
+        default = GIT_MOUNT,
+        help = "the working tree's own git folder, the common one or a worktree's folder inside it",
+    )
+    tree.add_argument("--common-dir", default = GIT_MOUNT, help = "the common git folder, the same for a plain clone")
+    tree.add_argument("--autocrlf", default = "", help = "the host's core.autocrlf, empty for none")
+    tree.add_argument("--pinned", default = "", help = "the digest the repo's managed block pins")
+    tree.add_argument(
+        "--cicd-digest",
+        default = "",
+        help = "the digest a cicd clone's origin/main pins, empty for none",
+    )
+    each.append(tree)
+    fetched = modes.add_parser("pr-tree", help = "a pull request's head fetched into a bare repository, the gate's")
+    fetched.add_argument("--repo", default = REPO_MOUNT, help = "the bare repository")
+    fetched.add_argument("--head", required = True, help = "the head GitHub names")
+    fetched.add_argument("--main", required = True, help = "the base's main GitHub names")
+    fetched.add_argument("--merge-base", required = True, help = "their merge base GitHub names")
+    fetched.add_argument("--caller-sha", default = "", help = "the canonical caller's SHA-256 the gate holds")
+    fetched.add_argument("--repo-name", default = "", help = "the repository's owner and name as GitHub names it")
+    each.append(fetched)
+    commit = modes.add_parser("at", help = "one commit of a repository, a developer's tool and never a gate")
+    commit.add_argument("--repo", default = SRC_MOUNT, help = "the repository")
+    commit.add_argument("--at", required = True, help = "the commit to scan")
+    commit.add_argument("--policy-at", help = "the commit whose exclusions and limits apply, the base by default")
+    commit.add_argument("--base", default = BASE_REF, help = "the ref the branch is compared with")
+    each.append(commit)
+    for mode in each:
+        mode.add_argument("--rules", default = RULES_MOUNT, help = "the rules' cache, a git folder")
+        mode.add_argument("--kdf-only", action = "store_true", help = "run KDF's rules alone, its coverage named")
+        mode.add_argument("--public", action = "store_true", help = "a public repo's log, rule ids and no message")
     args = parser.parse_args(argv)
     if args.pins:
         for name, value in pins().items():
@@ -2517,8 +2937,21 @@ def main(argv: list[str] | None = None) -> int:
     except Refusal as refusal:
         print(f"kdf-scan  refused, {refusal}")
         return 2
-    dev = machine(SCAN_ROOT, "dev", dev_files(), git, cicd = None)
-    return scan(dev, Path(args.repo).resolve(), at_commit = args.at, policy_at = args.policy_at, base = args.base)
+    if args.mode is None:
+        parser.print_help()
+        return 2
+    image = machine(IMAGE_ROOT, image_commit(), image_files(), git, Path(args.rules), args.kdf_only, args.public)
+    if args.mode == "scan":
+        return mounted_scan(image, args)
+    if args.mode == "pr-tree":
+        return fetched_scan(image, args)
+    repo = str(Path(args.repo))
+    view = make_run()
+    try:
+        with git_view(view, {}, (repo, str(image.rules)), None):
+            return scan(image, Path(repo), at_commit = args.at, policy_at = args.policy_at, base = args.base)
+    finally:
+        remove_run(view)
 
 
 if __name__ == "__main__":
