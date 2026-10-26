@@ -74,8 +74,8 @@ ZIZMOR_WHEEL_URL    = (
 ZIZMOR_WHEEL_SHA256 = "eee12266b793cb87ad4a7e3af2e72404f8a63e3de5eb099b80bf7b1cfd232a8e"
 ZIZMOR_SHA256       = "9be5ac955a59e43a111152ee2e0315d3863866a8df4a15a9be7aaa94af72d74a"
 # cosign's Linux program, which the image's build runs to verify Opengrep, its SHA-256 the owner's match against the
-# release page on 2026-10-26, owner step 3, the 2.6 line, whose verify-blob still takes the separate .sig and .cert Opengrep
-# publishes, 3.1's taking a bundle alone, and 2.6.5 the release that carries the fix of GHSA-fx35-mq7g-6g98
+# release page on 2026-10-26, owner step 3, the 2.6 line, whose verify-blob still takes the separate .sig and .cert
+# Opengrep publishes, 3.1's taking a bundle alone, and 2.6.5 the release that carries the fix of GHSA-fx35-mq7g-6g98
 COSIGN_VERSION = "v2.6.5"
 COSIGN_URL     = "https://github.com/sigstore/cosign/releases/download/v2.6.5/cosign-linux-amd64"
 COSIGN_SHA256  = "c3b4f5410e608af03a5eb0aaac84a4313d8da131248e08ff1759ac70c79d1644"
@@ -196,10 +196,10 @@ GIT_PATH = "/usr/bin/git"
 # fetched before the scan (design 5.3 and 5.5). A worktree's own git folder is named inside the common one, never
 # mounted apart, since git finds a worktree's refs through its commondir file, ../.. from its own folder, and never
 # through GIT_COMMON_DIR, measured by the probe of 2026-10-26
-SRC_MOUNT    = "/src"
-GIT_MOUNT    = "/git"
-RULES_MOUNT  = "/rules"
-REPO_MOUNT   = "/repo"
+SRC_MOUNT   = "/src"
+GIT_MOUNT   = "/git"
+RULES_MOUNT = "/rules"
+REPO_MOUNT  = "/repo"
 # the file the image's build writes, the cicd commit it was built from, and its stand in outside an image
 COMMIT_FILE = IMAGE_ROOT / "COMMIT"
 # cicd's file naming the active set, each key once (design 5.1), and the marker it holds until the first activation
@@ -944,10 +944,9 @@ def worktree_inventory(git: str, repo: Path, policy: Policy) -> Inventory:
         said    = run_git(git, repo, "rev-parse", "--verify", "--end-of-options", "HEAD^{commit}")
         folders = run_git(git, repo, "rev-parse", "--git-dir", "--git-common-dir").stdout.decode("utf-8", "replace")
         named   = run_git(git, repo, "symbolic-ref", "-q", "HEAD").stdout.decode("utf-8", "replace").strip()
-        raise Refusal(
-            f"the repo has no commit to name, {tail(said.stderr)}, git read {' and '.join(folders.split()) or 'no git'}"
-            f" folder, HEAD naming {named or 'no branch'}",
-        )
+        read    = " and ".join(folders.split()) or "no git"
+        raise Refusal(f"the repo has no commit to name, {tail(said.stderr)}, git read {read} folder, HEAD naming "
+                      + (named or "no branch"))
     dirty     = git_out(git, repo, "status", "--porcelain=v1", "-z", "--untracked-files=normal")
     inventory = Inventory(head, "dirty-tree" if dirty else "clean-tree")
     entries   = {}
