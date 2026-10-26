@@ -241,7 +241,8 @@ def test_the_block_runs_cicds_image_by_its_digest_offline_read_only_and_as_no_ro
         "MSYS_NO_PATHCONV=1",
     ):
         assert flag in tail, flag
-    for mount in (":/src:ro", ":/gitdir:ro", ":/git:ro", ":/rules:ro", ":/repo:ro"):
+    assert ":/gitdir" not in tail and '--git-dir "/git$${own#"$$common"}"' in tail
+    for mount in (":/src:ro", ":/git:ro", ":/rules:ro", ":/repo:ro"):
         assert mount in tail, mount
     assert "git rev-parse --show-toplevel" in tail and "git config core.autocrlf" in tail
     assert ds.SCAN_BLOCK_HEAD.startswith(BLOCK_OPEN + "\n") and tail.endswith(BLOCK_CLOSE + "\n")

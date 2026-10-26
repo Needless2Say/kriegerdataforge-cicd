@@ -150,13 +150,11 @@ def make_repo(folder: Path, files: dict[str, str | bytes], own: tuple[str, ...] 
 
 def mounts(machine: Machine, repo: Path) -> list[str]:
     """
-    The read only mounts make scan's recipe gives the image, a plain clone's git folder as both of its folders.
+    The read only mounts make scan's recipe gives the image, a plain clone's git folder its common one.
     """
     return [
         "-v",
         f"{repo}:/src:ro",
-        "-v",
-        f"{repo / '.git'}:/gitdir:ro",
         "-v",
         f"{repo / '.git'}:/git:ro",
         "-v",

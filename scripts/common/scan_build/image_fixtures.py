@@ -104,7 +104,7 @@ def scan(image: str, repo: Path, *extra: str) -> subprocess.CompletedProcess[str
     Returns:
         subprocess.CompletedProcess[str]: the finished run
     """
-    mounts = ["-v", f"{repo}:/src:ro", "-v", f"{repo / '.git'}:/gitdir:ro", "-v", f"{repo / '.git'}:/git:ro"]
+    mounts = ["-v", f"{repo}:/src:ro", "-v", f"{repo / '.git'}:/git:ro"]
     return docker("run", *LOCKED, *mounts, image, "scan", "--kdf-only", *extra)
 
 

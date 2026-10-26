@@ -160,11 +160,11 @@ KDF_SCAN_RUN = MSYS_NO_PATHCONV=1 $(KDF_SCAN_ENGINE) run --rm --pull never --net
   --user 65532:65532
 .PHONY: scan scan-setup scan-pr
 scan: ## Local code scan in cicd's image, before every pull request, never the gate
-\t@$(KDF_SCAN_RUN) -v "$$(git rev-parse --show-toplevel):/src:ro" \\
-\t  -v "$$(git rev-parse --path-format=absolute --git-dir):/gitdir:ro" \\
-\t  -v "$$(git rev-parse --path-format=absolute --git-common-dir):/git:ro" \\
+\t@own="$$(git rev-parse --path-format=absolute --git-dir)"; \\
+\t  common="$$(git rev-parse --path-format=absolute --git-common-dir)"; \\
+\t  $(KDF_SCAN_RUN) -v "$$(git rev-parse --show-toplevel):/src:ro" -v "$$common:/git:ro" \\
 \t  -v "$(call kdf_scan_native,$(KDF_SCAN_RULES)):/rules:ro" $(KDF_SCAN_IMAGE) scan \\
-\t  --autocrlf "$$(git config core.autocrlf)" --pinned "{digest}" \\
+\t  --git-dir "/git$${{own#"$$common"}}" --autocrlf "$$(git config core.autocrlf)" --pinned "{digest}" \\
 \t  --cicd-digest "$$(git -C ../kriegerdataforge-cicd show origin/main:scripts/common/SCAN_IMAGE 2>/dev/null \\
 \t  | sed -n 's/^digest=//p')"
 scan-setup: ## Pull cicd's scan image and fetch Semgrep's rules into the cache, the one step that uses the network

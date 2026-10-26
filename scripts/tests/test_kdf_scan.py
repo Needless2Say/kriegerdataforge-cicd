@@ -977,11 +977,12 @@ def test_scan_dev_runs_an_image_built_from_this_tree_locked_as_the_block_runs_it
         "--security-opt no-new-privileges",
         "--user 65532:65532",
         ":/src:ro",
-        ":/gitdir:ro",
         ":/git:ro",
         ":/rules:ro",
+        '--git-dir "/git$${own#"$$common"}"',
     ):
         assert flag in recipe, flag
+    assert ":/gitdir" not in recipe
     build = text[text.index("\nscan-image:"):text.index("\nscan-local:")]
     assert "--file scripts/common/scan_build/Dockerfile" in build and build.rstrip().endswith("scripts/common")
     ci_line = next(line for line in text.splitlines() if line.startswith("ci: "))

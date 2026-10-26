@@ -319,6 +319,15 @@ def test_a_worktree_scans_through_its_own_and_its_common_git_folder(tmp_path: Pa
     assert " dirty-tree " in out.splitlines()[-1]
 
 
+def test_a_git_folder_outside_the_common_one_is_refused(tmp_path: Path) -> None:
+    # git reads a worktree's refs through its commondir file, so a folder mounted apart from the common one resolves
+    # nothing, found by the probe of 2026-10-26, and is refused with the reason
+    rig = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n"})
+    code, out = mounted_run(rig, mounted(rig.repo, tmp_path / "elsewhere", rig.repo / ".git"))
+    assert code == 2 and "neither" in out, out
+    assert rig.calls("opengrep") == []
+
+
 @pytest.mark.parametrize("key", ["filter.lfs.clean", "include.path", "includeIf.gitdir:/x.path"])
 def test_a_repositorys_own_filter_or_include_is_refused(tmp_path: Path, key: str) -> None:
     rig = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n"})

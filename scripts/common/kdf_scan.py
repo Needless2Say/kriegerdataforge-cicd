@@ -192,10 +192,11 @@ SAFE_PATHS:  tuple[str, ...] = ()
 AUTOCRLF:    str | None = None
 # git as the image installs it
 GIT_PATH = "/usr/bin/git"
-# the read only mounts each mode reads, the working tree, a worktree's own git folder and its common one, the rules'
-# cache and a bare repository fetched before the scan (design 5.3 and 5.5)
+# the read only mounts each mode reads, the working tree, the common git folder, the rules' cache and a bare repository
+# fetched before the scan (design 5.3 and 5.5). A worktree's own git folder is named inside the common one, never
+# mounted apart, since git finds a worktree's refs through its commondir file, ../.. from its own folder, and never
+# through GIT_COMMON_DIR, measured by the probe of 2026-10-26
 SRC_MOUNT    = "/src"
-GITDIR_MOUNT = "/gitdir"
 GIT_MOUNT    = "/git"
 RULES_MOUNT  = "/rules"
 REPO_MOUNT   = "/repo"
@@ -938,7 +939,15 @@ def worktree_inventory(git: str, repo: Path, policy: Policy) -> Inventory:
     """
     head = resolve(git, repo, "HEAD")
     if head is None:
-        raise Refusal("the repo has no commit to name")
+        # git's own words and the folders it read, since a mount it cannot read or join refuses as plainly as a repo
+        # with no commit
+        said    = run_git(git, repo, "rev-parse", "--verify", "--end-of-options", "HEAD^{commit}")
+        folders = run_git(git, repo, "rev-parse", "--git-dir", "--git-common-dir").stdout.decode("utf-8", "replace")
+        named   = run_git(git, repo, "symbolic-ref", "-q", "HEAD").stdout.decode("utf-8", "replace").strip()
+        raise Refusal(
+            f"the repo has no commit to name, {tail(said.stderr)}, git read {' and '.join(folders.split()) or 'no git'}"
+            f" folder, HEAD naming {named or 'no branch'}",
+        )
     dirty     = git_out(git, repo, "status", "--porcelain=v1", "-z", "--untracked-files=normal")
     inventory = Inventory(head, "dirty-tree" if dirty else "clean-tree")
     entries   = {}
@@ -2717,8 +2726,8 @@ def pr_tree(
 def mounted_scan(machine: Machine, args: argparse.Namespace, out: TextIO = sys.stdout) -> int:
     """
     `make scan`'s scan of a mounted working tree, each git folder named explicitly and trusted though another user
-    owns it, the host's core.autocrlf given, a repository's own filter or include refused, and an image behind cicd's
-    main warned of (design 5.4 and 5.5).
+    owns it, a worktree's own folder inside the common one, the host's core.autocrlf given, a repository's own filter
+    or include refused, and an image behind cicd's main warned of (design 5.4 and 5.5).
 
     Args:
         machine: the machine
@@ -2730,6 +2739,12 @@ def mounted_scan(machine: Machine, args: argparse.Namespace, out: TextIO = sys.s
     """
     if args.autocrlf not in ("", "true", "false", "input"):
         out.write(f"kdf-scan  refused, core.autocrlf {args.autocrlf!r} is none git takes\n")
+        out.write(f"kdf-scan {'-' * 12} REFUSED (exit 2)\n")
+        return 2
+    common, own = Path(args.common_dir), Path(args.git_dir)
+    if own != common and own.parent != common / "worktrees":
+        # git reads a worktree's refs through its commondir file, so its folder must sit inside the common one
+        out.write(f"kdf-scan  refused, the git folder {own} is neither {common} nor a worktree's folder inside it\n")
         out.write(f"kdf-scan {'-' * 12} REFUSED (exit 2)\n")
         return 2
     src     = str(Path(args.src))
@@ -2793,7 +2808,11 @@ def main(argv: list[str] | None = None) -> int:
     each  = []
     tree  = modes.add_parser("scan", help = "a mounted working tree, make scan's")
     tree.add_argument("--src", default = SRC_MOUNT, help = "the working tree")
-    tree.add_argument("--git-dir", default = GITDIR_MOUNT, help = "the working tree's own git folder")
+    tree.add_argument(
+        "--git-dir",
+        default = GIT_MOUNT,
+        help = "the working tree's own git folder, the common one or a worktree's folder inside it",
+    )
     tree.add_argument("--common-dir", default = GIT_MOUNT, help = "the common git folder, the same for a plain clone")
     tree.add_argument("--autocrlf", default = "", help = "the host's core.autocrlf, empty for none")
     tree.add_argument("--pinned", default = "", help = "the digest the repo's managed block pins")

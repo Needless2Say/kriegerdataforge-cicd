@@ -410,14 +410,14 @@ scan-image: ## Build the scan's image from this tree as kdf-scan:local, for deve
 		--build-arg "KDF_SCAN_COMMIT=$$(git rev-parse HEAD)" scripts/common
 
 scan-local: scan-image ## Local code scan of this tree in an image built from it, for developing the wrapper (D-085)
-	@MSYS_NO_PATHCONV=1 docker run --rm --network none --read-only \
+	@own="$$(git rev-parse --path-format=absolute --git-dir)"; \
+	common="$$(git rev-parse --path-format=absolute --git-common-dir)"; \
+	MSYS_NO_PATHCONV=1 docker run --rm --network none --read-only \
 		--tmpfs /run/kdf-scan:exec,size=1g,uid=65532,gid=65532 \
 		--cap-drop ALL --security-opt no-new-privileges --user 65532:65532 \
-		-v "$$(git rev-parse --show-toplevel):/src:ro" \
-		-v "$$(git rev-parse --path-format=absolute --git-dir):/gitdir:ro" \
-		-v "$$(git rev-parse --path-format=absolute --git-common-dir):/git:ro" \
+		-v "$$(git rev-parse --show-toplevel):/src:ro" -v "$$common:/git:ro" \
 		-v "$$(cd "$(KDF_SCAN_LOCAL_RULES)" && (pwd -W 2>/dev/null || pwd)):/rules:ro" kdf-scan:local scan \
-		--autocrlf "$$(git config core.autocrlf)"
+		--git-dir "/git$${own#"$$common"}" --autocrlf "$$(git config core.autocrlf)"
 
 scan-image-fixtures: _ensure-venv ## The scan image's own fixtures against KDF_SCAN_FIXTURE_IMAGE, as its build runs (D-085)
 	@$(PYTHON) -I -B scripts/common/scan_build/image_fixtures.py "$(KDF_SCAN_FIXTURE_IMAGE)"
