@@ -173,23 +173,29 @@ rather than a fix for a live crash.
 
 ### Local Code Scan
 
-`scan`, `scan-dev` and `scan-fixtures`, decision D-085. None is part of `ci`.
+`scan`, `scan-setup`, `scan-pr`, `scan-image`, `scan-dev`, `scan-image-fixtures` and `scan-fixtures`, decisions
+D-085 and D-088. None is part of `ci`. Each runs the scan's image with `docker run` inside its recipe, the network off,
+the root read only, no capability and a user that is not root.
 
 - **`scan`** is the managed block every repo's Makefile holds, written by the scripts sync between its two marker
-  lines. It runs Opengrep over the code and zizmor over the workflows before a pull request, through the launcher the
-  owner installs at `D:/KriegerDataForge-scan/`, under that folder's own Python with `-I -S -B`, so nothing in a
-  checkout decides what runs. Its last line names the commit, the bundle, the pins and the result, and goes into the
-  pull request whole. It exits 0 clean, 1 for a finding or a bad marker, 2 refused, 3 when a tool failed and 4 when
-  the scan is incomplete. `make` itself returns 2 whenever a recipe fails, so the last line is the result.
-- **`scan-dev`** runs the wrapper's source in this tree, `scripts/common/kdf_scan.py`, under the scan folder's Python
-  while the wrapper is developed. Its last line says `bundle dev`, so a pull request's pasted line comes from `scan`
-  alone.
-- **`scan-fixtures`** runs `scripts/tests/fixtures/scan/` against the installed tools after each install and at every
-  pin move. Its files are named `fixture_*.py`, so the unit lane's pytest never collects them. `KDF_SCAN_OFFLINE=1`
-  runs the firewall control and `KDF_SCAN_WRITE_PROBE=1` the unelevated write probe, each only when the owner asks.
-
-The install is `tools/claude-code/kdf-scan-install.sh`, run by the owner alone from the elevated window of an account
-kept for it, never by a session.
+  lines once cicd pins an image in `scripts/common/SCAN_IMAGE`. It runs Opengrep over the code and zizmor over the
+  workflows before a pull request, in `ghcr.io/needless2say/kdf-scan` by its digest, the working tree, its git
+  folders and the rules' cache mounted read only. Its last line names the commit, the image's cicd commit, the pins
+  and the result, and goes into the pull request whole. It exits 0 clean, 1 for a finding or a bad marker, 2 refused,
+  3 when a tool failed and 4 when the scan is incomplete. `make` itself returns 2 whenever a recipe fails, so the last
+  line is the result. A local scan is a check against accidents and branch edits. The gate is
+  `.github/workflows/kdf-scan-gate-reusable.yml`, dispatched from each repo's `main`.
+- **`scan-setup`** pulls the image by its digest and fetches the rules at their pinned commit into the cache, the one
+  step that uses the network.
+- **`scan-pr`**, `PR=<number>`, fetches a pull request's head and `main` into a fresh bare repository and scans it
+  offline as the gate does, the weaker answer when Actions is down.
+- **`scan-image`** builds the image from this tree as `kdf-scan:dev`, from `scripts/common/scan_build/Dockerfile`,
+  and **`scan-dev`** scans this tree with it while the wrapper is developed.
+- **`scan-image-fixtures`** runs the image's own fixtures, as its build does, against `KDF_SCAN_FIXTURE_IMAGE`,
+  `kdf-scan:dev` unless named.
+- **`scan-fixtures`** runs `scripts/tests/fixtures/scan/` against `KDF_SCAN_FIXTURE_IMAGE` at every pin move. Its
+  files are named `fixture_*.py`, so the unit lane's pytest never collects them, and they read the rules, so they run
+  on a developer's machine and never in this public repo's log.
 
 ### CodeQL Security Scanning
 

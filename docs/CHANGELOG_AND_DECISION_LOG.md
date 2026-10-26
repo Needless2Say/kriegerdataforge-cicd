@@ -4591,7 +4591,8 @@ through. VERSION 0.2.168.
 ## D-085. A local code scan before every pull request, run from a folder only an elevated install writes
 
 - **Date.** 2026-10-22
-- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Its folder, install and
+  launcher are replaced by D-088, its rule policy, markers, coverage and branch report kept.
 - **Follows.** D-013 and D-014, the scripts sync that writes the scan's Makefile block.
 - **Tier / scope:** Epic, every repo · `scripts/common/kdf_scan.py`, `kdf_scan_launcher.py`, `kdf_zizmor.yml`,
   `scan_rules/`, `tools/claude-code/kdf-scan-install.sh`, the scripts sync's Makefile patch, cicd's `Makefile` and
@@ -4788,3 +4789,59 @@ private.
 Node 24 before a push, and a tarball the cache lacks reads not run until a fresh host install on that machine fills
 it, the owner's to do since that install reads the npm token. Python mirrors lose every tag no pin names, at nearly no
 change in bytes. Each machine's first run after the change builds a new base. No workflow changes. VERSION 0.2.171.
+
+## D-088. The local code scan in one image by its digest, and its gate dispatched from main
+
+- **Date.** 2026-10-26
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Follows.** D-085, whose folder, install and launcher it replaces, its rule policy, markers, coverage and branch
+  report kept whole.
+- **Tier / scope:** Epic, every repo · `scripts/common/kdf_scan.py`, `scripts/common/scan_build/`,
+  `scripts/common/SCAN_IMAGE`, `scripts/common/kdf-scan-gate-caller.yml`, `.github/workflows/publish-scan-image.yml`,
+  `.github/workflows/kdf-scan-gate-reusable.yml`, the scripts sync's Makefile patch and caller,
+  `scripts/common/check_version.py`'s sync exemption, cicd's `Makefile` and `scripts/tests/fixtures/scan/` ·
+  two new workflows, no input of an existing one changed, `kdf_scan_launcher.py` and `kdf-scan-install.sh` removed
+
+**Context.** D-085's folder needed an elevated install on every machine from an account kept for it, and reached no
+developer elsewhere and no Linux or macOS machine. And no local run, the folder's included, can be a gate a process
+of the same account cannot satisfy, since that process controls what the run executes.
+
+**Decision.**
+
+1. One Linux image, `ghcr.io/needless2say/kdf-scan`, built from `scripts/common/scan_build/Dockerfile` on `main`
+   alone and published from this public repo. Its build checks every download by SHA-256 and Opengrep's signature
+   against its exact workflow identity, takes its base by digest from the copier's mirror, inspects every layer so
+   the stock rules never enter it, runs the image's own fixtures on the exact archive, and pushes that archive by its
+   digest, attesting its provenance. Its build job holds no permission and its publish job alone writes the package.
+   No version is ever deleted.
+2. Every run names the image by its digest. `scripts/common/SCAN_IMAGE` and the gate's reusable workflow name one
+   active set, the digest, the cicd commit, the rules' commit and digest and the invocation contract, activated
+   together by a pull request after the image is published, so an old image is never called with a new contract. The
+   scripts sync writes the digest into each repo's block, and leaves the Makefile alone while nothing is pinned.
+3. The wrapper is the image's entrypoint, run with the network off, the root read only, no capability and a user that
+   is not root. `scan` reads a mounted working tree through its git folders named explicitly with the host's
+   `core.autocrlf`, refusing a repository's own filter or include. `pr-tree` reads a bare repository fetched before
+   the scan, each id resolving to itself. The stock rules are read from a user's cache mounted read only, checked by
+   their digest. A KDF rules mode names its reduced coverage, and a public repo's log names rule ids and never a
+   message.
+4. A local scan is a check against accidents and branch edits. The gate is a `workflow_dispatch` of one caller text
+   on each repo's `main`, which the scripts sync writes whole, calling the reusable workflow at `main` in the caller's
+   repo. It refuses any other event or ref, fetches with the job's own read token, scans offline, asks GitHub again
+   before it ends, and writes the head, the base's `main`, the image, the scanner's commit and the rules' commit to
+   its summary. A pull request changing the caller passes only when it becomes the canonical text, and one adding a
+   workflow under the gate's name fails.
+
+**Alternatives considered.**
+
+- *D-085's folder.* An elevated install and a reinstall on every machine, for every developer, with the same limit.
+- *An image built on each machine.* No digest to compare across machines, and every download on each.
+- *A required check on every pull request.* A `pull_request` run reads the branch's own workflow file, so a branch
+  could satisfy its own gate, at a run on every push.
+
+**Trade-offs.** A developer installs a container engine once. The gate costs Actions minutes on a private repo, one
+run a merge, measured before it is required, and holds only while the owner starts and reads it at each merge, until a
+required check is shown safe. The image's digest moves by two pull requests.
+
+**Consequences.** `make scan`, `scan-setup` and `scan-pr` in every repo run the image by digest, and the gate's caller
+arrives with the scripts sync. What reopens this is a scan that passes code it should have caught, a branch or a
+session that satisfies the gate, or an image that holds the stock rules. VERSION 0.2.172, scripts 1.7.0.
