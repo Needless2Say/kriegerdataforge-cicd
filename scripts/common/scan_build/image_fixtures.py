@@ -41,7 +41,12 @@ VULNERABLE = (
 )
 CLEAN      = "print('hello')\n"
 FENCE_ONLY = "import urllib.request\nurllib.request.urlopen('https://example.com', timeout = 5)\n"
-NO_ROOT    = "open('/opt/kdf-scan/written', 'w').write('x')\n"
+# exits 30, EROFS, when the read only root stops the write, and 13 for any other refusal, so a run whose user alone
+# lacks the right, which would stop it on a writable root too, never passes for the fence (Codex's step 6 read)
+NO_ROOT = (
+    "import errno, sys\ntry:\n    open('/opt/kdf-scan/written', 'w').write('x')\nexcept OSError as error:\n"
+    "    sys.exit(30 if error.errno == errno.EROFS else 13)\n"
+)
 
 # ======================================================================================================================
 # The fixtures
@@ -159,8 +164,8 @@ def main(argv: list[str] | None = None) -> int:
     written = python_in(image, NO_ROOT, locked = True)
     control = python_in(image, NO_ROOT, locked = False)
     check(
-        "the root is read only, root's write its control",
-        written.returncode != 0 and control.returncode == 0,
+        "the root is read only, EROFS and not the user's rights, root's write its control",
+        written.returncode == 30 and control.returncode == 0,
         f"locked {written.returncode}, open {control.returncode}",
         failures,
     )

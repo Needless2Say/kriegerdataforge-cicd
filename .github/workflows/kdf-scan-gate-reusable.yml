@@ -134,6 +134,7 @@ jobs:
           HEAD_SHA: ${{ steps.ask.outputs.head }}
           MAIN_SHA: ${{ steps.ask.outputs.main }}
           MERGED: ${{ steps.ask.outputs.merged }}
+          REPO: ${{ github.repository }}
           VISIBILITY: ${{ github.event.repository.visibility }}
         run: |
           set -uo pipefail
@@ -146,7 +147,7 @@ jobs:
             --cap-drop ALL --security-opt no-new-privileges --user 65532:65532 \
             -v "$PWD/repo.git:/repo:ro" -v "$PWD/rules.git:/rules:ro" "$image" \
             pr-tree --head "$HEAD_SHA" --main "$MAIN_SHA" --merge-base "$MERGED" \
-            --caller-sha "$KDF_SCAN_CALLER_SHA" "${extra[@]}" | tee report.txt
+            --caller-sha "$KDF_SCAN_CALLER_SHA" --repo-name "$REPO" "${extra[@]}" | tee report.txt
           code="${PIPESTATUS[0]}"
           label='{{ index .Config.Labels "org.opencontainers.image.revision" }}'
           {

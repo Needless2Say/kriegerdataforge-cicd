@@ -4591,8 +4591,7 @@ through. VERSION 0.2.168.
 ## D-085. A local code scan before every pull request, run from a folder only an elevated install writes
 
 - **Date.** 2026-10-22
-- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Its folder, install and
-  launcher are replaced by D-088, its rule policy, markers, coverage and branch report kept.
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
 - **Follows.** D-013 and D-014, the scripts sync that writes the scan's Makefile block.
 - **Tier / scope:** Epic, every repo · `scripts/common/kdf_scan.py`, `kdf_scan_launcher.py`, `kdf_zizmor.yml`,
   `scan_rules/`, `tools/claude-code/kdf-scan-install.sh`, the scripts sync's Makefile patch, cicd's `Makefile` and
@@ -4793,7 +4792,8 @@ change in bytes. Each machine's first run after the change builds a new base. No
 ## D-088. The local code scan in one image by its digest, and its gate dispatched from main
 
 - **Date.** 2026-10-26
-- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Supersedes D-085's folder,
+  install and launcher.
 - **Follows.** D-085, whose folder, install and launcher it replaces, its rule policy, markers, coverage and branch
   report kept whole.
 - **Tier / scope:** Epic, every repo · `scripts/common/kdf_scan.py`, `scripts/common/scan_build/`,
@@ -4825,11 +4825,14 @@ of the same account cannot satisfy, since that process controls what the run exe
    their digest. A KDF rules mode names its reduced coverage, and a public repo's log names rule ids and never a
    message.
 4. A local scan is a check against accidents and branch edits. The gate is a `workflow_dispatch` of one caller text
-   on each repo's `main`, which the scripts sync writes whole, calling the reusable workflow at `main` in the caller's
-   repo. It refuses any other event or ref, fetches with the job's own read token, scans offline, asks GitHub again
-   before it ends, and writes the head, the base's `main`, the image, the scanner's commit and the rules' commit to
-   its summary. A pull request changing the caller passes only when it becomes the canonical text, and one adding a
-   workflow under the gate's name fails.
+   on each repo's `main`, calling the reusable workflow at `main` in the caller's repo. The scripts sync writes the
+   caller whole only when the registry's `scan_caller` says its credential may write workflow files, which the ops
+   workflows' App token cannot today, and until then the caller arrives by one bootstrap pull request a repo. The gate
+   refuses any other event or ref, fetches with the job's own read token, scans offline, asks GitHub again before it
+   ends, and writes the head, the base's `main`, the image, the scanner's commit and the rules' commit to its summary.
+   A pull request changing the caller passes only when it becomes the canonical text, and one adding a workflow that
+   names the gate, in any case or through YAML's escapes, fails, cicd's own reusable workflow apart in cicd alone. A
+   name an expression builds at run time is beyond the text, so the run's path and event stay the owner's proof.
 
 **Alternatives considered.**
 
@@ -4843,5 +4846,5 @@ run a merge, measured before it is required, and holds only while the owner star
 required check is shown safe. The image's digest moves by two pull requests.
 
 **Consequences.** `make scan`, `scan-setup` and `scan-pr` in every repo run the image by digest, and the gate's caller
-arrives with the scripts sync. What reopens this is a scan that passes code it should have caught, a branch or a
+arrives with the scripts sync once `scan_caller` allows it, by a bootstrap pull request before. What reopens this is a scan that passes code it should have caught, a branch or a
 session that satisfies the gate, or an image that holds the stock rules. VERSION 0.2.172, scripts 1.7.0.

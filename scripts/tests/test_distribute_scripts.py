@@ -277,8 +277,8 @@ def test_the_caller_runs_cicds_reusable_gate_at_main_on_dispatch_alone_with_read
     assert "  contents: read\n  pull-requests: read\n" in caller and "secrets:" not in caller
 
 
-def test_the_caller_travels_with_the_block_once_an_image_is_pinned(monkeypatch):
-    registry = {"files": [], "deletes": [], "makefile_patch": True}
+def test_the_caller_travels_with_the_block_once_an_image_is_pinned_and_the_registry_allows_it(monkeypatch):
+    registry = {"files": [], "deletes": [], "makefile_patch": True, "scan_caller": True}
     items    = ds._build_items(registry, None, {"repo": "Needless2Say/x"})
     caller   = [item for item in items if item.dest == ds.CALLER_PATH]
     assert len(caller) == 1 and caller[0].desired("anything") == ds.caller_text()
@@ -286,6 +286,16 @@ def test_the_caller_travels_with_the_block_once_an_image_is_pinned(monkeypatch):
     assert not [
         item for item in ds._build_items(registry, None, {"repo": "Needless2Say/x"}) if item.dest == ds.CALLER_PATH
     ]
+
+
+def test_the_caller_stays_out_of_the_sync_while_the_registry_grants_no_workflow_write():
+    # the ops workflows' App token holds contents and pull request writes alone, and a workflow file it cannot write
+    # aborts the whole repo's sync, so the caller arrives by a bootstrap pull request instead, Codex's step 6 read
+    registry = {"files": [], "deletes": [], "makefile_patch": True}
+    items    = ds._build_items(registry, None, {"repo": "Needless2Say/x"})
+    assert not [item for item in items if item.dest == ds.CALLER_PATH]
+    assert [item for item in items if item.dest == ds.MAKEFILE_DEST]
+    assert ds._load_registry().get("scan_caller") is False
 
 
 def test_a_present_block_is_replaced_whole_but_for_the_repos_own_lines():
@@ -425,6 +435,7 @@ def _fake_registry():
         ],
         "deletes": ["scripts/check_version.py", "scripts/bump_version.py"],
         "makefile_patch": True,
+        "scan_caller": True,
         "kdf_fmt_patch": True,
     }
 

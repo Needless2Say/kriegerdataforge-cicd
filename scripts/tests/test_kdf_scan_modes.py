@@ -22,11 +22,12 @@ from pathlib import Path
 import pytest
 from tests.scan_fakes import COMMON, GIT, commit, git, load, make_rig, makefile, write
 
-SCAN   = load("kdf_scan", COMMON / "kdf_scan.py")
-CI_YML = "jobs:\n  secret-scan:\n    with:\n      not_docs: \"README.md\"\n"
-VULN   = "eval(x)  # VULN(eval-detected)\n"
-FOLDED = "jobs:\n  s:\n    with:\n      not_docs: >-\n        a.md\n        docs/b.md\n      other: 1\n"
-CALLER = (COMMON / "kdf-scan-gate-caller.yml").read_text(encoding = "utf-8")
+SCAN          = load("kdf_scan", COMMON / "kdf_scan.py")
+CI_YML        = "jobs:\n  secret-scan:\n    with:\n      not_docs: \"README.md\"\n"
+VULN          = "eval(x)  # VULN(eval-detected)\n"
+FOLDED        = "jobs:\n  s:\n    with:\n      not_docs: >-\n        a.md\n        docs/b.md\n      other: 1\n"
+CALLER        = (COMMON / "kdf-scan-gate-caller.yml").read_text(encoding = "utf-8")
+REUSABLE_TEXT = "on:\n  workflow_call:\njobs:\n  kdf-scan-gate:\n    runs-on: ubuntu-latest\n"
 
 pytestmark = pytest.mark.skipif(GIT is None, reason = "the modes' tests need git")
 
@@ -252,15 +253,43 @@ def test_a_caller_change_with_no_canonical_hash_to_hold_it_to_fails(tmp_path: Pa
     assert code == 1, out
 
 
-def test_another_workflow_that_names_the_gate_fails_and_cicds_own_reusable_is_apart(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "text",
+    [
+        "jobs:\n  kdf-scan-gate:\n    runs-on: ubuntu-latest\n",
+        # a display name under the gate's name with another job key, and a quoted key, from Codex's step 6 read
+        "name: kdf-scan-gate\njobs:\n  other:\n    name: kdf-scan-gate\n    runs-on: ubuntu-latest\n",
+        'jobs:\n  "kdf-scan-gate":\n    runs-on: ubuntu-latest\n',
+        "jobs:\n  other:\n    name: KDF-Scan-Gate\n    runs-on: ubuntu-latest\n",
+        'jobs:\n  other:\n    name: "kdf\\x2dscan\\u002dgate"\n    runs-on: ubuntu-latest\n',
+        'jobs:\n  other:\n    name: "kdf-scan-\\\n      gate"\n    runs-on: ubuntu-latest\n',
+    ],
+)
+def test_another_workflow_that_names_the_gate_fails(tmp_path: Path, text: str) -> None:
     pull = Pull(tmp_path)
-    pull.open({".github/workflows/fake.yml": "jobs:\n  kdf-scan-gate:\n    runs-on: ubuntu-latest\n"})
+    pull.open({".github/workflows/fake.yml": text})
     code, out = pull.run()
     assert code == 1 and ".github/workflows/fake.yml names the gate" in out, out
+
+
+def test_cicds_own_reusable_workflow_is_apart_in_cicd_alone(tmp_path: Path) -> None:
     pull = Pull(tmp_path / "cicd")
-    pull.open({SCAN.REUSABLE_PATH: "on:\n  workflow_call:\njobs:\n  kdf-scan-gate:\n    runs-on: ubuntu-latest\n"})
+    pull.open({SCAN.REUSABLE_PATH: REUSABLE_TEXT})
+    buffer = io.StringIO()
+    SCAN.pr_tree(
+        pull.rig.machine(),
+        pull.bare,
+        (pull.head, pull.main, pull.merged()),
+        "",
+        buffer,
+        "Needless2Say/kriegerdataforge-cicd",
+    )
+    assert "names the gate" not in buffer.getvalue(), buffer.getvalue()
+    # in a tenant, or with no repository named, a file of that name is a lookalike like any other
+    pull = Pull(tmp_path / "tenant")
+    pull.open({SCAN.REUSABLE_PATH: REUSABLE_TEXT})
     code, out = pull.run()
-    assert "names the gate" not in out, out
+    assert code == 1 and "names the gate" in out, out
 
 # ======================================================================================================================
 # scan, a mounted working tree
@@ -346,8 +375,42 @@ def test_an_fsmonitor_in_the_repositorys_configuration_is_turned_off_and_never_r
 
 def test_an_autocrlf_git_takes_none_of_is_refused(tmp_path: Path) -> None:
     rig = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n"})
+    code, out = mounted_run(rig, mounted(rig.repo, rig.repo / ".git", rig.repo / ".git", autocrlf = "bogus"))
+    assert code == 2 and "core.autocrlf 'bogus'" in out, out
+    assert rig.calls("opengrep") == []
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("", None),
+        ("input", "input"),
+        ("Input", "input"),
+        ("true", "true"),
+        ("yes", "true"),
+        ("On", "true"),
+        ("1", "true"),
+        ("TRUE", "true"),
+        ("false", "false"),
+        ("no", "false"),
+        ("off", "false"),
+        ("0", "false"),
+    ],
+)
+def test_every_spelling_git_takes_for_autocrlf_folds_to_the_value_git_reads(value: str, expected: str | None) -> None:
+    # `yes` and its kin are git's own, so the host's git config passes them unchanged, from Codex's step 6 read
+    assert SCAN.autocrlf_value(value) == expected
+
+
+def test_a_boolean_alias_for_autocrlf_reads_a_windows_checkout_clean(tmp_path: Path) -> None:
+    rig  = make_rig(tmp_path, SCAN, {"src/app.py": "a = 1\n"})
+    file = rig.repo / "src" / "app.py"
+    file.write_bytes(b"a = 1\r\n")
+    git(rig.repo, "-c", "core.autocrlf=true", "add", "src/app.py")
+    later = file.stat().st_mtime + 60
+    os.utime(file, (later, later))
     code, out = mounted_run(rig, mounted(rig.repo, rig.repo / ".git", rig.repo / ".git", autocrlf = "yes"))
-    assert code == 2, out
+    assert code == 0 and " clean-tree " in out.splitlines()[-1], out
 
 
 def test_the_block_pinning_another_digest_than_cicds_warns(tmp_path: Path) -> None:

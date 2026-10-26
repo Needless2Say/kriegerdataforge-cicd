@@ -183,7 +183,8 @@ scan-pr: ## The local scan before a merge, PR=<number>, the weaker answer when A
 \t  "https://github.com/$$repo.git" "+refs/pull/$(PR)/head:refs/kdf/head" "+refs/heads/main:refs/kdf/main"; \\
 \t  $(KDF_SCAN_RUN) -v "$(call kdf_scan_native,$$dir/repo.git):/repo:ro" \\
 \t  -v "$(call kdf_scan_native,$(KDF_SCAN_RULES)):/rules:ro" $(KDF_SCAN_IMAGE) pr-tree --head "$$head" \\
-\t  --main "$$main" --merge-base "$$merged" --caller-sha "$(KDF_SCAN_CALLER_SHA)" || code=$$?; \\
+\t  --main "$$main" --merge-base "$$merged" --caller-sha "$(KDF_SCAN_CALLER_SHA)" --repo-name "$$repo" \\
+\t  || code=$$?; \\
 \t  rm -rf "$$dir"; exit $${{code:-0}}
 """
 # a rule whose targets name scan, alone or among others, after any spaces make allows before a rule, and not a recipe
@@ -594,8 +595,9 @@ def _build_items(registry: dict, only: str | None, entry: dict) -> list[SyncItem
     if registry.get("makefile_patch"):
         items.append(SyncItem(dest = MAKEFILE_DEST, desired = patch_makefile))
         # the gate's caller travels with the block once an image is pinned, replaced whole when it differs, so a change
-        # to it comes only from cicd (design 5.3)
-        if active_scan_image():
+        # to it comes only from cicd, and only when the registry says the credential may write workflow files, which
+        # the App token's contents and pull request grant may not, else the whole repo's sync would abort (design 5.3)
+        if registry.get("scan_caller") and active_scan_image():
             items.append(SyncItem(dest = CALLER_PATH, desired = lambda _remote, content = caller_text(): content))
     # A repo that runs no kdf-fmt lane carries no kdf-fmt.toml. patch_kdf_fmt_toml raises on a
     # missing file, which would report the whole repo as NEEDS MANUAL ATTENTION, so such an

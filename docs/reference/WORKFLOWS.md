@@ -586,8 +586,10 @@ jobs:
 
 The local code scan's gate (D-088), Opengrep over the code and zizmor over the workflows of one pull request's head,
 in `ghcr.io/needless2say/kdf-scan` by the digest written in the workflow, which `scripts/common/SCAN_IMAGE` names
-too. A caller never writes its own caller. The scripts sync writes `.github/workflows/kdf-scan-gate.yml` whole, from
-`scripts/common/kdf-scan-gate-caller.yml`, and the owner starts it on `main` at each merge attempt.
+too. A caller never writes its own caller. `.github/workflows/kdf-scan-gate.yml` is the text of
+`scripts/common/kdf-scan-gate-caller.yml`, which the scripts sync writes whole once the registry's `scan_caller` says
+its credential may write workflow files, a bootstrap pull request bringing it before, and the owner starts it on
+`main` at each merge attempt.
 
 | Input | Type | Default | Required |
 |---|---|---|---|
@@ -599,8 +601,12 @@ too. A caller never writes its own caller. The scripts sync writes `.github/work
 - **Permissions.** Workflow `{}`, the job `contents: read` and `pull-requests: read`.
 - **What it refuses.** Any event but `workflow_dispatch` and any ref but `refs/heads/main`, a pull request whose base
   is not `main`, an unpinned image, fetched ids unlike GitHub's, and a head, `main` or pin that moved during the run.
-  The scan itself runs with the network off, the root read only, no capability and a user that is not root.
-- **Consumers.** Every repo with a Makefile, once its scripts sync brings the caller. A public repo's log names rule
+  The scan itself runs with the network off, the root read only, no capability and a user that is not root. It fails
+  a pull request that changes the caller to other than the canonical text, or changes a workflow that names the gate
+  in any case or through YAML's escapes, cicd's own reusable workflow apart in cicd alone, the repository named by
+  `github.repository`. A name an expression builds at run time is beyond the text, so the owner reads the run's path
+  and event.
+- **Consumers.** Every repo with a Makefile, once its caller arrives. A public repo's log names rule
   ids and never a rule's message.
 
 ```yaml

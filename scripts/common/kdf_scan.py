@@ -214,7 +214,10 @@ UNSAFE_CONFIG = re.compile(r"(?i)(?:filter|include|includeif)\..*")
 # the gate's caller by its path in every repo, and the names of the gate a pull request's other workflows must not use
 CALLER_PATH   = ".github/workflows/kdf-scan-gate.yml"
 REUSABLE_PATH = ".github/workflows/kdf-scan-gate-reusable.yml"
-GATE_NAMES    = ("kdf-scan-gate-reusable.yml", "kdf-scan-gate:")
+GATE_NAME     = "kdf-scan-gate"
+CICD_REPO     = "needless2say/kriegerdataforge-cicd"
+# a YAML double quoted scalar's escapes and escaped line breaks, which could spell the gate's name in a display name
+YAML_ESCAPE = re.compile(r"\\(?:x([0-9A-Fa-f]{2})|u([0-9A-Fa-f]{4})|U([0-9A-Fa-f]{8})|\r?\n[ \t]*)")
 # a caller's ci.yml line naming the paths that are not docs, which the docs only answer reads at main
 NOT_DOCS = re.compile(r"(?P<indent>\s*)not_docs:\s*(?P<value>.*?)\s*")
 BASE_REF = "origin/main"
@@ -2620,11 +2623,51 @@ def load_ci_paths(files: Mapping[str, bytes]) -> types.ModuleType:
     return module
 
 
-def gate_notes(git: str, repo: Path, changed: list[str], head: str, caller_sha: str) -> list[tuple[str, str, str]]:
+def names_gate(data: bytes) -> bool:
+    """
+    Whether a workflow's text names the gate, in any case and through YAML's escapes, so a job key, a quoted key or a
+    display name under the gate's name all count. A name an expression builds at run time is beyond any reading of the
+    text, so the owner's reading of the run's path and event stays the authority (design 5.3).
+
+    Args:
+        data: the workflow's bytes
+
+    Returns:
+        bool: whether it names the gate
+    """
+    def unescape(match: re.Match[str]) -> str:
+        """
+        One escape's character, or nothing for an escaped line break.
+
+        Args:
+            match: the escape
+
+        Returns:
+            str: its character
+        """
+        digits = match.group(1) or match.group(2) or match.group(3)
+        if not digits:
+            return ""
+        code = int(digits, 16)
+        return chr(code) if code <= sys.maxunicode else ""
+
+
+    return GATE_NAME in YAML_ESCAPE.sub(unescape, data.decode("utf-8", "replace")).casefold()
+
+
+def gate_notes(
+    git: str,
+    repo: Path,
+    changed: list[str],
+    head: str,
+    caller_sha: str,
+    repo_name: str = "",
+) -> list[tuple[str, str, str]]:
     """
     A pull request's change to the gate's caller, passing and printed first when it equals the canonical caller whose
     SHA-256 the gate holds, failing otherwise, and any other workflow it changes that names the gate, failing, cicd's
-    own reusable workflow apart, which the caller names by its repo (design 5.3, Codex's revision plan read).
+    own reusable workflow apart in cicd alone, which the caller names by its repo (design 5.3, Codex's revision plan
+    read and its step 6 read).
 
     Args:
         git: git's absolute path
@@ -2632,10 +2675,12 @@ def gate_notes(git: str, repo: Path, changed: list[str], head: str, caller_sha: 
         changed: the paths the pull request changes
         head: its head
         caller_sha: the canonical caller's SHA-256
+        repo_name: the repository's owner and name as GitHub names it, empty when unknown
 
     Returns:
         list[tuple[str, str, str]]: the notes, as scan takes them
     """
+    in_cicd = repo_name.casefold() == CICD_REPO
     notes: list[tuple[str, str, str]] = []
     for path in changed:
         data = blob_at(git, repo, head, path)
@@ -2644,7 +2689,7 @@ def gate_notes(git: str, repo: Path, changed: list[str], head: str, caller_sha: 
                 notes.insert(0, ("WARN", f"{path} becomes cicd's canonical caller, read the change", "caller-changed"))
             else:
                 notes.append(("BAD", f"{path} changes to other than cicd's canonical caller", "caller-changed"))
-        elif path != REUSABLE_PATH and is_workflow(path) and data and any(name.encode() in data for name in GATE_NAMES):
+        elif (path != REUSABLE_PATH or not in_cicd) and is_workflow(path) and data and names_gate(data):
             notes.append(("BAD", f"{path} names the gate, which only the canonical caller may", "gate-named"))
     return notes
 
@@ -2655,6 +2700,7 @@ def pr_tree(
     commits: tuple[str, str, str],
     caller_sha: str,
     out: TextIO = sys.stdout,
+    repo_name: str = "",
 ) -> int:
     """
     The gate's scan, and a local --pr's, of a pull request's head fetched before the scan into a bare repository, each
@@ -2667,6 +2713,7 @@ def pr_tree(
         commits: the head, main and their merge base as GitHub named them
         caller_sha: the canonical caller's SHA-256
         out: where the report goes
+        repo_name: the repository's owner and name as GitHub names it, empty when unknown
 
     Returns:
         int: the scan's exit code, 0 for a docs only pull request, 2 for a refusal
@@ -2718,8 +2765,34 @@ def pr_tree(
             out.write(f"verify    docs only by the image's ci_paths.py, {len(changed)} paths, nothing to scan\n")
             out.write(f"kdf-scan {head[:12]} verify image {machine.image[:12]}: DOCS-ONLY (exit 0)\n")
             return 0
-    notes = tuple(gate_notes(git, repo, changed, head, caller_sha))
+    notes = tuple(gate_notes(git, repo, changed, head, caller_sha, repo_name))
     return scan(machine, repo, out = out, at_commit = head, policy_at = main, base = main, notes = notes)
+
+
+def autocrlf_value(value: str) -> str | None:
+    """
+    The host's core.autocrlf as git reads it, a boolean's every spelling folded to true or false, any case, and an
+    integer true unless zero, as git-config(1)'s "Values" says, so a value the host's git takes is never refused.
+
+    Args:
+        value: what the host's `git config core.autocrlf` printed, empty for none
+
+    Returns:
+        str | None: true, false or input, None for none
+
+    Raises:
+        Refusal: when git takes none of it
+    """
+    folded = value.strip().casefold()
+    if folded in ("", "input"):
+        return folded or None
+    if folded in ("true", "yes", "on"):
+        return "true"
+    if folded in ("false", "no", "off"):
+        return "false"
+    if re.fullmatch(r"[+-]?[0-9]+", folded):
+        return "false" if int(folded) == 0 else "true"
+    raise Refusal(f"core.autocrlf {value!r} is none git takes")
 
 
 def mounted_scan(machine: Machine, args: argparse.Namespace, out: TextIO = sys.stdout) -> int:
@@ -2736,8 +2809,10 @@ def mounted_scan(machine: Machine, args: argparse.Namespace, out: TextIO = sys.s
     Returns:
         int: the exit code
     """
-    if args.autocrlf not in ("", "true", "false", "input"):
-        out.write(f"kdf-scan  refused, core.autocrlf {args.autocrlf!r} is none git takes\n")
+    try:
+        autocrlf = autocrlf_value(args.autocrlf)
+    except Refusal as refusal:
+        out.write(f"kdf-scan  refused, {refusal}\n")
         out.write(f"kdf-scan {'-' * 12} REFUSED (exit 2)\n")
         return 2
     common, own = Path(args.common_dir), Path(args.git_dir)
@@ -2751,7 +2826,7 @@ def mounted_scan(machine: Machine, args: argparse.Namespace, out: TextIO = sys.s
     safe    = (src, args.git_dir, args.common_dir, str(machine.rules))
     view    = make_run()
     try:
-        with git_view(view, folders, safe, args.autocrlf or None):
+        with git_view(view, folders, safe, autocrlf):
             try:
                 unsafe = unsafe_config(machine.git, Path(src))
             except Refusal as refusal:
@@ -2783,7 +2858,14 @@ def fetched_scan(machine: Machine, args: argparse.Namespace, out: TextIO = sys.s
     view = make_run()
     try:
         with git_view(view, {}, (repo, str(machine.rules)), None):
-            return pr_tree(machine, Path(repo), (args.head, args.main, args.merge_base), args.caller_sha, out)
+            return pr_tree(
+                machine,
+                Path(repo),
+                (args.head, args.main, args.merge_base),
+                args.caller_sha,
+                out,
+                args.repo_name,
+            )
     finally:
         remove_run(view)
 
@@ -2827,6 +2909,7 @@ def main(argv: list[str] | None = None) -> int:
     fetched.add_argument("--main", required = True, help = "the base's main GitHub names")
     fetched.add_argument("--merge-base", required = True, help = "their merge base GitHub names")
     fetched.add_argument("--caller-sha", default = "", help = "the canonical caller's SHA-256 the gate holds")
+    fetched.add_argument("--repo-name", default = "", help = "the repository's owner and name as GitHub names it")
     each.append(fetched)
     commit = modes.add_parser("at", help = "one commit of a repository, a developer's tool and never a gate")
     commit.add_argument("--repo", default = SRC_MOUNT, help = "the repository")
