@@ -10,13 +10,13 @@ comment, read by a plain scan with the wrapper's own flags, plan step 2.
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
-from scanfix import installed, lines, make_repo, pin, scan
+from scanfix import LOCKED, installed, lines, make_repo, scan
+from tests.scan_fakes import COMMON
 
 SECRET = '"a-fixture-secret"'
 # each family's file, its fresh vulnerable lines, and the rule ids that must fail there
@@ -246,47 +246,39 @@ def test_the_two_path_rules_drop_under_tooling_folders_and_stay_under_src(tmp_pa
 
 
 def test_kdfs_own_rule_matches_each_ruleid_line_of_its_test_cases_and_no_ok_line(tmp_path: Path) -> None:
+    # the image's own Opengrep and its own copy of the rule, over the rule's test cases from this tree, which the
+    # image's allowlist leaves out
     machine = installed()
-    rules   = machine.root / "bundles" / machine.bundle / "scan_rules"
     rule_id = "kdf-python-logger-secret-value"
-    work    = tmp_path / "work"
-    (work / "rules").mkdir(parents = True)
-    (work / "tree").mkdir()
-    (work / "temp").mkdir()
-    shutil.copy(rules / f"{rule_id}.yaml", work / "rules" / f"{rule_id}.yaml")
-    shutil.copy(rules / f"{rule_id}.py", work / "tree" / "cases.py")
-    text     = (work / "tree" / "cases.py").read_text(encoding = "utf-8").splitlines()
+    tree    = tmp_path / "tree"
+    tree.mkdir()
+    shutil.copy(COMMON / "scan_rules" / f"{rule_id}.py", tree / "cases.py")
+    text     = (tree / "cases.py").read_text(encoding = "utf-8").splitlines()
     expected = {number + 1 for number, line in enumerate(text, 1) if f"ruleid: {rule_id}" in line}
     allowed  = {number + 1 for number, line in enumerate(text, 1) if f"ok: {rule_id}" in line}
     assert expected and allowed, "the test cases name no ruleid or no ok line"
-    opengrep = machine.root / "opengrep" / pin(machine, "OPENGREP_VERSION") / "opengrep.exe"
-    command  = [
-        str(opengrep),
+    command = [
+        "docker",
+        "run",
+        *LOCKED,
+        "-e",
+        "HOME=/run/kdf-scan",
+        "-e",
+        "XDG_CACHE_HOME=/run/kdf-scan/.cache",
+        "-v",
+        f"{tree}:/cases:ro",
+        "--entrypoint",
+        "/opt/kdf-scan/bin/opengrep",
+        machine.image,
         "scan",
         "--config",
-        "rules",
+        f"/opt/kdf-scan/scan_rules/{rule_id}.yaml",
         "--disable-version-check",
         "--json",
-        "--output",
-        "out.json",
-        "tree",
+        "/cases",
     ]
-    system   = os.environ.get("SYSTEMROOT", "C:\\Windows")
-    done     = subprocess.run(
-        command,
-        cwd = work,
-        capture_output = True,
-        timeout = 600,
-        check = False,
-        env = {
-            "SYSTEMROOT": system,
-            "PATH": str(Path(system) / "System32"),
-            "TEMP": str(work / "temp"),
-            "TMP": str(work / "temp"),
-            "USERPROFILE": os.environ.get("USERPROFILE", str(work)),
-        },
-    )
-    assert done.returncode == 0, done.stderr
-    found = {int(item["start"]["line"]) for item in json.loads((work / "out.json").read_text("utf-8"))["results"]}
+    done    = subprocess.run(command, capture_output = True, timeout = 600, check = False)
+    assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
+    found = {int(item["start"]["line"]) for item in json.loads(done.stdout.decode("utf-8"))["results"]}
     assert expected <= found, sorted(expected - found)
     assert not found & allowed, sorted(found & allowed)

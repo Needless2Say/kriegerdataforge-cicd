@@ -392,20 +392,38 @@ bump-major: _ensure-venv ## Bump the major version (X.0.0) -- updates VERSION
 
 ##@ Local Code Scan
 
-# The scan itself is the managed block at the end of this file, as in every repo, running the installed launcher
-# (D-085). scan-dev runs the wrapper's source in this tree under the scan folder's own Python while it is developed,
-# its last line saying bundle dev, so a pull request's pasted line always comes from `make scan`. scan-fixtures runs
-# scripts/tests/fixtures/scan against the installed tools after each owner install and at every pin move. Neither is
-# part of `make ci`, whose pytest collects no fixture_*.py.
-.PHONY: scan-dev scan-fixtures
+# The scan itself is the managed block the scripts sync writes at the end of this file once cicd pins an image, as in
+# every repo, running that image by its digest (D-085, design 5.5). scan-image builds the image from this tree as
+# kdf-scan:dev, scan-dev scans this tree with it while the wrapper is developed, its last line naming the branch's
+# commit, so a pull request's pasted line always comes from `make scan`. scan-image-fixtures runs the image's own
+# fixtures, as its build does, and scan-fixtures runs scripts/tests/fixtures/scan, Semgrep's rules among them, against
+# KDF_SCAN_FIXTURE_IMAGE, kdf-scan:dev unless named, at every pin move. None is part of `make ci`, whose pytest
+# collects no fixture_*.py, and each runs docker run inside its recipe, the owner's choice of 2026-10-26.
+.PHONY: scan-image scan-dev scan-image-fixtures scan-fixtures
 
-scan-dev: ## Local code scan from the wrapper's source in this tree, for developing it (D-085)
-	@D:/KriegerDataForge-scan/python/3.14.7/python.exe -I -S -B scripts/common/kdf_scan.py --repo .
+KDF_SCAN_FIXTURE_IMAGE ?= kdf-scan:dev
+KDF_SCAN_DEV_RULES ?= $(HOME)/.cache/kdf-scan/semgrep-rules.git
 
-scan-fixtures: _ensure-venv ## The scan's fixtures against the installed tools, after each owner install (D-085)
-	@printf "$(GREEN)Scan fixtures against the installed tools...$(NC)\n"
-	cd scripts && $(CURDIR)/$(PYTHON) -m pytest tests/fixtures/scan -o python_files="fixture_*.py" \
-		-p no:cacheprovider -rP --tb=short
+scan-image: ## Build the scan's image from this tree as kdf-scan:dev, for developing it (D-085)
+	docker build --file scripts/common/scan_build/Dockerfile --tag kdf-scan:dev \
+		--build-arg "KDF_SCAN_COMMIT=$$(git rev-parse HEAD)" scripts/common
+
+scan-dev: scan-image ## Local code scan of this tree in an image built from it, for developing the wrapper (D-085)
+	@MSYS_NO_PATHCONV=1 docker run --rm --network none --read-only --tmpfs /run/kdf-scan:exec,size=1g \
+		--cap-drop ALL --security-opt no-new-privileges --user 65532:65532 \
+		-v "$$(git rev-parse --show-toplevel):/src:ro" \
+		-v "$$(git rev-parse --path-format=absolute --git-dir):/gitdir:ro" \
+		-v "$$(git rev-parse --path-format=absolute --git-common-dir):/git:ro" \
+		-v "$$(cd "$(KDF_SCAN_DEV_RULES)" && (pwd -W 2>/dev/null || pwd)):/rules:ro" kdf-scan:dev scan \
+		--autocrlf "$$(git config core.autocrlf)"
+
+scan-image-fixtures: _ensure-venv ## The scan image's own fixtures against KDF_SCAN_FIXTURE_IMAGE, as its build runs (D-085)
+	@$(PYTHON) -I -B scripts/common/scan_build/image_fixtures.py "$(KDF_SCAN_FIXTURE_IMAGE)"
+
+scan-fixtures: _ensure-venv ## The scan's fixtures against KDF_SCAN_FIXTURE_IMAGE, at every pin move (D-085)
+	@printf "$(GREEN)Scan fixtures against $(KDF_SCAN_FIXTURE_IMAGE)...$(NC)\n"
+	cd scripts && KDF_SCAN_FIXTURE_IMAGE="$(KDF_SCAN_FIXTURE_IMAGE)" $(CURDIR)/$(PYTHON) -m pytest tests/fixtures/scan \
+		-o python_files="fixture_*.py" -p no:cacheprovider -rP --tb=short
 
 ##@ CodeQL Security Scanning
 
@@ -502,12 +520,4 @@ clean-deep: ## Deep clean including virtual environment
 	@$(MAKE) clean
 	rm -rf .venv/
 	@printf "$(GREEN)Deep cleanup complete!$(NC)\n"
-
-# >>> kdf-scan, managed by cicd's scripts sync
-# The local code scan, Opengrep over the code and zizmor over the workflows (cicd D-085).
-SCAN_EXCLUDE ?=
-.PHONY: scan
-scan: ## Local code scan, Opengrep and zizmor, before every pull request
-	@D:/KriegerDataForge-scan/python/3.14.7/python.exe -I -S -B D:/KriegerDataForge-scan/kdf-scan.py
-# <<< kdf-scan
 

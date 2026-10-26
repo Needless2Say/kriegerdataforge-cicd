@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import io
+import os
 import subprocess
 from pathlib import Path
 
@@ -52,8 +53,11 @@ class Pull:
         else:
             self.head = commit(self.rig.repo, files, "the pull request")
         if self.bare.exists():
-            subprocess.run(["git", "-C", str(self.bare), "fetch", "-q", str(self.rig.repo), "+feature:refs/kdf/head"],
-                           check = True, capture_output = True)
+            subprocess.run(
+                ["git", "-C", str(self.bare), "fetch", "-q", str(self.rig.repo), "+feature:refs/kdf/head"],
+                check = True,
+                capture_output = True,
+            )
         else:
             subprocess.run(["git", "clone", "-q", "--bare", str(self.rig.repo), str(self.bare)], check = True)
         return self.head
@@ -139,14 +143,18 @@ def test_a_replacement_ref_over_a_blob_and_a_commit_changes_nothing(tmp_path: Pa
     pull  = Pull(tmp_path)
     clean = pull.main
     head  = pull.open({"src/app.py": VULN})
-    git(pull.bare, "replace", git(pull.bare, "rev-parse", f"{head}:src/app.py"),
-        git(pull.bare, "rev-parse", f"{clean}:src/app.py"))
+    git(
+        pull.bare,
+        "replace",
+        git(pull.bare, "rev-parse", f"{head}:src/app.py"),
+        git(pull.bare, "rev-parse", f"{clean}:src/app.py"),
+    )
     code, out = pull.run()
     assert code == 1, out
 
 
 def test_a_hook_in_the_fetched_repository_never_runs(tmp_path: Path) -> None:
-    pull   = Pull(tmp_path)
+    pull = Pull(tmp_path)
     pull.open({"src/app.py": VULN})
     marker = tmp_path / "hook-ran"
     hook   = pull.bare / "hooks" / "reference-transaction"
@@ -283,9 +291,17 @@ def test_a_plain_clone_scans_through_its_named_git_folder(tmp_path: Path) -> Non
 
 
 def test_windows_line_endings_read_clean_with_the_hosts_autocrlf_and_dirty_without(tmp_path: Path) -> None:
-    rig = make_rig(tmp_path, SCAN, {"src/app.py": "a = 1\nb = 2\n"})
-    (rig.repo / "src" / "app.py").write_bytes(b"a = 1\r\nb = 2\r\n")
-    git(rig.repo, "update-index", "--refresh", check = False)
+    # a Windows checkout's index records the CRLF file's size, as Git for Windows refreshed it, and inside the
+    # container the stat data differs while the size matches, so git hashes the content and core.autocrlf decides
+    rig  = make_rig(tmp_path, SCAN, {"src/app.py": "a = 1\nb = 2\n"})
+    file = rig.repo / "src" / "app.py"
+    file.write_bytes(b"a = 1\r\nb = 2\r\n")
+    # staged as Git for Windows would, the same LF blob and the CRLF file's size in the index, since git calls a file
+    # whose size differs from its index entry changed without reading it
+    git(rig.repo, "-c", "core.autocrlf=true", "add", "src/app.py")
+    assert git(rig.repo, "rev-parse", ":src/app.py") == git(rig.repo, "rev-parse", "HEAD:src/app.py")
+    later = file.stat().st_mtime + 60
+    os.utime(file, (later, later))
     code, out = mounted_run(rig, mounted(rig.repo, rig.repo / ".git", rig.repo / ".git", autocrlf = "true"))
     assert code == 0 and " clean-tree " in out.splitlines()[-1], out
     code, out = mounted_run(rig, mounted(rig.repo, rig.repo / ".git", rig.repo / ".git"))
@@ -327,8 +343,13 @@ def test_an_autocrlf_git_takes_none_of_is_refused(tmp_path: Path) -> None:
 
 def test_the_block_pinning_another_digest_than_cicds_warns(tmp_path: Path) -> None:
     rig  = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n"})
-    args = mounted(rig.repo, rig.repo / ".git", rig.repo / ".git", pinned = "sha256:" + "a" * 64,
-                   cicd = "sha256:" + "b" * 64)
+    args = mounted(
+        rig.repo,
+        rig.repo / ".git",
+        rig.repo / ".git",
+        pinned = "sha256:" + "a" * 64,
+        cicd = "sha256:" + "b" * 64,
+    )
     code, out = mounted_run(rig, args)
     assert code == 0 and "image-behind" in out.splitlines()[-1], out
 

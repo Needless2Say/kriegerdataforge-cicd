@@ -231,8 +231,15 @@ def test_the_block_runs_cicds_image_by_its_digest_offline_read_only_and_as_no_ro
     tail = ds.scan_block_tail(ACTIVE)
     assert f"KDF_SCAN_IMAGE := {ACTIVE['image']}@{ACTIVE['digest']}\n" in tail
     assert f"KDF_SCAN_RULES_COMMIT := {ACTIVE['rules_commit']}\n" in tail
-    for flag in ("--pull never", "--network none", "--read-only", "--cap-drop ALL",
-                 "--security-opt no-new-privileges", "--user 65532:65532", "MSYS_NO_PATHCONV=1"):
+    for flag in (
+        "--pull never",
+        "--network none",
+        "--read-only",
+        "--cap-drop ALL",
+        "--security-opt no-new-privileges",
+        "--user 65532:65532",
+        "MSYS_NO_PATHCONV=1",
+    ):
         assert flag in tail, flag
     for mount in (":/src:ro", ":/gitdir:ro", ":/git:ro", ":/rules:ro", ":/repo:ro"):
         assert mount in tail, mount
@@ -243,7 +250,9 @@ def test_the_block_runs_cicds_image_by_its_digest_offline_read_only_and_as_no_ro
 
 def test_the_block_names_the_canonical_callers_sha256():
     caller = ds.caller_text()
-    assert f"KDF_SCAN_CALLER_SHA := {hashlib.sha256(caller.encode('utf-8')).hexdigest()}\n" in ds.scan_block_tail(ACTIVE)
+    assert f"KDF_SCAN_CALLER_SHA := {hashlib.sha256(caller.encode('utf-8')).hexdigest()}\n" in ds.scan_block_tail(
+        ACTIVE,
+    )
 
 
 def test_the_scans_own_tests_read_this_block():
@@ -273,8 +282,9 @@ def test_the_caller_travels_with_the_block_once_an_image_is_pinned(monkeypatch):
     caller   = [item for item in items if item.dest == ds.CALLER_PATH]
     assert len(caller) == 1 and caller[0].desired("anything") == ds.caller_text()
     monkeypatch.setattr(ds, "active_scan_image", lambda: {})
-    assert not [item for item in ds._build_items(registry, None, {"repo": "Needless2Say/x"})
-                if item.dest == ds.CALLER_PATH]
+    assert not [
+        item for item in ds._build_items(registry, None, {"repo": "Needless2Say/x"}) if item.dest == ds.CALLER_PATH
+    ]
 
 
 def test_a_present_block_is_replaced_whole_but_for_the_repos_own_lines():
@@ -426,6 +436,7 @@ def test_build_items_full_set_with_ruff():
         "scripts/check_version.py",
         "scripts/bump_version.py",
         "Makefile",
+        ".github/workflows/kdf-scan-gate.yml",
         "kdf-fmt.toml",
         "ruff.toml",
     ]

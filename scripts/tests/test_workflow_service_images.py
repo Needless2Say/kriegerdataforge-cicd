@@ -79,6 +79,13 @@ WITH_POSTGRES: tuple[str, ...] = (
 # a job's key, two spaces in
 JOB_KEY: re.Pattern[str] = re.compile(r"^  ([A-Za-z0-9_-]+):\s*$")
 
+# the local code scan's image build and gate (D-085), which build, push and run the owner's own scan image, read by a
+# rule of their own, the one image any registry reference of theirs may name, and the build's grant to push it
+SCAN_WORKFLOWS:  tuple[str, ...] = ("kdf-scan-gate-reusable.yml", "publish-scan-image.yml")
+SCAN_IMAGE_NAME: str = "ghcr.io/needless2say/kdf-scan"
+SCAN_PUBLISHER:  tuple[str, str] = ("publish-scan-image.yml", "publish")
+SCAN_REFERENCE:  re.Pattern[str] = re.compile(r"(?<![\w.-])[a-z0-9-]+(?:\.[a-z0-9-]+)+(?::\d+)?/[\w./-]+")
+
 # a grant that can write a package, a packages key whose value is not read or none, or every scope at once
 PACKAGES_KEY: re.Pattern[str] = re.compile(
     r"""(?<![\w-])["']?packages["']?\s*:\s*["']?(?P<value>[a-z-]*)""",
@@ -180,11 +187,45 @@ def _names() -> list[str]:
     return [workflow.name for workflow in sorted([*WORKFLOWS.glob("*.yml"), *WORKFLOWS.glob("*.yaml")])]
 
 
+def scan_judged(text: str) -> tuple[list[str], list[str]]:
+    """
+    The local code scan's image build or gate judged line by line (D-085). Each builds, pushes or runs the owner's own
+    scan image, so a line may name docker, an image or skopeo, and every registry reference such a line holds must be
+    that image, the gate's pulls and runs by its digest, which test_kdf_scan_image.py holds, and no line may hold an
+    escape.
+
+    Args:
+        text: A workflow file's text
+
+    Returns:
+        tuple[list[str], list[str]]: No service image, and every line that holds an escape or names another image
+    """
+    refused = []
+    for line in text.splitlines():
+        if COMMENT.match(line):
+            continue
+        if ESCAPE.search(line):
+            refused.append(line.strip())
+            continue
+        if not (NAMING.search(line) or "skopeo" in line.lower()):
+            continue
+        for reference in SCAN_REFERENCE.findall(line):
+            if not reference.startswith(SCAN_IMAGE_NAME):
+                refused.append(line.strip())
+    return [], refused
+
+
 def _workflows() -> dict[str, tuple[list[str], list[str]]]:
     """
-    Every workflow of this repo judged, by its file name, the copier by its own rule.
+    Every workflow of this repo judged, by its file name, the copier and the scan's two by their own rules.
     """
-    return {name: copier_judged(_text(name)) if name == COPIER else judged(_text(name)) for name in _names()}
+    def judge(name: str) -> tuple[list[str], list[str]]:
+        if name == COPIER:
+            return copier_judged(_text(name))
+        return scan_judged(_text(name)) if name in SCAN_WORKFLOWS else judged(_text(name))
+
+
+    return {name: judge(name) for name in _names()}
 
 
 def digest(image: str) -> str:
@@ -592,13 +633,22 @@ def test_a_checkouts_input_or_a_word_in_a_message_is_not_a_credentials_key(text)
     assert credentials_keys(text) == []
 
 
-def test_no_workflow_declares_a_grant_that_can_write_a_package_but_the_copiers_copy_job():
+def test_no_workflow_declares_a_grant_that_can_write_a_package_but_the_copier_and_the_scans_publisher():
     """
-    The one declared grant, the copier's copy job's own, which checks out nothing and runs no action.
+    The copier's copy job's own, which checks out nothing and runs no action, and the scan image's publish job's,
+    which checks out nothing and pushes the archive its build job tested (D-085).
     """
     grants = sorted((name, scope, line) for name in _names() for scope, line in package_grants(_text(name)))
 
-    assert grants == [(COPIER, "copy", "packages: write")]
+    assert grants == sorted([(COPIER, "copy", "packages: write"), (*SCAN_PUBLISHER, "packages: write")])
+
+
+def test_the_scans_rule_refuses_another_registrys_image_and_an_escape():
+    assert scan_judged("      - run: docker pull docker.io/library/python:3\n")[1]
+    assert scan_judged("      - run: skopeo copy oci-archive:x docker://ghcr.io/attacker/kdf-scan:1\n")[1]
+    assert scan_judged("      - run: echo \\x69mage\n")[1]
+    assert not scan_judged('        run: docker pull --quiet "$KDF_SCAN_IMAGE@$KDF_SCAN_DIGEST"\n')[1]
+    assert not scan_judged("  IMAGE: ghcr.io/needless2say/kdf-scan\n")[1]
 
 
 @pytest.mark.parametrize(

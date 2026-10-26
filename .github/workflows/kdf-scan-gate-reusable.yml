@@ -1,0 +1,197 @@
+# The local code scan's gate (D-085, design 5.3), called by .github/workflows/kdf-scan-gate.yml in each repo, the one
+# caller text scripts/common/kdf-scan-gate-caller.yml holds, which the owner starts on main at each merge attempt.
+# It runs in the caller's repo, so a private repo's log stays private.
+#
+# It refuses any event but workflow_dispatch and any ref but main, so it always runs main's caller and this file at
+# main, never a branch's. It asks GitHub for the pull request's head, its base's main and their merge base, refuses a
+# base other than main, fetches both into a fresh bare repository with the job's own read token, checks git's ids
+# against GitHub's, fetches Semgrep's rules at the pinned commit, and scans in the image by the digest written below,
+# with the network off, the root read only, no capability and a user that is not root, the repository and the rules
+# mounted read only and no credential. It asks GitHub again for the head, main and cicd's pin before it ends, and
+# writes the five ids to the run's summary for the owner's reading. The set below changes only in an activating pull
+# request, together with scripts/common/SCAN_IMAGE, which a test holds equal (design 5.1).
+name: kdf-scan-gate-reusable
+
+on:
+  workflow_call:
+    inputs:
+      pr:
+        description: The pull request's number
+        required: true
+        type: number
+
+permissions: {}
+
+env:
+  # the active set, unpinned until the first activation, which every run refuses
+  KDF_SCAN_IMAGE: ghcr.io/needless2say/kdf-scan
+  KDF_SCAN_DIGEST: unpinned
+  KDF_SCAN_RULES_COMMIT: unpinned
+  KDF_SCAN_CONTRACT: unpinned
+  # the canonical caller's SHA-256, a caller change equal to it passing and printed first
+  KDF_SCAN_CALLER_SHA: d816ce5c870b0d821e71587c12507dc58d9d23f09318376b0b067742ff063949
+  RULES_REPO: https://github.com/semgrep/semgrep-rules
+  CICD: Needless2Say/kriegerdataforge-cicd
+
+jobs:
+  kdf-scan-gate:
+    name: kdf-scan-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Refuse anything but a dispatch on main, and an unpinned image
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != "workflow_dispatch" ] || [ "$REF" != "refs/heads/main" ]; then
+            echo "kdf-scan-gate  refused, the gate runs on a dispatch of main alone, not $EVENT on $REF"
+            exit 1
+          fi
+          if ! printf '%s' "$KDF_SCAN_DIGEST" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+            echo "kdf-scan-gate  refused, cicd pins no image yet, $KDF_SCAN_DIGEST"
+            exit 1
+          fi
+          if ! printf '%s' "$KDF_SCAN_RULES_COMMIT" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "kdf-scan-gate  refused, cicd pins no rules commit yet"
+            exit 1
+          fi
+
+      - name: Ask GitHub for the head, main and their merge base
+        id: ask
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ inputs.pr }}
+        run: |
+          set -euo pipefail
+          head="$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha)"
+          base="$(gh api "repos/$REPO/pulls/$PR" --jq .base.ref)"
+          if [ "$base" != "main" ]; then
+            echo "kdf-scan-gate  refused, the pull request's base is $base, and the gate reads main's policy"
+            exit 1
+          fi
+          main="$(gh api "repos/$REPO/commits/main" --jq .sha)"
+          merged="$(gh api "repos/$REPO/compare/$main...$head" --jq .merge_base_commit.sha)"
+          ahead="$(gh api "repos/$REPO/compare/$main...$head" --jq .ahead_by)"
+          behind="$(gh api "repos/$REPO/compare/$main...$head" --jq .behind_by)"
+          for id in "$head" "$main" "$merged"; do
+            printf '%s' "$id" | grep -Eq '^[0-9a-f]{40}$' || { echo "kdf-scan-gate  refused, GitHub named no commit"; exit 1; }
+          done
+          printf '%s' "$ahead$behind" | grep -Eq '^[0-9]+$' || { echo "kdf-scan-gate  refused, no counts"; exit 1; }
+          cicd="$(gh api "repos/$CICD/commits/main" --jq .sha)"
+          {
+            echo "head=$head"
+            echo "main=$main"
+            echo "merged=$merged"
+            echo "ahead=$ahead"
+            echo "behind=$behind"
+            echo "cicd=$cicd"
+          } >> "$GITHUB_OUTPUT"
+          echo "kdf-scan-gate  pull request $PR head $head main $main merge base $merged, cicd's main $cicd"
+
+      - name: Fetch the head and main into a fresh bare repository
+        env:
+          TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ inputs.pr }}
+          HEAD_SHA: ${{ steps.ask.outputs.head }}
+          MAIN_SHA: ${{ steps.ask.outputs.main }}
+          MERGED: ${{ steps.ask.outputs.merged }}
+          AHEAD: ${{ steps.ask.outputs.ahead }}
+          BEHIND: ${{ steps.ask.outputs.behind }}
+        run: |
+          set -euo pipefail
+          mkdir empty-template
+          GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git init -q --bare --template=empty-template repo.git
+          header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+          fetch() {
+            GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git -C repo.git \
+              -c protocol.allow=never -c protocol.https.allow=always \
+              -c "http.https://github.com/.extraheader=$header" \
+              fetch --no-tags --quiet --no-write-fetch-head "--depth=$1" "https://github.com/$REPO.git" "$2"
+          }
+          fetch "$((AHEAD + 1))" "+refs/pull/$PR/head:refs/kdf/head"
+          fetch "$((BEHIND + 1))" "+refs/heads/main:refs/kdf/main"
+          [ "$(git -C repo.git rev-parse refs/kdf/head)" = "$HEAD_SHA" ] || { echo "kdf-scan-gate  refused, the fetched head is not GitHub's"; exit 1; }
+          [ "$(git -C repo.git rev-parse refs/kdf/main)" = "$MAIN_SHA" ] || { echo "kdf-scan-gate  refused, the fetched main is not GitHub's"; exit 1; }
+          [ "$(git -C repo.git merge-base "$MAIN_SHA" "$HEAD_SHA")" = "$MERGED" ] || { echo "kdf-scan-gate  refused, the fetch does not reach GitHub's merge base"; exit 1; }
+
+      - name: Fetch Semgrep's rules at the pinned commit
+        run: |
+          set -euo pipefail
+          GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git init -q --bare --template=empty-template rules.git
+          GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git -C rules.git \
+            fetch --no-tags --quiet --no-write-fetch-head --depth=1 "$RULES_REPO" "$KDF_SCAN_RULES_COMMIT"
+
+      - name: Scan the head in the pinned image, offline
+        id: scan
+        env:
+          HEAD_SHA: ${{ steps.ask.outputs.head }}
+          MAIN_SHA: ${{ steps.ask.outputs.main }}
+          MERGED: ${{ steps.ask.outputs.merged }}
+          VISIBILITY: ${{ github.event.repository.visibility }}
+        run: |
+          set -uo pipefail
+          docker pull --quiet "$KDF_SCAN_IMAGE@$KDF_SCAN_DIGEST"
+          image="$KDF_SCAN_IMAGE@$KDF_SCAN_DIGEST"
+          # a public repo's log names rule ids and never a rule's message (design 5.3)
+          extra=()
+          if [ "$VISIBILITY" != "private" ]; then extra+=(--public); fi
+          docker run --rm --network none --read-only --tmpfs /run/kdf-scan:exec,size=1g --cap-drop ALL \
+            --security-opt no-new-privileges --user 65532:65532 \
+            -v "$PWD/repo.git:/repo:ro" -v "$PWD/rules.git:/rules:ro" "$image" \
+            pr-tree --head "$HEAD_SHA" --main "$MAIN_SHA" --merge-base "$MERGED" \
+            --caller-sha "$KDF_SCAN_CALLER_SHA" "${extra[@]}" | tee report.txt
+          code="${PIPESTATUS[0]}"
+          label='{{ index .Config.Labels "org.opencontainers.image.revision" }}'
+          {
+            echo "code=$code"
+            echo "scanner=$(docker inspect -f "$label" "$image")"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Ask GitHub again, the head, main and cicd's pin unchanged
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ inputs.pr }}
+          HEAD_SHA: ${{ steps.ask.outputs.head }}
+          MAIN_SHA: ${{ steps.ask.outputs.main }}
+        run: |
+          set -euo pipefail
+          [ "$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha)" = "$HEAD_SHA" ] || { echo "kdf-scan-gate  the head moved during the run, start the gate again"; exit 1; }
+          [ "$(gh api "repos/$REPO/commits/main" --jq .sha)" = "$MAIN_SHA" ] || { echo "kdf-scan-gate  main moved during the run, start the gate again"; exit 1; }
+          pinned="$(gh api "repos/$CICD/contents/scripts/common/SCAN_IMAGE?ref=main" --jq .content | base64 -d | sed -n 's/^digest=//p')"
+          [ "$pinned" = "$KDF_SCAN_DIGEST" ] || { echo "kdf-scan-gate  cicd's pin moved during the run, start the gate again"; exit 1; }
+
+      - name: Write the five ids for the owner's reading, and end with the scan's code
+        if: always()
+        env:
+          HEAD_SHA: ${{ steps.ask.outputs.head }}
+          MAIN_SHA: ${{ steps.ask.outputs.main }}
+          CICD_MAIN: ${{ steps.ask.outputs.cicd }}
+          SCANNER: ${{ steps.scan.outputs.scanner }}
+          CODE: ${{ steps.scan.outputs.code }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## kdf-scan-gate"
+            echo
+            echo "| What | Value |"
+            echo "| --- | --- |"
+            echo "| Caller workflow | \`$WORKFLOW_REF\` |"
+            echo "| cicd's main when the run began | \`$CICD_MAIN\` |"
+            echo "| Head | \`$HEAD_SHA\` |"
+            echo "| Base's main, the policy | \`$MAIN_SHA\` |"
+            echo "| Image | \`$KDF_SCAN_IMAGE@$KDF_SCAN_DIGEST\` |"
+            echo "| Scanner's cicd commit | \`$SCANNER\` |"
+            echo "| Rules' commit, their digest checked inside the image | \`$KDF_SCAN_RULES_COMMIT\` |"
+            echo
+            echo "Last line, \`$(tail -n 1 report.txt 2>/dev/null || echo 'no report')\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "${CODE:-2}" = "0" ] || exit 1

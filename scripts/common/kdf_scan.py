@@ -185,8 +185,8 @@ NEUTRAL_GIT: dict[str, str] | None = None
 # the git folders a scan names explicitly, the paths git may own other than the scan's user, and the host's
 # core.autocrlf for a mounted working tree, each set by its mode (Round Table 66's L5)
 GIT_FOLDERS: dict[str, dict[str, str]] = {}
-SAFE_PATHS: tuple[str, ...] = ()
-AUTOCRLF: str | None = None
+SAFE_PATHS:  tuple[str, ...] = ()
+AUTOCRLF:    str | None = None
 # git as the image installs it
 GIT_PATH = "/usr/bin/git"
 # the read only mounts each mode reads, the working tree, a worktree's own git folder and its common one, the rules'
@@ -213,9 +213,9 @@ REUSABLE_PATH = ".github/workflows/kdf-scan-gate-reusable.yml"
 GATE_NAMES    = ("kdf-scan-gate-reusable.yml", "kdf-scan-gate:")
 # a caller's ci.yml line naming the paths that are not docs, which the docs only answer reads at main
 NOT_DOCS = re.compile(r"(?P<indent>\s*)not_docs:\s*(?P<value>.*?)\s*")
-BASE_REF    = "origin/main"
-SETUP       = "make scan-setup"
-SHOWN       = 140
+BASE_REF = "origin/main"
+SETUP    = "make scan-setup"
+SHOWN    = 140
 
 # ======================================================================================================================
 # The machine
@@ -267,8 +267,8 @@ class Machine:
     git:          str
     image:        str
     files:        Mapping[str, bytes]
-    kdf_only:     bool = False
-    public:       bool = False
+    kdf_only: bool = False
+    public:   bool = False
 
 
 def find_git() -> str:
@@ -1171,7 +1171,9 @@ def unpacked(home: Path) -> None:
         return
     folder = home / ".cache" / "opengrep"
     if not folder.is_dir() or not any(folder.rglob("*")):
-        raise ToolFailure(f"Opengrep unpacked nothing into the run's own cache, {folder}, so where it ran from is unknown")
+        raise ToolFailure(
+            f"Opengrep unpacked nothing into the run's own cache, {folder}, so where it ran from is unknown",
+        )
 
 
 def written(work: Path) -> dict[str, str]:
@@ -1990,7 +1992,7 @@ def parse_scan_image(text: str) -> dict[str, str]:
     found: dict[str, str] = {}
     for line in lines:
         key, _, value = line.partition("=")
-        key, value    = key.strip(), value.strip()
+        key, value = key.strip(), value.strip()
         if key not in SCAN_IMAGE_KEYS or key in found or not value:
             raise Refusal(f"SCAN_IMAGE holds a line it cannot take, {line[:80]!r}")
         found[key] = value
@@ -2513,8 +2515,8 @@ def git_view(
         safe: the paths git may trust though another user owns them
         autocrlf: the host's core.autocrlf, None for none
 
-    Yields:
-        None: while the view is set
+    Returns:
+        Iterator[None]: the view, set while the block runs
     """
     global NEUTRAL_GIT, GIT_FOLDERS, SAFE_PATHS, AUTOCRLF
     before = (NEUTRAL_GIT, GIT_FOLDERS, SAFE_PATHS, AUTOCRLF)
@@ -2792,7 +2794,11 @@ def main(argv: list[str] | None = None) -> int:
     tree.add_argument("--common-dir", default = GIT_MOUNT, help = "the common git folder, the same for a plain clone")
     tree.add_argument("--autocrlf", default = "", help = "the host's core.autocrlf, empty for none")
     tree.add_argument("--pinned", default = "", help = "the digest the repo's managed block pins")
-    tree.add_argument("--cicd-digest", default = "", help = "the digest a cicd clone's origin/main pins, empty for none")
+    tree.add_argument(
+        "--cicd-digest",
+        default = "",
+        help = "the digest a cicd clone's origin/main pins, empty for none",
+    )
     each.append(tree)
     fetched = modes.add_parser("pr-tree", help = "a pull request's head fetched into a bare repository, the gate's")
     fetched.add_argument("--repo", default = REPO_MOUNT, help = "the bare repository")

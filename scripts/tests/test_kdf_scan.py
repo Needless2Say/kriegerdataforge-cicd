@@ -21,22 +21,7 @@ from pathlib import Path
 
 import distribute_scripts as ds
 import pytest
-from tests.scan_fakes import (
-    COMMON,
-    GIT,
-    PYTHON,
-    ROOT,
-    commit,
-    fake_python,
-    git,
-    init_repo,
-    load,
-    make_rig,
-    makefile,
-    rule_text,
-    sha256,
-    write,
-)
+from tests.scan_fakes import COMMON, GIT, ROOT, commit, git, load, make_rig, makefile, rule_text, write
 
 SCAN = load("kdf_scan", COMMON / "kdf_scan.py")
 LAST = re.compile(
@@ -126,7 +111,11 @@ def test_each_pin_mismatch_refuses_with_exit_2_before_any_tool_runs(tmp_path: Pa
 
 
 def test_kdf_rules_alone_skip_semgreps_and_name_their_coverage_in_the_last_line(tmp_path: Path) -> None:
-    rig = make_rig(tmp_path, SCAN, {"src/app.py": "secret_value(x)  # VULN(kdf-test-rule)\neval(x)  # VULN(eval-detected)\n"})
+    rig = make_rig(
+        tmp_path,
+        SCAN,
+        {"src/app.py": "secret_value(x)  # VULN(kdf-test-rule)\neval(x)  # VULN(eval-detected)\n"},
+    )
     code, text = run(rig, machine = rig.machine(kdf_only = True, rules = tmp_path / "no-cache.git"))
     assert code == 1, text
     assert last(text)["rules"] == "kdf-only"
@@ -887,8 +876,15 @@ def test_the_pins_print_as_plain_assignments_the_images_build_reads(capsys: pyte
 
 def test_the_owners_pins_stay_one_plain_assignment_each_for_the_images_strict_pattern() -> None:
     source = (COMMON / "kdf_scan.py").read_text(encoding = "utf-8")
-    for name in ("OPENGREP_ASSET", "OPENGREP_SHA256", "ZIZMOR_WHEEL_URL", "ZIZMOR_WHEEL_SHA256", "ZIZMOR_SHA256",
-                 "COSIGN_SHA256", "COSIGN_URL"):
+    for name in (
+        "OPENGREP_ASSET",
+        "OPENGREP_SHA256",
+        "ZIZMOR_WHEEL_URL",
+        "ZIZMOR_WHEEL_SHA256",
+        "ZIZMOR_SHA256",
+        "COSIGN_SHA256",
+        "COSIGN_URL",
+    ):
         found = re.findall(rf"^{name} += \"([^\"\n]*)\"$", source, re.MULTILINE)
         assert found == [getattr(SCAN, name)], name
         assert len(re.findall(rf"^{name}\b", source, re.MULTILINE)) == 1, name
@@ -964,16 +960,33 @@ def test_kdfs_rule_patterns_holding_a_colon_and_a_space_are_quoted_so_yaml_reads
 # cicd's own targets and the fixtures, which run against the installed tools and never in make ci
 # ======================================================================================================================
 
-def test_cicds_own_makefile_holds_the_one_managed_block_the_sync_writes() -> None:
-    text = (ROOT / "Makefile").read_text(encoding = "utf-8")
-    assert text.count(SCAN.BLOCK_OPEN) == 1
-    assert ds.patch_scan_block(text) == text
-
-
-def test_scan_dev_runs_the_wrappers_source_under_the_scan_folders_own_python() -> None:
+def test_cicds_own_makefile_holds_the_block_the_sync_writes_once_an_image_is_pinned() -> None:
     text   = (ROOT / "Makefile").read_text(encoding = "utf-8")
-    recipe = text[text.index("\nscan-dev:"):].split("\n")[2]
-    assert recipe == f"\t@{ds.SCAN_PYTHON} -I -S -B scripts/common/kdf_scan.py --repo ."
+    active = ds.active_scan_image()
+    if not active:
+        assert SCAN.BLOCK_OPEN not in text and "KriegerDataForge-scan" not in text
+    else:
+        assert text.count(SCAN.BLOCK_OPEN) == 1 and ds.patch_scan_block(text, active) == text
+
+
+def test_scan_dev_runs_an_image_built_from_this_tree_locked_as_the_block_runs_it_never_in_make_ci() -> None:
+    text   = (ROOT / "Makefile").read_text(encoding = "utf-8")
+    recipe = text[text.index("\nscan-dev:"):text.index("\nscan-image-fixtures:")]
+    assert "scan-dev: scan-image" in recipe and "kdf-scan:dev scan" in recipe
+    for flag in (
+        "--network none",
+        "--read-only",
+        "--cap-drop ALL",
+        "--security-opt no-new-privileges",
+        "--user 65532:65532",
+        ":/src:ro",
+        ":/gitdir:ro",
+        ":/git:ro",
+        ":/rules:ro",
+    ):
+        assert flag in recipe, flag
+    build = text[text.index("\nscan-image:"):text.index("\nscan-dev:")]
+    assert "--file scripts/common/scan_build/Dockerfile" in build and build.rstrip().endswith("scripts/common")
     ci_line = next(line for line in text.splitlines() if line.startswith("ci: "))
     assert "scan" not in ci_line
 
@@ -989,7 +1002,6 @@ def test_the_fixtures_are_never_collected_by_the_unit_lane_and_each_imports() ->
         "fixture_coverage.py",
         "fixture_tampering.py",
         "fixture_repo.py",
-        "fixture_tools.py",
     } <= set(names)
     sys.path.insert(0, str(folder))
     try:

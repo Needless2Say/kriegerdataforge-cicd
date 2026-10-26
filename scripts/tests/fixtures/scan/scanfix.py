@@ -1,12 +1,15 @@
 """
-The harness of the local code scan's fixtures (D-085, design 5.9), run by `make scan-fixtures` against the owner's
-installed tools after each install and at every pin move, never by `make ci`, whose pytest collects no fixture_*.py.
+The harness of the local code scan's fixtures (D-085, design 5.9), run by `make scan-fixtures` against an image, the
+exact digest a pin names or `kdf-scan:dev` built from the tree, at every pin move, never by `make ci`, whose pytest
+collects no fixture_*.py.
 
 Each fixture builds a small git repo under its temp folder, its Makefile holding the managed scan block the scripts
-sync writes, its first commit as origin/main, and runs the installed launcher on it as `make scan` does, under the scan
-folder's own Python with -I, -S and -B, then reads the report and the last line. KDF_SCAN_ROOT names another scan
-folder than D:/KriegerDataForge-scan. The vulnerable files are written fresh for cicd and name rule ids alone, never
-copied from the test files of Semgrep's licensed rules, row L25.
+sync writes, its first commit as origin/main, and runs the image on it as `make scan` does, the network off, the root
+read only, no capability and a user that is not root, the working tree, its git folder and the rules' cache mounted
+read only, then reads the report and the last line. KDF_SCAN_FIXTURE_IMAGE names the image, kdf-scan:dev unless set,
+and KDF_SCAN_FIXTURE_RULES the rules' cache, the one `make scan-setup` fills unless set. The vulnerable files are
+written fresh for cicd and name rule ids alone, never copied from the test files of Semgrep's licensed rules, row L25.
+These fixtures read Semgrep's rules, so they run on the owner's machines and never in the public cicd's log.
 """
 
 from __future__ import annotations
@@ -20,14 +23,28 @@ from pathlib import Path
 
 import distribute_scripts as ds
 import pytest
-from tests.scan_fakes import commit, git, init_repo, write
+from tests.scan_fakes import ACTIVE, COMMON, commit, git, init_repo, write
 
-ROOT     = Path(os.environ.get("KDF_SCAN_ROOT", "D:/KriegerDataForge-scan"))
-BLOCK    = ds.SCAN_BLOCK_HEAD + ds.SCAN_BLOCK_TAIL
+IMAGE    = os.environ.get("KDF_SCAN_FIXTURE_IMAGE", "kdf-scan:dev")
+RULES    = Path(os.environ.get("KDF_SCAN_FIXTURE_RULES", Path.home() / ".cache" / "kdf-scan" / "semgrep-rules.git"))
 GIT      = shutil.which("git")
-VERSION  = re.compile(r'^PYTHON_VERSION += "([0-9.]+)"$', re.MULTILINE)
+DOCKER   = shutil.which("docker")
+LOCKED   = (
+    "--rm",
+    "--network",
+    "none",
+    "--read-only",
+    "--tmpfs",
+    "/run/kdf-scan:exec,size=1g",
+    "--cap-drop",
+    "ALL",
+    "--security-opt",
+    "no-new-privileges",
+    "--user",
+    "65532:65532",
+)
 LAST     = re.compile(
-    r"kdf-scan (?P<commit>\S+) (?:(?P<state>clean-tree|dirty-tree|at-commit) bundle (?P<bundle>\S+) .*? limits "
+    r"kdf-scan (?P<commit>\S+) (?:(?P<state>clean-tree|dirty-tree|at-commit) image (?P<image>\S+) .*? limits "
     r"(?P<limits>\d+)(?: marks (?P<marks>\S+))?: )?(?P<result>.+) \(exit (?P<code>\d)\)"
 )
 FAIL     = re.compile(r"^FAIL      (?P<path>\S+?):(?P<line>\d+)  (?P<rule>\S+)", re.MULTILINE)
@@ -38,7 +55,7 @@ BAD      = re.compile(r"^BAD       (?P<path>\S+?):(?P<line>\d+)  (?P<why>.+)$", 
 @dataclass
 class Result:
     """
-    One run of the installed launcher, its exit code, its whole output and its last line read.
+    One run of the image, its exit code, its whole output and its last line read.
     """
     code: int
     text: str
@@ -72,30 +89,24 @@ class Result:
 @dataclass(frozen = True)
 class Machine:
     """
-    The installed scan folder, its Python, its launcher and its current bundle.
+    The image a fixture runs and the rules' cache it mounts.
     """
-    root:   Path
-    python: Path
-    bundle: str
+    image: str
+    rules: Path
 
 
-    @property
-    def launcher(self) -> Path:
-        return self.root / "kdf-scan.py"
-
-
-def installed(root: Path = ROOT) -> Machine:
+def installed(image: str = IMAGE) -> Machine:
     """
-    The installed machine, failing the fixture run when the owner's install is not there.
+    The image under test, failing the fixture run when it is not on this machine or the rules' cache is missing.
     """
-    current = root / "current"
-    if not current.is_file():
-        pytest.fail(f"no install at {root}, the owner installs first, plan owner step 2", pytrace = False)
-    bundle = current.read_text(encoding = "ascii").strip()
-    source = (root / "bundles" / bundle / "kdf_scan.py").read_text(encoding = "utf-8")
-    found  = VERSION.search(source)
-    assert found, "the installed bundle's kdf_scan.py names no Python version"
-    return Machine(root, root / "python" / found.group(1) / "python.exe", bundle)
+    if DOCKER is None:
+        pytest.fail("no docker on this machine, the scan's one prerequisite", pytrace = False)
+    found = subprocess.run(["docker", "image", "inspect", image], capture_output = True, check = False)
+    if found.returncode != 0:
+        pytest.fail(f"no image {image}, make scan-image builds one or make scan-setup pulls the pin", pytrace = False)
+    if not RULES.is_dir():
+        pytest.fail(f"no rules' cache at {RULES}, make scan-setup fills it", pytrace = False)
+    return Machine(image, RULES)
 
 
 def lines(*parts: str) -> str:
@@ -105,13 +116,13 @@ def lines(*parts: str) -> str:
     return "\n".join(parts) + "\n"
 
 
-def pin(machine: Machine, name: str) -> str:
+def pin(name: str) -> str:
     """
-    One plain pin of the installed bundle's kdf_scan.py, as the install's strict pattern reads it.
+    One plain pin of the tree's kdf_scan.py, as the image's build reads it.
     """
-    source = (machine.root / "bundles" / machine.bundle / "kdf_scan.py").read_text(encoding = "utf-8")
-    found  = re.search(rf'^{name} += "([^"\n]+)"$', source, re.MULTILINE)
-    assert found, f"the installed bundle names no {name}"
+    source = (COMMON / "kdf_scan.py").read_text(encoding = "utf-8")
+    found  = re.search(rf'^{name} += "([^"\n]*)"$', source, re.MULTILINE)
+    assert found, f"kdf_scan.py names no {name}"
     return found.group(1)
 
 
@@ -120,7 +131,7 @@ def makefile(*own: str) -> str:
     A Makefile holding the managed block, the repo's own SCAN_EXCLUDE and SCAN_LIMIT lines inside it.
     """
     lines = "".join(f"{line}\n" for line in own)
-    return "help:\n\t@echo help\n\n" + ds.SCAN_BLOCK_HEAD + lines + ds.SCAN_BLOCK_TAIL
+    return "help:\n\t@echo help\n\n" + ds.SCAN_BLOCK_HEAD + lines + ds.scan_block_tail(ACTIVE)
 
 
 def make_repo(folder: Path, files: dict[str, str | bytes], own: tuple[str, ...] = (), base: bool = True) -> Path:
@@ -137,15 +148,34 @@ def make_repo(folder: Path, files: dict[str, str | bytes], own: tuple[str, ...] 
     return repo
 
 
+def mounts(machine: Machine, repo: Path) -> list[str]:
+    """
+    The read only mounts make scan's recipe gives the image, a plain clone's git folder as both of its folders.
+    """
+    return [
+        "-v",
+        f"{repo}:/src:ro",
+        "-v",
+        f"{repo / '.git'}:/gitdir:ro",
+        "-v",
+        f"{repo / '.git'}:/git:ro",
+        "-v",
+        f"{machine.rules}:/rules:ro",
+    ]
+
+
 def scan(machine: Machine, repo: Path, *args: str, env: dict[str, str] | None = None, timeout: int = 900) -> Result:
     """
-    The installed launcher on a repo, as the managed block's recipe runs it.
+    The image on a repo's working tree as make scan runs it, or at a commit when the arguments open with --at, with
+    each name of env set inside the container, a variable that must never reach a scanner.
     """
-    command = [str(machine.python), "-I", "-S", "-B", str(machine.launcher), "--repo", str(repo), *args]
-    done    = subprocess.run(
-        command,
-        cwd = repo,
-        env = env if env is not None else dict(os.environ),
+    named = [part for key, value in (env or {}).items() for part in ("-e", f"{key}={value}")]
+    if args[:1] == ("--at",):
+        mode = ["at", "--repo", "/src", "--at", args[1], *args[2:]]
+    else:
+        mode = ["scan", "--autocrlf", "false", *args]
+    done = subprocess.run(
+        ["docker", "run", *LOCKED, *named, *mounts(machine, repo), machine.image, *mode],
         stdout = subprocess.PIPE,
         stderr = subprocess.STDOUT,
         timeout = timeout,

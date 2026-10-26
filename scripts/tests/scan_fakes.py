@@ -1,6 +1,5 @@
 """
-Stand ins for the local code scan's tests (D-085), shared by test_kdf_scan.py, test_kdf_scan_launcher.py and
-test_kdf_scan_verify.py.
+Stand ins for the local code scan's tests (D-085), shared by test_kdf_scan.py and test_kdf_scan_modes.py.
 
 The wrapper runs each tool by an absolute path with an environment of named variables alone, so a stand in reads its
 scenario from the files it is given and from scenario.json beside itself, and logs each call to calls.jsonl beside
@@ -23,12 +22,10 @@ import types
 from dataclasses import dataclass, field
 from pathlib import Path
 
-ROOT     = Path(__file__).resolve().parents[2]
-COMMON   = ROOT / "scripts" / "common"
-GIT      = shutil.which("git")
-PYTHON   = Path(sys.executable)
-COMMIT   = "c" * 40
-EMPTY_GH = {"calls": []}
+ROOT   = Path(__file__).resolve().parents[2]
+COMMON = ROOT / "scripts" / "common"
+GIT    = shutil.which("git")
+PYTHON = Path(sys.executable)
 
 FAKE_OPENGREP = r'''
 import json
@@ -194,28 +191,6 @@ print(json.dumps(found))
 sys.exit(14 if found else 0)
 '''
 
-FAKE_GH = r'''
-import json
-import sys
-from pathlib import Path
-
-HERE     = Path(__file__).resolve().parent
-scenario = json.loads((HERE / "gh.json").read_text(encoding = "utf-8"))
-args     = sys.argv[1:]
-with open(HERE / "gh-calls.jsonl", "a", encoding = "utf-8") as log:
-    log.write(json.dumps(args) + "\n")
-endpoint = next((arg for arg in args if arg.startswith("repos/")), "")
-for prefix, answer in scenario["answers"].items():
-    if endpoint.startswith(prefix):
-        if answer is None:
-            sys.stderr.write("HTTP 404\n")
-            sys.exit(1)
-        print(json.dumps(answer))
-        sys.exit(0)
-sys.stderr.write(f"no answer for {endpoint}\n")
-sys.exit(1)
-'''
-
 # the rule files of the rig's rules clone, each id's metadata as Semgrep's rules write it
 RULES        = {
     "python/lang/security/audit/eval-detected.yaml": ("eval-detected", "security", "MEDIUM"),
@@ -274,7 +249,9 @@ def rule_text(rule_id: str, category: str, confidence: str) -> str:
 def makefile(*lines: str) -> str:
     import distribute_scripts
     own = "".join(f"{line}\n" for line in lines)
-    return "help:\n\t@echo help\n\n" + distribute_scripts.SCAN_BLOCK_HEAD + own + distribute_scripts.scan_block_tail(ACTIVE)
+    return "help:\n\t@echo help\n\n" + distribute_scripts.SCAN_BLOCK_HEAD + own + distribute_scripts.scan_block_tail(
+        ACTIVE,
+    )
 
 
 def sha256(path: Path) -> str:
@@ -391,57 +368,6 @@ class Rig:
             return []
         lines = log.read_text(encoding = "utf-8").splitlines()
         return [call for call in (json.loads(line) for line in lines) if call["tool"] == tool]
-
-
-def bundle_files() -> dict[str, bytes]:
-    """
-    A bundle's files as this source tree holds them, with the rig's KDF rule in place of KDF's own.
-    """
-    files = {name: (COMMON / name).read_bytes() for name in ("kdf_scan.py", "kdf_scan_launcher.py", "ci_paths.py")}
-    files["kdf_zizmor.yml"] = (COMMON / "kdf_zizmor.yml").read_bytes()
-    files["scan_rules/kdf-test-rule.yaml"] = KDF_RULE.encode("utf-8")
-    return files
-
-
-def install_bundle(root: Path, files: dict[str, bytes], commit: str = COMMIT, current: bool = True) -> Path:
-    """
-    Write a bundle as the install would, its files, its manifest, `current` naming it, and the launcher at the root.
-    """
-    folder = root / "bundles" / commit
-    for name, data in files.items():
-        (folder / name).parent.mkdir(parents = True, exist_ok = True)
-        (folder / name).write_bytes(data)
-    manifest = "".join(f"{hashlib.sha256(files[name]).hexdigest()}  {name}\n" for name in sorted(files))
-    (folder / "manifest.sha256").write_text(manifest, encoding = "utf-8", newline = "\n")
-    if current:
-        (root / "current").write_text(f"{commit}\n", encoding = "utf-8", newline = "\n")
-        (root / "kdf-scan.py").write_bytes(files["kdf_scan_launcher.py"])
-    return folder
-
-
-def fake_python(root: Path, version: str = "3.14.7") -> Path:
-    """
-    A stand in for the installed Python's folder, a few files and the manifest the install writes from its archive.
-    """
-    folder = root / "python" / version
-    files  = {"python.exe": b"MZ a stand in\n", "Lib/os.py": b"# os\n", "DLLs/_ssl.pyd": b"pyd\n"}
-    for name, data in files.items():
-        (folder / name).parent.mkdir(parents = True, exist_ok = True)
-        (folder / name).write_bytes(data)
-    manifest = "".join(f"{hashlib.sha256(files[name]).hexdigest()}  {name}\n" for name in sorted(files))
-    (folder / "manifest.sha256").write_text(manifest, encoding = "utf-8", newline = "\n")
-    return folder
-
-
-def platform(elevated: bool = False, uac: dict | None = None, acl: list[str] | None = None) -> types.SimpleNamespace:
-    """
-    A stand in for the launcher's Windows checks, an elevated token, UAC's values and the folder's permission.
-    """
-    return types.SimpleNamespace(
-        elevated = lambda: elevated,
-        uac = lambda: dict(uac or {}),
-        acl = lambda root: list(acl or []),
-    )
 
 
 def make_rig(tmp_path: Path, scan: types.ModuleType, files: dict[str, str | bytes] | None = None) -> Rig:

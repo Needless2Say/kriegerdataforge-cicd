@@ -174,7 +174,7 @@ scan-pr: ## The local scan before a merge, PR=<number>, the weaker answer when A
 \t@set -e; [ -n "$(PR)" ] || {{ echo "kdf-scan  make scan-pr PR=<number>"; exit 2; }}; \\
 \t  repo=$$(gh repo view --json nameWithOwner -q .nameWithOwner); \\
 \t  head=$$(gh api "repos/$$repo/pulls/$(PR)" -q .head.sha); base=$$(gh api "repos/$$repo/pulls/$(PR)" -q .base.ref); \\
-\t  [ "$$base" = main ] || {{ echo "kdf-scan  refused, the base is $$base and the scan reads main's policy"; exit 2; }}; \\
+\t  [ "$$base" = main ] || {{ echo "kdf-scan  refused, the base is $$base, the scan reads main's"; exit 2; }}; \\
 \t  main=$$(gh api "repos/$$repo/commits/main" -q .sha); \\
 \t  merged=$$(gh api "repos/$$repo/compare/$$main...$$head" -q .merge_base_commit.sha); \\
 \t  dir=$$(mktemp -d); git init -q --bare "$$dir/repo.git"; \\
