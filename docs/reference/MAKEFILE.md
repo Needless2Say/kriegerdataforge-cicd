@@ -173,7 +173,7 @@ rather than a fix for a live crash.
 
 ### Local Code Scan
 
-`scan`, `scan-setup`, `scan-pr`, `scan-image`, `scan-dev`, `scan-image-fixtures` and `scan-fixtures`, decisions
+`scan`, `scan-setup`, `scan-pr`, `scan-image`, `scan-local`, `scan-image-fixtures` and `scan-fixtures`, decisions
 D-085 and D-088. None is part of `ci`. Each runs the scan's image with `docker run` inside its recipe, the network off,
 the root read only, no capability and a user that is not root.
 
@@ -189,10 +189,10 @@ the root read only, no capability and a user that is not root.
   step that uses the network.
 - **`scan-pr`**, `PR=<number>`, fetches a pull request's head and `main` into a fresh bare repository and scans it
   offline as the gate does, the weaker answer when Actions is down.
-- **`scan-image`** builds the image from this tree as `kdf-scan:dev`, from `scripts/common/scan_build/Dockerfile`,
-  and **`scan-dev`** scans this tree with it while the wrapper is developed.
+- **`scan-image`** builds the image from this tree as `kdf-scan:local`, from `scripts/common/scan_build/Dockerfile`,
+  and **`scan-local`** scans this tree with it while the wrapper is developed.
 - **`scan-image-fixtures`** runs the image's own fixtures, as its build does, against `KDF_SCAN_FIXTURE_IMAGE`,
-  `kdf-scan:dev` unless named.
+  `kdf-scan:local` unless named.
 - **`scan-fixtures`** runs `scripts/tests/fixtures/scan/` against `KDF_SCAN_FIXTURE_IMAGE` at every pin move. Its
   files are named `fixture_*.py`, so the unit lane's pytest never collects them, and they read the rules, so they run
   on a developer's machine and never in this public repo's log.

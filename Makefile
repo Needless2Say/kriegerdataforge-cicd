@@ -394,28 +394,29 @@ bump-major: _ensure-venv ## Bump the major version (X.0.0) -- updates VERSION
 
 # The scan itself is the managed block the scripts sync writes at the end of this file once cicd pins an image, as in
 # every repo, running that image by its digest (D-085, design 5.5). scan-image builds the image from this tree as
-# kdf-scan:dev, scan-dev scans this tree with it while the wrapper is developed, its last line naming the branch's
+# kdf-scan:local, scan-local scans this tree with it while the wrapper is developed, its last line naming the branch's
 # commit, so a pull request's pasted line always comes from `make scan`. scan-image-fixtures runs the image's own
 # fixtures, as its build does, and scan-fixtures runs scripts/tests/fixtures/scan, Semgrep's rules among them, against
-# KDF_SCAN_FIXTURE_IMAGE, kdf-scan:dev unless named, at every pin move. None is part of `make ci`, whose pytest
-# collects no fixture_*.py, and each runs docker run inside its recipe, the owner's choice of 2026-10-26.
-.PHONY: scan-image scan-dev scan-image-fixtures scan-fixtures
+# KDF_SCAN_FIXTURE_IMAGE, kdf-scan:local unless named, at every pin move. None is part of `make ci`, whose pytest
+# collects no fixture_*.py, and each runs docker run inside its recipe, the owner's choice of 2026-10-26. Each name
+# keeps to the owner's three environments, local, dev and prod, the owner's word of 2026-10-26.
+.PHONY: scan-image scan-local scan-image-fixtures scan-fixtures
 
-KDF_SCAN_FIXTURE_IMAGE ?= kdf-scan:dev
-KDF_SCAN_DEV_RULES ?= $(HOME)/.cache/kdf-scan/semgrep-rules.git
+KDF_SCAN_FIXTURE_IMAGE ?= kdf-scan:local
+KDF_SCAN_LOCAL_RULES ?= $(HOME)/.cache/kdf-scan/semgrep-rules.git
 
-scan-image: ## Build the scan's image from this tree as kdf-scan:dev, for developing it (D-085)
-	docker build --file scripts/common/scan_build/Dockerfile --tag kdf-scan:dev \
+scan-image: ## Build the scan's image from this tree as kdf-scan:local, for developing it (D-085)
+	docker build --file scripts/common/scan_build/Dockerfile --tag kdf-scan:local \
 		--build-arg "KDF_SCAN_COMMIT=$$(git rev-parse HEAD)" scripts/common
 
-scan-dev: scan-image ## Local code scan of this tree in an image built from it, for developing the wrapper (D-085)
+scan-local: scan-image ## Local code scan of this tree in an image built from it, for developing the wrapper (D-085)
 	@MSYS_NO_PATHCONV=1 docker run --rm --network none --read-only \
 		--tmpfs /run/kdf-scan:exec,size=1g,uid=65532,gid=65532 \
 		--cap-drop ALL --security-opt no-new-privileges --user 65532:65532 \
 		-v "$$(git rev-parse --show-toplevel):/src:ro" \
 		-v "$$(git rev-parse --path-format=absolute --git-dir):/gitdir:ro" \
 		-v "$$(git rev-parse --path-format=absolute --git-common-dir):/git:ro" \
-		-v "$$(cd "$(KDF_SCAN_DEV_RULES)" && (pwd -W 2>/dev/null || pwd)):/rules:ro" kdf-scan:dev scan \
+		-v "$$(cd "$(KDF_SCAN_LOCAL_RULES)" && (pwd -W 2>/dev/null || pwd)):/rules:ro" kdf-scan:local scan \
 		--autocrlf "$$(git config core.autocrlf)"
 
 scan-image-fixtures: _ensure-venv ## The scan image's own fixtures against KDF_SCAN_FIXTURE_IMAGE, as its build runs (D-085)

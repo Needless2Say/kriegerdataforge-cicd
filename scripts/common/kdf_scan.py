@@ -297,13 +297,13 @@ def image_commit(root: Path = IMAGE_ROOT) -> str:
         root: the image's folder
 
     Returns:
-        str: the commit, or dev outside a built image
+        str: the commit, or local outside a built image or for one built with no commit named
     """
     try:
         named = (root / COMMIT_FILE.name).read_text(encoding = "ascii").strip()
     except (OSError, UnicodeDecodeError):
-        return "dev"
-    return named if re.fullmatch(r"[0-9a-f]{40}", named) else "dev"
+        return "local"
+    return named if re.fullmatch(r"[0-9a-f]{40}", named) else "local"
 
 
 def image_files(root: Path = IMAGE_ROOT) -> dict[str, bytes]:

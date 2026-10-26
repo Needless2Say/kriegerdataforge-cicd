@@ -968,8 +968,8 @@ def test_cicds_own_makefile_holds_the_block_the_sync_writes_once_an_image_is_pin
 
 def test_scan_dev_runs_an_image_built_from_this_tree_locked_as_the_block_runs_it_never_in_make_ci() -> None:
     text   = (ROOT / "Makefile").read_text(encoding = "utf-8")
-    recipe = text[text.index("\nscan-dev:"):text.index("\nscan-image-fixtures:")]
-    assert "scan-dev: scan-image" in recipe and "kdf-scan:dev scan" in recipe
+    recipe = text[text.index("\nscan-local:"):text.index("\nscan-image-fixtures:")]
+    assert "scan-local: scan-image" in recipe and "kdf-scan:local scan" in recipe
     for flag in (
         "--network none",
         "--read-only",
@@ -982,7 +982,7 @@ def test_scan_dev_runs_an_image_built_from_this_tree_locked_as_the_block_runs_it
         ":/rules:ro",
     ):
         assert flag in recipe, flag
-    build = text[text.index("\nscan-image:"):text.index("\nscan-dev:")]
+    build = text[text.index("\nscan-image:"):text.index("\nscan-local:")]
     assert "--file scripts/common/scan_build/Dockerfile" in build and build.rstrip().endswith("scripts/common")
     ci_line = next(line for line in text.splitlines() if line.startswith("ci: "))
     assert "scan" not in ci_line

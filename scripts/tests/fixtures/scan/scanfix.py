@@ -1,12 +1,12 @@
 """
 The harness of the local code scan's fixtures (D-085, design 5.9), run by `make scan-fixtures` against an image, the
-exact digest a pin names or `kdf-scan:dev` built from the tree, at every pin move, never by `make ci`, whose pytest
+exact digest a pin names or `kdf-scan:local` built from the tree, at every pin move, never by `make ci`, whose pytest
 collects no fixture_*.py.
 
 Each fixture builds a small git repo under its temp folder, its Makefile holding the managed scan block the scripts
 sync writes, its first commit as origin/main, and runs the image on it as `make scan` does, the network off, the root
 read only, no capability and a user that is not root, the working tree, its git folder and the rules' cache mounted
-read only, then reads the report and the last line. KDF_SCAN_FIXTURE_IMAGE names the image, kdf-scan:dev unless set,
+read only, then reads the report and the last line. KDF_SCAN_FIXTURE_IMAGE names the image, kdf-scan:local unless set,
 and KDF_SCAN_FIXTURE_RULES the rules' cache, the one `make scan-setup` fills unless set. The vulnerable files are
 written fresh for cicd and name rule ids alone, never copied from the test files of Semgrep's licensed rules, row L25.
 These fixtures read Semgrep's rules, so they run on the owner's machines and never in the public cicd's log.
@@ -25,7 +25,7 @@ import distribute_scripts as ds
 import pytest
 from tests.scan_fakes import ACTIVE, COMMON, commit, git, init_repo, write
 
-IMAGE    = os.environ.get("KDF_SCAN_FIXTURE_IMAGE", "kdf-scan:dev")
+IMAGE    = os.environ.get("KDF_SCAN_FIXTURE_IMAGE", "kdf-scan:local")
 RULES    = Path(os.environ.get("KDF_SCAN_FIXTURE_RULES", Path.home() / ".cache" / "kdf-scan" / "semgrep-rules.git"))
 GIT      = shutil.which("git")
 DOCKER   = shutil.which("docker")

@@ -1,4 +1,4 @@
-# The local code scan's image (D-085, design 5.1), built by .github/workflows/publish-scan-image.yml on main and by
+# The local code scan's image (D-088, design 5.1), built by .github/workflows/publish-scan-image.yml on main and by
 # `make scan-image` from a branch, its context scripts/common and its allowlist Dockerfile.dockerignore beside this file,
 # so nothing else of cicd can enter a layer.
 #
@@ -36,7 +36,7 @@ COPY scan_rules/ /opt/kdf-scan/scan_rules/
 
 # the cicd commit the image is built from, which the wrapper names in every last line, and the run folder the
 # container's tmpfs replaces at run time
-ARG KDF_SCAN_COMMIT=dev
+ARG KDF_SCAN_COMMIT=local
 LABEL org.opencontainers.image.revision="${KDF_SCAN_COMMIT}" \
       org.opencontainers.image.source="https://github.com/Needless2Say/kriegerdataforge-cicd" \
       org.opencontainers.image.description="The KDF local code scan, Opengrep and zizmor, cicd D-085"

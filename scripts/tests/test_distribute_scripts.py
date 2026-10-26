@@ -347,7 +347,7 @@ def test_a_scan_target_outside_the_block_is_refused(target):
 
 
 def test_targets_that_only_start_with_scan_and_a_phony_line_naming_it_are_kept():
-    extra   = (".PHONY: scan scan-dev scan-fixtures\nscan-dev: ## the wrapper from source\n\t@echo dev\n"
+    extra   = (".PHONY: scan scan-local scan-fixtures\nscan-local: ## the wrapper from source\n\t@echo local\n"
                "scan-fixtures:\n\t@echo fixtures\n\tscan: a recipe line, which its tab keeps from a rule\n"
                "SCANNER := other\n")
     patched = ds.patch_makefile(SHAPES["terraform"] + "\n" + extra)

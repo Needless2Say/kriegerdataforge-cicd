@@ -135,6 +135,6 @@ def test_a_clean_repo_ends_clean_and_names_its_commit_and_the_image(tmp_path: Pa
     result  = scan(machine, repo)
     assert result.result == "CLEAN" and result.last["code"] == "0", result.text
     assert result.last["commit"] == git(repo, "rev-parse", "HEAD")[:12]
-    assert result.last["image"] != "dev" or machine.image == "kdf-scan:dev", result.text
+    assert result.last["image"] != "local" or machine.image == "kdf-scan:local", result.text
     commit(repo, {"src/more.py": "print(2)\n"})
     assert scan(machine, repo).last["state"] == "clean-tree"

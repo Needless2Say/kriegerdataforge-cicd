@@ -187,7 +187,7 @@ scan-pr: ## The local scan before a merge, PR=<number>, the weaker answer when A
 \t  rm -rf "$$dir"; exit $${{code:-0}}
 """
 # a rule whose targets name scan, alone or among others, after any spaces make allows before a rule, and not a recipe
-# line, which a tab opens, scan-dev, scan-fixtures or a variable, grouped targets' &: read as a rule too
+# line, which a tab opens, scan-local, scan-fixtures or a variable, grouped targets' &: read as a rule too
 _SCAN_TARGET_RE = re.compile(r"^(?!\t)[ \t]*(?:[^\s#:=][^:=#]*\s+)?scan(?:\s+[^:=#&]*)?\s*&?::?(?!=)")
 # the lines of a repo's own the block keeps whole, which the wrapper itself judges
 _SCAN_OWN_LINES = ("SCAN_EXCLUDE +=", "SCAN_LIMIT")
