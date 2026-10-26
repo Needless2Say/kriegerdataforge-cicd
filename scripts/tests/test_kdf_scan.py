@@ -40,9 +40,9 @@ from tests.scan_fakes import (
 
 SCAN = load("kdf_scan", COMMON / "kdf_scan.py")
 LAST = re.compile(
-    r"kdf-scan (?P<commit>[0-9a-f]{12}) (?P<state>clean-tree|dirty-tree|at-commit) bundle (?P<bundle>\S+) "
-    r"opengrep 1\.30\.2 rules (?P<rules>[0-9a-f]{8}) zizmor 1\.30\.1 limits (?P<limits>\d+)(?: marks (?P<marks>\S+))?"
-    r": (?P<result>.+) \(exit (?P<code>\d)\)"
+    r"kdf-scan (?P<commit>[0-9a-f]{12}) (?P<state>clean-tree|dirty-tree|at-commit) image (?P<image>\S+) "
+    r"opengrep 1\.30\.2 rules (?P<rules>[0-9a-f]{8}|kdf-only) zizmor 1\.30\.1 limits (?P<limits>\d+)"
+    r"(?: marks (?P<marks>\S+))?: (?P<result>.+) \(exit (?P<code>\d)\)"
 )
 # a well formed marker accepting an eval-detected finding on its line, and the two kinds' good forms with no opener
 ACCEPT  = "  # nosemgrep: eval-detected the input is a module constant"
@@ -76,14 +76,14 @@ def last(text: str) -> re.Match[str]:
 # the last line and a clean scan
 # ======================================================================================================================
 
-def test_a_clean_repo_ends_clean_its_last_line_naming_the_commit_the_bundle_and_the_pins(tmp_path: Path) -> None:
+def test_a_clean_repo_ends_clean_its_last_line_naming_the_commit_the_image_and_the_pins(tmp_path: Path) -> None:
     rig = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n", ".github/workflows/ci.yml": "name: CI\n"})
     code, text = run(rig)
     assert code == 0, text
     match = last(text)
     assert match["commit"] == git(rig.repo, "rev-parse", "HEAD")[:12]
     assert match["state"] == "clean-tree"
-    assert match["bundle"] == "b" * 12
+    assert match["image"] == "b" * 12
     assert match["rules"] == rig.commit[:8]
     assert match["limits"] == "0" and match["marks"] is None
     assert match["result"] == "CLEAN" and match["code"] == "0"
@@ -102,17 +102,17 @@ def test_uncommitted_work_is_scanned_and_the_tree_named_dirty(tmp_path: Path) ->
 # the pins
 # ======================================================================================================================
 
-@pytest.mark.parametrize("pin", ["opengrep", "zizmor", "python-path", "digest", "commit"])
+@pytest.mark.parametrize("pin", ["opengrep", "zizmor", "empty-pin", "digest", "commit"])
 def test_each_pin_mismatch_refuses_with_exit_2_before_any_tool_runs(tmp_path: Path, pin: str) -> None:
     rig     = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n"})
     machine = rig.machine()
     if pin in ("opengrep", "zizmor"):
         tool    = getattr(machine, pin)
         machine = rig.machine(**{pin: SCAN.Tool(tool.name, tool.version, tool.path, "0" * 64, tool.command)})
-    elif pin == "python-path":
-        other = tmp_path / "python.exe"
-        other.write_bytes(PYTHON.read_bytes()[:64])
-        machine = rig.machine(python = SCAN.Tool("python", "3.14.7", other, sha256(other), (str(other),)))
+    elif pin == "empty-pin":
+        # a pin owner step 3 has not filled refuses, never a check that passes on an empty hash
+        tool    = machine.opengrep
+        machine = rig.machine(opengrep = SCAN.Tool(tool.name, tool.version, tool.path, "", tool.command))
     elif pin == "digest":
         machine = rig.machine(rules_digest = "0" * 64)
     else:
@@ -120,8 +120,34 @@ def test_each_pin_mismatch_refuses_with_exit_2_before_any_tool_runs(tmp_path: Pa
     code, text = run(rig, machine = machine)
     assert code == 2, text
     assert text.rstrip().splitlines()[-1].endswith("REFUSED (exit 2)")
-    assert "kdf-scan-install.sh" in text
+    if pin in ("digest", "commit"):
+        assert "make scan-setup" in text
     assert rig.calls("opengrep") == [] and rig.calls("zizmor") == []
+
+
+def test_kdf_rules_alone_skip_semgreps_and_name_their_coverage_in_the_last_line(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, SCAN, {"src/app.py": "secret_value(x)  # VULN(kdf-test-rule)\neval(x)  # VULN(eval-detected)\n"})
+    code, text = run(rig, machine = rig.machine(kdf_only = True, rules = tmp_path / "no-cache.git"))
+    assert code == 1, text
+    assert last(text)["rules"] == "kdf-only"
+    assert "kdf-only, Semgrep's rules not run" in text
+    assert re.search(r"FAIL\s+src/app\.py:1\s+kdf-test-rule", text) and "eval-detected" not in text
+
+
+def test_a_public_repos_log_names_rule_ids_and_never_a_message(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, SCAN, {"src/app.py": "eval(x)  # VULN(eval-detected)\nPARSE-ERROR here\n"})
+    code, text = run(rig, machine = rig.machine(public = True))
+    assert code == 4, text
+    assert re.search(r"FAIL\s+src/app\.py:1\s+eval-detected\s+its message withheld", text)
+    assert "eval-detected found here" not in text and "Syntax error" not in text and "PartialParsing" not in text
+
+
+def test_a_public_repos_tool_failure_withholds_what_opengrep_said(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n"})
+    rig.set_scenario(opengrep_json_error = "rule python.secret.rule says: never print the token")
+    code, text = run(rig, machine = rig.machine(public = True))
+    assert code == 3, text
+    assert "never print the token" not in text and "withheld from a public repo's log" in text
 
 
 def test_the_rules_are_the_pinned_commits_raw_blobs_whatever_the_clone_holds(tmp_path: Path) -> None:
@@ -170,12 +196,11 @@ def test_the_scanners_get_named_variables_alone_and_a_fresh_temp_folder_each_run
         # the stand ins are Python, which on Linux sets LC_CTYPE in its own environment when the locale is C (PEP 538),
         # so that one name, at the value Python coerces to, is the stand in's own and never the wrapper's
         names = {name for name, value in call["env"].items() if not (name == "LC_CTYPE" and "UTF-8" in value.upper())}
-        assert names <= {*SCAN.TOOL_ENVIRONMENT, "SYSTEMROOT", "PATH"}, call["env"].keys()
+        assert names <= {*SCAN.TOOL_ENVIRONMENT, "SYSTEMROOT"}, call["env"].keys()
         assert "planted" not in call["env"].values()
-        assert call["env"]["TEMP"] == call["env"]["TMP"]
-        assert not Path(call["env"]["TEMP"]).exists()
-        temps.add(call["env"]["TEMP"])
-    assert len({call["env"]["TEMP"] for call in rig.calls("opengrep")}) == 2
+        assert not Path(call["env"]["TMPDIR"]).exists()
+        temps.add(call["env"]["TMPDIR"])
+    assert len({call["env"]["TMPDIR"] for call in rig.calls("opengrep")}) == 2
     assert len(temps) >= 2
 
 
@@ -609,7 +634,7 @@ def test_a_missing_origin_main_makes_the_comparison_and_the_scan_incomplete(tmp_
 
 def test_a_change_to_the_scan_target_is_marked(tmp_path: Path) -> None:
     rig = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n"})
-    commit(rig.repo, {"Makefile": makefile().replace("kdf-scan.py", "kdf-scan.py --quiet")})
+    commit(rig.repo, {"Makefile": makefile().replace("--network none", "--network host")})
     code, text = run(rig)
     assert "target-changed" in (last(text)["marks"] or ""), text
 
@@ -689,21 +714,44 @@ def test_a_missing_object_in_a_partial_clone_is_incomplete_and_never_fetched(tmp
     assert f"?{blob}" in git(partial, "rev-list", "--objects", "--missing=print", head).split()
 
 # ======================================================================================================================
-# a bundle behind cicd's main
+# an image behind cicd's main, and cicd's active set
 # ======================================================================================================================
 
-def test_a_bundle_older_than_the_last_change_to_its_files_warns_and_names_the_install(tmp_path: Path) -> None:
-    rig   = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n"})
-    cicd  = init_repo(tmp_path / "cicd")
-    older = commit(cicd, {"scripts/common/kdf_scan.py": "one\n"})
-    newer = commit(cicd, {"scripts/common/scan_rules/x.yaml": "two\n"})
-    commit(cicd, {"README.md": "docs only\n"})
-    git(cicd, "update-ref", "refs/remotes/origin/main", "HEAD")
-    code, text = run(rig, machine = rig.machine(cicd = cicd, bundle = older))
+def test_an_image_behind_cicds_main_warns_and_marks_the_last_line_never_failing(tmp_path: Path) -> None:
+    rig     = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n"})
+    pinned  = "sha256:" + "a" * 64
+    warning = SCAN.image_behind(pinned, "sha256:" + "b" * 64)
+    assert "a sync brings it" in warning
+    code, text = run(rig, notes = (("WARN", warning, "image-behind"),))
     assert code == 0, text
-    assert "kdf-scan-install.sh" in text and "bundle-behind" in last(text)["marks"]
-    code, text = run(rig, machine = rig.machine(cicd = cicd, bundle = newer))
-    assert last(text)["marks"] is None, text
+    assert "image-behind" in last(text)["marks"] and "WARN      the block pins" in text
+    assert SCAN.image_behind(pinned, pinned) == ""
+    assert "unknown" in SCAN.image_behind(pinned, "")
+
+
+def test_a_bad_note_fails_the_scan_and_marks_the_last_line(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n"})
+    code, text = run(rig, notes = (("BAD", "a workflow names the gate", "gate-named"),))
+    assert code == 1, text
+    assert "gate-named" in last(text)["marks"] and "BAD       a workflow names the gate" in text
+
+
+def test_cicds_scan_image_set_parses_whole_or_as_the_unpinned_marker_and_refuses_anything_else() -> None:
+    good = (
+        "# a comment\nimage=ghcr.io/needless2say/kdf-scan\ndigest=sha256:" + "d" * 64 + "\ncommit=" + "c" * 40
+        + "\nrules_commit=" + "1" * 40 + "\nrules_digest=" + "e" * 64 + "\ncontract=1\n"
+    )
+    assert SCAN.parse_scan_image(good)["digest"] == "sha256:" + "d" * 64
+    assert SCAN.parse_scan_image("# before the first activation\nunpinned\n") == {}
+    for bad in (
+        good.replace("contract=1\n", ""),
+        good + "digest=sha256:" + "f" * 64 + "\n",
+        good + "other=x\n",
+        good.replace("sha256:" + "d" * 64, "latest"),
+        good.replace("commit=" + "c" * 40, "commit=main"),
+    ):
+        with pytest.raises(SCAN.Refusal):
+            SCAN.parse_scan_image(bad)
 
 # ======================================================================================================================
 # the tools failing
@@ -746,27 +794,32 @@ def test_workflows_zizmor_could_load_none_of_make_the_scan_incomplete_not_failed
 # what a run trusts while it lasts, Round Table 59
 # ======================================================================================================================
 
-def test_each_tool_gets_a_profile_of_the_runs_own_and_windows_folder_written_out(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # Opengrep unpacks its engine and Python under the profile it is given, so the session's own is never one
-    monkeypatch.setenv("USERPROFILE", str(tmp_path / "the-sessions-profile"))
+def test_each_tool_gets_a_home_and_a_cache_of_the_runs_own(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # a single file build unpacks under the cache it is given, so the caller's own is never one
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "the-callers-cache"))
     rig = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n", ".github/workflows/ci.yml": "name: CI\n"})
     assert run(rig)[0] == 0
     for call in rig.calls("opengrep") + rig.calls("zizmor"):
-        profile = Path(call["env"]["USERPROFILE"])
-        assert profile.name == "profile" and profile.parent == Path(call["env"]["TEMP"]).parent, call["env"]
-        assert call["env"]["SYSTEMROOT"] == SCAN.SYSTEM_ROOT
-        assert not profile.exists()
-    assert not (tmp_path / "the-sessions-profile").exists()
+        home = Path(call["env"]["HOME"])
+        assert home.name == "home" and home.parent == Path(call["env"]["TMPDIR"]).parent, call["env"]
+        assert Path(call["env"]["XDG_CACHE_HOME"]) == home / ".cache"
+        assert call["env"]["LANG"] == "C.UTF-8" and call["env"]["PATH"] in (SCAN.TOOL_PATH, os.environ.get("PATH"))
+        assert not home.exists()
+    assert not (tmp_path / "the-callers-cache").exists()
 
 
-def test_an_opengrep_that_unpacks_anywhere_but_the_runs_profile_ends_exit_3(tmp_path: Path) -> None:
+def test_an_opengrep_that_unpacks_anywhere_but_the_runs_cache_ends_exit_3(tmp_path: Path) -> None:
     rig = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n"})
     rig.set_scenario(opengrep_unpack_elsewhere = True)
     code, text = run(rig)
-    assert code == 3 and "unpacked nothing into the run's own profile" in text, text
+    assert code == 3 and "unpacked nothing into the run's own cache" in text, text
+
+
+def test_a_build_measured_not_to_unpack_skips_the_check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(SCAN, "OPENGREP_UNPACKS", False)
+    rig = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n"})
+    rig.set_scenario(opengrep_unpack_elsewhere = True)
+    assert run(rig)[0] == 0
 
 
 def test_a_copied_file_changed_while_the_tools_ran_ends_exit_3(tmp_path: Path) -> None:
@@ -784,45 +837,31 @@ def test_opengreps_answer_comes_from_its_stream_and_a_decoy_answer_file_changes_
     assert "--output" not in rig.calls("opengrep")[0]["args"]
 
 
-def test_a_run_folder_goes_with_its_run_and_one_an_older_run_left_is_swept(
+def test_a_run_folder_goes_with_its_run_a_read_only_file_and_all(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # the run folders live under RUN_ROOT, on D beside the workspace's scratch files where its parent is there
-    temp = tmp_path / "workspace-temp" / "kdf-scan-runs"
-    temp.mkdir(parents = True)
+    # the run folders live under RUN_ROOT, the container's tmpfs, where it is there
+    temp = tmp_path / "tmpfs"
+    temp.mkdir()
     monkeypatch.setattr(SCAN, "RUN_ROOT", temp)
-    old = time.time() - 2 * SCAN.STALE_RUNS
-    for name, marked, when in (
-        ("kdf-scan-stale", True, old),
-        ("kdf-scan-young", True, None),
-        ("kdf-scan-other", False, old),
-    ):
-        folder = temp / name
-        folder.mkdir()
-        (folder / "runtime.dll").write_bytes(b"left behind")
-        os.chmod(folder / "runtime.dll", stat.S_IREAD)
-        if marked:
-            (folder / SCAN.RUN_MARKER).write_text("1\n", encoding = "ascii")
-            if when:
-                os.utime(folder / SCAN.RUN_MARKER, (when, when))
     rig = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n"})
     assert run(rig)[0] == 0
-    assert sorted(path.name for path in temp.iterdir()) == ["kdf-scan-other", "kdf-scan-young"]
-    for name in ("kdf-scan-other", "kdf-scan-young"):
-        os.chmod(temp / name / "runtime.dll", stat.S_IWRITE)
-
-
-def test_run_folders_go_under_run_root_made_when_missing_and_to_temp_without_its_parent(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    (tmp_path / "workspace-temp").mkdir()
-    monkeypatch.setattr(SCAN, "RUN_ROOT", tmp_path / "workspace-temp" / "kdf-scan-runs")
+    assert list(temp.iterdir()) == []
     work = SCAN.make_run()
-    assert work.parent == tmp_path / "workspace-temp" / "kdf-scan-runs" and (work / SCAN.RUN_MARKER).is_file()
+    (work / "runtime.so").write_bytes(b"left behind")
+    os.chmod(work / "runtime.so", stat.S_IREAD)
     SCAN.remove_run(work)
-    monkeypatch.setattr(SCAN, "RUN_ROOT", tmp_path / "no-such-folder" / "kdf-scan-runs")
+    assert not work.exists()
+
+
+def test_run_folders_go_under_run_root_and_to_temp_without_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "tmpfs").mkdir()
+    monkeypatch.setattr(SCAN, "RUN_ROOT", tmp_path / "tmpfs")
+    work = SCAN.make_run()
+    assert work.parent == tmp_path / "tmpfs"
+    SCAN.remove_run(work)
+    monkeypatch.setattr(SCAN, "RUN_ROOT", tmp_path / "no-such-folder")
     monkeypatch.setattr(SCAN.tempfile, "tempdir", str(tmp_path / "temp"))
     (tmp_path / "temp").mkdir()
     work = SCAN.make_run()
@@ -830,39 +869,37 @@ def test_run_folders_go_under_run_root_made_when_missing_and_to_temp_without_its
     SCAN.remove_run(work)
 
 # ======================================================================================================================
-# the pins printed for the install, and kdf_zizmor.yml
+# the pins printed for the image's build, and kdf_zizmor.yml
 # ======================================================================================================================
 
-def test_the_pins_print_as_plain_assignments_the_install_reads(capsys: pytest.CaptureFixture[str]) -> None:
+def test_the_pins_print_as_plain_assignments_the_images_build_reads(capsys: pytest.CaptureFixture[str]) -> None:
     assert SCAN.main(["--pins"]) == 0
     printed = dict(line.split("=", 1) for line in capsys.readouterr().out.splitlines())
     assert printed["OPENGREP_VERSION"] == SCAN.OPENGREP_VERSION
     assert printed["OPENGREP_IDENTITY"].startswith("https://github.com/opengrep/opengrep/.github/workflows/")
-    assert printed["RULES_COMMIT"] == SCAN.RULES_COMMIT
+    assert printed["RULES_COMMIT"] == SCAN.RULES_COMMIT and printed["CONTRACT"] == SCAN.CONTRACT
     for name, value in printed.items():
-        assert re.fullmatch(r"[A-Z0-9_]+", name) and re.fullmatch(r"[A-Za-z0-9_.:/@%+=-]+", value), (name, value)
-    assert "PYTHON_SHA256" not in printed
-    assert {"ZIZMOR_WHEEL_URL", "COSIGN_VERSION", "COSIGN_URL", "COSIGN_SHA256"} <= set(printed)
-    assert {"OPENGREP_URL", "PYTHON_ARCHIVE_BASE"} <= set(printed)
+        # a pin owner step 3 has not filled prints empty, which the image's build refuses
+        assert re.fullmatch(r"[A-Z0-9_]+", name) and re.fullmatch(r"[A-Za-z0-9_.:/@%+=-]*", value), (name, value)
+    assert not [name for name in printed if name.startswith("PYTHON_")]
+    assert {"ZIZMOR_WHEEL_URL", "COSIGN_VERSION", "COSIGN_URL", "COSIGN_SHA256", "OPENGREP_URL"} <= set(printed)
 
 
-def test_the_pythons_four_pins_stay_one_plain_assignment_each_for_the_installs_pattern() -> None:
+def test_the_owners_pins_stay_one_plain_assignment_each_for_the_images_strict_pattern() -> None:
     source = (COMMON / "kdf_scan.py").read_text(encoding = "utf-8")
-    for name in ("PYTHON_VERSION", "PYTHON_BUILD", "PYTHON_ARCHIVE_SHA256", "PYTHON_ARCHIVE_BASE"):
-        found = re.findall(rf"^{name} += \"([^\"\n]+)\"$", source, re.MULTILINE)
+    for name in ("OPENGREP_ASSET", "OPENGREP_SHA256", "ZIZMOR_WHEEL_URL", "ZIZMOR_WHEEL_SHA256", "ZIZMOR_SHA256",
+                 "COSIGN_SHA256", "COSIGN_URL"):
+        found = re.findall(rf"^{name} += \"([^\"\n]*)\"$", source, re.MULTILINE)
         assert found == [getattr(SCAN, name)], name
         assert len(re.findall(rf"^{name}\b", source, re.MULTILINE)) == 1, name
 
 
-def test_the_pythons_archive_address_is_the_one_uv_0_13_1_names() -> None:
-    assert SCAN.PYTHON_ARCHIVE_URL == UV_PYTHON_URL
-    assert SCAN.PYTHON_ARCHIVE_URL.startswith(f"{SCAN.PYTHON_ARCHIVE_BASE}/{SCAN.PYTHON_BUILD}/")
-
-
-def test_opengreps_address_is_its_release_asset_whose_cert_and_sig_sit_beside_it() -> None:
+def test_opengreps_and_cosigns_addresses_are_their_linux_release_assets() -> None:
     assert SCAN.OPENGREP_URL == (
-        "https://github.com/opengrep/opengrep/releases/download/v1.30.2/opengrep_windows_x86.exe"
+        f"https://github.com/opengrep/opengrep/releases/download/v1.30.2/{SCAN.OPENGREP_ASSET}"
     )
+    assert SCAN.COSIGN_URL.endswith("/v2.6.5/cosign-linux-amd64")
+    assert "windows" not in SCAN.OPENGREP_ASSET and "win_amd64" not in SCAN.ZIZMOR_WHEEL_URL
 
 
 def test_the_rules_digest_reads_the_clone_with_the_git_it_is_given(
@@ -881,20 +918,6 @@ def test_the_rules_digest_reads_the_clone_with_the_git_it_is_given(
         assert "kdf-scan  refused" in capsys.readouterr().out
     finally:
         SCAN.RULES_COMMIT, SCAN.RULE_FOLDERS = original
-
-
-def test_the_pythons_manifest_holds_every_file_and_no_other(tmp_path: Path) -> None:
-    folder = fake_python(tmp_path)
-    assert SCAN.python_manifest(folder) == []
-    (folder / "Lib" / "extra.py").write_bytes(b"x\n")
-    (folder / "DLLs" / "_ssl.pyd").unlink()
-    (folder / "Lib" / "os.py").write_bytes(b"# changed\n")
-    problems = SCAN.python_manifest(folder)
-    assert any("Lib/extra.py is not in the manifest" in line for line in problems)
-    assert any("DLLs/_ssl.pyd is missing" in line for line in problems)
-    assert any("Lib/os.py differs" in line for line in problems)
-    (folder / "manifest.sha256").unlink()
-    assert SCAN.python_manifest(folder)
 
 
 def _yaml_keys(text: str) -> list[tuple[int, str, str]]:

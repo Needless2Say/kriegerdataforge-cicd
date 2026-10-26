@@ -1,0 +1,6 @@
+# The local code scan's active image (D-085), the one set an activating pull request names, its image, its digest,
+# the cicd commit it was built from, the rules it expects and its invocation contract, each `key=value` once. A source
+# change publishes an image and leaves this as it stands, and a later pull request names the published digest here and
+# in .github/workflows/kdf-scan-gate-reusable.yml together, checked against its attestation, so an old image is never
+# called with a new contract. Until the first activation it holds the unpinned marker alone, which every run refuses.
+unpinned

@@ -43,11 +43,12 @@ scenario = json.loads(SCENARIO.read_text(encoding = "utf-8")) if SCENARIO.exists
 args     = sys.argv[1:]
 with open(HERE / "calls.jsonl", "a", encoding = "utf-8") as log:
     log.write(json.dumps({"tool": "opengrep", "args": args, "cwd": os.getcwd(), "env": dict(os.environ)}) + "\n")
-# the real one unpacks its runtime under %USERPROFILE%\AppData\Local\opengrep\<version>, measured on 2026-10-22
-unpack = Path(os.environ.get("USERPROFILE", "no-profile")) / "AppData" / "Local" / "opengrep" / "v1.30.2"
+# the real Windows one unpacks its runtime under the profile, measured on 2026-10-22, and the Linux one is held to
+# unpack under the cache until the image's first build measures it
+unpack = Path(os.environ.get("XDG_CACHE_HOME", "no-cache")) / "opengrep" / "v1.30.2"
 if not scenario.get("opengrep_unpack_elsewhere") and unpack.parent.parent.is_dir():
     unpack.mkdir(parents = True, exist_ok = True)
-    (unpack / "python313.dll").write_bytes(b"a stand in's runtime")
+    (unpack / "libpython3.13.so").write_bytes(b"a stand in's runtime")
 if scenario.get("opengrep_json_error"):
     print(json.dumps({"errors": [{"message": scenario["opengrep_json_error"]}]}))
     sys.exit(7)
@@ -252,14 +253,15 @@ KDF_RULE     = """rules:
   pattern: secret_value($X)
 """
 
-BLOCK = """# >>> kdf-scan, managed by cicd's scripts sync
-# The local code scan, Opengrep over the code and zizmor over the workflows (cicd D-085).
-SCAN_EXCLUDE ?=
-{lines}.PHONY: scan
-scan: ## Local code scan, Opengrep and zizmor, before every pull request
-\t@D:/KriegerDataForge-scan/python/3.14.7/python.exe -I -S -B D:/KriegerDataForge-scan/kdf-scan.py
-# <<< kdf-scan
-"""
+# the active set the rig's Makefiles name, so the scan's tests read the block the scripts sync writes
+ACTIVE = {
+    "image": "ghcr.io/needless2say/kdf-scan",
+    "digest": "sha256:" + "d" * 64,
+    "commit": "c" * 40,
+    "rules_commit": "1" * 40,
+    "rules_digest": "e" * 64,
+    "contract": "1",
+}
 
 
 def rule_text(rule_id: str, category: str, confidence: str) -> str:
@@ -270,7 +272,9 @@ def rule_text(rule_id: str, category: str, confidence: str) -> str:
 
 
 def makefile(*lines: str) -> str:
-    return "help:\n\t@echo help\n\n" + BLOCK.format(lines = "".join(f"{line}\n" for line in lines))
+    import distribute_scripts
+    own = "".join(f"{line}\n" for line in lines)
+    return "help:\n\t@echo help\n\n" + distribute_scripts.SCAN_BLOCK_HEAD + own + distribute_scripts.scan_block_tail(ACTIVE)
 
 
 def sha256(path: Path) -> str:
@@ -347,7 +351,6 @@ class Rig:
     repo:      Path
     scan:      types.ModuleType
     files:    dict[str, bytes] = field(default_factory = dict)
-    cicd:     Path | None = None
     scenario: dict = field(default_factory = dict)
 
 
@@ -357,7 +360,7 @@ class Rig:
 
     def machine_for(self, module: types.ModuleType, **changes: object) -> object:
         """
-        The rig's machine built from a given wrapper module, the one a launcher loaded from its bundle among them.
+        The rig's machine built from a given wrapper module.
         """
         opengrep = self.tools / "opengrep.py"
         zizmor   = self.tools / "zizmor.py"
@@ -365,15 +368,13 @@ class Rig:
             "root": self.base,
             "opengrep": module.Tool("opengrep", "1.30.2", opengrep, sha256(opengrep), (str(PYTHON), str(opengrep))),
             "zizmor": module.Tool("zizmor", "1.30.1", zizmor, sha256(zizmor), (str(PYTHON), str(zizmor))),
-            "python": module.Tool("python", "3.14.7", PYTHON, sha256(PYTHON), (str(PYTHON),)),
             "rules": self.rules,
             "rules_commit": self.commit,
             "rules_digest": self.digest,
             "rule_folders": RULE_FOLDERS,
             "git": GIT,
-            "bundle": "b" * 40,
+            "image": "b" * 40,
             "files": self.files,
-            "cicd": self.cicd,
         }
         values.update(changes)
         return module.Machine(**values)
@@ -459,6 +460,7 @@ def make_rig(tmp_path: Path, scan: types.ModuleType, files: dict[str, str | byte
     digest       = scan.rules_digest(scan.rule_files(GIT, rules, rules_commit, RULE_FOLDERS))
     bundle       = {
         "kdf_zizmor.yml": (COMMON / "kdf_zizmor.yml").read_bytes(),
+        "ci_paths.py": (COMMON / "ci_paths.py").read_bytes(),
         "scan_rules/kdf-test-rule.yaml": KDF_RULE.encode("utf-8"),
     }
     repo         = init_repo(tmp_path / "repo")

@@ -19,8 +19,11 @@ Synced items (per repo, from the registry):
     `ci-version-check:` recipe block is re-asserted to the canonical thin call, and the
     managed `scan` block of the local code scan (D-085) is written between its two marker
     lines, inserted when absent and replaced whole but for the repo's own SCAN_EXCLUDE and
-    SCAN_LIMIT lines. Idempotent; a Makefile without the target, with two scan blocks or
-    with a `scan` target outside the block raises PatchError -> NEEDS MANUAL ATTENTION.
+    SCAN_LIMIT lines, naming the image common/SCAN_IMAGE pins and left alone while it pins
+    none. Idempotent; a Makefile without the target, with two scan blocks or with a `scan`
+    target outside the block raises PatchError -> NEEDS MANUAL ATTENTION.
+  - .github/workflows/kdf-scan-gate.yml: the gate's caller, common/kdf-scan-gate-caller.yml
+    whole, once an image is pinned, so a change to it comes only from cicd (design 5.3).
   - kdf-fmt.toml ("kdf_fmt_patch"): appends "scripts/kdf_scripts/" to the top-level
     `exclude` list (creating the key before the first TOML table when absent). A repo
     entry with "skip_kdf_fmt": true has no style lane and carries no kdf-fmt.toml, so the
@@ -59,6 +62,7 @@ from __future__ import annotations
 
 # standard imports
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -67,7 +71,7 @@ from pathlib import Path
 
 # third party imports
 # local imports — the shared sync engine (transport, retry session, fan-out loops), and the scan's markers and pins
-from common.kdf_scan import BLOCK_CLOSE, BLOCK_OPEN, PYTHON_VERSION, SCAN_ROOT
+from common.kdf_scan import BLOCK_CLOSE, BLOCK_OPEN, CALLER_PATH, RULES_REPO, Refusal, parse_scan_image
 from common.repo_sync import PatchError, SyncItem, _select_repos, run_check, run_distribute
 
 # ======================================================================================================================
@@ -129,22 +133,58 @@ _RECIPE_RE = re.compile(r"^ci-version-check:[^\n]*\n(?:\t[^\n]*\n)*", re.MULTILI
 # so a naive replace would double-nest the path on every re-run.
 _PATH_REWRITE_RE = re.compile(r"(?<!kdf_)scripts/(check_version|bump_version|version_targets)\.py")
 
-# the managed scan block every repo's Makefile holds between its two markers (D-085, design 5.5). Its recipe runs the
-# scan folder's own Python, isolated and writing no bytecode, on the installed launcher, so no repo venv and no file a
-# branch can edit runs. A repo's own SCAN_EXCLUDE and SCAN_LIMIT lines sit between the head and the tail, the wrapper
-# reading them from the block itself, and its Python's path moves with the Python's pin by this Distribute.
-SCAN_PYTHON     = f"{SCAN_ROOT.as_posix()}/python/{PYTHON_VERSION}/python.exe"
+# cicd's active scan image, the set an activating pull request names (design 5.1), and the gate's caller, one text for
+# every repo, which this Distribute writes beside the block once an image is pinned (design 5.3)
+SCAN_IMAGE_FILE = SCRIPTS_DIR / "common" / "SCAN_IMAGE"
+CALLER_SOURCE   = SCRIPTS_DIR / "common" / "kdf-scan-gate-caller.yml"
+# the managed scan block every repo's Makefile holds between its two markers (D-085, design 5.5). Its recipe runs
+# cicd's image by its digest with the network off, the root read only, no capability and a user that is not root, the
+# working tree, its git folders and the rules' cache mounted read only, each path as git itself names it, so Git Bash
+# gives a native one. A repo's own SCAN_EXCLUDE and SCAN_LIMIT lines sit between the head and the tail, the wrapper
+# reading them from the block itself, and the digest moves with each activation by this Distribute.
 SCAN_BLOCK_HEAD = (
     f"{BLOCK_OPEN}\n"
-    "# The local code scan, Opengrep over the code and zizmor over the workflows (cicd D-085).\n"
+    "# The local code scan, Opengrep and zizmor in cicd's image by its digest, a check against accidents and branch\n"
+    "# edits, never the gate, which runs from main (cicd D-085).\n"
     "SCAN_EXCLUDE ?=\n"
 )
-SCAN_BLOCK_TAIL = (
-    ".PHONY: scan\n"
-    "scan: ## Local code scan, Opengrep and zizmor, before every pull request\n"
-    f"\t@{SCAN_PYTHON} -I -S -B {SCAN_ROOT.as_posix()}/kdf-scan.py\n"
-    f"{BLOCK_CLOSE}\n"
-)
+SCAN_BLOCK_TAIL = """\
+KDF_SCAN_IMAGE := {image}@{digest}
+KDF_SCAN_RULES_COMMIT := {rules_commit}
+KDF_SCAN_CALLER_SHA := {caller_sha}
+KDF_SCAN_ENGINE ?= docker
+KDF_SCAN_RULES ?= $(HOME)/.cache/kdf-scan/semgrep-rules.git
+kdf_scan_native = $$(cd "$(1)" && (pwd -W 2>/dev/null || pwd))
+KDF_SCAN_RUN = MSYS_NO_PATHCONV=1 $(KDF_SCAN_ENGINE) run --rm --pull never --network none --read-only \\
+  --tmpfs /run/kdf-scan:exec,size=1g --cap-drop ALL --security-opt no-new-privileges --user 65532:65532
+.PHONY: scan scan-setup scan-pr
+scan: ## Local code scan in cicd's image, before every pull request, never the gate
+\t@$(KDF_SCAN_RUN) -v "$$(git rev-parse --show-toplevel):/src:ro" \\
+\t  -v "$$(git rev-parse --path-format=absolute --git-dir):/gitdir:ro" \\
+\t  -v "$$(git rev-parse --path-format=absolute --git-common-dir):/git:ro" \\
+\t  -v "$(call kdf_scan_native,$(KDF_SCAN_RULES)):/rules:ro" $(KDF_SCAN_IMAGE) scan \\
+\t  --autocrlf "$$(git config core.autocrlf)" --pinned "{digest}" \\
+\t  --cicd-digest "$$(git -C ../kriegerdataforge-cicd show origin/main:scripts/common/SCAN_IMAGE 2>/dev/null \\
+\t  | sed -n 's/^digest=//p')"
+scan-setup: ## Pull cicd's scan image and fetch Semgrep's rules into the cache, the one step that uses the network
+\t@$(KDF_SCAN_ENGINE) pull $(KDF_SCAN_IMAGE)
+\t@[ -d "$(KDF_SCAN_RULES)" ] || git init -q --bare "$(KDF_SCAN_RULES)"
+\t@git -C "$(KDF_SCAN_RULES)" fetch -q --no-tags --depth 1 {rules_repo} $(KDF_SCAN_RULES_COMMIT)
+scan-pr: ## The local scan before a merge, PR=<number>, the weaker answer when Actions is down
+\t@set -e; [ -n "$(PR)" ] || {{ echo "kdf-scan  make scan-pr PR=<number>"; exit 2; }}; \\
+\t  repo=$$(gh repo view --json nameWithOwner -q .nameWithOwner); \\
+\t  head=$$(gh api "repos/$$repo/pulls/$(PR)" -q .head.sha); base=$$(gh api "repos/$$repo/pulls/$(PR)" -q .base.ref); \\
+\t  [ "$$base" = main ] || {{ echo "kdf-scan  refused, the base is $$base and the scan reads main's policy"; exit 2; }}; \\
+\t  main=$$(gh api "repos/$$repo/commits/main" -q .sha); \\
+\t  merged=$$(gh api "repos/$$repo/compare/$$main...$$head" -q .merge_base_commit.sha); \\
+\t  dir=$$(mktemp -d); git init -q --bare "$$dir/repo.git"; \\
+\t  git -C "$$dir/repo.git" -c credential.helper= -c 'credential.helper=!gh auth git-credential' fetch -q --no-tags \\
+\t  "https://github.com/$$repo.git" "+refs/pull/$(PR)/head:refs/kdf/head" "+refs/heads/main:refs/kdf/main"; \\
+\t  $(KDF_SCAN_RUN) -v "$(call kdf_scan_native,$$dir/repo.git):/repo:ro" \\
+\t  -v "$(call kdf_scan_native,$(KDF_SCAN_RULES)):/rules:ro" $(KDF_SCAN_IMAGE) pr-tree --head "$$head" \\
+\t  --main "$$main" --merge-base "$$merged" --caller-sha "$(KDF_SCAN_CALLER_SHA)" || code=$$?; \\
+\t  rm -rf "$$dir"; exit $${{code:-0}}
+"""
 # a rule whose targets name scan, alone or among others, after any spaces make allows before a rule, and not a recipe
 # line, which a tab opens, scan-dev, scan-fixtures or a variable, grouped targets' &: read as a rule too
 _SCAN_TARGET_RE = re.compile(r"^(?!\t)[ \t]*(?:[^\s#:=][^:=#]*\s+)?scan(?:\s+[^:=#&]*)?\s*&?::?(?!=)")
@@ -241,14 +281,60 @@ def patch_makefile(text: str | None) -> str:
     return patch_scan_block(_RECIPE_RE.sub(lambda _match: CANONICAL_RECIPE, rewritten, count = 1))
 
 
-def patch_scan_block(text: str) -> str:
+def active_scan_image() -> dict[str, str]:
+    """
+    cicd's active scan image as SCAN_IMAGE names it, empty before the first activation.
+
+    Returns:
+        dict[str, str]: the active set, empty while unpinned
+
+    Raises:
+        PatchError: when SCAN_IMAGE is missing or malformed
+    """
+    try:
+        return parse_scan_image(SCAN_IMAGE_FILE.read_text(encoding = "utf-8"))
+    except (OSError, Refusal) as error:
+        raise PatchError(f"cicd's SCAN_IMAGE cannot be read, {error}") from error
+
+
+def caller_text() -> str:
+    """
+    The gate's caller as cicd keeps it, the one text every repo holds.
+
+    Returns:
+        str: the caller
+    """
+    return CALLER_SOURCE.read_text(encoding = "utf-8").replace("\r\n", "\n")
+
+
+def scan_block_tail(active: dict[str, str]) -> str:
+    """
+    The block's tail for the active set, its digest, the rules' commit and the canonical caller's SHA-256.
+
+    Args:
+        active: the active set
+
+    Returns:
+        str: the tail
+    """
+    return SCAN_BLOCK_TAIL.format(
+        image = active["image"],
+        digest = active["digest"],
+        rules_commit = active["rules_commit"],
+        rules_repo = RULES_REPO,
+        caller_sha = hashlib.sha256(caller_text().encode("utf-8")).hexdigest(),
+    ) + f"{BLOCK_CLOSE}\n"
+
+
+def patch_scan_block(text: str, active: dict[str, str] | None = None) -> str:
     """
     Write the managed scan block, inserted at the end when absent and replaced whole when present, the repo's own
-    SCAN_EXCLUDE and SCAN_LIMIT lines kept as they stand (D-085, design 5.5). Idempotent, since the block it writes is
-    the block it reads.
+    SCAN_EXCLUDE and SCAN_LIMIT lines kept as they stand (D-085, design 5.5), and leave the Makefile as it stands while
+    cicd pins no image. Idempotent, since the block it writes is the block it reads.
 
     Args:
         text: a Makefile's content with LF endings
+        active: the active set, cicd's SCAN_IMAGE when None
 
     Returns:
         str: the content with the canonical block
@@ -256,6 +342,9 @@ def patch_scan_block(text: str) -> str:
     Raises:
         PatchError: when the Makefile holds two blocks, an unclosed one, a stray close, or a scan target outside it
     """
+    active = active_scan_image() if active is None else active
+    if not active:
+        return text
     lines  = text.split("\n")
     opened = [index for index, line in enumerate(lines) if line.rstrip() == BLOCK_OPEN]
     closed = [index for index, line in enumerate(lines) if line.rstrip() == BLOCK_CLOSE]
@@ -268,7 +357,7 @@ def patch_scan_block(text: str) -> str:
     if any(_SCAN_TARGET_RE.match(line) for line in outside):
         raise PatchError("the Makefile holds a scan target outside the managed block, which the block would shadow")
     own   = "".join(f"{line.rstrip()}\n" for line in inside if line.startswith(_SCAN_OWN_LINES))
-    block = SCAN_BLOCK_HEAD + own + SCAN_BLOCK_TAIL
+    block = SCAN_BLOCK_HEAD + own + scan_block_tail(active)
     if not opened:
         body = text.rstrip("\n")
         return f"{body}\n\n{block}" if body else block
@@ -503,6 +592,10 @@ def _build_items(registry: dict, only: str | None, entry: dict) -> list[SyncItem
         items.append(SyncItem(dest = stale, desired = None))
     if registry.get("makefile_patch"):
         items.append(SyncItem(dest = MAKEFILE_DEST, desired = patch_makefile))
+        # the gate's caller travels with the block once an image is pinned, replaced whole when it differs, so a change
+        # to it comes only from cicd (design 5.3)
+        if active_scan_image():
+            items.append(SyncItem(dest = CALLER_PATH, desired = lambda _remote, content = caller_text(): content))
     # A repo that runs no kdf-fmt lane carries no kdf-fmt.toml. patch_kdf_fmt_toml raises on a
     # missing file, which would report the whole repo as NEEDS MANUAL ATTENTION, so such an
     # entry opts out. Its vendored scripts are still styled here, in the repo that ships them.

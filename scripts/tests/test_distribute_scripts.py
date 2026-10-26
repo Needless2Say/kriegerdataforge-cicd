@@ -7,14 +7,26 @@ Network-touching flows are covered in test_repo_sync.py.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from unittest.mock import patch
 
 import distribute_scripts as ds
 import pytest
-from common.kdf_scan import BLOCK_CLOSE, BLOCK_OPEN, PYTHON_VERSION, parse_policy
+from common.kdf_scan import BLOCK_CLOSE, BLOCK_OPEN, RULES_COMMIT, parse_policy, parse_scan_image
 from common.repo_sync import PatchError
-from tests.scan_fakes import BLOCK as SCAN_TEST_BLOCK
+from tests.scan_fakes import ACTIVE as SCAN_ACTIVE
+from tests.scan_fakes import makefile
+
+# an active set as an activating pull request writes it, for the block's tests
+ACTIVE = {
+    "image": "ghcr.io/needless2say/kdf-scan",
+    "digest": "sha256:" + "d" * 64,
+    "commit": "c" * 40,
+    "rules_commit": RULES_COMMIT,
+    "rules_digest": "e" * 64,
+    "contract": "1",
+}
 
 # ── Makefile fixtures ────────────────────────────────────────────────────────
 # The post-1.0.x state every repo is in today: canonical recipe + flat script paths.
@@ -198,27 +210,71 @@ def test_canonical_recipe_uses_vendor_dir_paths():
 
 
 # ── the managed scan block (D-085) ───────────────────────────────────────────
+@pytest.fixture(autouse = True)
+def _an_active_image(monkeypatch):
+    # every test sees one active image unless it names another, since SCAN_IMAGE holds the unpinned marker until A3
+    monkeypatch.setattr(ds, "active_scan_image", lambda: dict(ACTIVE))
+
+
 @pytest.mark.parametrize("shape", sorted(SHAPES))
 def test_an_absent_scan_block_is_inserted_at_the_end_of_each_repo_shape(shape):
     patched = ds.patch_makefile(SHAPES[shape])
     assert patched.count(BLOCK_OPEN) == 1 and patched.count(BLOCK_CLOSE) == 1
-    assert patched.endswith(ds.SCAN_BLOCK_HEAD + ds.SCAN_BLOCK_TAIL)
+    assert patched.endswith(ds.SCAN_BLOCK_HEAD + ds.scan_block_tail(ACTIVE))
     assert "\n\n" + BLOCK_OPEN in patched
     policy = parse_policy(patched)
     assert policy.excludes == () and policy.limits == ()
     assert patched.startswith(SHAPES[shape].rstrip("\n") + "\n")
 
 
-def test_the_block_runs_the_pinned_python_on_the_launcher_isolated_and_writing_no_bytecode():
-    python = f"D:/KriegerDataForge-scan/python/{PYTHON_VERSION}/python.exe"
-    assert f"\t@{python} -I -S -B D:/KriegerDataForge-scan/kdf-scan.py\n" in ds.SCAN_BLOCK_TAIL
-    assert ds.SCAN_BLOCK_HEAD.startswith(BLOCK_OPEN + "\n")
-    assert ds.SCAN_BLOCK_TAIL.endswith(BLOCK_CLOSE + "\n")
-    assert "_ensure-venv" not in ds.SCAN_BLOCK_TAIL
+def test_the_block_runs_cicds_image_by_its_digest_offline_read_only_and_as_no_root():
+    tail = ds.scan_block_tail(ACTIVE)
+    assert f"KDF_SCAN_IMAGE := {ACTIVE['image']}@{ACTIVE['digest']}\n" in tail
+    assert f"KDF_SCAN_RULES_COMMIT := {ACTIVE['rules_commit']}\n" in tail
+    for flag in ("--pull never", "--network none", "--read-only", "--cap-drop ALL",
+                 "--security-opt no-new-privileges", "--user 65532:65532", "MSYS_NO_PATHCONV=1"):
+        assert flag in tail, flag
+    for mount in (":/src:ro", ":/gitdir:ro", ":/git:ro", ":/rules:ro", ":/repo:ro"):
+        assert mount in tail, mount
+    assert "git rev-parse --show-toplevel" in tail and "git config core.autocrlf" in tail
+    assert ds.SCAN_BLOCK_HEAD.startswith(BLOCK_OPEN + "\n") and tail.endswith(BLOCK_CLOSE + "\n")
+    assert "_ensure-venv" not in tail and "KriegerDataForge-scan" not in tail
 
 
-def test_the_block_is_the_one_the_scans_own_tests_read():
-    assert ds.SCAN_BLOCK_HEAD + ds.SCAN_BLOCK_TAIL == SCAN_TEST_BLOCK.format(lines = "")
+def test_the_block_names_the_canonical_callers_sha256():
+    caller = ds.caller_text()
+    assert f"KDF_SCAN_CALLER_SHA := {hashlib.sha256(caller.encode('utf-8')).hexdigest()}\n" in ds.scan_block_tail(ACTIVE)
+
+
+def test_the_scans_own_tests_read_this_block():
+    assert makefile().endswith(ds.SCAN_BLOCK_HEAD + ds.scan_block_tail(SCAN_ACTIVE))
+
+
+def test_while_cicd_pins_no_image_the_makefile_is_left_as_it_stands(monkeypatch):
+    monkeypatch.setattr(ds, "active_scan_image", lambda: {})
+    patched = ds.patch_makefile(SHAPES["hub"])
+    assert BLOCK_OPEN not in patched and ds.CANONICAL_RECIPE in patched
+
+
+def test_the_repos_scan_image_file_holds_the_unpinned_marker_until_the_first_activation():
+    assert parse_scan_image(ds.SCAN_IMAGE_FILE.read_text(encoding = "utf-8")) == {}
+
+
+def test_the_caller_runs_cicds_reusable_gate_at_main_on_dispatch_alone_with_read_permissions():
+    caller = ds.caller_text()
+    assert "uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/kdf-scan-gate-reusable.yml@main\n" in caller
+    assert "  workflow_dispatch:\n" in caller and "pull_request" not in caller and "push:" not in caller
+    assert "  contents: read\n  pull-requests: read\n" in caller and "secrets:" not in caller
+
+
+def test_the_caller_travels_with_the_block_once_an_image_is_pinned(monkeypatch):
+    registry = {"files": [], "deletes": [], "makefile_patch": True}
+    items    = ds._build_items(registry, None, {"repo": "Needless2Say/x"})
+    caller   = [item for item in items if item.dest == ds.CALLER_PATH]
+    assert len(caller) == 1 and caller[0].desired("anything") == ds.caller_text()
+    monkeypatch.setattr(ds, "active_scan_image", lambda: {})
+    assert not [item for item in ds._build_items(registry, None, {"repo": "Needless2Say/x"})
+                if item.dest == ds.CALLER_PATH]
 
 
 def test_a_present_block_is_replaced_whole_but_for_the_repos_own_lines():
@@ -234,7 +290,7 @@ def test_a_present_block_is_replaced_whole_but_for_the_repos_own_lines():
         "after: ## a target after the block\n\t@echo after\n"
     )
     patched = ds.patch_makefile(SHAPES["frontend"] + "\n" + old)
-    assert ds.SCAN_BLOCK_HEAD + own + ds.SCAN_BLOCK_TAIL in patched
+    assert ds.SCAN_BLOCK_HEAD + own + ds.scan_block_tail(ACTIVE) in patched
     assert "3.14.6" not in patched and "STRAY" not in patched and "an older header" not in patched
     assert patched.endswith("after: ## a target after the block\n\t@echo after\n")
     policy = parse_policy(patched)
