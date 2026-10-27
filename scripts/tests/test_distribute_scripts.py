@@ -249,20 +249,6 @@ def test_the_block_runs_cicds_image_by_its_digest_offline_read_only_and_as_no_ro
     assert "_ensure-venv" not in tail and "KriegerDataForge-scan" not in tail
 
 
-def test_the_block_runs_kdfs_rules_alone_by_default_and_semgreps_pack_only_when_named():
-    # opt in rule packs (cicd D-093), KDF's rules and zizmor with no Semgrep cache needed, Semgrep's pack named on each
-    # run, its licence named by scan-setup, and an unknown pack refused
-    tail = ds.scan_block_tail(ACTIVE)
-    assert "SCAN_PACK ?=\n" in tail
-    assert "kdf_scan_mode = $(if $(kdf_scan_semgrep),,--kdf-only)\n" in tail
-    rules = 'kdf_scan_rules = $(if $(kdf_scan_semgrep),-v "$(call kdf_scan_native,$(KDF_SCAN_RULES)):/rules:ro",)\n'
-    assert rules in tail
-    assert "$(kdf_scan_rules) $(KDF_SCAN_IMAGE) scan $(kdf_scan_mode)" in tail
-    assert "$(kdf_scan_rules) $(KDF_SCAN_IMAGE) pr-tree $(kdf_scan_mode)" in tail
-    assert '@$(if $(kdf_scan_semgrep),$(kdf_scan_fetch),true)' in tail and ds.RULES_LICENSE in tail
-    assert tail.count("@$(kdf_scan_pack_ok)") == 3 and 'echo "kdf-scan  SCAN_PACK is semgrep or empty"; exit 2;' in tail
-
-
 def test_the_block_names_the_canonical_callers_sha256():
     caller = ds.caller_text()
     assert f"KDF_SCAN_CALLER_SHA := {hashlib.sha256(caller.encode('utf-8')).hexdigest()}\n" in ds.scan_block_tail(

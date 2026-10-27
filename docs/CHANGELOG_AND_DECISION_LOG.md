@@ -4996,9 +4996,10 @@ Its only caller is the canonical caller, so no other consumer sees the type chan
 - **Date.** 2026-10-27
 - **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Amends D-085 and D-088's
   rules, the owner's decision of 2026-10-27 after a second opinion's decision read.
-- **Tier / scope:** Epic, every repo through the scripts sync · `scripts/common/kdf_scan.py`,
-  `scripts/distribute_scripts.py`'s managed block, `scripts/common/scan_build/image_fixtures.py`, cicd's `Makefile`
-  and docs · no input of any workflow changed, the gate unchanged
+- **Tier / scope:** Epic, every repo through the scripts sync · this pull request `scripts/common/kdf_scan.py`,
+  `scripts/common/scan_build/image_fixtures.py` and their tests, the managed block's recipes, cicd's `Makefile` and the
+  docs in the activation pull request that pins the image this one publishes · no input of any workflow changed, the
+  gate unchanged
 
 **Context.** Semgrep's rules are licensed "only for your own internal business purposes", and the licence "does not
 allow you to distribute the rules, or to make them available to others as a service". The owner's gate on the
@@ -5029,7 +5030,13 @@ frontend never ended clean) · a skeleton running any scanner a user adds (defer
 its own sandboxing, output and fixtures, the gate's guarantee to rebuild, and a smaller first form, a separate local
 target for a user's own scanners).
 
+**Phasing.** The recipes' new default calls the wrapper's reduced mode, which only this pull request's wrapper judges
+rightly. Run by the image pinned today it read cicd's accepted Semgrep markers as stale and its JavaScript as unread, a
+probe on this branch showing ten findings and five files incomplete. So this pull request carries the wrapper alone,
+its merge publishing a new image, and the activation pull request pins that image and flips the recipes, cicd's
+`Makefile` and the docs in one commit, an old image never called with the new recipe, as D-088's active set holds.
+
 **Consequences.** A developer's default scan needs no third party rules and covers less, which its last line names.
-The gate's coverage is unchanged. A new image follows from the wrapper's change, then its activation, then a scripts
-sync carrying the recipes. VERSION 0.2.178, scripts 1.7.3.
+The gate's coverage is unchanged. This merge publishes a new image and changes no run, the pinned image and every
+repo's recipe as they stand. VERSION 0.2.178, and scripts 1.7.3 with the activation.
 

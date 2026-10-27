@@ -185,17 +185,10 @@ the root read only, no capability and a user that is not root.
   3 when a tool failed and 4 when the scan is incomplete. `make` itself returns 2 whenever a recipe fails, so the last
   line is the result. A local scan is a check against accidents and branch edits. The gate is
   `.github/workflows/kdf-scan-gate-reusable.yml`, dispatched from each repo's `main`.
-- **The rule pack** (D-093). `make scan` runs KDF's rules and zizmor alone, needing no rules' cache, a code file in a
-  language no KDF rule reads named `UNCOVERED` and marked `uncovered` in the last line, never incomplete, and a marker
-  for a Semgrep rule reading `UNEVAL`. `make scan SCAN_PACK=semgrep` adds Semgrep's rules, mounted from the cache and
-  checked by their digest. The pack is named on each run, never read from a cache, Semgrep's under the Semgrep Rules
-  License, https://semgrep.dev/legal/rules-license, which binds whoever opts in. The gate always runs Semgrep's pack.
-- **`scan-setup`** pulls the image by its digest, the one step that uses the network, and with `SCAN_PACK=semgrep`
-  fetches Semgrep's rules at their pinned commit into the cache and names their licence.
+- **`scan-setup`** pulls the image by its digest and fetches the rules at their pinned commit into the cache, the one
+  step that uses the network.
 - **`scan-pr`**, `PR=<number>`, fetches a pull request's head and `main` into a fresh bare repository and scans it
-  offline as the gate does, the weaker answer when Actions is down. It is the local scan that runs the gate's checks
-  of a pull request's workflow changes, the caller's text and any other workflow naming the gate, which a whole tree
-  `make scan` cannot, having no base to compare.
+  offline as the gate does, the weaker answer when Actions is down.
 - **`scan-image`** builds the image from this tree as `kdf-scan:local`, from `scripts/common/scan_build/Dockerfile`,
   and **`scan-local`** scans this tree with it while the wrapper is developed.
 - **`scan-image-fixtures`** runs the image's own fixtures, as its build does, against `KDF_SCAN_FIXTURE_IMAGE`,

@@ -142,8 +142,6 @@ CALLER_SOURCE   = SCRIPTS_DIR / "common" / "kdf-scan-gate-caller.yml"
 # working tree, its git folders and the rules' cache mounted read only, each path as git itself names it, so Git Bash
 # gives a native one. A repo's own SCAN_EXCLUDE and SCAN_LIMIT lines sit between the head and the tail, the wrapper
 # reading them from the block itself, and the digest moves with each activation by this Distribute.
-# the licence Semgrep's rules run under, named by scan-setup when a developer opts into their pack (cicd D-093)
-RULES_LICENSE   = "the Semgrep Rules License, https://semgrep.dev/legal/rules-license, which binds this use"
 SCAN_BLOCK_HEAD = (
     f"{BLOCK_OPEN}\n"
     "# The local code scan, Opengrep and zizmor in cicd's image by its digest, a check against accidents and branch\n"
@@ -156,34 +154,25 @@ KDF_SCAN_RULES_COMMIT := {rules_commit}
 KDF_SCAN_CALLER_SHA := {caller_sha}
 KDF_SCAN_ENGINE ?= docker
 KDF_SCAN_RULES ?= $(HOME)/.cache/kdf-scan/semgrep-rules.git
-# the rule pack, empty for KDF's rules and zizmor alone, or semgrep for Semgrep's rules beside them, named on each
-# run and never read from a cache, Semgrep's under the Semgrep Rules License (cicd D-093)
-SCAN_PACK ?=
-kdf_scan_semgrep = $(filter semgrep,$(SCAN_PACK))
-kdf_scan_pack_ok = $(if $(filter-out semgrep,$(SCAN_PACK)),echo "kdf-scan  SCAN_PACK is semgrep or empty"; exit 2;,)
-kdf_scan_rules = $(if $(kdf_scan_semgrep),-v "$(call kdf_scan_native,$(KDF_SCAN_RULES)):/rules:ro",)
-kdf_scan_mode = $(if $(kdf_scan_semgrep),,--kdf-only)
-kdf_scan_fetch = git -C "$(KDF_SCAN_RULES)" fetch -q --no-tags --depth 1 {rules_repo} $(KDF_SCAN_RULES_COMMIT) \\
-  && echo "kdf-scan  Semgrep's rules run under {rules_license}"
 kdf_scan_native = $$(cd "$(1)" && (pwd -W 2>/dev/null || pwd))
 KDF_SCAN_RUN = MSYS_NO_PATHCONV=1 $(KDF_SCAN_ENGINE) run --rm --pull never --network none --read-only \\
   --tmpfs /run/kdf-scan:exec,size=1g,uid=65532,gid=65532 --cap-drop ALL --security-opt no-new-privileges \\
   --user 65532:65532
 .PHONY: scan scan-setup scan-pr
-scan: ## Local code scan in cicd's image, before every pull request, never the gate, SCAN_PACK=semgrep for Semgrep's
-\t@$(kdf_scan_pack_ok)own="$$(git rev-parse --path-format=absolute --git-dir)"; \\
+scan: ## Local code scan in cicd's image, before every pull request, never the gate
+\t@own="$$(git rev-parse --path-format=absolute --git-dir)"; \\
 \t  common="$$(git rev-parse --path-format=absolute --git-common-dir)"; \\
 \t  $(KDF_SCAN_RUN) -v "$$(git rev-parse --show-toplevel):/src:ro" -v "$$common:/git:ro" \\
-\t  $(kdf_scan_rules) $(KDF_SCAN_IMAGE) scan $(kdf_scan_mode) \\
+\t  -v "$(call kdf_scan_native,$(KDF_SCAN_RULES)):/rules:ro" $(KDF_SCAN_IMAGE) scan \\
 \t  --git-dir "/git$${{own#"$$common"}}" --autocrlf "$$(git config core.autocrlf)" --pinned "{digest}" \\
 \t  --cicd-digest "$$(git -C ../kriegerdataforge-cicd show origin/main:scripts/common/SCAN_IMAGE 2>/dev/null \\
 \t  | sed -n 's/^digest=//p')"
-scan-setup: ## Pull cicd's scan image, the one step that uses the network, SCAN_PACK=semgrep fetching Semgrep's rules
-\t@$(kdf_scan_pack_ok)$(KDF_SCAN_ENGINE) pull $(KDF_SCAN_IMAGE)
-\t@$(if $(kdf_scan_semgrep),[ -d "$(KDF_SCAN_RULES)" ] || git init -q --bare "$(KDF_SCAN_RULES)",true)
-\t@$(if $(kdf_scan_semgrep),$(kdf_scan_fetch),true)
+scan-setup: ## Pull cicd's scan image and fetch Semgrep's rules into the cache, the one step that uses the network
+\t@$(KDF_SCAN_ENGINE) pull $(KDF_SCAN_IMAGE)
+\t@[ -d "$(KDF_SCAN_RULES)" ] || git init -q --bare "$(KDF_SCAN_RULES)"
+\t@git -C "$(KDF_SCAN_RULES)" fetch -q --no-tags --depth 1 {rules_repo} $(KDF_SCAN_RULES_COMMIT)
 scan-pr: ## The local scan before a merge, PR=<number>, the weaker answer when Actions is down
-\t@$(kdf_scan_pack_ok)set -e; [ -n "$(PR)" ] || {{ echo "kdf-scan  make scan-pr PR=<number>"; exit 2; }}; \\
+\t@set -e; [ -n "$(PR)" ] || {{ echo "kdf-scan  make scan-pr PR=<number>"; exit 2; }}; \\
 \t  repo=$$(gh repo view --json nameWithOwner -q .nameWithOwner); \\
 \t  head=$$(gh api "repos/$$repo/pulls/$(PR)" -q .head.sha); base=$$(gh api "repos/$$repo/pulls/$(PR)" -q .base.ref); \\
 \t  [ "$$base" = main ] || {{ echo "kdf-scan  refused, the base is $$base, the scan reads main's"; exit 2; }}; \\
@@ -193,7 +182,7 @@ scan-pr: ## The local scan before a merge, PR=<number>, the weaker answer when A
 \t  git -C "$$dir/repo.git" -c credential.helper= -c 'credential.helper=!gh auth git-credential' fetch -q --no-tags \\
 \t  "https://github.com/$$repo.git" "+refs/pull/$(PR)/head:refs/kdf/head" "+refs/heads/main:refs/kdf/main"; \\
 \t  $(KDF_SCAN_RUN) -v "$(call kdf_scan_native,$$dir/repo.git):/repo:ro" \\
-\t  $(kdf_scan_rules) $(KDF_SCAN_IMAGE) pr-tree $(kdf_scan_mode) --head "$$head" \\
+\t  -v "$(call kdf_scan_native,$(KDF_SCAN_RULES)):/rules:ro" $(KDF_SCAN_IMAGE) pr-tree --head "$$head" \\
 \t  --main "$$main" --merge-base "$$merged" --caller-sha "$(KDF_SCAN_CALLER_SHA)" --repo-name "$$repo" \\
 \t  || code=$$?; \\
 \t  rm -rf "$$dir"; exit $${{code:-0}}
@@ -335,7 +324,6 @@ def scan_block_tail(active: dict[str, str]) -> str:
         digest = active["digest"],
         rules_commit = active["rules_commit"],
         rules_repo = RULES_REPO,
-        rules_license = RULES_LICENSE,
         caller_sha = hashlib.sha256(caller_text().encode("utf-8")).hexdigest(),
     ) + f"{BLOCK_CLOSE}\n"
 
