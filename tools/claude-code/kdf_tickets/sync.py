@@ -329,7 +329,7 @@ class Reconciler:
         twice = {marker for marker, numbers in markers.items() if len(numbers) > 1}
         for marker in sorted(twice):
             numbers = ", ".join(f"#{number}" for number in markers[marker])
-            self.result.refusals.append(f"{numbers} carry one marker, {marker}. The owner settles which is the ticket")
+            self.result.refusals.append(f"{numbers} carry one marker. The owner settles which is the ticket")
         seen = set()
         for issue in issues:
             seen.add(issue.node)

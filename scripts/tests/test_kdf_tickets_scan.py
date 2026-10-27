@@ -178,8 +178,20 @@ def test_a_flagged_title_is_never_printed_through_an_id_made_from_it(tmp_path: P
         assert "555" not in line and "zephyrine" not in line.lower(), line
 
 
+def test_a_shared_marker_is_refused_by_the_issues_numbers_alone(tmp_path: Path) -> None:
+    github, root, registry, reader = setup(tmp_path, issues = 2)
+    for issue in github.repos[REPO]["issues"]:
+        issue.update(title = "555-123-4567", body = "x\n<!-- kdf-ticket: 555-123-4567 -->")
+    code, lines = run_pull(root, registry, reader, mode = "adopt")
+    assert code == FOUND and any("#1, #2 carry one marker" in line for line in lines)
+    assert not any("555" in line for line in lines)
+    assert tickets(root) == {}
+
+
 def test_a_no_reply_exception_is_the_whole_local_part_or_a_domain_alone() -> None:
     assert scan.count("write to alice@noreply-custom.test") == {"an email address": 1}
+    assert scan.count("write to +noreply@private.test") == {"an email address": 1}
+    assert scan.count("write to -no-reply@private.test") == {"an email address": 1}
     assert scan.count("from noreply@github.com and 12345+someone@users.noreply.github.com") == {}
 
 

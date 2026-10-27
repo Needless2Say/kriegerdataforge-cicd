@@ -29,13 +29,14 @@ POLICY  = 1
 PRIVATE = "a private word"
 # an amount after a currency sign, of two digits or more so a shell's $1 is not one, and an amount before a currency
 # named in words
-SIGNED   = r"[$€£]\s?\d{1,3}(?:,\d{3})+(?:\.\d{2})?|[$€£]\s?\d+\.\d{2}\b|[$€£]\s?\d{2,}\b"
-NAMED    = r"\b\d[\d,]*(?:\.\d{2})?\s?(?:USD|EUR|GBP|dollars|euros|pounds)\b"
-MONEY    = re.compile("|".join((SIGNED, NAMED)), re.IGNORECASE)
-CARD     = re.compile(r"(?<![\d.])(?:\d[ -]?){12,18}\d(?![\d.])")
-IBAN     = re.compile(r"\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,4})?\b")
-ACCOUNT  = re.compile(r"\b(?:account|acct|routing)\s*(?:no\.?|number|num|#)\s*:?\s*\d[\d -]{3,}", re.IGNORECASE)
-EMAIL    = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+SIGNED  = r"[$€£]\s?\d{1,3}(?:,\d{3})+(?:\.\d{2})?|[$€£]\s?\d+\.\d{2}\b|[$€£]\s?\d{2,}\b"
+NAMED   = r"\b\d[\d,]*(?:\.\d{2})?\s?(?:USD|EUR|GBP|dollars|euros|pounds)\b"
+MONEY   = re.compile("|".join((SIGNED, NAMED)), re.IGNORECASE)
+CARD    = re.compile(r"(?<![\d.])(?:\d[ -]?){12,18}\d(?![\d.])")
+IBAN    = re.compile(r"\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,4})?\b")
+ACCOUNT = re.compile(r"\b(?:account|acct|routing)\s*(?:no\.?|number|num|#)\s*:?\s*\d[\d -]{3,}", re.IGNORECASE)
+# the whole local part, a leading +, - or % among it, so the no reply exception judges the address as written
+EMAIL    = re.compile(r"(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 PHONE    = re.compile(r"(?<![\w.-])(?:\+\d{1,3}[ .-]?)?(?:\(\d{3}\)\s?|\d{3}[ .-])\d{3}[ .-]\d{4}(?![\w-])")
 STREET   = re.compile(
     r"\b\d{1,5}\s+(?:[A-Z][a-z]+\s+){1,3}(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Court|Ct|"
