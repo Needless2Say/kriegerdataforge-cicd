@@ -4,6 +4,7 @@ run's shell by template expansion, each now read from the step's environment. A 
 caller's command by design, is accepted on its own `run:` line with the reason. Every App token names its
 repositories. The steps that took a value are run here on a value made to break out, and it arrives as one value.
 """
+
 from __future__ import annotations
 
 # standard imports
@@ -14,10 +15,8 @@ import subprocess
 from pathlib import Path
 
 # third party imports
-import pytest
-
-# local imports
 import common.kdf_scan as SCAN
+import pytest
 
 # ======================================================================================================================
 # Configuration
@@ -28,7 +27,9 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 
 EXPANSION  = re.compile(r"\$\{\{\s*inputs\.([A-Za-z0-9_]+)\s*\}\}")
 RUN_KEY    = re.compile(r"^(?P<indent>\s*)(?:- )?run:\s?(?P<value>.*)$")
-ACCEPTANCE = re.compile(r"^\s*run: \$\{\{ inputs\.[a-z_]+_command \}\}  # zizmor: ignore\[template-injection\] (?P<why>.+)$")
+ACCEPTANCE = re.compile(
+    r"^\s*run: \$\{\{ inputs\.[a-z_]+_command \}\}  # zizmor: ignore\[template-injection\] (?P<why>.+)$",
+)
 # a value made to break out of a shell, a space, both quotes, a semicolon and a command substitution
 HOSTILE = "1.0 \" ' ; touch pwned ; $(touch pwned)"
 
@@ -44,9 +45,9 @@ def runs(text: str) -> list[tuple[int, str, list[str]]]:
     """
     Every `run:` in a workflow, its line number, its own line and the lines of its script.
     """
-    lines  = text.splitlines()
-    found  = []
-    index  = 0
+    lines = text.splitlines()
+    found = []
+    index = 0
     while index < len(lines):
         match = RUN_KEY.match(lines[index])
         if not match:
@@ -114,7 +115,11 @@ def run_step(tmp_path: Path, script: str, env: dict[str, str], tool: str) -> lis
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(parents = True)
     stand_in = bin_dir / tool
-    stand_in.write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > \"$KDF_ARGS\"\n", encoding = "utf-8", newline = "\n")
+    stand_in.write_text(
+        "#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > \"$KDF_ARGS\"\n",
+        encoding = "utf-8",
+        newline = "\n",
+    )
     stand_in.chmod(0o755)
     (tmp_path / "step.sh").write_text(script, encoding = "utf-8", newline = "\n")
     args = tmp_path / "args.txt"
@@ -204,7 +209,7 @@ def test_the_vercel_binding_check_prints_the_environment_as_one_value(tmp_path: 
         pytest.skip("no bash to run the step's shell")
     (tmp_path / "step.sh").write_text(script, encoding = "utf-8", newline = "\n")
     environment = {**os.environ, "DEPLOY_ENVIRONMENT": HOSTILE, "VERCEL_PROJECT_ID": ""}
-    done = subprocess.run(
+    done        = subprocess.run(
         [shell, "step.sh"],
         cwd = tmp_path,
         env = environment,

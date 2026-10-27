@@ -12,6 +12,7 @@ Usage:
 
 Standard library only.
 """
+
 from __future__ import annotations
 
 # standard imports
@@ -20,10 +21,10 @@ import json
 import sys
 from pathlib import Path
 
-# local imports
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import distribute_all  # noqa: E402
-from common.repo_sync import _select_repos  # noqa: E402
+# third party imports
+# local imports, found beside this script as Python puts its folder first
+import distribute_all
+from common.repo_sync import _select_repos
 
 # ======================================================================================================================
 # Configuration
@@ -75,7 +76,9 @@ def sync_targets(kind: str, repos_arg: str | None) -> list[str]:
         list[str]: owner and name of each
     """
     if kind == "all":
-        merged ={"repos": distribute_all.merged_entries(registry("kit_registry.json"), registry("scripts_registry.json"))}
+        merged = {
+            "repos": distribute_all.merged_entries(registry("kit_registry.json"), registry("scripts_registry.json")),
+        }
         return [entry["repo"] for entry in _select_repos(merged, repos_arg)]
     name = "kit_registry.json" if kind == "kit" else "scripts_registry.json"
     return [entry["repo"] for entry in _select_repos(registry(name), repos_arg)]

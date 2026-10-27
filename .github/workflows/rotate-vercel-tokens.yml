@@ -70,7 +70,7 @@ jobs:
       # registry as rotate_secret.py reads them (D-085, design 5.7).
       - name: List the repositories the rotation writes
         id: targets
-        run: python3 -I -B scripts/token_repositories.py secrets VERCEL_DEPLOYMENT_TOKEN >> "$GITHUB_OUTPUT"
+        run: python scripts/token_repositories.py secrets VERCEL_DEPLOYMENT_TOKEN >> "$GITHUB_OUTPUT"
 
       - name: Mint GitHub App token
         id: app-token

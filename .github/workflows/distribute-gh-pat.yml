@@ -59,7 +59,7 @@ jobs:
       # rotate_secret.py reads them (D-085, design 5.7).
       - name: List the repositories the paste writes
         id: targets
-        run: python3 -I -B scripts/token_repositories.py secrets GH_PACKAGES_PAT >> "$GITHUB_OUTPUT"
+        run: python scripts/token_repositories.py secrets GH_PACKAGES_PAT >> "$GITHUB_OUTPUT"
 
       - name: Mint GitHub App token
         id: app-token

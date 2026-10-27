@@ -4873,3 +4873,45 @@ attestation that GitHub's store already serves).
 
 **Consequences.** The next publish from `main` carries an attestation, and the activating pull request pins that
 digest. What reopens this is a verifier that can read only the registry. No input changes. VERSION 0.2.173.
+
+## D-090. This repo adopts its own local code scan
+
+- **Date.** 2026-10-27
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Carries out D-085 and D-088
+  here, design 5.6 to 5.8.
+- **Tier / scope:** Epic, every repo through its reusable workflows · 14 workflows, `.github/dependabot.yml`,
+  `.github/codeql/codeql-config.yml`, `.github/PULL_REQUEST_TEMPLATE.md`, `scripts/token_repositories.py`,
+  `scripts/common/check_version.py`, `scripts/ecosystem_watch.py`, `e2e/ci_stack.py`, three files of
+  `tools/claude-code/`, the `Makefile` and the docs · no input of any workflow changed
+
+**Context.** The scan of this repo on the image A3 pinned found 60 findings and one file it could not finish, all
+older than the scan. 21 were template expansions in a shell, 11 App tokens reaching every repo the App is installed on,
+one workflow holding a write it never used, and 27 from Opengrep.
+
+**Decision.**
+
+1. No single value input is expanded in a shell. `bandit_version`, `pip_audit_version`, `bandit_paths` and the Vercel
+   check's environment are read from the step's `env`, `bandit_paths` split into its paths with no evaluation. Each
+   command input, `install_command` and its kind, is the caller's own command by design and is accepted on its line.
+2. Every App token names its repositories. `scripts/token_repositories.py` lists a run's targets through the
+   operation's own selection, the Distributes' registries filtered as `repo_sync` filters them, the rotation's
+   registry targets and the watch's repos, and fails on an empty list, which the action would read as every repo. The
+   issue driven workflows mint after reading the issue. Two tokens take a fixed list, held to its source by a test.
+   `ops-setup-e2e.yml`'s keeps the App's grants, its action having no input for repository variables, accepted.
+3. `issue-create-repo.yml` drops the `issues: write` no step used, and Dependabot waits seven days on a release.
+4. `check_version.py` takes a base branch only when it is a branch name, never one opening with a dash, which `git
+   fetch origin <name>` would read as an option such as `--upload-pack`, so Distribute carries the check to every
+   copy. The watch keys its findings on SHA-256 instead of SHA-1, since the rule two rule sets share allows no marker,
+   so its first run after this marks every finding new once. The remaining subprocess and pattern lines are accepted
+   on their lines, each with its reason, and the rules' own test cases are excluded. `kdf-guard.js`, which Opengrep's
+   rule timeout cannot finish, is a recorded limit tied to its content.
+5. CodeQL runs hosted on this public repo with a leg for each language over `scripts`, `e2e` and `tools`, and its
+   eight local targets go. This repo carries the gate's caller as a copy a test holds to the canonical text, since it
+   is no target of its own scripts sync.
+
+**Alternatives considered.** Accepting the single values with markers too (rejected, the environment removes the
+expansion at no cost) · a fixed list in each token (rejected, a registry change would leave a token short or wide) ·
+keeping SHA-1 behind a marker (not possible, the wrapper refuses a short id two rules share).
+
+**Consequences.** `make scan` here ends `CLEAN` on the pinned image. The gate runs from the next pull request after
+this merges. The watch's next issue update lists every finding as new once. VERSION 0.2.175, scripts 1.7.2.

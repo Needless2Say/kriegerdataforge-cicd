@@ -3,6 +3,7 @@ Tests for scripts/token_repositories.py and the workflows that mint an App token
 L19). Each list equals the targets its operation acts on, read through the operation's own selection, and each
 workflow lists its repos before its mint and hands that list to the token.
 """
+
 from __future__ import annotations
 
 # standard imports
@@ -111,15 +112,17 @@ def test_the_oidc_drift_tokens_fixed_list_is_its_manifests_pair():
 
 @pytest.mark.parametrize(("workflow", "kind"), sorted(COMPUTED.items()))
 def test_each_workflow_lists_its_repos_before_its_mint_and_hands_them_to_the_token(workflow, kind):
-    text  = (WORKFLOWS / workflow).read_text(encoding = "utf-8")
-    call  = f"scripts/token_repositories.py {kind} >> \"$GITHUB_OUTPUT\"\n"
-    mint  = text.index("uses: actions/create-github-app-token@")
+    text = (WORKFLOWS / workflow).read_text(encoding = "utf-8")
+    call = f"scripts/token_repositories.py {kind} >> \"$GITHUB_OUTPUT\"\n"
+    mint = text.index("uses: actions/create-github-app-token@")
     assert call in text and text.index(call) < mint, workflow
     assert "          repositories: ${{ steps.targets.outputs.repositories }}\n" in text[mint:], workflow
 
 
-@pytest.mark.parametrize("workflow", ["ops-distribute-all.yml", "ops-distribute-kit.yml", "ops-distribute-scripts.yml",
-                                      "ops-rotate-secrets.yml"])
+@pytest.mark.parametrize(
+    "workflow",
+    ["ops-distribute-all.yml", "ops-distribute-kit.yml", "ops-distribute-scripts.yml", "ops-rotate-secrets.yml"],
+)
 def test_an_issue_driven_workflow_mints_only_after_it_reads_the_issues_fields(workflow):
     text = (WORKFLOWS / workflow).read_text(encoding = "utf-8")
     assert text.index("- name: Extract and validate fields") < text.index("uses: actions/create-github-app-token@")
