@@ -164,6 +164,15 @@ def test_the_publish_job_alone_writes_and_pushes_the_tested_archive_by_its_diges
     assert "delete" not in uncommented(PUBLISH).lower()
 
 
+def test_the_attestation_needs_no_registry_credential_after_skopeo_logs_out() -> None:
+    # the first publish, run 40422917434, pushed the image and then failed its attestation, which looked for Docker's
+    # registry login while skopeo's own was already closed, so the attestation stays in GitHub's store (D-089)
+    publish = job(PUBLISH, "publish")
+    assert "push-to-registry: false" in publish and "push-to-registry: true" not in publish
+    assert "docker login" not in publish
+    assert publish.index("skopeo logout ghcr.io") < publish.index("actions/attest-build-provenance@")
+
+
 def test_the_dockerfile_takes_its_base_by_digest_and_runs_the_wrapper_as_no_root() -> None:
     text  = (BUILD / "Dockerfile").read_text(encoding = "utf-8")
     bases = re.findall(r"^FROM (\S+)", text, re.MULTILINE)

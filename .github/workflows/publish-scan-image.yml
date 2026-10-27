@@ -5,8 +5,8 @@
 # every layer of it so Semgrep's rules never reach a public image, loads that same archive and runs the image's own
 # fixtures against it, KDF's rules alone and no rule's message printed, then hands the archive on by an artifact. The
 # publish job alone holds packages, attestations and id-token write. It pushes that exact archive with skopeo tagged
-# with its cicd commit, checks the pushed digest is the archive's, attests the build's provenance and tries an
-# anonymous read, which passes once the owner has made the package public. Nothing is ever deleted, so a pinned digest
+# with its cicd commit, checks the pushed digest is the archive's, attests the build's provenance in GitHub's
+# attestation store and tries an anonymous read, which passes once the owner has made the package public. Nothing is ever deleted, so a pinned digest
 # never vanishes. An image published here runs nowhere until an activating pull request names its digest in
 # scripts/common/SCAN_IMAGE and the gate's reusable workflow together.
 name: publish-scan-image
@@ -106,11 +106,13 @@ jobs:
           echo "digest=$pushed" >> "$GITHUB_OUTPUT"
           echo "publish  $IMAGE:$COMMIT is $pushed, the tested archive's"
 
+      # the attestation is kept in GitHub's attestation store, read with gh attestation verify, so no registry
+      # credential is written to a file for this step, skopeo's login being its own and closed after the push (D-089)
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
         with:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.push.outputs.digest }}
-          push-to-registry: true
+          push-to-registry: false
 
       - name: Read the image anonymously, as any developer and the gate pull it
         env:
