@@ -23,11 +23,11 @@ on:
 permissions: {}
 
 env:
-  # the active set, unpinned until the first activation, which every run refuses
+  # the active set, scripts/common/SCAN_IMAGE's, the image published from 4485d21 and its provenance verified
   KDF_SCAN_IMAGE: ghcr.io/needless2say/kdf-scan
-  KDF_SCAN_DIGEST: unpinned
-  KDF_SCAN_RULES_COMMIT: unpinned
-  KDF_SCAN_CONTRACT: unpinned
+  KDF_SCAN_DIGEST: sha256:a569b93204cfbc60ba04e4c233c9994853d11b2f9f8b08ce7ded375ec319d2e8
+  KDF_SCAN_RULES_COMMIT: 17e31e11ebac99fb7dfe1cd288f7a32151b6f3f9
+  KDF_SCAN_CONTRACT: 1
   # the canonical caller's SHA-256, a caller change equal to it passing and printed first
   KDF_SCAN_CALLER_SHA: d816ce5c870b0d821e71587c12507dc58d9d23f09318376b0b067742ff063949
   RULES_REPO: https://github.com/semgrep/semgrep-rules

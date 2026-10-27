@@ -523,3 +523,45 @@ clean-deep: ## Deep clean including virtual environment
 	rm -rf .venv/
 	@printf "$(GREEN)Deep cleanup complete!$(NC)\n"
 
+# >>> kdf-scan, managed by cicd's scripts sync
+# The local code scan, Opengrep and zizmor in cicd's image by its digest, a check against accidents and branch
+# edits, never the gate, which runs from main (cicd D-085).
+SCAN_EXCLUDE ?=
+KDF_SCAN_IMAGE := ghcr.io/needless2say/kdf-scan@sha256:a569b93204cfbc60ba04e4c233c9994853d11b2f9f8b08ce7ded375ec319d2e8
+KDF_SCAN_RULES_COMMIT := 17e31e11ebac99fb7dfe1cd288f7a32151b6f3f9
+KDF_SCAN_CALLER_SHA := d816ce5c870b0d821e71587c12507dc58d9d23f09318376b0b067742ff063949
+KDF_SCAN_ENGINE ?= docker
+KDF_SCAN_RULES ?= $(HOME)/.cache/kdf-scan/semgrep-rules.git
+kdf_scan_native = $$(cd "$(1)" && (pwd -W 2>/dev/null || pwd))
+KDF_SCAN_RUN = MSYS_NO_PATHCONV=1 $(KDF_SCAN_ENGINE) run --rm --pull never --network none --read-only \
+  --tmpfs /run/kdf-scan:exec,size=1g,uid=65532,gid=65532 --cap-drop ALL --security-opt no-new-privileges \
+  --user 65532:65532
+.PHONY: scan scan-setup scan-pr
+scan: ## Local code scan in cicd's image, before every pull request, never the gate
+	@own="$$(git rev-parse --path-format=absolute --git-dir)"; \
+	  common="$$(git rev-parse --path-format=absolute --git-common-dir)"; \
+	  $(KDF_SCAN_RUN) -v "$$(git rev-parse --show-toplevel):/src:ro" -v "$$common:/git:ro" \
+	  -v "$(call kdf_scan_native,$(KDF_SCAN_RULES)):/rules:ro" $(KDF_SCAN_IMAGE) scan \
+	  --git-dir "/git$${own#"$$common"}" --autocrlf "$$(git config core.autocrlf)" --pinned "sha256:a569b93204cfbc60ba04e4c233c9994853d11b2f9f8b08ce7ded375ec319d2e8" \
+	  --cicd-digest "$$(git -C ../kriegerdataforge-cicd show origin/main:scripts/common/SCAN_IMAGE 2>/dev/null \
+	  | sed -n 's/^digest=//p')"
+scan-setup: ## Pull cicd's scan image and fetch Semgrep's rules into the cache, the one step that uses the network
+	@$(KDF_SCAN_ENGINE) pull $(KDF_SCAN_IMAGE)
+	@[ -d "$(KDF_SCAN_RULES)" ] || git init -q --bare "$(KDF_SCAN_RULES)"
+	@git -C "$(KDF_SCAN_RULES)" fetch -q --no-tags --depth 1 https://github.com/semgrep/semgrep-rules $(KDF_SCAN_RULES_COMMIT)
+scan-pr: ## The local scan before a merge, PR=<number>, the weaker answer when Actions is down
+	@set -e; [ -n "$(PR)" ] || { echo "kdf-scan  make scan-pr PR=<number>"; exit 2; }; \
+	  repo=$$(gh repo view --json nameWithOwner -q .nameWithOwner); \
+	  head=$$(gh api "repos/$$repo/pulls/$(PR)" -q .head.sha); base=$$(gh api "repos/$$repo/pulls/$(PR)" -q .base.ref); \
+	  [ "$$base" = main ] || { echo "kdf-scan  refused, the base is $$base, the scan reads main's"; exit 2; }; \
+	  main=$$(gh api "repos/$$repo/commits/main" -q .sha); \
+	  merged=$$(gh api "repos/$$repo/compare/$$main...$$head" -q .merge_base_commit.sha); \
+	  dir=$$(mktemp -d); git init -q --bare "$$dir/repo.git"; \
+	  git -C "$$dir/repo.git" -c credential.helper= -c 'credential.helper=!gh auth git-credential' fetch -q --no-tags \
+	  "https://github.com/$$repo.git" "+refs/pull/$(PR)/head:refs/kdf/head" "+refs/heads/main:refs/kdf/main"; \
+	  $(KDF_SCAN_RUN) -v "$(call kdf_scan_native,$$dir/repo.git):/repo:ro" \
+	  -v "$(call kdf_scan_native,$(KDF_SCAN_RULES)):/rules:ro" $(KDF_SCAN_IMAGE) pr-tree --head "$$head" \
+	  --main "$$main" --merge-base "$$merged" --caller-sha "$(KDF_SCAN_CALLER_SHA)" --repo-name "$$repo" \
+	  || code=$$?; \
+	  rm -rf "$$dir"; exit $${code:-0}
+# <<< kdf-scan
