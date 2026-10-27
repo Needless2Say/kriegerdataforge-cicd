@@ -4967,3 +4967,27 @@ the owner moved back) · PyYAML at run time (rejected, the canonical form needs 
 repo. The guard's change reaches a machine only through `install.sh`, the owner's, and `SCAN_LIMIT`'s recorded hash
 for `kdf-guard.js` moves with it. The write side, `push` and the owner's runner, come in a later release. VERSION
 0.2.176.
+
+## D-092. The scan gate takes the pull request number as a string
+
+- **Date.** 2026-10-27
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Corrects D-088's gate input.
+- **Tier / scope:** Quick · `.github/workflows/kdf-scan-gate-reusable.yml` · `scripts/tests/test_kdf_scan_image.py`
+
+**Context.** The pilot's first gate run, fitness-app-frontend run 40565598485, failed at startup with no job run,
+"evaluate reusable workflow inputs: .github/workflows/kdf-scan-gate.yml (Line: 23, Col: 11): Unexpected value '457'".
+The caller's dispatch input reaches `with:` as the string a dispatch hands it, and the reusable workflow typed `pr`
+as a number, which a string does not satisfy. Text checks and actionlint pass both sides, so only a real dispatch
+showed it.
+
+**Decision.** The reusable workflow takes `pr` as a string, and its first step refuses anything but a plain positive
+integer of up to ten digits before any step names it in an API path such as `repos/<repo>/pulls/<pr>`. The caller's
+text, and so its hash in 17 repos, is unchanged. A test holds the input's type, and the step's shell is run on valid
+numbers and on an empty value, a leading zero, a path, a space, a sign, a semicolon and eleven digits, each refused.
+
+**Alternatives considered.** The caller converting with `fromJSON(inputs.pr)` (rejected, a new canonical text would
+need its 17 copies replaced, one bootstrap pull request each).
+
+**Consequences.** The gate starts on a dispatch, and its input is checked where the reusable workflow first reads it.
+Its only caller is the canonical caller, so no other consumer sees the type change. VERSION 0.2.177.
+

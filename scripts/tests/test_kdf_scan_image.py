@@ -16,7 +16,9 @@ import gzip
 import hashlib
 import io
 import json
+import os
 import re
+import subprocess
 import tarfile
 import types
 import zipfile
@@ -25,6 +27,7 @@ from pathlib import Path
 import distribute_scripts as ds
 import pytest
 from tests.scan_fakes import COMMON, ROOT, load
+from tests.test_workflow_hardening import bash, step_run
 
 SCAN      = load("kdf_scan", COMMON / "kdf_scan.py")
 INSPECT   = load("kdf_scan_inspect_layers", COMMON / "scan_build" / "inspect_layers.py")
@@ -97,6 +100,50 @@ def test_the_gate_is_a_reusable_workflow_that_refuses_any_event_but_a_dispatch_o
     assert "  workflow_call:\n" in GATE and "pull_request" not in GATE and "push:" not in GATE
     assert '"$EVENT" != "workflow_dispatch"' in GATE and '"$REF" != "refs/heads/main"' in GATE
     assert "the pull request's base is $base" in GATE
+
+
+def test_the_gate_takes_the_pull_request_number_as_the_string_a_dispatch_hands_it() -> None:
+    # the pilot's first run, fitness-app-frontend run 40565598485, failed at startup on "Unexpected value '457'", the
+    # caller's dispatch input arriving as a string and this input typed number, so the input is a string (D-092)
+    block = GATE.split("      pr:\n", 1)[1].split("\npermissions:", 1)[0]
+    assert "        type: string\n" in block and "type: number" not in block
+
+
+@pytest.mark.parametrize(
+    ("pr", "code"),
+    [
+        ("457", 0),
+        ("1", 0),
+        ("0", 1),
+        ("045", 1),
+        ("", 1),
+        ("1/../../orgs/x", 1),
+        ("457 ", 1),
+        ("-1", 1),
+        ("457;id", 1),
+        ("12345678901", 1),
+    ],
+)
+def test_the_gates_first_step_refuses_a_pull_request_number_that_is_not_one(tmp_path: Path, pr: str, code: int) -> None:
+    # the number reaches GitHub's API paths, repos/<repo>/pulls/<pr>, so nothing but a plain positive integer passes
+    shell = bash()
+    if shell is None:
+        pytest.skip("no bash to run the step's shell")
+    script = step_run(
+        WORKFLOWS / "kdf-scan-gate-reusable.yml",
+        "Refuse anything but a dispatch on main, and an unpinned image",
+    )
+    (tmp_path / "step.sh").write_text(script, encoding = "utf-8", newline = "\n")
+    environment = {
+        **os.environ,
+        "EVENT": "workflow_dispatch",
+        "REF": "refs/heads/main",
+        "KDF_SCAN_DIGEST": "sha256:" + "a" * 64,
+        "KDF_SCAN_RULES_COMMIT": "b" * 40,
+        "PR": pr,
+    }
+    done = subprocess.run([shell, "step.sh"], cwd = tmp_path, env = environment, capture_output = True, check = False)
+    assert done.returncode == code, done.stdout
 
 
 def test_the_gate_reads_with_contents_and_pull_requests_alone_and_inherits_no_secret() -> None:
