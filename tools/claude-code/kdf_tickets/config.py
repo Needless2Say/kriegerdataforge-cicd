@@ -87,9 +87,12 @@ def load_registry(path: Path = REGISTRY) -> dict[str, Board]:
     boards = {}
     for entry in data.get("boards", []):
         key, title, node = entry.get("key"), entry.get("title"), entry.get("existing_node_id")
-        if not all(isinstance(value, str) and value for value in (key, title, node)):
-            raise Refusal(f"the boards' registry {path} holds a board without its key, title or existing_node_id")
-        boards[key] = Board(key = key, title = title, node = node)
+        # a board the owner's provisioning has yet to make holds no node id, and a config naming it is refused
+        if not all(isinstance(value, str) and value for value in (key, title)) or not (
+            node is None or (isinstance(node, str) and node)
+        ):
+            raise Refusal(f"the boards' registry {path} holds a board without its key or title, or a bad node id")
+        boards[key] = Board(key = key, title = title, node = node or "")
     return boards
 
 
@@ -257,5 +260,8 @@ def about(path: Path, value: Any, boards: dict[str, Board]) -> dict[str, str]:
             raise Refusal(f"{path}'s about entry {repo!r} is not <repo>: {{\"board\": <key>}}")
         if entry["board"] not in boards:
             raise Refusal(f"{path}'s about entry {repo} names the board {entry['board']!r}, which the registry lacks")
+        if not boards[entry["board"]].node:
+            raise Refusal(f"{path}'s about entry {repo} names the board {entry['board']!r}, whose node id the registry "
+                          "does not yet pin. The owner's provisioning makes the board, and its id is pinned after")
         result[repo] = entry["board"]
     return result

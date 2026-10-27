@@ -64,7 +64,7 @@ written, sys.dont_write_bytecode = sys.dont_write_bytecode, True
 try:
     from kdf_tickets import check as checking
     from kdf_tickets import common, form
-    from kdf_tickets.config import load_config
+    from kdf_tickets.config import load_config, load_registry
 finally:
     sys.dont_write_bytecode = written
 
@@ -453,6 +453,24 @@ def test_a_board_key_the_registry_lacks_is_refused(tmp_path: Path) -> None:
     registry = _registry(tmp_path)
     with pytest.raises(common.Refusal, match = "nowhere"):
         load_config(root, registry)
+
+
+def test_a_board_with_no_pinned_node_is_read_and_refused_only_when_a_config_names_it(tmp_path: Path) -> None:
+    registry = tmp_path / "registry.json"
+    boards   = [
+        {"key": "apps", "title": "Board apps", "existing_node_id": "PVT_apps", "repos": []},
+        {"key": "new", "title": "Board new", "existing_node_id": None, "repos": []},
+    ]
+    registry.write_text(json.dumps({"boards": boards}), encoding = "utf-8")
+    assert load_config(_worktree(tmp_path / "a", _config(about = {REPO: {"board": "apps"}})), registry).repo == REPO
+    with pytest.raises(common.Refusal, match = "does not yet pin"):
+        load_config(_worktree(tmp_path / "b", _config(about = {REPO: {"board": "new"}})), registry)
+
+
+def test_cicds_own_registry_reads() -> None:
+    boards = load_registry()
+    assert {"fitness", "platform", "business", "personal", "cicd"} <= set(boards)
+    assert boards["business"].node and not boards["cicd"].node
 
 
 def test_an_unknown_format_is_refused(tmp_path: Path) -> None:
