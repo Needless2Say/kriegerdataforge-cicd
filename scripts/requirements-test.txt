@@ -1,3 +1,6 @@
 -r requirements.txt
 pytest>=8.0.0
 pytest-cov>=5.0.0
+# the tickets tool's tests read every file its canonical form writes with PyYAML, in tests alone, the tool itself being
+# standard library only
+PyYAML==6.0.3

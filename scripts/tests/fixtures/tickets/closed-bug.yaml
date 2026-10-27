@@ -1,0 +1,14 @@
+id: "closed-bug"
+title: "A closed bug, café \u2028 odd"
+about: "sample-app"
+also: []
+kind: "bug"
+state: "closed"
+reason: "not_planned"
+labels: ["bug"]
+assignees: []
+parent: "pulled-feature"
+issue: {"repo": "sample-app", "number": 13, "node": "I_kwSAMPLE0013", "url": "https://github.com/example-owner/sample-app/issues/13"}
+board: {"status": "Done", "priority": null, "type": "Bug", "severity": "Minor", "after": null}
+synced: {"title": "308c0d975ff8f8b5", "body": "91eaf3f167efc3b8", "state": "closed", "reason": "not_planned", "labels": ["bug"], "assignees": [], "parent": "pulled-feature", "board": "e4920aaf6a3ff1b0", "comments": "3d08363f9a2c4ec0"}
+body: "A body with a carriage return\ralone and no final line break"

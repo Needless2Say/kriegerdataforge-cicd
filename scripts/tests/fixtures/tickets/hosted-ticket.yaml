@@ -1,0 +1,16 @@
+id: "hosted-ticket"
+title: "A ticket about a hosted repo"
+about: "public-app"
+also: []
+kind: "next-change"
+state: "open"
+reason: null
+labels: ["board:hosted"]
+assignees: []
+parent: null
+issue: null
+board: null
+synced: null
+body: |2
+
+     A blank first line, then spaces first.

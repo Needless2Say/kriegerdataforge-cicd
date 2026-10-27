@@ -1,0 +1,14 @@
+id: "new-chore"
+title: "A new chore not yet pushed"
+about: "sample-app"
+also: []
+kind: "chore"
+state: "open"
+reason: null
+labels: []
+assignees: []
+parent: null
+issue: null
+board: null
+synced: null
+body: ""
