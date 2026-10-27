@@ -1056,7 +1056,8 @@ def _short(text: str) -> str:
     Returns:
         str: the first 12 hex of its sha1
     """
-    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+    # nosemgrep: insecure-hash-algorithm-sha1 a short stable id with no security property
+    return hashlib.sha1(text.encode("utf-8"), usedforsecurity = False).hexdigest()[:12]
 
 
 def remembered(key: str) -> str:
@@ -1069,7 +1070,8 @@ def remembered(key: str) -> str:
     Returns:
         str: the first KEY_HEX hex of its sha1
     """
-    return hashlib.sha1(key.encode("utf-8")).hexdigest()[:KEY_HEX]
+    # nosemgrep: insecure-hash-algorithm-sha1 the issue body's stored keys are these and no secret
+    return hashlib.sha1(key.encode("utf-8"), usedforsecurity = False).hexdigest()[:KEY_HEX]
 
 
 def previous_keys(body: str) -> set[str]:

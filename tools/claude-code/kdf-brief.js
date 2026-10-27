@@ -123,6 +123,7 @@ function globToRegExp(glob) {
     else if (c === '?') re += '[^/]';
     else re += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
   }
+  // nosemgrep: detect-non-literal-regexp a brief's glob with every other pattern character escaped above
   return new RegExp('^' + re + '$');
 }
 

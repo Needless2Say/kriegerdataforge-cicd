@@ -496,6 +496,7 @@ def _run(cmd: list[str], env: dict, *, timeout: int | None = None,
          stdin=None, step: str = "") -> None:
     if step:
         print(f"\n\033[0;34m[ci_stack] {step}\033[0m", flush=True)
+    # nosemgrep: dangerous-subprocess-use-tainted-env-args an argument list from the repo manifests with no shell
     result = subprocess.run(cmd, env=env, timeout=timeout, stdin=stdin)
     if result.returncode != 0:
         print(f"\033[0;31m[ci_stack] step failed ({result.returncode}): "
@@ -719,6 +720,7 @@ def cmd_logs(service: str | None) -> None:
     files = _compose_files(sorted(registry), registry)
     tail = ["--tail", "200"]
     svc = [service] if service else []
+    # nosemgrep: dangerous-subprocess-use-tainted-env-args the developer's own service name in a list with no shell
     subprocess.run(_compose(files, "logs", *tail, *svc), env=_interp_env(registry))
 
 
