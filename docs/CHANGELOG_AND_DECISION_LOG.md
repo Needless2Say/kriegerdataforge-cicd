@@ -4849,3 +4849,27 @@ required check is shown safe. The image's digest moves by two pull requests.
 arrives with the scripts sync once `scan_caller` allows it, by a bootstrap pull request before. What reopens this is
 a scan that passes code it should have caught, a branch or a
 session that satisfies the gate, or an image that holds the stock rules. VERSION 0.2.172, scripts 1.7.0.
+
+## D-089. The scan image's provenance kept in GitHub's attestation store
+
+- **Date.** 2026-10-26
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Corrects D-088's attestation.
+- **Tier / scope:** Quick · `.github/workflows/publish-scan-image.yml` · `scripts/tests/test_kdf_scan_image.py`
+
+**Context.** The first publish after D-088's merge, run 40422917434, built, inspected and tested the image, pushed it
+and found the pushed digest equal to the tested archive's, then failed at `actions/attest-build-provenance` with "No
+credentials found for registry ghcr.io". With `push-to-registry: true` the action reads Docker's registry login, while
+the push step logs skopeo in to its own file and logs it out again before the step ends. That image stays published
+and unattested, and no pull request pins it.
+
+**Decision.** The attestation is kept in GitHub's attestation store, `push-to-registry: false`, and is read with
+`gh attestation verify` against this repository, as D-088's activating pull request checks a digest. No registry
+credential is written to a file for the action. A test finds the setting, no `docker login`, and skopeo's logout
+before the attestation.
+
+**Alternatives considered.** A Docker login kept open through the attestation, which also stores it beside the image
+in the registry (rejected, a `packages: write` token would sit in Docker's file for one more step, for a copy of the
+attestation that GitHub's store already serves).
+
+**Consequences.** The next publish from `main` carries an attestation, and the activating pull request pins that
+digest. What reopens this is a verifier that can read only the registry. No input changes. VERSION 0.2.173.
