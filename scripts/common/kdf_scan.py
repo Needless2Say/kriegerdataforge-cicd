@@ -119,16 +119,20 @@ LANGUAGES = {
     ".tsx": "typescript",
 }
 # the words a rule file names its languages by, so a run knows what its rules read and a language none reads is
-# uncovered rather than incomplete under KDF's rules alone (D-093)
+# uncovered rather than incomplete under KDF's rules alone (D-093). Any other word, generic and regex among them, or a
+# declaration in a form the parse does not read, counts every language read, so a parse fails safe (Codex's review)
 RULE_LANGUAGES = {
     "python": "python",
+    "python2": "python",
+    "python3": "python",
     "py": "python",
     "javascript": "javascript",
     "js": "javascript",
     "typescript": "typescript",
     "ts": "typescript",
 }
-LANGUAGES_LIST = re.compile(r"languages:\s*\[([^\]]*)\]")
+LANGUAGES_KEY  = re.compile(r"""^[ \t]*(?:-[ \t]+)?["']?languages["']?[ \t]*:(?P<rest>.*)$""", re.MULTILINE)
+LANGUAGES_ITEM = re.compile(r"[ \t]*-[ \t]+(?P<word>[^\s#:]+)[ \t]*(?:#.*)?")
 # tests stay out of the scan, the owner's answer to design question 7, by folder and by name
 TEST_FOLDERS = frozenset({"tests", "test", "__tests__", "unit_tests", "integration_tests", "system_tests"})
 TEST_NAMES   = re.compile(r"test_.*\.py|.*_test\.py|conftest\.py|.*\.(?:test|spec)\.(?:js|jsx|mjs|cjs|ts|tsx)")
@@ -152,7 +156,9 @@ GOOD_MARKER  = re.compile(r":\s*(?P<id>[A-Za-z0-9_.-]+)(?P<more>,\S*)?(?:\s+(?P<
 ZIZMOR_MARK  = re.compile(r"#\s*zizmor\s*:\s*ignore\b(?P<rest>.*)")
 GOOD_ZIZMOR  = re.compile(r"\[(?P<id>[A-Za-z0-9_,-]+)\](?:\s+(?P<reason>.*?))?\s*")
 REASON_WORDS = 3
-RULE_ID      = re.compile(r"^\s*-\s+id:\s*['\"]?([A-Za-z0-9_.-]+)", re.MULTILINE)
+# a rule's id, a key at the column of the rules list's items, after the item's dash or under it (Codex's review)
+RULE_ITEM = re.compile(r"(?P<lead>[ \t]*-[ \t]+)(?P<rest>\S.*)?")
+RULE_ID   = re.compile(r"""["']?id["']?[ \t]*:[ \t]*['"]?(?P<id>[A-Za-z0-9_.-]+)""")
 # a marker counts only in a comment, which a reader of the file's kind finds, Codex's read of 2026-10-22, and a file
 # whose comments it cannot read whole counts none. Words after which a slash opens a regular expression and a less than
 # sign an element, a YAML block scalar's header, and the kinds whose markers are read as text alone, as before
@@ -718,19 +724,67 @@ def covered_languages(machine: Machine) -> frozenset[str]:
     Returns:
         frozenset[str]: the languages, as LANGUAGES names them
     """
+    every = frozenset(LANGUAGES.values())
     if not machine.kdf_only:
-        return frozenset(LANGUAGES.values())
-    words: set[str] = set()
+        return every
+    covered: set[str] = set()
     for name, data in machine.files.items():
         if name.startswith("scan_rules/") and name.endswith(YAML_SUFFIXES):
-            for listed in LANGUAGES_LIST.findall(data.decode("utf-8", "replace")):
-                words.update(word.strip().strip("'\"").lower() for word in listed.split(","))
-    return frozenset(RULE_LANGUAGES[word] for word in words if word in RULE_LANGUAGES)
+            named = rule_languages(data.decode("utf-8", "replace"))
+            if named is None:
+                return every
+            covered.update(named)
+    return frozenset(covered) or every
+
+
+def rule_languages(text: str) -> set[str] | None:
+    """
+    The languages one rule file's rules name, in a flow list or a block list, or None when a declaration takes another
+    form, names a word RULE_LANGUAGES does not hold, or the word languages appears where no declaration was read, so
+    the caller fails safe and holds every file to having been read (D-093, Codex's review read).
+
+    Args:
+        text: the rule file
+
+    Returns:
+        set[str] | None: the languages, as LANGUAGES names them, or None
+    """
+    words: list[str] = []
+    found = 0
+    for key in LANGUAGES_KEY.finditer(text):
+        found += 1
+        rest   = key.group("rest").split("#", 1)[0].strip()
+        listed = []
+        if rest.startswith("["):
+            opened = text.index("[", key.start("rest"))
+            closed = text.find("]", opened)
+            if closed < 0:
+                return None
+            listed = text[opened + 1 : closed].split(",")
+        elif rest:
+            return None
+        else:
+            for line in text[key.end() :].splitlines()[1:]:
+                if not line.strip():
+                    continue
+                item = LANGUAGES_ITEM.fullmatch(line)
+                if not item:
+                    break
+                listed.append(item.group("word"))
+        names = [word.strip().strip("'\"").lower() for word in listed]
+        if not names or any(name not in RULE_LANGUAGES for name in names):
+            return None
+        words.extend(names)
+    if found != text.count("languages"):
+        return None
+    return {RULE_LANGUAGES[word] for word in words}
 
 
 def rule_ids(files: Mapping[str, bytes]) -> dict[str, int]:
     """
-    How many rules run under each rule id's last part, so a marker naming one shared by two is refused.
+    How many rules run under each rule id's last part, the id a marker names, so a marker naming one shared by two is
+    refused. A rule's id is the key at the column of the rules list's items, the shallowest list in a rule file,
+    written after the item's dash or on a line of its own (Codex's review read).
 
     Args:
         files: each rule file by its path
@@ -740,8 +794,22 @@ def rule_ids(files: Mapping[str, bytes]) -> dict[str, int]:
     """
     counts: dict[str, int] = {}
     for data in files.values():
-        for rule in RULE_ID.findall(data.decode("utf-8", "replace")):
-            counts[rule] = counts.get(rule, 0) + 1
+        lines   = [line for line in data.decode("utf-8", "replace").splitlines() if not line.lstrip().startswith("#")]
+        columns = [len(item["lead"]) for line in lines if (item := RULE_ITEM.match(line)) and item["rest"]]
+        if not columns:
+            continue
+        column = min(columns)
+        for line in lines:
+            item = RULE_ITEM.match(line)
+            if item and item["rest"] and len(item["lead"]) == column:
+                key = item["rest"]
+            elif not item and len(line) - len(line.lstrip(" \t")) == column:
+                key = line[column:]
+            else:
+                continue
+            if found := RULE_ID.match(key):
+                rule = found["id"].rsplit(".", 1)[-1]
+                counts[rule] = counts.get(rule, 0) + 1
     return counts
 
 # ======================================================================================================================
@@ -2209,7 +2277,12 @@ def coverage(
         files = "file" if len(uncovered) == 1 else "files"
         outcome.lines.append(f"UNCOVERED {len(uncovered)} {files}, {names}, read by no rule of KDF's rules alone")
         outcome.marks.append("uncovered")
-    troubled = {path for path, _kind in errors if path} | (set(inventory.code) - scanned - uncovered)
+    # a limit on an uncovered file still passes on its recorded content, since the full run needs it (Codex's review)
+    troubled = (
+        {path for path, _kind in errors if path}
+        | (set(inventory.code) - scanned - uncovered)
+        | (uncovered & set(limits))
+    )
     passed   = set()
     for path in sorted(troubled):
         recorded = limits.get(path)

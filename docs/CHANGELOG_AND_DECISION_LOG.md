@@ -5017,9 +5017,12 @@ a frontend's files would all count as incomplete.
    other pack name is refused.
 2. The wrapper counts a code file in a language no selected rule reads as uncovered, one `UNCOVERED` line and an
    `uncovered` mark in the last line, never incomplete. With Semgrep's pack every scanned language is covered and an
-   unread file is incomplete as before.
+   unread file is incomplete as before. A rule file's languages are read from a flow or a block list, and any other
+   form, or a word such as `generic` or `regex`, counts every language covered, so the parse fails safe. A recorded
+   scan limit on an uncovered file still passes on its content, since the full run needs it.
 3. When Semgrep's pack did not run, an Opengrep marker naming a rule outside the rules that ran reads `UNEVAL`,
-   neither bound nor stale. A marker for a rule that ran and binds nothing stays stale.
+   neither bound nor stale. A marker for a rule that ran and binds nothing stays stale. A rule's id is the key at the
+   column of the rules list's items, in either order, counted by its last part as a marker names it.
 4. The gate always runs Semgrep's pack, its rules fetched at the pinned commit and mounted read only, and a test
    holds that, no caller input or branch able to choose its pack.
 5. The image's fixtures scan a repo with a TypeScript file under KDF's rules alone and require it uncovered and the
