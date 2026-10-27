@@ -931,7 +931,9 @@ classic PAT (see the D-010 W1 finding). See the GitHub App migration ADR in
 **Hardened for the local code scan (D-085, design 5.7).** Every App token names its `repositories:`. A token whose
 targets come from a registry, an input or an issue lists them first with `scripts/token_repositories.py`, through the
 operation's own selection, so the token reaches the repos the run acts on and no other. The `ops-*` workflows mint
-only after reading the issue's fields, and an empty list fails rather than minting a token for every repo. The OIDC
+only after reading the issue's fields, and an empty list fails rather than minting a token for every repo, but in the
+rotation, where a secret with no GitHub target lists none and no App token is minted. Each value is bound to its flag,
+`--names="$REPOS"`, so `--` is a name matching nothing. The OIDC
 drift check names its manifest's two repos and the expiry pull request cicd alone. `ops-setup-e2e.yml`'s token names
 its one target and takes the App's grants whole, since the action has no input for repository variables, accepted on
 its line. No single value input is expanded in a shell, `bandit_version`, `pip_audit_version`, `bandit_paths` and the

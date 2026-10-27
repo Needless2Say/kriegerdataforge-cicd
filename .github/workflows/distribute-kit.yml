@@ -79,7 +79,7 @@ jobs:
         id: targets
         env:
           REPOS: ${{ github.event.inputs.repos }}
-        run: python scripts/token_repositories.py kit "$REPOS" >> "$GITHUB_OUTPUT"
+        run: python scripts/token_repositories.py kit --names="$REPOS" >> "$GITHUB_OUTPUT"
 
       - name: Mint GitHub App token
         id: app-token

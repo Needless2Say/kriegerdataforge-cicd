@@ -463,3 +463,19 @@ def test_a_base_branch_that_is_no_branch_name_reaches_no_git_call(tmp_path, name
 @pytest.mark.parametrize("name", ["main", "feature/local-code-scan", "release-1.2", "v1.0_rc"])
 def test_an_ordinary_branch_name_is_taken(name):
     assert cv._BRANCH.fullmatch(name)
+
+
+@pytest.mark.parametrize("environ", [{}, {"GITHUB_ACTIONS": "true"}], ids = ["a developer machine", "a runner"])
+def test_a_refused_base_branch_fails_the_check_everywhere(tmp_path, capsys, environ):
+    # Codex's step 9 read, a refusal once read as an offline base and passed on a developer machine
+    (tmp_path / "VERSION").write_text("0.10.7\n", encoding = "utf-8")
+    argv = ["check_version.py", "--root", str(tmp_path), "--base-branch=--upload-pack=example"]
+    with (
+        patch.object(cv.sys, "argv", argv),
+        patch.dict(cv.os.environ, environ, clear = True),
+        patch.object(cv.subprocess, "run", side_effect = AssertionError("git ran")),
+        pytest.raises(SystemExit) as exit_info,
+    ):
+        cv.main()
+    assert exit_info.value.code == 1
+    assert "is no branch name" in capsys.readouterr().out

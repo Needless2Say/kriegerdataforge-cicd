@@ -4885,8 +4885,8 @@ digest. What reopens this is a verifier that can read only the registry. No inpu
   `tools/claude-code/`, the `Makefile` and the docs · no input of any workflow changed
 
 **Context.** The scan of this repo on the image A3 pinned found 60 findings and one file it could not finish, all
-older than the scan. 21 were template expansions in a shell, 11 App tokens reaching every repo the App is installed on,
-one workflow holding a write it never used, and 27 from Opengrep.
+older than the scan. 21 were template expansions in a shell, 10 App tokens reaching every repo the App is installed on
+and one taking the App's grants whole, one workflow holding a write it never used, and 27 from Opengrep.
 
 **Decision.**
 
@@ -4895,13 +4895,15 @@ one workflow holding a write it never used, and 27 from Opengrep.
    command input, `install_command` and its kind, is the caller's own command by design and is accepted on its line.
 2. Every App token names its repositories. `scripts/token_repositories.py` lists a run's targets through the
    operation's own selection, the Distributes' registries filtered as `repo_sync` filters them, the rotation's
-   registry targets and the watch's repos, and fails on an empty list, which the action would read as every repo. The
-   issue driven workflows mint after reading the issue. Two tokens take a fixed list, held to its source by a test.
+   registry targets and the watch's repos, and fails on an empty list, which the action would read as every repo. A
+   value is bound to its flag with `=`, so `--` is a name matching nothing and never the end of the options. The
+   rotation alone may list nothing, for a secret with no GitHub target, and then mints no App token. The issue driven
+   workflows mint after reading the issue. Two tokens take a fixed list, held to its source by a test.
    `ops-setup-e2e.yml`'s keeps the App's grants, its action having no input for repository variables, accepted.
 3. `issue-create-repo.yml` drops the `issues: write` no step used, and Dependabot waits seven days on a release.
 4. `check_version.py` takes a base branch only when it is a branch name, never one opening with a dash, which `git
-   fetch origin <name>` would read as an option such as `--upload-pack`, so Distribute carries the check to every
-   copy. The watch keys its findings on SHA-256 instead of SHA-1, since the rule two rule sets share allows no marker,
+   fetch origin <name>` would read as an option such as `--upload-pack`, and a refused name fails the check on a
+   developer machine as on a runner, so Distribute carries the check to every copy. The watch keys its findings on SHA-256 instead of SHA-1, since the rule two rule sets share allows no marker,
    so its first run after this marks every finding new once. The remaining subprocess and pattern lines are accepted
    on their lines, each with its reason, and the rules' own test cases are excluded. `kdf-guard.js`, which Opengrep's
    rule timeout cannot finish, is a recorded limit tied to its content.

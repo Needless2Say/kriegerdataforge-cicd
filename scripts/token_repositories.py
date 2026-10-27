@@ -4,13 +4,16 @@ and the same selection the operation itself uses, so the token names every repo 
 (D-085, design 5.7, row L19). Printed as `repositories=<names>` for `$GITHUB_OUTPUT`, the short names comma joined.
 
 Usage:
-    python scripts/token_repositories.py kit [REPOS]          # distribute_kit.py's targets, --repos when given
-    python scripts/token_repositories.py scripts [REPOS]      # distribute_scripts.py's targets
-    python scripts/token_repositories.py all [REPOS]          # distribute_all.py's targets, both registries merged
-    python scripts/token_repositories.py secrets NAMES        # rotate_secret.py's writes for the named secrets
-    python scripts/token_repositories.py watch                # ecosystem_watch.py's repos, cicd among them
+    python scripts/token_repositories.py kit --names=REPOS       # distribute_kit.py's targets, --repos when not empty
+    python scripts/token_repositories.py scripts --names=REPOS   # distribute_scripts.py's targets
+    python scripts/token_repositories.py all --names=REPOS       # distribute_all.py's targets, both registries merged
+    python scripts/token_repositories.py secrets --names=NAMES   # rotate_secret.py's writes for the named secrets
+    python scripts/token_repositories.py watch                   # ecosystem_watch.py's repos, cicd among them
 
-Standard library only.
+A value is bound to --names with `=`, so `--` or a name opening with a dash is a name, matching none and failing, and
+never the end of the options, which would leave the filter empty and the list every target (Codex's step 9 read). An
+empty list fails, since the action reads no repositories as every repo the App reaches, unless --allow-empty says the
+workflow then mints no App token at all. Standard library only.
 """
 
 from __future__ import annotations
@@ -133,11 +136,17 @@ def main(argv: list[str] | None = None) -> int:
         int: 0, a failure exits through SystemExit
 
     Raises:
-        SystemExit: when the list is empty, since the action reads no repositories as every repo the App reaches
+        SystemExit: when the list is empty and --allow-empty is not given, since the action reads no repositories as
+            every repo the App reaches
     """
     parser = argparse.ArgumentParser(description = "The repositories a workflow's App token may reach (D-085).")
     parser.add_argument("kind", choices = ("kit", "scripts", "all", "secrets", "watch"))
-    parser.add_argument("names", nargs = "?", default = "", help = "--repos for a Distribute, the secrets for secrets")
+    parser.add_argument("--names", default = "", help = "--repos for a Distribute, the secrets for secrets, with =")
+    parser.add_argument(
+        "--allow-empty",
+        action = "store_true",
+        help = "print an empty list, for a workflow that then mints no App token",
+    )
     args = parser.parse_args(argv)
     if args.kind == "secrets":
         repos = secret_targets(args.names)
@@ -145,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
         repos = watch_targets()
     else:
         repos = sync_targets(args.kind, args.names or None)
-    if not repos:
+    if not repos and not args.allow_empty:
         raise SystemExit("token_repositories: no repository to reach, so no token is minted")
     print(f"repositories={short(repos)}")
     return 0

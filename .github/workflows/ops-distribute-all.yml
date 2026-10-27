@@ -89,7 +89,7 @@ jobs:
         id: targets
         env:
           REPOS: ${{ steps.fields.outputs.repos }}
-        run: python scripts/token_repositories.py all "$REPOS" >> "$GITHUB_OUTPUT"
+        run: python scripts/token_repositories.py all --names="$REPOS" >> "$GITHUB_OUTPUT"
 
       # Short-lived GitHub App installation token (auto-revoked at job end). Downscoped to contents + pull-requests
       # write, what the sync needs to push a branch and open a PR. Gated on USE_GITHUB_APP, falls back to CICD_PAT.

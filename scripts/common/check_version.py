@@ -442,7 +442,11 @@ def main() -> None:
     fetched      = _fetch_base(root, args.base_branch)
     base_version = _get_base_version(root, args.base_branch)
 
-    if base_version is None and not fetched and os.environ.get("GITHUB_ACTIONS") == "true":
+    if not _BRANCH.fullmatch(args.base_branch):
+        # refused before any git call, and a refusal fails everywhere, never read as an offline base (D-085)
+        print(f"FAIL: {args.base_branch!r} is no branch name, so the increment cannot be checked.")
+        passed = False
+    elif base_version is None and not fetched and os.environ.get("GITHUB_ACTIONS") == "true":
         # a check that cannot look does not pass. on a runner the fetch has no reason to fail but a checkout
         # without credentials or a remote that is down, and either way the increment was not checked
         print(f"FAIL: could not fetch origin/{args.base_branch}, so the increment cannot be checked.")
