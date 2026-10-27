@@ -4917,3 +4917,53 @@ keeping SHA-1 behind a marker (not possible, the wrapper refuses a short id two 
 
 **Consequences.** `make scan` here ends `CLEAN` on the pinned image. The gate runs from the next pull request after
 this merges. The watch's next issue update lists every finding as new once. VERSION 0.2.175, scripts 1.7.2.
+
+## D-091. The tickets tool's read side, the boards the owner's, and the guard holding them
+
+- **Date.** 2026-10-27
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Phase 1 of the backlog
+  tickets design in the owner's private context repo, its read side.
+- **Tier / scope:** Epic, every private repo as it adopts · `tools/claude-code/kdf_tickets/`,
+  `tools/claude-code/kdf-tickets.sh`, `tools/claude-code/kdf-guard.js` and `guard-cases.json`,
+  `scripts/projects_registry.json`, the provisioning issue form, the tests and the tools' README · no workflow input
+  changed
+
+**Context.** The owner's backlog lived in one long page that drifted, and the owner's GitHub Projects boards held
+the July seeding's issues with nothing keeping them in step and no copy to rebuild them from. The owner asked that
+each repo keep its tickets as YAML files beside its code, synced with its GitHub issues, that a session may write
+issues but never a board, and that only the owner creates, deletes or writes boards.
+
+**Decision.**
+
+1. Each private repo keeps `docs/tickets/`, one YAML file per issue beside `config.json`, which names the repo, the
+   repos it keeps tickets about and each one's board by its key in `scripts/projects_registry.json`. A public repo
+   keeps none, its tickets held in a private repo, and the tool refuses a repo GitHub calls public before any other
+   read. Every line but the body's is one JSON value, so the standard library reads it, and `check` refuses any other
+   form.
+2. This release is the read side alone, `check`, `fmt`, `plan`, `pull` in three named modes, `find`, `prompt`, `scan`
+   and `ages`, run as a package from cicd's checkout through `kdf-tickets.sh`, isolated, the standard library alone.
+   One reader runs `gh api graphql` with an argument list, every read made before a file is written. Issue fields
+   merge three ways against their bases, board fields are read whole by `pull`, and nothing writes an issue or a
+   board. A card's place names the nearest earlier card its config backs up on that board.
+3. A sensitivity scan reads every new or changed title, body and comment before a pull writes it, and holds a flagged
+   issue back until the owner edits it, labels it `local-only` or allows it, the allowance bound to the text's digest.
+   A hit names its pattern and count, never the text.
+4. The fence on boards is the login's scope, `read:project` and never `project`, since the guard reads typed commands
+   and never a script's calls. The guard is an accident's fence beside it. It opens `gh project`'s four reads and
+   refuses its fifteen writes by name, refuses a typed `gh issue create`, parses `gh api`'s options once against gh's
+   own table so a value such as an `-H` header never reads as the endpoint and an unknown option refuses, and refuses
+   the owner's board runner, `kdf_tickets_owner.py`, by name but its `--help`.
+5. The registry holds eight boards, KDF — CICD and KDF — Personal Portfolio new and unpinned until the owner's first
+   execute makes them, board 22 renamed KDF — Business Portfolio with its node id kept. cicd moves off Infra, the
+   private tickets repo sits on its three boards and every other repo on exactly one, and the provisioning issue form
+   offers every key.
+
+**Alternatives considered.** A board token in a file the guard closes by name (rejected, a script a session writes
+reads any file the owner's account can) · writing board fields from the files (rejected, a stale base reverses a card
+the owner moved back) · PyYAML at run time (rejected, the canonical form needs none) · a copy of the tool in every repo
+(deferred to the owner's packaged tooling).
+
+**Consequences.** The tool's tests use synthetic fixtures alone, and no real ticket, comment or journal reaches this
+repo. The guard's change reaches a machine only through `install.sh`, the owner's, and `SCAN_LIMIT`'s recorded hash
+for `kdf-guard.js` moves with it. The write side, `push` and the owner's runner, come in a later release. VERSION
+0.2.176.

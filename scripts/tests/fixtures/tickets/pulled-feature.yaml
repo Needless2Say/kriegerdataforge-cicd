@@ -1,0 +1,25 @@
+id: "pulled-feature"
+title: "A pulled feature with a block body"
+about: "sample-app"
+also: ["sample-api"]
+kind: "feature"
+state: "open"
+reason: null
+labels: ["area:sample", "design-prompt"]
+assignees: ["example-owner"]
+parent: null
+issue: {"repo": "sample-app", "number": 12, "node": "I_kwSAMPLE0012", "url": "https://github.com/example-owner/sample-app/issues/12"}
+board: {"status": "In Progress", "priority": "P2", "type": "Feature", "severity": null, "after": "sample-app/first"}
+synced: {"title": "a27c3094150d090f", "body": "1fad04a5733cb7c1", "state": "open", "reason": null, "labels": ["area:sample", "design-prompt"], "assignees": ["example-owner"], "parent": null, "board": "b1d5eeb7e023775d", "comments": null}
+body: |2
+  The lead sentence of a synthetic feature.
+
+  **What exists.** Nothing real, a fixture.
+
+    An indented line, and a line with trailing spaces  
+
+  **Its design prompt.**
+
+  ```text
+  You are `sample-design`, an Opus design session.
+  ```

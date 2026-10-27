@@ -6707,5 +6707,239 @@
   "tool": "Bash",
   "command": "MSYS_NO_PATHCONV=1 git show HEAD:.gitignore",
   "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh project list --owner Needless2Say",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh project view 18 --owner Needless2Say",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh project field-list 18 --owner Needless2Say",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh project item-list 18 --owner Needless2Say --format json",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh project create --owner Needless2Say --title x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh project copy 18 --source-owner Needless2Say --target-owner Needless2Say --title x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh project edit 18 --owner Needless2Say --title x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh project close 18 --owner Needless2Say",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh project delete 18 --owner Needless2Say",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh project mark-template 18 --owner Needless2Say",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh project link 18 --owner Needless2Say --repo o/r",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh project unlink 18 --owner Needless2Say --repo o/r",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh project field-create 18 --owner Needless2Say --name x --data-type TEXT",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh project field-delete --id x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh project item-add 18 --owner Needless2Say --url https://github.com/o/r/issues/1",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh project item-create 18 --owner Needless2Say --title x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh project item-edit --id x --project-id y --field-id z --text w",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh project item-archive 18 --owner Needless2Say --id x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh project item-delete 18 --owner Needless2Say --id x",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh project frobnicate 18",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "Bash",
+  "command": "gh project list --owner Needless2Say",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh issue create --title x --body y",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh issue list --label bug",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh api -H 'Accept: x' graphql -f query=q",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh api -H 'x' repos/o/r/actions/secrets",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh api /users/Needless2Say/projectsV2/18/items",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh api repos/o/r/pulls -H 'Accept: application/json'",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh api -HAccept:x repos/o/r/keys",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh api --header=x repos/o/r/collaborators",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh api --header x repos/o/r/hooks",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh api -iH x repos/o/r/rulesets",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh api --jq .number repos/o/r/pulls/1",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh api --paginate repos/o/r/issues",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh api repos/o/r/pulls --header",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh api --frobnicate repos/o/r/pulls",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh api repos/o/r/pulls repos/o/r/issues",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": "gh api -q .x -X GET repos/o/r/pulls",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": ".venv/Scripts/python.exe tools/claude-code/kdf_tickets_owner.py fields",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "Bash",
+  "command": ".venv/Scripts/python.exe tools/claude-code/kdf_tickets_owner.py --help",
+  "expect": "allow"
  }
 ]

@@ -32,7 +32,9 @@
 				"Needless2Say/kriegerdataforge-sdk",
 				"Needless2Say/kriegerdataforge-reports-sdk",
 				"Needless2Say/kriegerdataforge-report-form",
-				"Needless2Say/kriegerdataforge-fmt"
+				"Needless2Say/kriegerdataforge-fmt",
+				"Needless2Say/kriegerdataforge-context",
+				"Needless2Say/kriegerdataforge-review-bench"
 			],
 			"collaborators": []
 		},
@@ -40,14 +42,28 @@
 			"key": "infra",
 			"title": "KDF — Infra",
 			"existing_node_id": "PVT_kwHOBVLJ2c4BdN5O",
-			"repos": ["Needless2Say/kriegerdataforge-cicd", "Needless2Say/kriegerdataforge-terraform"],
+			"repos": ["Needless2Say/kriegerdataforge-terraform"],
 			"collaborators": []
 		},
 		{
-			"key": "portfolios",
-			"title": "KDF — Portfolios",
+			"key": "business",
+			"title": "KDF — Business Portfolio",
 			"existing_node_id": "PVT_kwHOBVLJ2c4BdN5P",
-			"repos": ["Needless2Say/arthurs-portfolio", "Needless2Say/kriegerdataforge-portfolio"],
+			"repos": ["Needless2Say/kriegerdataforge-portfolio", "Needless2Say/kriegerdataforge-tickets"],
+			"collaborators": []
+		},
+		{
+			"key": "personal",
+			"title": "KDF — Personal Portfolio",
+			"existing_node_id": null,
+			"repos": ["Needless2Say/arthurs-portfolio", "Needless2Say/kriegerdataforge-tickets"],
+			"collaborators": []
+		},
+		{
+			"key": "cicd",
+			"title": "KDF — CICD",
+			"existing_node_id": null,
+			"repos": ["Needless2Say/kriegerdataforge-cicd", "Needless2Say/kriegerdataforge-tickets"],
 			"collaborators": []
 		},
 		{
@@ -63,5 +79,6 @@
 			"collaborators": []
 		}
 	],
-	"_excluded_notes": "Board node ids were harvested from the first execute (2026-07-12) and pinned in existing_node_id, so re-runs ADOPT these exact boards (no adopt-by-title duplicate risk if a title is edited). The Fitness board is the one wired into fitness-app-backend's GH_REPORTS_*PROJECT_ID env; if a different pre-existing Fitness board should be canonical, replace fitness.existing_node_id with its id before the next run."
+	"_new_boards_note": "KDF — CICD and KDF — Personal Portfolio hold no node id until the owner's first execute makes them, adopted by title until their ids are pinned here. KDF — Business Portfolio is the board pinned before as KDF — Portfolios, its title renamed by the owner, since the provisioner never renames. The tickets repo holds the public repos' tickets, so it sits on exactly their three boards, the one repo the partition lets on more than one.",
+	"_excluded_notes":"Board node ids were harvested from the first execute (2026-07-12) and pinned in existing_node_id, so re-runs ADOPT these exact boards (no adopt-by-title duplicate risk if a title is edited). The Fitness board is the one wired into fitness-app-backend's GH_REPORTS_*PROJECT_ID env; if a different pre-existing Fitness board should be canonical, replace fitness.existing_node_id with its id before the next run."
 }

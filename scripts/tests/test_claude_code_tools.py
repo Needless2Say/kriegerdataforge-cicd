@@ -377,6 +377,28 @@ def test_each_closed_file_is_refused_with_its_own_reason(tmp_path: Path, command
     assert says in message
 
 
+@pytest.mark.parametrize(
+    ("command", "says"),
+    [
+        ("gh project item-edit --id x --project-id y --field-id z --text w", "Boards are the owner's. Ask the owner"),
+        ("gh project delete 18 --owner o", "Boards are the owner's. Ask the owner to run it"),
+        ("gh issue create --title x", "cicd's tickets tool"),
+        ("gh api --frobnicate repos/o/r/pulls", "not an option gh api takes"),
+        ("gh api repos/o/r/pulls --header", "needs its value"),
+        ("gh api -H x repos/o/r/actions/secrets", "reaches merges, releases, deployments or settings"),
+    ],
+)
+def test_the_board_issue_and_api_refusals_say_why(tmp_path: Path, command: str, says: str) -> None:
+    """
+    A board write names the owner as the one who runs it, a typed issue create names the tickets tool, and gh api's
+    options, parsed once, name what is wrong with them, an -H value never read as the endpoint (D-091).
+    """
+    _ignored_tree(tmp_path)
+    code, message = _run_case(tmp_path, {"role": "owner", "tool": "Bash", "command": command, "expect": "block"})
+    assert code == 2
+    assert says in message
+
+
 def test_the_cases_cover_both_roles_and_both_outcomes() -> None:
     """
     The table is a real one, both roles, all three outcomes, and every case says what it expects.

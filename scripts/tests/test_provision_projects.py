@@ -15,6 +15,9 @@ from unittest.mock import MagicMock, patch
 import provision_projects as pp
 import pytest
 
+# the private repo holding the public repos' tickets until the organization move
+TICKETS_REPO = "Needless2Say/kriegerdataforge-tickets"
+
 
 # ── Fixtures ────────────────────────────────────────────────────────────────────
 @pytest.fixture
@@ -55,11 +58,11 @@ def _gql_response(data: dict) -> MagicMock:
 # ── The real registry file ───────────────────────────────────────────────────────
 def test_real_registry_is_valid():
     """
-    The committed registry parses, has 6 unique boards, and every repo is owner-qualified.
+    The committed registry parses, has 8 unique boards, and every repo is owner-qualified.
     """
     reg    = json.loads((Path(pp.__file__).parent / "projects_registry.json").read_text(encoding = "utf-8"))
     boards = reg["boards"]
-    assert len(boards) == 6
+    assert len(boards) == 8
     keys   = [b["key"] for b in boards]
     titles = [b["title"] for b in boards]
     assert len(set(keys)) == len(keys)
@@ -76,11 +79,14 @@ def test_real_registry_is_valid():
 def test_real_registry_covers_every_kit_repo_exactly_once():
     """
     Board membership must partition the ecosystem: every kit-synced repo on exactly one board
-    (+ cicd itself, which the kit registry excludes as the source).
+    (+ cicd itself, which the kit registry excludes as the source). The holder rule: the private tickets repo holds
+    the public repos' tickets, so it sits on exactly the three boards of the repos it holds for.
     """
     reg         = json.loads((Path(pp.__file__).parent / "projects_registry.json").read_text(encoding = "utf-8"))
-    board_repos = [r for b in reg["boards"] for r in b["repos"]]
+    board_repos = [r for b in reg["boards"] for r in b["repos"] if r != TICKETS_REPO]
     assert len(board_repos) == len(set(board_repos)), "a repo appears on two boards"
+    holder = sorted(b["key"] for b in reg["boards"] if TICKETS_REPO in b["repos"])
+    assert holder == ["business", "cicd", "personal"], holder
     kit       = json.loads((Path(pp.__file__).parent / "kit_registry.json").read_text(encoding = "utf-8"))
     kit_repos = {entry["repo"] for entry in kit["repos"]}
     kit_repos.add("Needless2Say/kriegerdataforge-cicd")  # sync-excluded source repo
@@ -88,6 +94,39 @@ def test_real_registry_covers_every_kit_repo_exactly_once():
     # The two new package repos may join the kit registry in a later wave; boards must already
     # carry them, so only assert the boards-side superset.
     assert not missing, f"kit repos missing from every board: {sorted(missing)}"
+
+
+def test_real_registry_places_each_repo_on_its_board():
+    """
+    The boards of the backlog tickets' phase 1: cicd on its own board and off Infra, each portfolio on its own, board
+    22 renamed and its node id kept, and context and the review bench on Platform.
+    """
+    reg   = json.loads((Path(pp.__file__).parent / "projects_registry.json").read_text(encoding = "utf-8"))
+    board = {b["key"]: b for b in reg["boards"]}
+    owner = "Needless2Say/"
+    assert board["cicd"]["title"] == "KDF — CICD" and owner + "kriegerdataforge-cicd" in board["cicd"]["repos"]
+    assert board["infra"]["repos"] == [owner + "kriegerdataforge-terraform"]
+    assert board["personal"]["title"] == "KDF — Personal Portfolio"
+    assert owner + "arthurs-portfolio" in board["personal"]["repos"]
+    assert board["business"]["title"] == "KDF — Business Portfolio"
+    assert board["business"]["existing_node_id"] == "PVT_kwHOBVLJ2c4BdN5P"
+    assert owner + "kriegerdataforge-portfolio" in board["business"]["repos"]
+    assert owner + "arthurs-portfolio" not in board["business"]["repos"]
+    for repo in ("kriegerdataforge-context", "kriegerdataforge-review-bench"):
+        assert owner + repo in board["platform"]["repos"], repo
+
+
+def test_the_issue_form_offers_every_registry_key():
+    """
+    The provisioning issue form's board list is the registry's keys, so the owner can pick each board.
+    """
+    reg     = json.loads((Path(pp.__file__).parent / "projects_registry.json").read_text(encoding = "utf-8"))
+    form    = (Path(pp.__file__).parents[1] / ".github" / "ISSUE_TEMPLATE" / "ops-provision-projects.yml").read_text(
+        encoding = "utf-8",
+    )
+    listed  = form.split("id: boards", 1)[1].split("validations:", 1)[0]
+    offered = [line.strip()[2:] for line in listed.splitlines() if line.strip().startswith("- ")]
+    assert offered == ["ALL", *[b["key"] for b in reg["boards"]]]
 
 
 # ── Selection ───────────────────────────────────────────────────────────────────

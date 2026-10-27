@@ -45,7 +45,9 @@ body:
         - tiffanys
         - platform
         - infra
-        - portfolios
+        - business
+        - personal
+        - cicd
         - templates
     validations:
       required: true
