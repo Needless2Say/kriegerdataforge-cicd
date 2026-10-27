@@ -768,7 +768,7 @@ bash kdf-tickets.sh pull --backup --root <worktree>           # every ticket, a 
 bash kdf-tickets.sh pull --adopt [--map <file>] --root <wt>   # a repo's first pull, every issue
 bash kdf-tickets.sh find --label next-change --root <wt>      # open tickets by about, label or kind, the files alone
 bash kdf-tickets.sh prompt <id> --root <worktree>             # a feature's design prompt, or its plan for the build's
-bash kdf-tickets.sh scan [--allow <id>...] --root <worktree>  # the sensitivity check, and the owner's allowances
+bash kdf-tickets.sh scan [--allow <n>...] --root <worktree>   # the sensitivity check, and the owner's allowances
 bash kdf-tickets.sh ages --workspace D:/KriegerDataForge      # every clone with tickets, its oldest unpulled change
 ```
 
@@ -793,10 +793,11 @@ an issue or a board. `pull` names its mode, never guessed from the branch, and w
 
 **The scan.** Before a pull writes a new or changed text, every title, body and comment is scanned for money amounts,
 card and account numbers, email addresses, phone numbers, street addresses and words such as invoice or salary, and an
-owner kept list of private words given by `--private-words`. A hit names its pattern and its count, never the text,
-and a private word shows as "a private word". A flagged issue gets no file until the owner edits it, labels it
-`local-only` or allows it with `scan --allow <id>`, recorded in the config with the digest of the text and the policy,
-so a changed text asks again.
+owner kept list of private words given by `--private-words`. A hit names its issue by number and its pattern and
+count, never the text or an id made from it, and a private word shows as "a private word". A flagged issue gets no
+file, and no other ticket names it, until the owner edits it, labels it `local-only` or allows it with
+`scan --allow <number>`, recorded in the config by the issue's node id with the digest of the text and the policy, so
+a changed text asks again.
 
 **Who runs it.** A session and the owner. A reviewer never does, the launcher refusing `KDF_ROLE=reviewer` first,
 before `--help`, and the package again. The login's `read:project` scope is the fence on boards, and the guard holds
