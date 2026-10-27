@@ -123,6 +123,44 @@ def test_kdf_rules_alone_skip_semgreps_and_name_their_coverage_in_the_last_line(
     assert re.search(r"FAIL\s+src/app\.py:1\s+kdf-test-rule", text) and "eval-detected" not in text
 
 
+# the opt in rule packs (D-093, Codex's decision read on cicd c3561bb), KDF's rules alone the default, so a language no
+# KDF rule reads is uncovered and named, never incomplete, and a marker for a rule that did not run is unevaluated
+TS_UNREAD = "// OPENGREP-SKIPS-ME\nexport const view = 1;\n"
+
+
+def test_kdf_rules_alone_count_a_language_no_kdf_rule_reads_as_uncovered_not_incomplete(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n", "src/view.ts": TS_UNREAD})
+    code, text = run(rig, machine = rig.machine(kdf_only = True, rules = tmp_path / "no-cache.git"))
+    assert code == 0, text
+    assert re.search(r"UNCOVERED 1 file, typescript, read by no rule of KDF's rules alone", text), text
+    assert "INCOMPLETE" not in text and "uncovered" in last(text)["marks"]
+
+
+def test_semgreps_pack_still_counts_a_file_opengrep_did_not_read_as_incomplete(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n", "src/view.ts": TS_UNREAD})
+    code, text = run(rig)
+    assert code == 4, text
+    assert "INCOMPLETE src/view.ts  not read by Opengrep" in text and "UNCOVERED" not in text
+
+
+def test_a_marker_for_a_rule_that_did_not_run_is_unevaluated_under_kdf_rules_alone(tmp_path: Path) -> None:
+    files = {"src/app.py": f"eval(x)  # VULN(eval-detected){ACCEPT}\n"}
+    rig   = make_rig(tmp_path, SCAN, files)
+    code, text = run(rig, machine = rig.machine(kdf_only = True, rules = tmp_path / "no-cache.git"))
+    assert code == 0, text
+    assert re.search(r"UNEVAL\s+src/app\.py:1\s+eval-detected, a rule of a pack this run did not select", text), text
+    assert "BAD" not in text
+    # with Semgrep's pack the same marker binds its finding, so it is accepted and never unevaluated
+    code, text = run(make_rig(tmp_path / "full", SCAN, files))
+    assert code == 0 and "ACCEPTED  src/app.py:1  eval-detected" in text and "UNEVAL" not in text, text
+
+
+def test_a_marker_for_a_kdf_rule_that_binds_nothing_stays_stale_under_kdf_rules_alone(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, SCAN, {"src/app.py": "x = 1  # nosemgrep: kdf-test-rule the value is a fixed constant\n"})
+    code, text = run(rig, machine = rig.machine(kdf_only = True, rules = tmp_path / "no-cache.git"))
+    assert code == 1 and "stale, it binds to no kdf-test-rule finding" in text, text
+
+
 def test_a_public_repos_log_names_rule_ids_and_never_a_message(tmp_path: Path) -> None:
     rig = make_rig(tmp_path, SCAN, {"src/app.py": "eval(x)  # VULN(eval-detected)\nPARSE-ERROR here\n"})
     code, text = run(rig, machine = rig.machine(public = True))

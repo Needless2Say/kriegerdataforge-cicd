@@ -40,6 +40,7 @@ VULNERABLE = (
     '    logger.info(f"the token is {access_token}")\n'
 )
 CLEAN      = "print('hello')\n"
+TS_FILE    = "export const view = (name: string): string => `hello ${name}`;\n"
 FENCE_ONLY = "import urllib.request\nurllib.request.urlopen('https://example.com', timeout = 5)\n"
 # exits 30, EROFS, when the read only root stops the write, and 13 for any other refusal, so a run whose user alone
 # lacks the right, which would stop it on a writable root too, never passes for the fence (Codex's step 6 read)
@@ -91,6 +92,8 @@ def make_repo(folder: Path, vulnerable: bool) -> Path:
     folder.mkdir(parents = True)
     git(folder, "init", "-q", "-b", "main")
     (folder / "app.py").write_text(VULNERABLE if vulnerable else CLEAN, encoding = "utf-8", newline = "\n")
+    # a frontend's file, which KDF's Python rule never reads, so KDF's rules alone count it uncovered (D-093)
+    (folder / "view.ts").write_text(TS_FILE, encoding = "utf-8", newline = "\n")
     git(folder, "add", "-A")
     git(folder, "-c", "user.email=fixture@example.com", "-c", "user.name=fixture", "commit", "-q", "-m", "one")
     git(folder, "update-ref", "refs/remotes/origin/main", "HEAD")
@@ -183,6 +186,12 @@ def main(argv: list[str] | None = None) -> int:
         check(
             "a clean repo ends clean in KDF's rules mode, its coverage named",
             clean.returncode == 0 and "rules kdf-only" in last and last.endswith("CLEAN (exit 0)"),
+            last or clean.stderr.strip()[-200:],
+            failures,
+        )
+        check(
+            "KDF's rules alone count a TypeScript file uncovered and never incomplete",
+            "UNCOVERED 1 file, typescript" in clean.stdout and "INCOMPLETE" not in clean.stdout and "uncovered" in last,
             last or clean.stderr.strip()[-200:],
             failures,
         )
