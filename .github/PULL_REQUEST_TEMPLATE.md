@@ -14,6 +14,8 @@ See [`docs/agent/DEFINITION_OF_DONE.md`](../docs/agent/DEFINITION_OF_DONE.md) fo
 change type specific bar. Baseline:
 
 - [ ] Local `make ci` is green. Version bumped (+ any required sync)
+- [ ] `make scan` ran, its last line pasted whole under How verified with any accepted finding it printed, or why it
+      did not run (D-085). The owner's gate, `kdf-scan-gate.yml`, runs before the merge
 - [ ] Change is scoped and self-reviewed. No secrets in code/commits/logs
 - [ ] Tests added at the right tier for new behavior (unit / integration / e2e)
 - [ ] Docs updated, **ADR (`D-NNN`)** added if architectural

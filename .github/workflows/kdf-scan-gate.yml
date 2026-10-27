@@ -1,0 +1,23 @@
+# The local code scan's gate (cicd D-085), managed by cicd's scripts sync, which writes this file whole, so a change
+# to it comes only from cicd. The owner starts it on main at each merge attempt, naming the pull request, and reads
+# its run, its path, trigger, branch, revision, conclusion, five ids and last line, before the merge. It runs main's
+# copy of this file and cicd's reusable workflow at main, never a branch's, so a branch cannot satisfy its own gate.
+name: kdf-scan-gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: The pull request's number
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  kdf-scan-gate:
+    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/kdf-scan-gate-reusable.yml@main
+    with:
+      pr: ${{ inputs.pr }}

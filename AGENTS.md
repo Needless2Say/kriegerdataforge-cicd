@@ -44,7 +44,8 @@ repo. As KDF grows, this library may also host AI driven agent workflows, an ide
 - **Python 3.14 (stdlib first).** Platform scripts in `scripts/` (token/PAT rotation, DB backup,
   deployer gate, version bump/check), tested with `pytest` + coverage.
 - **actionlint.** Local + CI lint for all workflow YAML.
-- **CodeQL** (`javascript-typescript`). Optional local SAST via the Makefile.
+- **CodeQL** (`python` and `javascript-typescript`). Hosted on this public repo through `codeql.yml`, no local target
+  (D-085). The local scan is Opengrep and zizmor in cicd's image, `make scan`.
 
 ## Module map
 
@@ -109,7 +110,6 @@ repo. As KDF grows, this library may also host AI driven agent workflows, an ide
 | **Full local CI (the gate)** | `make ci` (actionlint, kdf-fmt style, the unit tests and the version check, as `ci.yml` runs them). `make check-all` runs `lint` + `style` + `test` without the version check |
 | Type check | _none in this repo_ (workflow YAML + stdlib scripts, rely on `make lint` + tests) |
 | Version bump (patch / minor / major) | `make bump-patch` / `make bump-minor` / `make bump-major` |
-| CodeQL local scan (optional) | `make codeql-db` then `make codeql-scan-all` (or `*-csv` variants) |
 | Local code scan (D-085, D-088) | `make scan-setup` once, then `make scan`, its last line into the pull request, and `make scan-fixtures` at every pin move |
 | List targets | `make help` |
 

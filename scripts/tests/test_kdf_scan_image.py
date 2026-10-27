@@ -72,6 +72,11 @@ def test_the_gates_canonical_caller_hash_is_the_callers_own() -> None:
     assert env_value(GATE, "KDF_SCAN_CALLER_SHA") == expected
 
 
+def test_cicds_own_caller_is_the_canonical_text_since_no_distribute_writes_it_here() -> None:
+    # cicd is no target of its own scripts sync, so its caller is a copy a test holds whole (plan step 9, design 5.3)
+    assert (WORKFLOWS / SCAN.CALLER_PATH.rsplit("/", 1)[-1]).read_text(encoding = "utf-8") == ds.caller_text()
+
+
 def test_the_caller_names_the_reusable_workflow_by_its_own_name_apart_from_its_own_path() -> None:
     assert SCAN.CALLER_PATH.endswith(
         "/kdf-scan-gate.yml",

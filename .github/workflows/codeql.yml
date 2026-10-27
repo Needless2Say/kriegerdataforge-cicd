@@ -1,16 +1,14 @@
 # CodeQL static analysis for kriegerdataforge-cicd, via the centralized reusable workflow.
-# Scans: the Playwright E2E suite under e2e/
+# Scans: the Python platform scripts and the Node tools, each language a leg of its own,
+# the paths in .github/codeql/codeql-config.yml (D-085, design 5.8).
 #
 # GATED: CodeQL runs only on public repos (free) or private repos with
 # "GitHub Code Security" (Enterprise add-on; NOT included in GitHub Pro/Copilot).
 # The analyze job is gated behind the `ENABLE_CODEQL` repo/org Actions variable
 # and stays skipped (green) until that entitlement exists. To turn CodeQL on: set
 # the variable `ENABLE_CODEQL=true` (repo or org level) once the repo is public or
-# Code Security is purchased -- no edit to this file needed.
-#
-# The same analysis runs LOCALLY today with no entitlement at all:
-#   make codeql-db && make codeql-scan-all      # SARIF, opens in VS Code
-#   make codeql-scan-csv-all                    # CSV, easier to hand to an AI
+# Code Security is purchased -- no edit to this file needed. This repo is public, so
+# GitHub's hosted scanning is free here, and the local scan is `make scan` (D-085).
 
 name: CodeQL
 
@@ -33,7 +31,11 @@ jobs:
       actions: read
       contents: read
       security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, javascript-typescript]
     uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ci-codeql.yml@main
     with:
-      language: python
+      language: ${{ matrix.language }}
       config_file: ./.github/codeql/codeql-config.yml
