@@ -1770,8 +1770,8 @@ function worktreeForm(rest, whole) {
 // gh's groups and verbs a session uses. Their options pass as they are, since none runs a command, and checkGh holds
 // the ones that merge, approve, release or change settings.
 // gh project's four reads pass, and its fifteen writes are refused by name, since boards are the owner's and the
-// login's read:project scope is the real fence (backlog tickets design 5.10). gh issue create is not a verb a session
-// types, a ticket being made only through cicd's tickets tool, which refuses a public repo.
+// login's read:project scope is the real fence (D-091). gh issue create is not a verb a session types, a ticket being
+// made only through cicd's tickets tool, which refuses a public repo.
 const GH_VERBS = {
   pr: ['view', 'list', 'create', 'comment', 'checks', 'diff', 'status', 'edit'],
   run: ['list', 'view', 'watch'],
@@ -2656,7 +2656,7 @@ function checkGh(args, whole) {
   }
   if (group === 'alias' || group === 'extension') deny('gh aliases and extensions can hide a refused command.', whole);
   if (group === 'api') {
-    // gh api's options parsed once against its own table, so a value never reads as the endpoint (design 5.10), and
+    // gh api's options parsed once against its own table, so a value never reads as the endpoint (D-091), and
     // a method or a field in any spelling, -XPOST and -iXPOST joined to their option among them (D-068)
     const api = ghApiParts(args.slice(args.findIndex((a) => a.toLowerCase() === 'api') + 1), whole);
     if (api.help) return;
@@ -2755,7 +2755,7 @@ const OPS_SCRIPTS = {
   distribute_scripts: { refuse: ['distribute'] },
   provision_projects: { refuse: ['execute'] },
   trigger_triage: { refuse: null },
-  // the owner's board runner, run by the owner alone from a fresh clone at a release tag (backlog tickets design 5.10)
+  // the owner's board runner, run by the owner alone from a fresh clone at a release tag (D-091)
   kdf_tickets_owner: { refuse: null }
 };
 

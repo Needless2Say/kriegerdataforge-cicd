@@ -391,7 +391,7 @@ def test_each_closed_file_is_refused_with_its_own_reason(tmp_path: Path, command
 def test_the_board_issue_and_api_refusals_say_why(tmp_path: Path, command: str, says: str) -> None:
     """
     A board write names the owner as the one who runs it, a typed issue create names the tickets tool, and gh api's
-    options, parsed once, name what is wrong with them, an -H value never read as the endpoint (design 5.10).
+    options, parsed once, name what is wrong with them, an -H value never read as the endpoint (D-091).
     """
     _ignored_tree(tmp_path)
     code, message = _run_case(tmp_path, {"role": "owner", "tool": "Bash", "command": command, "expect": "block"})
