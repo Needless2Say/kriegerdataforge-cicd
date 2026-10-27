@@ -75,15 +75,13 @@ class Current:
 @dataclass
 class Entry:
     """
-    One ticket as a pull would write it, whether that changes its files, and GitHub's texts for the scan, the issue's
-    number, title, body without its marker and comments' bodies.
+    One ticket as a pull would write it, and whether that changes its files.
     """
     stem:     str
     ticket:   form.Ticket
     comments: str | None
     changed:  bool
-    new:   bool = False
-    texts: tuple[int, str, str, list[str]] = (0, "", "", [])
+    new:      bool = False
 
 
 @dataclass
@@ -288,18 +286,20 @@ class Reconciler:
     """
     One reconciliation of a repo's ticket files with what GitHub holds.
     """
-    def __init__(self, config: Config, current: dict[str, Current], remote: Remote) -> None:
+    def __init__(self, config: Config, current: dict[str, Current], remote: Remote, held: set[str]) -> None:
         """
-        Keep the config, the files and GitHub's reads, and index the files by their issues.
+        Keep the config, the files, GitHub's reads and the issues the scan holds, and index the files by their issues.
 
         Args:
             config: the repo's config
             current: each ticket file by its stem
             remote: GitHub's reads
+            held: the node ids of the issues the scan holds back, never adopted, named or written by this run
         """
         self.config  = config
         self.current = current
         self.remote  = remote
+        self.held    = held
         self.result  = Result()
         self.by_node = {item.ticket.issue["node"]: stem for stem, item in current.items() if item.ticket.issue}
         # each matched or adopted issue, its stem and whether it is new, set before the boards are read, and each
@@ -338,7 +338,7 @@ class Reconciler:
                     self.result.differences.append(f"{self.by_node[issue.node]}: now left out by its labels, kept")
                 continue
             marker, _ = split_marker(issue.body)
-            if marker is not None and marker in twice:
+            if (marker is not None and marker in twice) or (issue.node in self.held and issue.node not in self.by_node):
                 continue
             self.match(issue, marker, adopt, adopted)
         for stem, item in sorted(self.current.items()):
@@ -347,14 +347,10 @@ class Reconciler:
             elif item.ticket.issue["node"] not in seen:
                 self.result.differences.append(f"{stem}: its issue is gone from GitHub, the file kept")
         for node, (stem, issue, new) in sorted(self.matched.items(), key = lambda pair: pair[1][0]):
-            entry       = self.entry(stem, issue, new, stem in take)
-            entry.texts = (
-                issue.number,
-                issue.title,
-                split_marker(issue.body)[1],
-                [item.body for item in issue.comments],
-            )
-            self.result.entries[stem] = entry
+            # a held ticket a file already holds keeps its file and its committed id, which other tickets still name
+            if node in self.held:
+                continue
+            self.result.entries[stem] = self.entry(stem, issue, new, stem in take)
         self.board_notes()
         return self.result
 
@@ -370,7 +366,7 @@ class Reconciler:
             adopted: the adoption map
         """
         if marker is not None and not slug(marker):
-            self.result.refusals.append(f"#{issue.number}'s marker {marker!r} is not a slug, so it names no file")
+            self.result.refusals.append(f"#{issue.number}'s marker is not a slug, so it names no file")
             return
         stem = self.by_node.get(issue.node)
         if stem is None and marker is not None and marker in self.current:
@@ -646,6 +642,8 @@ class Reconciler:
             if pulls:
                 self.result.notes.append(f"board {key}: {pulls} pull request items")
         for node, (stem, issue, _) in sorted(self.matched.items(), key = lambda pair: pair[1][0]):
+            if node in self.held:
+                continue
             about = self.result.entries[stem].ticket.about
             own   = self.config.boards[self.config.about[about]].node if about in self.config.about else None
             for other in issue.boards:
@@ -660,6 +658,7 @@ def reconcile(
     adopt: bool,
     adopted: dict[int, str] | None = None,
     take: set[str] | None = None,
+    held: set[str] | None = None,
 ) -> Result:
     """
     Reconcile a repo's ticket files with what GitHub holds.
@@ -671,8 +670,9 @@ def reconcile(
         adopt: True when an unmarked issue no file holds is adopted
         adopted: the adoption map, a moved issue's number to its about
         take: the stems whose conflicts are settled with GitHub's values
+        held: the node ids of the issues the scan holds back
 
     Returns:
         Result: the reconciliation
     """
-    return Reconciler(config, current, remote).run(adopt, adopted or {}, take or set())
+    return Reconciler(config, current, remote, held or set()).run(adopt, adopted or {}, take or set())

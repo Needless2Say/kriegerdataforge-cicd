@@ -430,6 +430,28 @@ def test_a_stray_file_in_the_folder_is_refused(tmp_path: Path) -> None:
     assert any("notes.yml" in problem for problem in _problems(root, registry))
 
 
+def test_a_link_in_the_folder_is_refused_and_never_written_through(tmp_path: Path) -> None:
+    root     = _worktree(tmp_path)
+    registry = _registry(tmp_path)
+    outside  = root / "README.md"
+    outside.write_text("the worktree's own file\n", encoding = "utf-8")
+    link = root / "docs" / "tickets" / "first-ticket.comments.md"
+    try:
+        link.symlink_to(Path("..") / ".." / "README.md")
+    except OSError:
+        pytest.skip("this machine cannot make a link without developer mode")
+    assert any("a link" in problem for problem in _problems(root, registry))
+    with pytest.raises(common.Refusal, match = "link"):
+        checking.writable(root, "first-ticket.comments.md")
+    assert outside.read_text(encoding = "utf-8") == "the worktree's own file\n"
+
+
+def test_a_name_resolving_outside_the_folder_is_never_written(tmp_path: Path) -> None:
+    root = _worktree(tmp_path)
+    with pytest.raises(common.Refusal, match = "outside"):
+        checking.writable(root, "../escape.yaml")
+
+
 # the config
 
 # ======================================================================================================================

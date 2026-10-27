@@ -7,8 +7,9 @@ amount or a party's name. Beside them, a list of private words the owner keeps o
 as "a private word" and never the word. A hit names its pattern and its count alone, never the text it matched, so a
 scan's output can be read and recorded without carrying what it found.
 
-An issue the owner allows is recorded in the config with the digest of the text it allowed and the policy version,
-so a changed title, body or comment, a new comment or a new policy needs a new word.
+An issue is named by its number alone, never by a ticket id, since an id made from a flagged title would repeat its
+text. One the owner allows is recorded in the config by its node id, with the digest of the text it allowed and the
+policy version, so a changed title, body or comment, a new comment or a new policy needs a new word.
 """
 
 from __future__ import annotations
@@ -46,25 +47,26 @@ WORDS    = re.compile(
 )
 CONTRACT = re.compile(r"\bcontracts?\b", re.IGNORECASE)
 PARTY    = re.compile(r"\bcontracts?\s+(?:with|between)\s+[A-Z][\w&.-]*", re.IGNORECASE)
-# addresses that name no person, a documentation domain or a no reply sender
-SAFE_MAIL = re.compile(r"(?:no-?reply|@example\.(?:com|org|net)$|@users\.noreply\.github\.com$)", re.IGNORECASE)
+# addresses that name no person, a no reply sender by its whole local part, a documentation domain, or GitHub's own
+# no reply domain, each matched against the whole address
+SAFE_MAIL = re.compile(r"no-?reply@.*|.*@example\.(?:com|org|net)|.*@users\.noreply\.github\.com", re.IGNORECASE)
 NEAR      = 80
 
 
 @dataclass
 class Hit:
     """
-    One issue the scan flags, where in it, and each pattern's count, never the text matched.
+    One issue the scan flags, its number and node id, where in it, and each pattern's count, never the text matched.
     """
     number: int
-    ident:  str
+    node:   str
     digest: str
     counts: dict[str, Counter] = field(default_factory = dict)
 
 
     def line(self) -> str:
         """
-        Write the hit as the scan prints it.
+        Write the hit as the scan prints it, the issue by its number alone.
 
         Returns:
             str: the issue, then each place and its patterns with their counts
@@ -73,7 +75,7 @@ class Hit:
         for place, counts in self.counts.items():
             patterns = ", ".join(f"{name} ({count})" for name, count in sorted(counts.items()))
             places.append(f"{place}, {patterns}")
-        return f"#{self.number} {self.ident}: " + "; ".join(places)
+        return f"#{self.number}: " + "; ".join(places)
 
 
 def luhn(digits: str) -> bool:
@@ -151,7 +153,7 @@ def count(text: str, private: re.Pattern[str] | None = None) -> Counter:
     found["a card number"]  += sum(1 for match in CARD.finditer(text) if luhn(re.sub(r"\D", "", match.group())))
     found["an account number"] += sum(1 for match in IBAN.finditer(text) if iban_ok(match.group()))
     found["an account number"] += len(ACCOUNT.findall(text))
-    found["an email address"]  += sum(1 for match in EMAIL.finditer(text) if not SAFE_MAIL.search(match.group()))
+    found["an email address"]  += sum(1 for match in EMAIL.finditer(text) if not SAFE_MAIL.fullmatch(match.group()))
     found["a phone number"]    += len(PHONE.findall(text))
     found["a street address"]  += len(STREET.findall(text))
     for match in WORDS.finditer(text):
@@ -182,7 +184,7 @@ def subject_digest(title: str, body: str, comments: list[str]) -> str:
 
 def scan_issue(
     number: int,
-    ident: str,
+    node: str,
     title: str,
     body: str,
     comments: list[str],
@@ -193,7 +195,7 @@ def scan_issue(
 
     Args:
         number: the issue's number
-        ident: its ticket's id, as a pull names it
+        node: its node id, which an allowance is recorded by
         title: its title
         body: its body
         comments: its comments' bodies, in order
@@ -202,7 +204,7 @@ def scan_issue(
     Returns:
         Hit | None: the hit, None for a clean issue
     """
-    hit = Hit(number = number, ident = ident, digest = subject_digest(title, body, comments))
+    hit = Hit(number = number, node = node, digest = subject_digest(title, body, comments))
     for place, text in (
         ("title", title),
         ("body", body),
@@ -220,10 +222,10 @@ def allowed(hit: Hit, allow: dict) -> bool:
 
     Args:
         hit: the hit
-        allow: the config's allowances by ticket id
+        allow: the config's allowances by issue node id
 
     Returns:
         bool: True when the allowance's digest and policy are the hit's
     """
-    entry = allow.get(hit.ident)
+    entry = allow.get(hit.node)
     return isinstance(entry, dict) and entry.get("digest") == hit.digest and entry.get("policy") == POLICY

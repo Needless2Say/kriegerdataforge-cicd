@@ -11,7 +11,7 @@ from pathlib import Path
 
 # third party imports
 from kdf_tickets import form
-from kdf_tickets.common import repo_name, slug, text_digest
+from kdf_tickets.common import Refusal, repo_name, slug, text_digest
 from kdf_tickets.config import REGISTRY, Config, load_config
 
 # module constants
@@ -37,6 +37,29 @@ def folder(root: Path) -> Path:
     return root / "docs" / "tickets"
 
 
+def writable(root: Path, name: str) -> Path:
+    """
+    Name a file the tool may write, inside the worktree's docs/tickets/ alone, through no link.
+
+    Args:
+        root: the worktree
+        name: the file's name in the folder
+
+    Returns:
+        Path: the file's path
+
+    Raises:
+        Refusal: for a folder or a file that is a link, or a path that resolves outside the folder
+    """
+    base = folder(root)
+    path = base / name
+    if base.is_symlink() or (root / "docs").is_symlink() or path.is_symlink():
+        raise Refusal(f"{path} or a folder above it is a link, so the tool writes nothing through it")
+    if path.resolve().parent != base.resolve() or not base.resolve().is_relative_to(root.resolve()):
+        raise Refusal(f"{path} resolves outside the worktree's docs/tickets/, so the tool writes nothing there")
+    return path
+
+
 def read_tickets(root: Path) -> tuple[dict[str, tuple[form.Ticket, str]], dict[str, str], list[str]]:
     """
     Read every file of a worktree's tickets folder, the tickets, the comments files and what the folder should not hold.
@@ -53,6 +76,9 @@ def read_tickets(root: Path) -> tuple[dict[str, tuple[form.Ticket, str]], dict[s
     problems: list[str] = []
     for path in sorted(folder(root).iterdir()):
         name = path.name
+        if path.is_symlink():
+            problems.append(f"{name}: a link, which the folder never holds, since a write through it would leave it")
+            continue
         if name == "config.json":
             continue
         if path.is_file() and name.endswith(COMMENTS):
@@ -312,6 +338,6 @@ def fmt(root: Path) -> tuple[list[str], list[str]]:
     for name, (ticket, text) in sorted(tickets.items()):
         canonical = form.dump(ticket)
         if canonical != text:
-            (folder(root) / name).write_bytes(canonical.encode("utf-8"))
+            writable(root, name).write_bytes(canonical.encode("utf-8"))
             written.append(name)
     return written, problems

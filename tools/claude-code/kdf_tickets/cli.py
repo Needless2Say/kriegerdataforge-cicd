@@ -98,7 +98,12 @@ def parser() -> Parser:
     parsers["pull"].add_argument("--map", type = Path, help = "an adoption map, with --adopt")
     for name in ("pull", "scan"):
         parsers[name].add_argument("--private-words", type = Path, help = "the owner's list, kept outside every repo")
-    parsers["scan"].add_argument("--allow", nargs = "+", metavar = "<id>", help = "allow flagged ids, the owner's word")
+    parsers["scan"].add_argument(
+        "--allow",
+        nargs = "+",
+        metavar = "<number>",
+        help = "allow flagged issues by number, the owner's word",
+    )
     parsers["find"].add_argument("--about", help = "the repo a ticket is about")
     parsers["find"].add_argument("--label", help = "a label it carries")
     parsers["find"].add_argument("--kind", help = "its kind")

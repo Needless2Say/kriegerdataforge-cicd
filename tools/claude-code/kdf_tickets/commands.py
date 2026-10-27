@@ -18,10 +18,10 @@ from pathlib import Path
 
 # third party imports
 from kdf_tickets import form, scan, sync
-from kdf_tickets.check import COMMENTS, folder, read_tickets
+from kdf_tickets.check import COMMENTS, folder, read_tickets, writable
 from kdf_tickets.common import CLEAN, CONFLICT, FOUND, Refusal, git, slug, text_digest
 from kdf_tickets.config import REGISTRY, Config, load_config, parse_config
-from kdf_tickets.github import Reader
+from kdf_tickets.github import Issue, Reader
 
 # module constants
 MODES          = ("only", "adopt", "backup")
@@ -75,6 +75,7 @@ def reconcile(
     adopt: bool,
     adopted: dict[int, str] | None = None,
     take: set[str] | None = None,
+    holding: Callable[[sync.Remote], set[str]] | None = None,
 ) -> sync.Result:
     """
     Read GitHub for a config, its visibility first, and reconcile the files with it.
@@ -86,6 +87,7 @@ def reconcile(
         adopt: whether an unmarked issue no file holds is adopted
         adopted: the adoption map
         take: the stems whose conflicts take GitHub's values
+        holding: gives the node ids the scan holds back from GitHub's reads, before any ticket is named
 
     Returns:
         sync.Result: the reconciliation
@@ -98,7 +100,8 @@ def reconcile(
             f"{config.owner}/{config.repo} is public. A public repo keeps no tickets, they are held privately",
         )
     remote = sync.read_remote(reader, config, board_keys(config, current))
-    return sync.reconcile(config, current, remote, adopt, adopted, take)
+    held   = holding(remote) if holding is not None else set()
+    return sync.reconcile(config, current, remote, adopt, adopted, take, held)
 
 
 def plan(root: Path, reader: Reader, registry: Path = REGISTRY) -> tuple[int, list[str]]:
@@ -172,53 +175,102 @@ def pull(
             raise Refusal(f"{ident!r} is no ticket this repo's files hold")
     adopted = sync.read_map(adoption_map, config) if adoption_map is not None else {}
     private = scan.private_words(private_words)
-    result  = reconcile(
-        config,
-        current,
-        reader,
-        adopt = mode != "only",
-        adopted = adopted,
-        take = named if take else set(),
-    )
-    lines, held = [], []
+    shown   = {current[stem].ticket.issue["node"] for stem in named if current[stem].ticket.issue}
+    holds   = []
+
+
+    def holding(remote: sync.Remote) -> set[str]:
+        """
+        Scan every new or changed text before any ticket is named, so a held issue is written and named nowhere.
+
+        Args:
+            remote: GitHub's reads
+
+        Returns:
+            set[str]: the node ids held back
+        """
+        hits = [hit for hit in issue_hits(config, current, remote.issues, private, True) if not scan.allowed(
+            hit, config.allow)]
+        holds.extend(hit for hit in hits if mode != "only" or hit.node in shown)
+        return {hit.node for hit in hits}
+
+
+    result = reconcile(config, current, reader, mode != "only", adopted, named if take else set(), holding)
+    lines  = []
     for stem, entry in sorted(result.entries.items()):
         if (mode == "only" and stem not in named) or not entry.changed:
             continue
-        hit = scanned(entry, current.get(stem), private)
-        if hit is not None and not scan.allowed(hit, config.allow):
-            held.append(f"{hit.line()}. Held by the scan, no file written, for the owner's word")
-            continue
         write_entry(root, entry)
         lines.append(f"wrote {stem}.yaml")
+    held      = [f"{hit.line()}. Held by the scan, no file written, for the owner's word" for hit in holds]
     conflicts = [line for line in result.conflicts if mode != "only" or line.split(":")[0] in named]
-    lines    += result.refusals + held + conflicts
+    lines     += result.refusals + held + conflicts
     code = CONFLICT if conflicts else FOUND if result.refusals or held else CLEAN
     lines.append(f"pull: {len([line for line in lines if line.startswith('wrote ')])} files written")
     return code, lines
 
 
-def scanned(entry: sync.Entry, current: sync.Current | None, private: re.Pattern[str] | None) -> scan.Hit | None:
+def issue_hits(
+    config: Config,
+    current: dict[str, sync.Current],
+    issues: list[Issue],
+    private: re.Pattern[str] | None,
+    changed_only: bool,
+) -> list[scan.Hit]:
     """
-    Scan an entry's GitHub texts when they are new to the files or changed since the last pull, design 5.11.
+    Scan each issue the config does not leave out, every one, or those whose texts its file does not yet hold.
 
     Args:
-        entry: the ticket as the pull writes it, with GitHub's texts
-        current: its file as it stands, None for a new ticket
+        config: the repo's config
+        current: its ticket files
+        issues: GitHub's issues
         private: the owner's private words, if any
+        changed_only: True to pass over an issue whose title, body and comments its file holds, design 5.11
 
     Returns:
-        scan.Hit | None: the hit, None for texts unchanged or clean
+        list[scan.Hit]: each flagged issue, by its number and node id
     """
-    number, title, body, comments = entry.texts
-    base      = (current.ticket.synced or {}) if current is not None else {}
-    unchanged = current is not None and (
-        base.get("title") == text_digest(title)
+    by_node = {item.ticket.issue["node"]: item for item in current.values() if item.ticket.issue}
+    hits    = []
+    for issue in sorted(issues, key = lambda issue: issue.number):
+        if config.left_out(issue.labels):
+            continue
+        _, body = sync.split_marker(issue.body)
+        held = by_node.get(issue.node)
+        if changed_only and held is not None and texts_held(held, issue, body):
+            continue
+        hit = scan.scan_issue(
+            issue.number,
+            issue.node,
+            issue.title,
+            body,
+            [item.body for item in issue.comments],
+            private,
+        )
+        if hit is not None:
+            hits.append(hit)
+    return hits
+
+
+def texts_held(current: sync.Current, issue: Issue, body: str) -> bool:
+    """
+    Say whether a ticket's bases hold an issue's title, body and comments as GitHub holds them now.
+
+    Args:
+        current: the ticket's file
+        issue: its issue
+        body: the issue's body without its marker
+
+    Returns:
+        bool: True when nothing in its text changed since the last pull
+    """
+    base     = current.ticket.synced or {}
+    comments = sync.comments_text(issue)
+    return (
+        base.get("title") == text_digest(issue.title)
         and base.get("body") == text_digest(body)
-        and base.get("comments") == (None if entry.comments is None else text_digest(entry.comments))
+        and base.get("comments") == (None if comments is None else text_digest(comments))
     )
-    if unchanged:
-        return None
-    return scan.scan_issue(number, entry.stem, title, body, comments, private)
 
 
 def scan_command(
@@ -236,13 +288,14 @@ def scan_command(
         reader: GitHub's reads
         registry: the boards' registry
         private_words: the owner's list of private words, kept outside every repo
-        allow: ids the owner allows, each recorded in the config with the digest of the text it allowed
+        allow: the numbers of the issues the owner allows, each recorded in the config by its node id with the digest
+            of the text it allowed
 
     Returns:
         tuple[int, list[str]]: 1 while a flagged issue is unsettled, else 0, and a line per flagged issue
 
     Raises:
-        Refusal: for an allowance of an id the scan does not flag
+        Refusal: for an allowance of an issue the scan does not flag
     """
     config  = load_config(root, registry)
     current = current_files(root)
@@ -251,32 +304,17 @@ def scan_command(
             f"{config.owner}/{config.repo} is public. A public repo keeps no tickets, they are held privately",
         )
     private = scan.private_words(private_words)
-    by_node = {item.ticket.issue["node"]: stem for stem, item in current.items() if item.ticket.issue}
-    taken   = set(current)
-    hits    = {}
-    for issue in sorted(reader.issues(config.owner, config.repo), key = lambda issue: issue.number):
-        if config.left_out(issue.labels):
-            continue
-        marker, body = sync.split_marker(issue.body)
-        ident = by_node.get(issue.node)
-        if ident is None:
-            ident = marker if marker is not None and slug(marker) and marker not in taken else sync.slugify(
-                issue.title,
-                issue.number,
-                taken,
-            )
-            taken.add(ident)
-        hit = scan.scan_issue(issue.number, ident, issue.title, body, [item.body for item in issue.comments], private)
-        if hit is not None:
-            hits[ident] = hit
-    unknown = sorted(set(allow or []) - set(hits))
+    issues  = reader.issues(config.owner, config.repo)
+    hits    = {hit.number: hit for hit in issue_hits(config, current, issues, private, False)}
+    asked   = [item.lstrip("#") for item in allow or []]
+    unknown = [item for item in asked if not item.isdigit() or int(item) not in hits]
     if unknown:
-        raise Refusal(f"{', '.join(unknown)} is no issue the scan flags, so there is nothing to allow")
-    if allow:
-        record_allowances(root, [hits[ident] for ident in allow])
+        raise Refusal(f"#{', #'.join(unknown)} is no issue the scan flags, so there is nothing to allow")
+    if asked:
+        record_allowances(root, [hits[int(item)] for item in asked])
         config = load_config(root, registry)
     lines = []
-    for ident, hit in hits.items():
+    for hit in hits.values():
         lines.append(f"{hit.line()}. Allowed" if scan.allowed(hit, config.allow) else hit.line())
     unsettled = sum(1 for hit in hits.values() if not scan.allowed(hit, config.allow))
     lines.append(f"scan: {len(hits)} issues flagged, {unsettled} unsettled")
@@ -291,10 +329,10 @@ def record_allowances(root: Path, hits: list[scan.Hit]) -> None:
         root: the worktree
         hits: the hits the owner allows
     """
-    path = folder(root) / "config.json"
+    path = writable(root, "config.json")
     data = json.loads(path.read_text(encoding = "utf-8"))
     for hit in hits:
-        data.setdefault("allow", {})[hit.ident] = {"digest": hit.digest, "policy": scan.POLICY}
+        data.setdefault("allow", {})[hit.node] = {"digest": hit.digest, "policy": scan.POLICY}
     path.write_text(json.dumps(data, indent = 2) + "\n", encoding = "utf-8")
 
 
@@ -311,9 +349,8 @@ def write_entry(root: Path, entry: sync.Entry) -> None:
     """
     if not slug(entry.stem):
         raise Refusal(f"{entry.stem!r} is not a slug, so no file is written for it")
-    target = folder(root)
-    (target / f"{entry.stem}.yaml").write_bytes(form.dump(entry.ticket).encode("utf-8"))
-    side = target / f"{entry.stem}{COMMENTS}"
+    writable(root, f"{entry.stem}.yaml").write_bytes(form.dump(entry.ticket).encode("utf-8"))
+    side = writable(root, f"{entry.stem}{COMMENTS}")
     if entry.comments is None:
         side.unlink(missing_ok = True)
     else:

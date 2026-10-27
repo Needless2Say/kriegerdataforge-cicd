@@ -63,6 +63,7 @@ NEW_COMMENT = {
 
 written, sys.dont_write_bytecode = sys.dont_write_bytecode, True
 try:
+    from kdf_tickets import check as checking
     from kdf_tickets import commands, scan
     from kdf_tickets.common import CLEAN, FOUND, Refusal
 finally:
@@ -125,20 +126,20 @@ def test_scan_lists_a_flagged_issue_by_its_id_and_pattern(tmp_path: Path) -> Non
     github, root, registry, reader = _flagged(tmp_path)
     code, lines = commands.scan_command(root, reader, registry)
     assert code == FOUND
-    assert any(line.startswith("#1 ticket-number-1: body, the word invoice (1)") for line in lines)
+    assert any(line.startswith("#1: body, the word invoice (1)") for line in lines)
     assert not any("attached" in line for line in lines)
 
 
 def test_an_allowance_binds_to_its_text_and_asks_again_once_it_changes(tmp_path: Path) -> None:
     github, root, registry, reader = _flagged(tmp_path)
-    code, _ = commands.scan_command(root, reader, registry, allow = ["ticket-number-1"])
+    code, _ = commands.scan_command(root, reader, registry, allow = ["1"])
     assert code == CLEAN
     config = json.loads((root / "docs" / "tickets" / "config.json").read_text(encoding = "utf-8"))
-    assert config["allow"]["ticket-number-1"]["policy"] == scan.POLICY
+    assert config["allow"]["I_sample-app_1"]["policy"] == scan.POLICY
     assert commands.scan_command(root, reader, registry)[0] == CLEAN
     for change in ("title", "body", "comment"):
         github.repos[REPO]["issues"][0].update(body = "the invoice is attached\n", comments = [])
-        commands.scan_command(root, reader, registry, allow = ["ticket-number-1"])
+        commands.scan_command(root, reader, registry, allow = ["1"])
         if change == "title":
             github.repos[REPO]["issues"][0]["title"] = "Ticket number 1, renamed"
         elif change == "body":
@@ -149,10 +150,12 @@ def test_an_allowance_binds_to_its_text_and_asks_again_once_it_changes(tmp_path:
         github.repos[REPO]["issues"][0]["title"] = "Ticket number 1"
 
 
-def test_allowing_an_id_the_scan_does_not_flag_is_refused(tmp_path: Path) -> None:
+def test_allowing_an_issue_the_scan_does_not_flag_is_refused(tmp_path: Path) -> None:
     github, root, registry, reader = _flagged(tmp_path)
-    with pytest.raises(Refusal, match = "ticket-number-2"):
-        commands.scan_command(root, reader, registry, allow = ["ticket-number-2"])
+    with pytest.raises(Refusal, match = "#2"):
+        commands.scan_command(root, reader, registry, allow = ["#2"])
+    with pytest.raises(Refusal, match = "#nonsense"):
+        commands.scan_command(root, reader, registry, allow = ["nonsense"])
 
 
 def test_scan_refuses_a_public_repo_before_any_other_read(tmp_path: Path) -> None:
@@ -161,6 +164,23 @@ def test_scan_refuses_a_public_repo_before_any_other_read(tmp_path: Path) -> Non
     with pytest.raises(Refusal, match = "public"):
         commands.scan_command(root, reader, registry)
     assert github.operations() == ["Visibility"]
+
+
+def test_a_flagged_title_is_never_printed_through_an_id_made_from_it(tmp_path: Path) -> None:
+    github, root, registry, reader = setup(tmp_path, issues = 1)
+    github.repos[REPO]["issues"][0]["title"] = "555-123-4567"
+    words = tmp_path / "words.txt"
+    words.write_text("Zephyrine\n", encoding = "utf-8")
+    github.issue(REPO, 2, title = "Zephyrine plan", boards = ["PVT_apps"])
+    _, lines = commands.scan_command(root, reader, registry, private_words = words)
+    _, pulled = run_pull(root, registry, reader, mode = "adopt", private_words = words)
+    for line in lines + pulled:
+        assert "555" not in line and "zephyrine" not in line.lower(), line
+
+
+def test_a_no_reply_exception_is_the_whole_local_part_or_a_domain_alone() -> None:
+    assert scan.count("write to alice@noreply-custom.test") == {"an email address": 1}
+    assert scan.count("from noreply@github.com and 12345+someone@users.noreply.github.com") == {}
 
 
 # pull
@@ -172,10 +192,25 @@ def test_pull_writes_no_file_for_a_flagged_issue_until_it_is_allowed(tmp_path: P
     code, lines = run_pull(root, registry, reader, mode = "adopt")
     assert code == FOUND
     assert sorted(tickets(root)) == ["ticket-number-2"]
-    assert any("#1 ticket-number-1" in line and "Held by the scan" in line for line in lines)
-    commands.scan_command(root, reader, registry, allow = ["ticket-number-1"])
+    assert any(line.startswith("#1:") and "Held by the scan" in line for line in lines)
+    commands.scan_command(root, reader, registry, allow = ["1"])
     code, _ = run_pull(root, registry, reader, mode = "backup")
     assert code == CLEAN and sorted(tickets(root)) == ["ticket-number-1", "ticket-number-2"]
+
+
+def test_a_held_issue_is_named_by_no_other_ticket(tmp_path: Path) -> None:
+    github, root, registry, reader = setup(tmp_path, issues = 2)
+    github.repos[REPO]["issues"][0]["body"] = "the invoice is attached\n"
+    github.repos[REPO]["issues"][1]["parent"] = {
+        "id": "I_sample-app_1",
+        "number": 1,
+        "repository": {"name": REPO, "owner": {"login": "example-owner"}},
+    }
+    run_pull(root, registry, reader, mode = "adopt")
+    ticket = tickets(root)["ticket-number-2"]
+    # the held #1 is neither the parent nor the card above, so check holds the written files clean
+    assert ticket.parent is None and ticket.board["after"] is None
+    assert checking.check(root, registry) == []
 
 
 def test_pull_scans_a_changed_text_and_holds_its_change(tmp_path: Path) -> None:
@@ -189,7 +224,7 @@ def test_pull_scans_a_changed_text_and_holds_its_change(tmp_path: Path) -> None:
 
 def test_pull_does_not_scan_an_unchanged_text_again(tmp_path: Path) -> None:
     github, root, registry, reader = _flagged(tmp_path)
-    commands.scan_command(root, reader, registry, allow = ["ticket-number-1"])
+    commands.scan_command(root, reader, registry, allow = ["1"])
     run_pull(root, registry, reader, mode = "adopt")
     config = root / "docs" / "tickets" / "config.json"
     data   = json.loads(config.read_text(encoding = "utf-8"))
