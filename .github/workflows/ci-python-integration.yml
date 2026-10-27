@@ -1147,14 +1147,14 @@ jobs:
           echo "git reads $count private mirror(s) through the rewrite"
 
       - name: Install dependencies
-        run: ${{ inputs.install_command }}
+        run: ${{ inputs.install_command }}  # zizmor: ignore[template-injection] the caller's own command by design
 
       - name: Migrate ephemeral DB to head
-        run: ${{ inputs.migrate_command }}
+        run: ${{ inputs.migrate_command }}  # zizmor: ignore[template-injection] the caller's own command by design
 
       - name: Seed app-specific fixtures
         if: ${{ inputs.seed_command != '' }}
-        run: ${{ inputs.seed_command }}
+        run: ${{ inputs.seed_command }}  # zizmor: ignore[template-injection] the caller's own command by design
 
       - name: Run integration tests
-        run: ${{ inputs.test_command }}
+        run: ${{ inputs.test_command }}  # zizmor: ignore[template-injection] the caller's own command by design

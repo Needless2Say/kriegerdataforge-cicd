@@ -50,6 +50,8 @@ jobs:
           client-id: ${{ secrets.KDF_APP_ID }}
           private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+          # the two repos scripts/oidc_drift_manifest.json pairs, held equal by a test (D-085, design 5.7)
+          repositories: fitness-app-frontend,tiffanys-space
           permission-contents: read
 
       - name: Compare pairs

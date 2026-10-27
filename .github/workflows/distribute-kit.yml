@@ -73,7 +73,14 @@ jobs:
       # Short-lived GitHub App installation token (auto-revoked at job end; effective lifetime =
       # job runtime, not the 1-hour nominal TTL). Downscoped to contents + pull-requests write —
       # what distribute_kit needs to push a sync branch and open a PR. Gated on USE_GITHUB_APP,
-      # falls back to CICD_PAT.
+      # falls back to CICD_PAT. The token names the repos this run targets, the registry's filtered by the repos input
+      # as repo_sync filters them (D-085, design 5.7).
+      - name: List the repositories the Distribute writes
+        id: targets
+        env:
+          REPOS: ${{ github.event.inputs.repos }}
+        run: python3 -I -B scripts/token_repositories.py kit "$REPOS" >> "$GITHUB_OUTPUT"
+
       - name: Mint GitHub App token
         id: app-token
         if: vars.USE_GITHUB_APP == 'true'
@@ -82,6 +89,7 @@ jobs:
           client-id: ${{ secrets.KDF_APP_ID }}
           private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.targets.outputs.repositories }}
           permission-contents: write
           permission-pull-requests: write
 

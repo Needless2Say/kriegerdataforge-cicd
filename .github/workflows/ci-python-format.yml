@@ -39,7 +39,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpq-dev
 
       - name: Install dependencies
-        run: ${{ inputs.install_command }}
+        run: ${{ inputs.install_command }}  # zizmor: ignore[template-injection] the caller's own command by design
 
       - name: Run ruff format check
-        run: ${{ inputs.format_command }}
+        run: ${{ inputs.format_command }}  # zizmor: ignore[template-injection] the caller's own command by design

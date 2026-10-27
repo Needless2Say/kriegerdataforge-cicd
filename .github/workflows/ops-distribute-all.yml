@@ -48,19 +48,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r scripts/requirements.txt
 
-      # Short-lived GitHub App installation token (auto-revoked at job end). Downscoped to contents + pull-requests
-      # write, what the sync needs to push a branch and open a PR. Gated on USE_GITHUB_APP, falls back to CICD_PAT.
-      - name: Mint GitHub App token
-        id: app-token
-        if: vars.USE_GITHUB_APP == 'true'
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          client-id: ${{ secrets.KDF_APP_ID }}
-          private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          permission-contents: write
-          permission-pull-requests: write
-
       - name: Extract and validate fields
         id: fields
         env:
@@ -95,6 +82,28 @@ jobs:
             echo "mode=$MODE"
             echo "repos=$REPOS"
           } >> "$GITHUB_OUTPUT"
+
+      # The token names the repos this run targets, both registries merged as distribute_all merges them and filtered
+      # by the issue's repos, so it is minted once those are read (D-085, design 5.7).
+      - name: List the repositories the Distribute writes
+        id: targets
+        env:
+          REPOS: ${{ steps.fields.outputs.repos }}
+        run: python3 -I -B scripts/token_repositories.py all "$REPOS" >> "$GITHUB_OUTPUT"
+
+      # Short-lived GitHub App installation token (auto-revoked at job end). Downscoped to contents + pull-requests
+      # write, what the sync needs to push a branch and open a PR. Gated on USE_GITHUB_APP, falls back to CICD_PAT.
+      - name: Mint GitHub App token
+        id: app-token
+        if: vars.USE_GITHUB_APP == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.KDF_APP_ID }}
+          private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.targets.outputs.repositories }}
+          permission-contents: write
+          permission-pull-requests: write
 
       - name: Run distribute_all
         id: dist

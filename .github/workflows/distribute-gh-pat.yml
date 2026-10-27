@@ -55,7 +55,12 @@ jobs:
       # GH_PACKAGES_PAT now lives ONLY as a REPOSITORY-level Actions secret (github_repo_secrets)
       # on the four SDK-consuming repos, and repository secrets are gated by the "Secrets"
       # permission, NOT "Environments" (the registry entry has no github_env_secrets). Gated on
-      # USE_GITHUB_APP, falls back to CICD_PAT.
+      # USE_GITHUB_APP, falls back to CICD_PAT. The token names the repos the paste writes, read from the registry as
+      # rotate_secret.py reads them (D-085, design 5.7).
+      - name: List the repositories the paste writes
+        id: targets
+        run: python3 -I -B scripts/token_repositories.py secrets GH_PACKAGES_PAT >> "$GITHUB_OUTPUT"
+
       - name: Mint GitHub App token
         id: app-token
         if: vars.USE_GITHUB_APP == 'true'
@@ -64,6 +69,7 @@ jobs:
           client-id: ${{ secrets.KDF_APP_ID }}
           private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.targets.outputs.repositories }}
           permission-secrets: write
 
       - name: Distribute new PAT

@@ -1039,10 +1039,17 @@ jobs:
           python-version: ${{ inputs.python_version }}
 
       - name: Install bandit
-        run: pip install "bandit[toml]==${{ inputs.bandit_version }}"
+        env:
+          BANDIT_VERSION: ${{ inputs.bandit_version }}
+        run: pip install "bandit[toml]==$BANDIT_VERSION"
 
       - name: Run bandit
-        run: python -m bandit -r ${{ inputs.bandit_paths }} -ll --format txt
+        env:
+          BANDIT_PATHS: ${{ inputs.bandit_paths }}
+        run: |
+          # the documented space separated list split into its paths without the shell evaluating any of it
+          read -r -a paths <<< "$BANDIT_PATHS"
+          python -m bandit -r "${paths[@]}" -ll --format txt
 
   pip-audit:
     name: pip-audit (CVE check)
@@ -1089,7 +1096,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpq-dev
 
       - name: Install pip-audit
-        run: pip install "pip-audit==${{ inputs.pip_audit_version }}"
+        env:
+          PIP_AUDIT_VERSION: ${{ inputs.pip_audit_version }}
+        run: pip install "pip-audit==$PIP_AUDIT_VERSION"
 
       # D-035. The private repos the fetch job cloned, as bare mirrors, which git reads through a rewrite of each https
       #   URL in the job's environment. No step of this job names a secret, and nothing it holds is one, its checkout
