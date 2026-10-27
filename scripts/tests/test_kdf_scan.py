@@ -33,6 +33,8 @@ LAST = re.compile(
 ACCEPT  = "  # nosemgrep: eval-detected the input is a module constant"
 GOOD_OG = "nosemgrep: rule-x the input is constant"
 GOOD_ZZ = "zizmor: ignore[template-injection] a caller sets this"
+# a TypeScript file the fake Opengrep does not read, as a real one reading KDF's Python rule alone never would
+TS_UNREAD = "// OPENGREP-SKIPS-ME\nexport const view = 1;\n"
 # an object id for git cat-file's answers
 OID = "a" * 40
 # the address uv 0.13.1's download metadata names for CPython 3.14.7 on Windows, read on 2026-10-21
@@ -125,9 +127,6 @@ def test_kdf_rules_alone_skip_semgreps_and_name_their_coverage_in_the_last_line(
 
 # the opt in rule packs (D-093, Codex's decision read on cicd c3561bb), KDF's rules alone the default, so a language no
 # KDF rule reads is uncovered and named, never incomplete, and a marker for a rule that did not run is unevaluated
-TS_UNREAD = "// OPENGREP-SKIPS-ME\nexport const view = 1;\n"
-
-
 def test_kdf_rules_alone_count_a_language_no_kdf_rule_reads_as_uncovered_not_incomplete(tmp_path: Path) -> None:
     rig = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n", "src/view.ts": TS_UNREAD})
     code, text = run(rig, machine = rig.machine(kdf_only = True, rules = tmp_path / "no-cache.git"))

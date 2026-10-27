@@ -4991,3 +4991,45 @@ need its 17 copies replaced, one bootstrap pull request each).
 **Consequences.** The gate starts on a dispatch, and its input is checked where the reusable workflow first reads it.
 Its only caller is the canonical caller, so no other consumer sees the type change. VERSION 0.2.177.
 
+## D-093. Opt in rule packs, KDF's rules the local default and Semgrep's named on each run
+
+- **Date.** 2026-10-27
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it. Amends D-085 and D-088's
+  rules, the owner's decision of 2026-10-27 after a second opinion's decision read.
+- **Tier / scope:** Epic, every repo through the scripts sync · `scripts/common/kdf_scan.py`,
+  `scripts/distribute_scripts.py`'s managed block, `scripts/common/scan_build/image_fixtures.py`, cicd's `Makefile`
+  and docs · no input of any workflow changed, the gate unchanged
+
+**Context.** Semgrep's rules are licensed "only for your own internal business purposes", and the licence "does not
+allow you to distribute the rules, or to make them available to others as a service". The owner's gate on the
+owner's runners reads as internal use. A developer outside the business does not clearly fit, and the owner asked
+for a scan anyone can fill with their own scanners so no such question is KDF's. A decision read picked opt in rule
+packs on the fixed engine and found three defects in the reduced mode as built. A marker naming a Semgrep rule fails
+as stale when only KDF's rules run, no test held which pack the gate runs, and KDF's one rule reads Python alone, so
+a frontend's files would all count as incomplete.
+
+**Decision.**
+
+1. `make scan` runs KDF's rules and zizmor alone, with no rules' cache. `make scan SCAN_PACK=semgrep` adds Semgrep's
+   rules from the cache, checked by their digest, the pack named on each run and never read from a cache's presence.
+   `make scan-setup SCAN_PACK=semgrep` fetches them and names their licence, which still binds whoever opts in. Any
+   other pack name is refused.
+2. The wrapper counts a code file in a language no selected rule reads as uncovered, one `UNCOVERED` line and an
+   `uncovered` mark in the last line, never incomplete. With Semgrep's pack every scanned language is covered and an
+   unread file is incomplete as before.
+3. When Semgrep's pack did not run, an Opengrep marker naming a rule outside the rules that ran reads `UNEVAL`,
+   neither bound nor stale. A marker for a rule that ran and binds nothing stays stale.
+4. The gate always runs Semgrep's pack, its rules fetched at the pinned commit and mounted read only, and a test
+   holds that, no caller input or branch able to choose its pack.
+5. The image's fixtures scan a repo with a TypeScript file under KDF's rules alone and require it uncovered and the
+   scan clean, on the real Opengrep.
+
+**Alternatives considered.** As built, with an outside developer on `--kdf-only` (rejected, its markers failed and a
+frontend never ended clean) · a skeleton running any scanner a user adds (deferred to cicd's backlog, a framework with
+its own sandboxing, output and fixtures, the gate's guarantee to rebuild, and a smaller first form, a separate local
+target for a user's own scanners).
+
+**Consequences.** A developer's default scan needs no third party rules and covers less, which its last line names.
+The gate's coverage is unchanged. A new image follows from the wrapper's change, then its activation, then a scripts
+sync carrying the recipes. VERSION 0.2.178, scripts 1.7.3.
+

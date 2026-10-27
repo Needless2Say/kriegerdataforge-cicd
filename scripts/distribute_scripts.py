@@ -143,7 +143,7 @@ CALLER_SOURCE   = SCRIPTS_DIR / "common" / "kdf-scan-gate-caller.yml"
 # gives a native one. A repo's own SCAN_EXCLUDE and SCAN_LIMIT lines sit between the head and the tail, the wrapper
 # reading them from the block itself, and the digest moves with each activation by this Distribute.
 # the licence Semgrep's rules run under, named by scan-setup when a developer opts into their pack (cicd D-093)
-RULES_LICENSE = "the Semgrep Rules License, https://semgrep.dev/legal/rules-license, which binds this use"
+RULES_LICENSE   = "the Semgrep Rules License, https://semgrep.dev/legal/rules-license, which binds this use"
 SCAN_BLOCK_HEAD = (
     f"{BLOCK_OPEN}\n"
     "# The local code scan, Opengrep and zizmor in cicd's image by its digest, a check against accidents and branch\n"

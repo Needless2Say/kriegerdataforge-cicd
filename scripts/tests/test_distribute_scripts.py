@@ -255,7 +255,8 @@ def test_the_block_runs_kdfs_rules_alone_by_default_and_semgreps_pack_only_when_
     tail = ds.scan_block_tail(ACTIVE)
     assert "SCAN_PACK ?=\n" in tail
     assert "kdf_scan_mode = $(if $(kdf_scan_semgrep),,--kdf-only)\n" in tail
-    assert 'kdf_scan_rules = $(if $(kdf_scan_semgrep),-v "$(call kdf_scan_native,$(KDF_SCAN_RULES)):/rules:ro",)\n' in tail
+    rules = 'kdf_scan_rules = $(if $(kdf_scan_semgrep),-v "$(call kdf_scan_native,$(KDF_SCAN_RULES)):/rules:ro",)\n'
+    assert rules in tail
     assert "$(kdf_scan_rules) $(KDF_SCAN_IMAGE) scan $(kdf_scan_mode)" in tail
     assert "$(kdf_scan_rules) $(KDF_SCAN_IMAGE) pr-tree $(kdf_scan_mode)" in tail
     assert '@$(if $(kdf_scan_semgrep),$(kdf_scan_fetch),true)' in tail and ds.RULES_LICENSE in tail
