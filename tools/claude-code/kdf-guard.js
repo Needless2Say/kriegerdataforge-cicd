@@ -1769,13 +1769,19 @@ function worktreeForm(rest, whole) {
 
 // gh's groups and verbs a session uses. Their options pass as they are, since none runs a command, and checkGh holds
 // the ones that merge, approve, release or change settings.
+// gh project's four reads pass, and its fifteen writes are refused by name, since boards are the owner's and the
+// login's read:project scope is the real fence (backlog tickets design 5.10). gh issue create is not a verb a session
+// types, a ticket being made only through cicd's tickets tool, which refuses a public repo.
 const GH_VERBS = {
   pr: ['view', 'list', 'create', 'comment', 'checks', 'diff', 'status', 'edit'],
   run: ['list', 'view', 'watch'],
-  issue: ['view', 'list', 'create', 'comment', 'status'],
+  issue: ['view', 'list', 'comment', 'status'],
   repo: ['view'], search: ['code', 'prs', 'issues', 'repos', 'commits'], auth: ['status'],
-  workflow: ['list', 'view'], api: null, label: ['list'], release: ['list', 'view']
+  workflow: ['list', 'view'], api: null, label: ['list'], release: ['list', 'view'],
+  project: ['list', 'view', 'field-list', 'item-list']
 };
+const GH_PROJECT_WRITES = ['create', 'copy', 'edit', 'close', 'delete', 'mark-template', 'link', 'unlink',
+  'field-create', 'field-delete', 'item-add', 'item-create', 'item-edit', 'item-archive', 'item-delete'];
 function ghForm(args, whole) {
   if (args.length === 1 && args[0] === '--version') return { operands: [] };
   const words = args.filter((a) => !a.startsWith('-'));
@@ -1783,6 +1789,13 @@ function ghForm(args, whole) {
   const verb = (words[1] || '').toLowerCase();
   if (!Object.prototype.hasOwnProperty.call(GH_VERBS, group)) {
     deny('gh ' + group + ' is not on the owner\'s list of approved commands. Ask the owner.', whole);
+  }
+  if (group === 'project' && GH_PROJECT_WRITES.includes(verb)) {
+    deny('Boards are the owner\'s. Ask the owner to run it.', whole);
+  }
+  if (group === 'issue' && verb === 'create') {
+    deny('A ticket is made through cicd\'s tickets tool, which refuses a public repo, never a typed gh issue create.',
+      whole);
   }
   if (GH_VERBS[group] && !GH_VERBS[group].includes(verb)) {
     deny('gh ' + group + ' ' + verb + ' is not on the owner\'s list of approved commands. Ask the owner.', whole);
@@ -2556,6 +2569,58 @@ function reviewerGit(sub, rest, whole) {
 
 // ------------------------------------------------------------ gh, deploy tools
 
+// gh api's own options, those that take a value by the kind of value, and those that take none (gh api --help)
+const GH_API_VALUES = {
+  '-F': 'field', '--field': 'field', '-f': 'field', '--raw-field': 'field', '-X': 'method', '--method': 'method',
+  '--input': 'input', '-H': 'header', '--header': 'header', '-p': 'preview', '--preview': 'preview', '-q': 'jq',
+  '--jq': 'jq', '-t': 'template', '--template': 'template', '--cache': 'cache', '--hostname': 'hostname'
+};
+const GH_API_FLAGS = new Set(['-i', '--include', '--paginate', '--silent', '--slurp', '--verbose', '-h', '--help']);
+
+// The endpoint and the kinds of option a gh api call gives, every value skipped, joined forms and clusters of short
+// options read as gh reads them. An unknown option, an option missing its value, or anything but one endpoint refuses.
+function ghApiParts(rest, whole) {
+  const seen = new Set();
+  const positionals = [];
+  const missing = (name) => deny('gh api\'s ' + name + ' needs its value.', whole);
+  for (let i = 0; i < rest.length; i++) {
+    const a = String(rest[i]);
+    if (a === '--') {
+      positionals.push(...rest.slice(i + 1).map(String));
+      break;
+    }
+    if (a.startsWith('--')) {
+      const eq = a.indexOf('=');
+      const name = eq < 0 ? a : a.slice(0, eq);
+      if (GH_API_FLAGS.has(name) && eq < 0) {
+        seen.add(name);
+      } else if (Object.prototype.hasOwnProperty.call(GH_API_VALUES, name)) {
+        if (eq < 0 && ++i >= rest.length) missing(name);
+        seen.add(GH_API_VALUES[name]);
+      } else {
+        deny(name + ' is not an option gh api takes.', whole);
+      }
+    } else if (a.startsWith('-') && a.length > 1) {
+      for (let j = 1; j < a.length; j++) {
+        const name = '-' + a[j];
+        if (GH_API_FLAGS.has(name)) {
+          seen.add(name);
+          continue;
+        }
+        if (!Object.prototype.hasOwnProperty.call(GH_API_VALUES, name)) deny(name + ' is not an option gh api takes.', whole);
+        if (j === a.length - 1 && ++i >= rest.length) missing(name);
+        seen.add(GH_API_VALUES[name]);
+        break;
+      }
+    } else {
+      positionals.push(a);
+    }
+  }
+  if (seen.has('-h') || seen.has('--help')) return { help: true, seen, endpoint: '' };
+  if (positionals.length !== 1) deny('gh api takes one endpoint.', whole);
+  return { help: false, seen, endpoint: positionals[0].toLowerCase() };
+}
+
 function checkGh(args, whole) {
   if (MODE === 'reviewer') deny('Reviewers do not use the GitHub CLI.', whole);
   const lower = args.map((a) => a.toLowerCase());
@@ -2591,10 +2656,12 @@ function checkGh(args, whole) {
   }
   if (group === 'alias' || group === 'extension') deny('gh aliases and extensions can hide a refused command.', whole);
   if (group === 'api') {
+    // gh api's options parsed once against its own table, so a value never reads as the endpoint (design 5.10), and
     // a method or a field in any spelling, -XPOST and -iXPOST joined to their option among them (D-068)
-    const mutating = args.some((a) => /^-[A-Za-z]*[XFf]/.test(a) && !a.startsWith('--'))
-      || lower.some((a) => /^--(method|field|raw-field|input)(=.*)?$/.test(a));
-    const endpoint = words[1] || '';
+    const api = ghApiParts(args.slice(args.findIndex((a) => a.toLowerCase() === 'api') + 1), whole);
+    if (api.help) return;
+    const mutating = api.seen.has('method') || api.seen.has('field') || api.seen.has('input');
+    const endpoint = api.endpoint;
     if (mutating) deny('gh api with a method, fields or input can merge, release or change settings. Use a gh subcommand.', whole);
     if (endpoint.includes('graphql')) deny('GraphQL through gh api can merge or change settings. Use a gh subcommand.', whole);
     if (/(\/merge|\/releases|\/dispatches|\/git\/refs|\/rulesets|\/protection|\/actions\/(secrets|variables)|\/hooks|\/collaborators|\/keys|\/deployments)/.test(endpoint)) {
@@ -2687,7 +2754,9 @@ const OPS_SCRIPTS = {
   distribute_kit: { refuse: ['distribute'] },
   distribute_scripts: { refuse: ['distribute'] },
   provision_projects: { refuse: ['execute'] },
-  trigger_triage: { refuse: null }
+  trigger_triage: { refuse: null },
+  // the owner's board runner, run by the owner alone from a fresh clone at a release tag (backlog tickets design 5.10)
+  kdf_tickets_owner: { refuse: null }
 };
 
 // The script a Python interpreter runs, its first .py argument or the module after -m. Inline code after -c is opaque.

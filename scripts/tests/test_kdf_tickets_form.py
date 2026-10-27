@@ -21,8 +21,15 @@ from pathlib import Path
 import pytest
 import yaml
 
-TOOLS          = Path(__file__).resolve().parents[2] / "tools" / "claude-code"
-PACKAGE        = TOOLS / "kdf_tickets"
+TOOLS    = Path(__file__).resolve().parents[2] / "tools" / "claude-code"
+PACKAGE  = TOOLS / "kdf_tickets"
+LAUNCHER = TOOLS / "kdf-tickets.sh"
+BASH     = os.environ.get("KDF_TEST_BASH") or shutil.which("bash")
+# a stand in for cicd's venv interpreter, it logs each call and runs this interpreter, or plays one that cannot start
+STAND_IN       = """#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "{log}"
+{body}
+"""
 FIXTURES       = Path(__file__).resolve().parent / "fixtures" / "tickets"
 GIT            = shutil.which("git")
 OWNER          = "example-owner"
@@ -509,3 +516,67 @@ def test_a_reviewer_is_refused_before_help(tmp_path: Path) -> None:
     )
     assert done.returncode == common.REFUSED
     assert "reviewer" in done.stderr
+
+
+# the launcher, against a stand in interpreter, since GitHub's test job makes no repo .venv
+
+# ======================================================================================================================
+
+def _layout(tmp_path: Path, interpreter: str | None) -> tuple[Path, Path]:
+    """
+    A checkout holding the launcher and the package, with a stand in at .venv/bin/python that runs or fails, or none.
+    """
+    tools = tmp_path / "cicd" / "tools" / "claude-code"
+    tools.mkdir(parents = True)
+    shutil.copy2(LAUNCHER, tools / LAUNCHER.name)
+    shutil.copytree(PACKAGE, tools / PACKAGE.name, ignore = shutil.ignore_patterns("__pycache__"))
+    log = tmp_path / "interpreter.log"
+    if interpreter is not None:
+        body  = f'exec "{Path(sys.executable).as_posix()}" "$@"' if interpreter == "runs" else "exit 1"
+        stand = tmp_path / "cicd" / ".venv" / "bin" / "python"
+        stand.parent.mkdir(parents = True)
+        stand.write_text(STAND_IN.format(log = log.as_posix(), body = body), encoding = "utf-8", newline = "\n")
+        stand.chmod(0o755)
+    return tools / LAUNCHER.name, log
+
+
+def _launch(launcher: Path, *args: str, role: str | None = None) -> subprocess.CompletedProcess[str]:
+    environment = {key: value for key, value in os.environ.items() if key != "KDF_ROLE"}
+    if role is not None:
+        environment["KDF_ROLE"] = role
+    return subprocess.run([str(BASH), str(launcher), *args], capture_output = True, text = True, env = environment)
+
+
+@pytest.mark.skipif(BASH is None and not os.environ.get("CI"), reason = "the launcher needs bash")
+def test_the_launcher_refuses_a_reviewer_before_help_and_before_the_interpreter(tmp_path: Path) -> None:
+    launcher, log = _layout(tmp_path, "runs")
+    for args in (("--help",), ("check", "--root", str(tmp_path))):
+        done = _launch(launcher, *args, role = "reviewer")
+        assert done.returncode == 3 and done.stdout == "", args
+        assert "reviewer role never runs the tickets tool" in done.stderr
+    assert not log.exists()
+
+
+@pytest.mark.skipif(BASH is None and not os.environ.get("CI"), reason = "the launcher needs bash")
+def test_the_launcher_exits_four_naming_make_venv_with_no_usable_interpreter(tmp_path: Path) -> None:
+    for interpreter in (None, "fails"):
+        launcher, _ = _layout(tmp_path / str(interpreter), interpreter)
+        done = _launch(launcher, "--help")
+        assert done.returncode == 4 and done.stdout == "", interpreter
+        assert "make venv" in done.stderr
+
+
+@pytest.mark.skipif(BASH is None and not os.environ.get("CI"), reason = "the launcher needs bash")
+def test_the_launcher_runs_the_package_isolated_with_no_bytecode_and_every_argument(tmp_path: Path) -> None:
+    launcher, log = _layout(tmp_path, "runs")
+    done = _launch(launcher, "--help")
+    assert done.returncode == 0 and "pull runs in one of three modes" in done.stdout, done.stderr
+    for name in ("check", "fmt", "plan", "pull", "find", "prompt", "scan", "ages"):
+        assert name in done.stdout
+    root = _worktree(tmp_path / "repo")
+    done = _launch(launcher, "find", "--root", str(root))
+    assert done.returncode == 0, done.stderr
+    last = log.read_text(encoding = "utf-8").splitlines()[-1]
+    assert last.startswith("-I -B ") and last.split()[2].endswith("kdf_tickets")
+    assert last.endswith(f"find --root {root}")
+    assert not list(launcher.parent.rglob("__pycache__"))
