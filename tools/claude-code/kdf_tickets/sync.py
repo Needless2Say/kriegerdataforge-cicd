@@ -75,13 +75,15 @@ class Current:
 @dataclass
 class Entry:
     """
-    One ticket as a pull would write it, and whether that changes its files.
+    One ticket as a pull would write it, whether that changes its files, and GitHub's texts for the scan, the issue's
+    number, title, body without its marker and comments' bodies.
     """
     stem:     str
     ticket:   form.Ticket
     comments: str | None
     changed:  bool
-    new:      bool = False
+    new:   bool = False
+    texts: tuple[int, str, str, list[str]] = (0, "", "", [])
 
 
 @dataclass
@@ -345,7 +347,14 @@ class Reconciler:
             elif item.ticket.issue["node"] not in seen:
                 self.result.differences.append(f"{stem}: its issue is gone from GitHub, the file kept")
         for node, (stem, issue, new) in sorted(self.matched.items(), key = lambda pair: pair[1][0]):
-            self.result.entries[stem] = self.entry(stem, issue, new, stem in take)
+            entry       = self.entry(stem, issue, new, stem in take)
+            entry.texts = (
+                issue.number,
+                issue.title,
+                split_marker(issue.body)[1],
+                [item.body for item in issue.comments],
+            )
+            self.result.entries[stem] = entry
         self.board_notes()
         return self.result
 

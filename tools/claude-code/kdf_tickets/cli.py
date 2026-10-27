@@ -42,6 +42,7 @@ SUMMARIES = {
     "pull": "GitHub into the files, by --only, --adopt or --backup",
     "find": "open tickets by about, label or kind, from the files alone",
     "prompt": "a ticket's design prompt, or the plan holding its build's prompt",
+    "scan": "the sensitivity check on GitHub's titles, bodies and comments, and the owner's allowances",
     "ages": "every clone under a folder with tickets, and the age of its oldest unpulled change",
 }
 
@@ -95,6 +96,9 @@ def parser() -> Parser:
         "pull"
     ].add_argument("--take", action = "store_true", help = "settle the named tickets' conflicts with GitHub")
     parsers["pull"].add_argument("--map", type = Path, help = "an adoption map, with --adopt")
+    for name in ("pull", "scan"):
+        parsers[name].add_argument("--private-words", type = Path, help = "the owner's list, kept outside every repo")
+    parsers["scan"].add_argument("--allow", nargs = "+", metavar = "<id>", help = "allow flagged ids, the owner's word")
     parsers["find"].add_argument("--about", help = "the repo a ticket is about")
     parsers["find"].add_argument("--label", help = "a label it carries")
     parsers["find"].add_argument("--kind", help = "its kind")
@@ -140,9 +144,20 @@ def run(args: argparse.Namespace) -> int:
         return CLEAN
     if args.command == "plan":
         code, lines = commands.plan(root, Reader(), args.registry)
+    elif args.command == "scan":
+        code, lines = commands.scan_command(root, Reader(), args.registry, args.private_words, args.allow)
     else:
         mode = "only" if args.only else "adopt" if args.adopt else "backup" if args.backup else None
-        code, lines = commands.pull(root, Reader(), args.registry, mode, args.only, args.take, args.map)
+        code, lines = commands.pull(
+            root,
+            Reader(),
+            args.registry,
+            mode,
+            args.only,
+            args.take,
+            args.map,
+            args.private_words,
+        )
     print("\n".join(lines))
     return code
 

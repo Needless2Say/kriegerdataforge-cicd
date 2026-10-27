@@ -9,6 +9,7 @@ were (5.5). pull writes inside the worktree's docs/tickets/ alone, and nothing h
 from __future__ import annotations
 
 # standard imports
+import json
 import re
 import time
 from collections.abc import Callable
@@ -16,9 +17,9 @@ from datetime import datetime
 from pathlib import Path
 
 # third party imports
-from kdf_tickets import form, sync
+from kdf_tickets import form, scan, sync
 from kdf_tickets.check import COMMENTS, folder, read_tickets
-from kdf_tickets.common import CLEAN, CONFLICT, FOUND, Refusal, git, slug
+from kdf_tickets.common import CLEAN, CONFLICT, FOUND, Refusal, git, slug, text_digest
 from kdf_tickets.config import REGISTRY, Config, load_config, parse_config
 from kdf_tickets.github import Reader
 
@@ -133,9 +134,11 @@ def pull(
     only: list[str] | None = None,
     take: bool = False,
     adoption_map: Path | None = None,
+    private_words: Path | None = None,
 ) -> tuple[int, list[str]]:
     """
-    Bring GitHub into the files, by its mode, every read made before anything is written.
+    Bring GitHub into the files, by its mode, every read made before anything is written, and every new or changed
+    text scanned first, a flagged issue the owner has not allowed written to no file.
 
     Args:
         root: the worktree
@@ -145,9 +148,10 @@ def pull(
         only: the ids for only
         take: settle the named tickets' conflicts with GitHub's values, with only
         adoption_map: a map of moved issues to the repos they came from, with adopt
+        private_words: the owner's list of private words, kept outside every repo
 
     Returns:
-        tuple[int, list[str]]: 0 written clean, 1 with issues refused, 2 with a conflict left, and the lines to print
+        tuple[int, list[str]]: 0 written clean, 1 with issues refused or held, 2 with a conflict left, and the lines
 
     Raises:
         Refusal: for a pull with no mode, an id no file holds, an adopt once tickets exist, or a failed read
@@ -167,6 +171,7 @@ def pull(
         if not slug(ident) or ident not in current:
             raise Refusal(f"{ident!r} is no ticket this repo's files hold")
     adopted = sync.read_map(adoption_map, config) if adoption_map is not None else {}
+    private = scan.private_words(private_words)
     result  = reconcile(
         config,
         current,
@@ -175,17 +180,122 @@ def pull(
         adopted = adopted,
         take = named if take else set(),
     )
-    lines   = []
+    lines, held = [], []
     for stem, entry in sorted(result.entries.items()):
         if (mode == "only" and stem not in named) or not entry.changed:
+            continue
+        hit = scanned(entry, current.get(stem), private)
+        if hit is not None and not scan.allowed(hit, config.allow):
+            held.append(f"{hit.line()}. Held by the scan, no file written, for the owner's word")
             continue
         write_entry(root, entry)
         lines.append(f"wrote {stem}.yaml")
     conflicts = [line for line in result.conflicts if mode != "only" or line.split(":")[0] in named]
-    lines    += result.refusals + conflicts
-    code = CONFLICT if conflicts else FOUND if result.refusals else CLEAN
+    lines    += result.refusals + held + conflicts
+    code = CONFLICT if conflicts else FOUND if result.refusals or held else CLEAN
     lines.append(f"pull: {len([line for line in lines if line.startswith('wrote ')])} files written")
     return code, lines
+
+
+def scanned(entry: sync.Entry, current: sync.Current | None, private: re.Pattern[str] | None) -> scan.Hit | None:
+    """
+    Scan an entry's GitHub texts when they are new to the files or changed since the last pull, design 5.11.
+
+    Args:
+        entry: the ticket as the pull writes it, with GitHub's texts
+        current: its file as it stands, None for a new ticket
+        private: the owner's private words, if any
+
+    Returns:
+        scan.Hit | None: the hit, None for texts unchanged or clean
+    """
+    number, title, body, comments = entry.texts
+    base      = (current.ticket.synced or {}) if current is not None else {}
+    unchanged = current is not None and (
+        base.get("title") == text_digest(title)
+        and base.get("body") == text_digest(body)
+        and base.get("comments") == (None if entry.comments is None else text_digest(entry.comments))
+    )
+    if unchanged:
+        return None
+    return scan.scan_issue(number, entry.stem, title, body, comments, private)
+
+
+def scan_command(
+    root: Path,
+    reader: Reader,
+    registry: Path = REGISTRY,
+    private_words: Path | None = None,
+    allow: list[str] | None = None,
+) -> tuple[int, list[str]]:
+    """
+    Scan every issue, open and closed, and its comments, before a repo's first pull, and record the owner's allowances.
+
+    Args:
+        root: the worktree
+        reader: GitHub's reads
+        registry: the boards' registry
+        private_words: the owner's list of private words, kept outside every repo
+        allow: ids the owner allows, each recorded in the config with the digest of the text it allowed
+
+    Returns:
+        tuple[int, list[str]]: 1 while a flagged issue is unsettled, else 0, and a line per flagged issue
+
+    Raises:
+        Refusal: for an allowance of an id the scan does not flag
+    """
+    config  = load_config(root, registry)
+    current = current_files(root)
+    if not reader.private(config.owner, config.repo):
+        raise Refusal(
+            f"{config.owner}/{config.repo} is public. A public repo keeps no tickets, they are held privately",
+        )
+    private = scan.private_words(private_words)
+    by_node = {item.ticket.issue["node"]: stem for stem, item in current.items() if item.ticket.issue}
+    taken   = set(current)
+    hits    = {}
+    for issue in sorted(reader.issues(config.owner, config.repo), key = lambda issue: issue.number):
+        if config.left_out(issue.labels):
+            continue
+        marker, body = sync.split_marker(issue.body)
+        ident = by_node.get(issue.node)
+        if ident is None:
+            ident = marker if marker is not None and slug(marker) and marker not in taken else sync.slugify(
+                issue.title,
+                issue.number,
+                taken,
+            )
+            taken.add(ident)
+        hit = scan.scan_issue(issue.number, ident, issue.title, body, [item.body for item in issue.comments], private)
+        if hit is not None:
+            hits[ident] = hit
+    unknown = sorted(set(allow or []) - set(hits))
+    if unknown:
+        raise Refusal(f"{', '.join(unknown)} is no issue the scan flags, so there is nothing to allow")
+    if allow:
+        record_allowances(root, [hits[ident] for ident in allow])
+        config = load_config(root, registry)
+    lines = []
+    for ident, hit in hits.items():
+        lines.append(f"{hit.line()}. Allowed" if scan.allowed(hit, config.allow) else hit.line())
+    unsettled = sum(1 for hit in hits.values() if not scan.allowed(hit, config.allow))
+    lines.append(f"scan: {len(hits)} issues flagged, {unsettled} unsettled")
+    return (FOUND if unsettled else CLEAN), lines
+
+
+def record_allowances(root: Path, hits: list[scan.Hit]) -> None:
+    """
+    Record the owner's allowance of each hit in the config, bound to the digest of the text and the policy version.
+
+    Args:
+        root: the worktree
+        hits: the hits the owner allows
+    """
+    path = folder(root) / "config.json"
+    data = json.loads(path.read_text(encoding = "utf-8"))
+    for hit in hits:
+        data.setdefault("allow", {})[hit.ident] = {"digest": hit.digest, "policy": scan.POLICY}
+    path.write_text(json.dumps(data, indent = 2) + "\n", encoding = "utf-8")
 
 
 def write_entry(root: Path, entry: sync.Entry) -> None:
