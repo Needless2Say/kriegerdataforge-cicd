@@ -135,7 +135,7 @@ STAMP         = "%Y-%m-%dT%H:%M:%SZ"
 NEWS_SHOWN    = 100    # findings listed in one news comment
 BODY_LIMIT    = 60000  # an issue body over 65536 characters is refused
 KEYS_MARKER   = "kdf-watch-keys:"
-KEY_HEX       = 10     # each finding is remembered as the first 10 hex of its key's sha1
+KEY_HEX       = 10     # each finding is remembered as the first 10 hex of its key's sha256
 KEYS_LIMIT    = 3000   # findings remembered at most, 30000 characters of the body
 
 # ======================================================================================================================
@@ -1054,9 +1054,9 @@ def _short(text: str) -> str:
         text: a notice's message or an error's detail
 
     Returns:
-        str: the first 12 hex of its sha1
+        str: the first 12 hex of its sha256, sha1 until D-085's scan, whose rule allows no marker on it
     """
-    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
 
 
 def remembered(key: str) -> str:
@@ -1067,9 +1067,9 @@ def remembered(key: str) -> str:
         key: the finding's key
 
     Returns:
-        str: the first KEY_HEX hex of its sha1
+        str: the first KEY_HEX hex of its sha256, so the first run after the change from sha1 finds every finding new
     """
-    return hashlib.sha1(key.encode("utf-8")).hexdigest()[:KEY_HEX]
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:KEY_HEX]
 
 
 def previous_keys(body: str) -> set[str]:

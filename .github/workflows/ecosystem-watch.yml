@@ -90,7 +90,12 @@ jobs:
       - name: Install dependencies
         run: pip install -r _kdf_cicd/scripts/requirements.txt
 
-      # read only, over every repo the App's installation covers, an hour at most and revoked when the job ends
+      # the repos the watch reads, cicd and every kit target as ecosystem_watch.py lists them (D-085, design 5.7)
+      - name: List the repositories the watch reads
+        id: targets
+        run: python _kdf_cicd/scripts/token_repositories.py watch >> "$GITHUB_OUTPUT"
+
+      # read only, over the repos listed above, an hour at most and revoked when the job ends
       - name: Mint a read only App token
         id: app
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -98,6 +103,7 @@ jobs:
           client-id: ${{ secrets.app_id }}
           private-key: ${{ secrets.app_private_key }}
           owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.targets.outputs.repositories }}
           permission-contents: read
           permission-vulnerability-alerts: read
           permission-checks: read

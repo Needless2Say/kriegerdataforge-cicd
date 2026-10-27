@@ -273,8 +273,10 @@ function tokens(usage, word) {
     const n = Number(m[1].replace(/,/g, ''));
     return Math.round(m[2] ? n * (/[kK]/.test(m[2]) ? 1e3 : 1e6) : n);
   };
+  // nosemgrep: detect-non-literal-regexp word is the fixed in or out its two callers pass
   const before = new RegExp('([\\d][\\d,]*(?:\\.\\d+)?\\s*[kKmM]?)\\s*(?:tokens\\s+)?' + word + '\\b').exec(usage);
   if (before) return number(before[1]);
+  // nosemgrep: detect-non-literal-regexp word is the fixed in or out its two callers pass
   const after = new RegExp('\\b' + word + '\\b\\s*[:=]?\\s*([\\d][\\d,]*(?:\\.\\d+)?\\s*[kKmM]?)').exec(usage);
   return after ? number(after[1]) : null;
 }

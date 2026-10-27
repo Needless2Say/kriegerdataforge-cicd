@@ -8,8 +8,8 @@
 #  workflows every other repo calls, the operational scripts behind them, and
 #  the Tier-2 Playwright E2E suite that drives the whole stack.
 #
-#  It is also the ONLY PUBLIC repo in the ecosystem. Nothing here may carry a
-#  real credential, hostname or account identifier.
+#  It is a PUBLIC repo. Nothing here may carry a real credential, hostname or
+#  account identifier.
 #
 #  Fresh clone:
 #    make setup
@@ -24,7 +24,7 @@
 #
 #  Requirements:
 #    actionlint  https://github.com/rhysd/actionlint  (brew install actionlint)
-#    codeql      https://github.com/github/codeql-cli-binaries
+#    docker      for the local code scan (make scan-setup, then make scan, D-085)
 #    node + npm  only for the E2E suite (make e2e-install)
 #    docker      only for the E2E suite
 #
@@ -145,20 +145,6 @@ KDF_FMT_VERSION ?= $(shell grep -oE 'kdf_fmt_ref:[[:space:]]*[A-Za-z0-9][A-Za-z0
 JOURNEY ?= fitness
 
 FITNESS_FE := $(MAKE) -C ../fitness-app-frontend
-
-# ---------- CodeQL ----------
-
-# CodeQL database and results directories, language, and query pack
-# These are used by the codeql.yml workflow and the local `make codeql` target
-# PYTHON, not javascript-typescript. A real scan showed the TS setup analyzed almost
-# nothing: e2e/ holds only playwright.config.ts plus whatever ci_stack.py has STAGED into
-# e2e/staged-tests at that moment -- the journey specs live in the app repos (ADR D-006).
-# The security-relevant code here is the Python under scripts/: secret rotation, deployer
-# authorization, provisioning. Changed 2026-08-09.
-CODEQL_DB      := ../codeql/codeql-dbs/kriegerdataforge-cicd
-CODEQL_RESULTS := ../codeql/codeql-results
-CODEQL_LANG    := python
-CODEQL_PACK    := codeql/python-queries
 
 # ---------- Version gate ----------
 
@@ -427,69 +413,6 @@ scan-fixtures: _ensure-venv ## The scan's fixtures against KDF_SCAN_FIXTURE_IMAG
 	cd scripts && KDF_SCAN_FIXTURE_IMAGE="$(KDF_SCAN_FIXTURE_IMAGE)" $(CURDIR)/$(PYTHON) -m pytest tests/fixtures/scan \
 		-o python_files="fixture_*.py" -p no:cacheprovider -rP --tb=short
 
-##@ CodeQL Security Scanning
-
-.PHONY: codeql codeql-db codeql-scan-security codeql-scan-quality codeql-scan-all \
-        codeql-scan-security-csv codeql-scan-quality-csv codeql-scan-csv-all
-
-# SARIF opens in VS Code (SARIF Viewer extension); CSV is easier to hand to an AI.
-
-codeql: codeql-db codeql-scan-all ## Build the CodeQL database and run all query suites (mirrors codeql.yml)
-
-codeql-db: _ensure-venv ## Create or refresh the CodeQL database
-	$(call banner,CodeQL - building database)
-	@mkdir -p $(CODEQL_RESULTS)
-	@rm -rf $(CODEQL_DB)
-	# venv on PATH: CodeQL's Python autobuild calls a BARE `python`, which on a py-only
-	# Windows box hits the Store alias and dies with exit code 9009. $$PWD not $(CURDIR):
-	# CURDIR is E:/... and the drive-letter colon splits a :-separated PATH.
-	PATH="$$PWD/$(VENV_BIN):$$PATH" codeql database create $(CODEQL_DB) \
-		--language=$(CODEQL_LANG) \
-		--source-root=. \
-		--codescanning-config=.github/codeql/codeql-config.yml
-	@printf "$(GREEN)Database created at $(CODEQL_DB)$(NC)\n"
-
-codeql-scan-security: ## Run security-extended queries (SARIF output)
-	@printf "$(GREEN)Running CodeQL security scan...$(NC)\n"
-	@mkdir -p $(CODEQL_RESULTS)
-	codeql database analyze $(CODEQL_DB) \
-		"$(CODEQL_PACK):codeql-suites/python-security-extended.qls" \
-		--format=sarif-latest \
-		--output=$(CODEQL_RESULTS)/kriegerdataforge-cicd.sarif
-	@printf "$(GREEN)Results saved to $(CODEQL_RESULTS)/kriegerdataforge-cicd.sarif$(NC)\n"
-
-codeql-scan-quality: ## Run security-and-quality queries (SARIF output)
-	@printf "$(GREEN)Running CodeQL quality scan...$(NC)\n"
-	@mkdir -p $(CODEQL_RESULTS)
-	codeql database analyze $(CODEQL_DB) \
-		"$(CODEQL_PACK):codeql-suites/python-security-and-quality.qls" \
-		--format=sarif-latest \
-		--output=$(CODEQL_RESULTS)/kriegerdataforge-cicd-quality.sarif
-	@printf "$(GREEN)Results saved to $(CODEQL_RESULTS)/kriegerdataforge-cicd-quality.sarif$(NC)\n"
-
-codeql-scan-all: codeql-scan-security codeql-scan-quality ## Run all CodeQL query suites (SARIF)
-
-codeql-scan-security-csv: ## Run the security scan (CSV -- easy to hand to an AI)
-	@printf "$(GREEN)Running CodeQL security scan (CSV)...$(NC)\n"
-	@mkdir -p $(CODEQL_RESULTS)
-	codeql database analyze $(CODEQL_DB) \
-		"$(CODEQL_PACK):codeql-suites/python-security-extended.qls" \
-		--format=csv \
-		--output=$(CODEQL_RESULTS)/kriegerdataforge-cicd.csv
-	@printf "$(GREEN)Results saved to $(CODEQL_RESULTS)/kriegerdataforge-cicd.csv$(NC)\n"
-	@printf "$(YELLOW)Columns: name, description, severity, message, path, start_line, start_col, end_line, end_col$(NC)\n"
-
-codeql-scan-quality-csv: ## Run the quality scan (CSV)
-	@printf "$(GREEN)Running CodeQL quality scan (CSV)...$(NC)\n"
-	@mkdir -p $(CODEQL_RESULTS)
-	codeql database analyze $(CODEQL_DB) \
-		"$(CODEQL_PACK):codeql-suites/python-security-and-quality.qls" \
-		--format=csv \
-		--output=$(CODEQL_RESULTS)/kriegerdataforge-cicd-quality.csv
-	@printf "$(GREEN)Results saved to $(CODEQL_RESULTS)/kriegerdataforge-cicd-quality.csv$(NC)\n"
-
-codeql-scan-csv-all: codeql-scan-security-csv codeql-scan-quality-csv ## Run all CodeQL query suites (CSV)
-
 ##@ Maintenance
 
 .PHONY: git-setup clean clean-deep
@@ -527,6 +450,8 @@ clean-deep: ## Deep clean including virtual environment
 # The local code scan, Opengrep and zizmor in cicd's image by its digest, a check against accidents and branch
 # edits, never the gate, which runs from main (cicd D-085).
 SCAN_EXCLUDE ?=
+SCAN_EXCLUDE += scripts/common/scan_rules  # the rules' own test cases are written to match them
+SCAN_LIMIT += tools/claude-code/kdf-guard.js@63c3d9d12514e44f98fbccd47caa341ca7f2314835218b0f4cf1c9b7aeba38a7  # Opengrep's rule timeout ends before the guard's size
 KDF_SCAN_IMAGE := ghcr.io/needless2say/kdf-scan@sha256:a569b93204cfbc60ba04e4c233c9994853d11b2f9f8b08ce7ded375ec319d2e8
 KDF_SCAN_RULES_COMMIT := 17e31e11ebac99fb7dfe1cd288f7a32151b6f3f9
 KDF_SCAN_CALLER_SHA := d816ce5c870b0d821e71587c12507dc58d9d23f09318376b0b067742ff063949

@@ -509,6 +509,7 @@ def run_git(git: str, repo: Path, *args: str, stdin: bytes | None = None) -> sub
     if AUTOCRLF is not None:
         command += ["-c", f"core.autocrlf={AUTOCRLF}"]
     return subprocess.run(
+        # nosemgrep: dangerous-subprocess-use-tainted-env-args the wrapper's own git arguments with no shell
         [*command, "-C", str(repo), *args],
         input = stdin,
         capture_output = True,

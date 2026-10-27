@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -48,6 +49,9 @@ from pathlib import Path
 
 # full path to git (S607: no partial executable paths); falls back for exotic setups
 _GIT = shutil.which("git") or "git"
+# a base branch name every git call takes, never one opening with a dash, which `git fetch origin <name>` would read as
+# an option such as --upload-pack, so a name from GITHUB_BASE_REF or --base-branch reaches git only as a branch (D-085)
+_BRANCH = re.compile(r"(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9._/-]*")
 
 # ======================================================================================================================
 # Sync-PR exemption config (ADR D-001 option B; extended to script sync by ADR D-013)
@@ -195,9 +199,12 @@ def _fetch_base(cwd: Path, base_branch: str) -> bool:
         base_branch: the base branch name
 
     Returns:
-        bool: True when the fetch succeeded
+        bool: True when the fetch succeeded, False too for a name that is no branch name
     """
+    if not _BRANCH.fullmatch(base_branch):
+        return False
     result = subprocess.run(  # noqa: S603  (internal args only)
+        # nosemgrep: dangerous-subprocess-use-tainted-env-args the name is held to a branch name above
         [_GIT, "fetch", "origin", base_branch, *_fetch_depth(cwd)],
         capture_output = True,
         check = False,
@@ -215,9 +222,12 @@ def _get_base_version(cwd: Path, base_branch: str) -> str | None:
         base_branch: the base branch name
 
     Returns:
-        str | None: the base branch's VERSION, or None when unreadable
+        str | None: the base branch's VERSION, or None when unreadable or the name is no branch name
     """
+    if not _BRANCH.fullmatch(base_branch):
+        return None
     result = subprocess.run(  # noqa: S603  (internal args only)
+        # nosemgrep: dangerous-subprocess-use-tainted-env-args the name is held to a branch name above
         [_GIT, "show", f"origin/{base_branch}:VERSION"],
         capture_output = True,
         text = True,
@@ -293,10 +303,13 @@ def _changed_files(cwd: Path, base_ref: str) -> list[str]:
         base_ref: the PR's base branch name (GITHUB_BASE_REF)
 
     Returns:
-        list[str]: changed file paths, empty when the diff cannot be computed
+        list[str]: changed file paths, empty when the diff cannot be computed or the name is no branch name
     """
+    if not _BRANCH.fullmatch(base_ref):
+        return []
     _fetch_base(cwd, base_ref)
     result = subprocess.run(  # noqa: S603  (internal args only)
+        # nosemgrep: dangerous-subprocess-use-tainted-env-args the name is held to a branch name above
         [_GIT, "diff", "--name-only", f"origin/{base_ref}", "HEAD"],
         capture_output = True,
         text = True,
@@ -429,7 +442,11 @@ def main() -> None:
     fetched      = _fetch_base(root, args.base_branch)
     base_version = _get_base_version(root, args.base_branch)
 
-    if base_version is None and not fetched and os.environ.get("GITHUB_ACTIONS") == "true":
+    if not _BRANCH.fullmatch(args.base_branch):
+        # refused before any git call, and a refusal fails everywhere, never read as an offline base (D-085)
+        print(f"FAIL: {args.base_branch!r} is no branch name, so the increment cannot be checked.")
+        passed = False
+    elif base_version is None and not fetched and os.environ.get("GITHUB_ACTIONS") == "true":
         # a check that cannot look does not pass. on a runner the fetch has no reason to fail but a checkout
         # without credentials or a remote that is down, and either way the increment was not checked
         print(f"FAIL: could not fetch origin/{args.base_branch}, so the increment cannot be checked.")

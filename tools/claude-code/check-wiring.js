@@ -95,6 +95,7 @@ if (settings) {
     add('PASS', 'a PreToolUse hook runs kdf-guard.js', command);
     let re = null;
     try {
+      // nosemgrep: detect-non-literal-regexp the matcher comes from the owner's own settings file
       re = new RegExp('^(?:' + (entry.matcher || '') + ')$');
     } catch (err) {
       add('FAIL', 'the hook matcher is not a valid pattern', String(entry.matcher));

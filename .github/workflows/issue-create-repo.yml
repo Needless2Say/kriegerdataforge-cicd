@@ -33,9 +33,10 @@ on:
     types:
       - labeled
 
+# No step uses the job's own token on the issue, the comment and the close go through CICD_PAT, so the workflow holds
+# read alone (D-085, design 5.7).
 permissions:
   contents: read
-  issues: write
 
 jobs:
   # ── Actor authorization (PL-076) ──────────────────────────────────────────────

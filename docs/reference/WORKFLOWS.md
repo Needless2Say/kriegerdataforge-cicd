@@ -891,7 +891,7 @@ shown where it differs from top level):
 
 ## Repo internal event triggered workflows
 
-The remaining twenty one `.github/workflows/*.yml` (of 50 total, 29 `workflow_call` and these 21) are
+The remaining twenty two `.github/workflows/*.yml` (of 51 total, 29 `workflow_call` and these 22) are
 **not** `workflow_call`, so they cannot be `uses:`-d by a tenant. They run inside `kriegerdataforge-cicd` on schedules / issues / dispatch, and the ops ones are
 owner gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for completeness of the
 `.github/workflows/` enumeration.
@@ -916,16 +916,31 @@ owner gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for 
 | `check-oidc-rp-drift.yml` | weekly `schedule` (Mon 12:30 UTC) + `workflow_dispatch` | PL-084 interim guard. `check_oidc_drift.py` compares the copy pasted OIDC RP core (`oidc.ts` + callback/initiate/logout routes, `scripts/oidc_drift_manifest.json`) across the two tenant frontends. Keeps one dedup tracking issue (`ops:oidc-rp-drift`) open while any pair differs. Paths + changed line counts only, never file contents | n/a (App token/`CICD_PAT` for cross repo reads, `issues:write`) |
 | `trigger-reports-triage.yml` | weekly `schedule` (Mon 09:23 UTC) + `workflow_dispatch` (`apps`, `environment`, `dry_run`) | `trigger_triage.py`: POSTs each selected app's `X-Cron-Secret`-gated `/reports/triage/cron` (`reports_registry.json`). **Disarmed at birth**: the schedule job requires `vars.RUN_REPORTS_TRIAGE == 'true'` AND per app registry `enabled: true`. Scheduled runs = enabled apps against prod. POSTs never status retried, output metadata only | n/a (dispatch is maintainer only by repo perms, schedule gated by `RUN_REPORTS_TRIAGE`) |
 | `hub-prune-tokens.yml` | daily `schedule` (04:17 UTC) + `workflow_dispatch` (`environment`) | POSTs the auth hub's `CRON_SECRET` gated `/internal/cron/prune-tokens` once per environment, which deletes expired denylist rows, spent verification tokens, audit rows past retention, abandoned registrations and expired OIDC rows in the hub (hub DEFERRED row 21). **Disarmed at birth**, the schedule job requires `vars.RUN_HUB_PRUNE == 'true'`, arm it with the hub release whose route answers POST. Per environment secrets `KDF_HUB_URL_{DEV,PROD}` and `KDF_HUB_CRON_SECRET_{DEV,PROD}`, an environment missing either is skipped with a notice. Prints the per table counts only | n/a (dispatch is maintainer only by repo perms, schedule gated by `RUN_HUB_PRUNE`) |
-| `codeql.yml` | `push` / `pull_request` → `main` + weekly `schedule` (Sun 00:00 UTC) | CodeQL over the Playwright suite under `e2e/`, through the centralized reusable workflow. The analyze job stays skipped until `vars.ENABLE_CODEQL == 'true'` (a public repo or GitHub Code Security) | n/a |
+| `codeql.yml` | `push` / `pull_request` → `main` + weekly `schedule` (Sun 00:00 UTC) | CodeQL through the centralized reusable workflow, one leg for `python` and one for `javascript-typescript` over `scripts`, `e2e` and `tools` (D-085, design 5.8), hosted with no local target. The analyze job stays skipped until `vars.ENABLE_CODEQL == 'true'`, free on this public repo | n/a |
 | `mirror-ci-images.yml` | `push` `main`, `paths` its own file alone, + `workflow_dispatch` with no `inputs` + daily `schedule` (06:23 UTC) | The copier of every image CI pulls (D-077, D-080), the next section | n/a (`main` guard on its copy job, `packages: write` to that job alone, both proof jobs and the workflow `{}`) |
 | `publish-scan-image.yml` | `push` `main`, `paths` the scan's sources and its own file, + `workflow_dispatch` | Builds the local code scan's image into an OCI archive, inspects every layer for the stock rules, runs the image's own fixtures, then pushes that archive to `ghcr.io/needless2say/kdf-scan` tagged with its commit, attests it in GitHub's attestation store and reads it anonymously (D-088, D-089). Nothing is deleted, and an image runs nowhere until an activating pull request pins its digest | n/a (`main` guard on both jobs, the build job `{}`, `packages`, `attestations` and `id-token` write to the publish job alone) |
+| `kdf-scan-gate.yml` | `workflow_dispatch` (`pr`) | This repo's own copy of the gate's caller, `scripts/common/kdf-scan-gate-caller.yml` whole, since cicd is no target of its own scripts sync, a test holding the two equal. The owner starts it on `main` at each merge attempt, and it calls `kdf-scan-gate-reusable.yml` at `main`, its log printing rule ids alone since this repo is public (D-085, D-088) | n/a (`contents: read`, `pull-requests: read`) |
 
 `GH_PACKAGES_PAT` distribution, Vercel/kit ops, and the App secret distribution mint short lived
 **GitHub App** tokens when `vars.USE_GITHUB_APP == 'true'`, falling back to `CICD_PAT`
-(`distribute-gh-pat.yml:59-73`, `rotate-vercel-tokens.yml:70-91`,
+(`distribute-gh-pat.yml`, `rotate-vercel-tokens.yml`,
 `ops-distribute-app-secrets.yml`). Board provisioning is the exception. It needs an owner staged
 classic PAT (see the D-010 W1 finding). See the GitHub App migration ADR in
 `docs/CHANGELOG_AND_DECISION_LOG.md`.
+
+**Hardened for the local code scan (D-085, design 5.7).** Every App token names its `repositories:`. A token whose
+targets come from a registry, an input or an issue lists them first with `scripts/token_repositories.py`, through the
+operation's own selection, so the token reaches the repos the run acts on and no other. The `ops-*` workflows mint
+only after reading the issue's fields, and an empty list fails rather than minting a token for every repo, but in the
+rotation, where a secret with no GitHub target lists none and no App token is minted. Each value is bound to its flag,
+`--names="$REPOS"`, so `--` is a name matching nothing. The OIDC
+drift check names its manifest's two repos and the expiry pull request cicd alone. `ops-setup-e2e.yml`'s token names
+its one target and takes the App's grants whole, since the action has no input for repository variables, accepted on
+its line. No single value input is expanded in a shell, `bandit_version`, `pip_audit_version`, `bandit_paths` and the
+Vercel check's environment read from the step's `env`, `bandit_paths` split into its paths with no evaluation, and
+each command input, `install_command` and its kind, is the caller's own command by design, accepted on its `run:`
+line. `issue-create-repo.yml` holds `contents: read` alone, its issue writes going through `CICD_PAT`, and Dependabot
+waits seven days on a GitHub Actions release.
 
 ### CI's image mirror (D-077, D-080)
 

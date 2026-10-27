@@ -32,7 +32,7 @@ the platform, read [`AGENTS.md`](../../AGENTS.md) first. For the task loop, read
 | **pre-commit** | latest | local `gitleaks` secret scan before a commit lands | `pip install pre-commit` |
 | **GNU Make** | any | the `make` targets (`lint` / `test` / `check-all` / `bump-*`) | system package manager (on Windows use Git Bash / WSL) |
 | **GitHub CLI (`gh`)** | latest | watch PR checks, open PRs | cli.github.com |
-| **CodeQL CLI** | latest | *optional*, local SAST via `make codeql-*` | github/codeql-cli-binaries |
+| **Docker** | any recent | the local code scan, `make scan-setup` then `make scan` (D-085) | docker.com |
 
 Notes:
 
@@ -99,7 +99,7 @@ Other useful targets (`make help` lists them all):
 | Run script unit tests + coverage | `make test` |
 | **Full local gate** | `make check-all` |
 | Bump version (pick by impact) | `make bump-patch` / `make bump-minor` / `make bump-major` |
-| Optional local CodeQL scan | `make codeql-db` then `make codeql-scan-all` (or `*-csv` to paste into an AI) |
+| Local code scan, before every pull request | `make scan-setup` once, then `make scan`, its last line in the pull request |
 
 ### Version bump is strict
 

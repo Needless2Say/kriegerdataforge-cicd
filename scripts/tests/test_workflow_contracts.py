@@ -548,8 +548,15 @@ def test_the_security_lane_installs_its_two_tools_at_a_pin():
     what CI ran (SDK review S1-4). A caller that pins another release names it.
     """
     text = _lane("ci-python-security.yml")
-    assert '        run: pip install "bandit[toml]==${{ inputs.bandit_version }}"\n' in text
-    assert '        run: pip install "pip-audit==${{ inputs.pip_audit_version }}"\n' in text
+    # each pin read from the step's environment, never expanded into the shell (D-085, design 5.7)
+    assert (
+        '          BANDIT_VERSION: ${{ inputs.bandit_version }}\n'
+        '        run: pip install "bandit[toml]==$BANDIT_VERSION"\n'
+    ) in text
+    assert (
+        '          PIP_AUDIT_VERSION: ${{ inputs.pip_audit_version }}\n'
+        '        run: pip install "pip-audit==$PIP_AUDIT_VERSION"\n'
+    ) in text
     for tool in ("bandit_version", "pip_audit_version"):
         block = text.split(f"      {tool}:\n", 1)[1].split("      needs_sdk_auth:", 1)[0]
         assert re.search(r'        default: "\d+\.\d+\.\d+"\n', block), f"{tool} has no pinned default"

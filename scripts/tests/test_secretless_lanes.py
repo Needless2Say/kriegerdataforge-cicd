@@ -842,7 +842,11 @@ def test_the_style_lane_checks_in_a_job_that_names_no_secret():
     assert 'run: python -I -m pip install --quiet "kdf-fmt @ git+https://github.com/Needless2Say/' \
            'kriegerdataforge-fmt.git@$KDF_FMT_REF"\n' in style
     assert '        default: "python -I -m kdf_fmt.cli check --no-cache"\n' in text
-    assert "        run: ${{ inputs.check_command }}\n" in style
+    # the caller's command run as its own, accepted on its line for the local code scan (D-085, design 5.7)
+    assert (
+        "        run: ${{ inputs.check_command }}  # zizmor: ignore[template-injection] the caller's own command by "
+        "design\n"
+    ) in style
 
 
 def test_the_style_lanes_fetch_always_runs_and_mirrors_the_formatter_alone():

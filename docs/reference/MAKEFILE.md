@@ -197,33 +197,11 @@ the root read only, no capability and a user that is not root.
   files are named `fixture_*.py`, so the unit lane's pytest never collects them, and they read the rules, so they run
   on a developer's machine and never in this public repo's log.
 
-### CodeQL Security Scanning
+### CodeQL
 
-Seven targets, SARIF and CSV. Language is **`python`**, scanning the operational code under
-`scripts/` - secret rotation, deployer authorization, project provisioning, app secret
-distribution. Scoped by `.github/codeql/codeql-config.yml`, the same config CI passes.
-
-```bash
-make codeql-db && make codeql-scan-all     # SARIF, opens in VS Code
-make codeql-scan-csv-all                   # CSV, easier to hand to an AI
-```
-
-> **It used to be `javascript-typescript`, and that scanned almost nothing.** A real run on
-> 2026-08-09 covered **2 files** - `playwright.config.ts` plus one *transient* spec. The journey
-> specs are not in this repo. `ci_stack.py` stages them in from the app repos (ADR D-006, cicd is
-> the engine only) and removes them again, so a scan saw whatever happened to be staged. Switched
-> to `python`, which covers **17 files** of genuinely security sensitive code. `e2e/staged-tests`
-> is now explicitly ignored because its contents are transient.
-
-**The CI job is gated and normally skipped** - CodeQL needs a public repo or GitHub Code Security.
-This repo *is* the public one, so `ENABLE_CODEQL=true` is worth setting here first. The local
-targets need no entitlement either way.
-
-> **Windows note.** `codeql-db` prefixes the venv onto `PATH` and carries an `_ensure-venv`
-> prerequisite. CodeQL's Python autobuild calls a **bare `python`**, which on a `py`-only machine
-> hits the Microsoft Store alias and dies with exit code 9009. `CODEQL_PYTHON` does not help.
-> `$$PWD` is used rather than `$(CURDIR)` because CURDIR is `E:/...` and the drive letter colon
-> splits a `:`-separated PATH.
+No local target since D-085, design 5.8. CodeQL runs hosted, free on this public repo, through `codeql.yml` once the
+owner sets `ENABLE_CODEQL`, one leg for `python` and one for `javascript-typescript` over the paths in
+`.github/codeql/codeql-config.yml`, `scripts`, `e2e` and `tools`. The local scan is `make scan`, above.
 
 ### Maintenance
 

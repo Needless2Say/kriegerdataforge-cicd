@@ -1092,7 +1092,7 @@ jobs:
           echo "git reads $count private mirror(s) through the rewrite"
 
       - name: Install dependencies
-        run: ${{ inputs.install_command }}
+        run: ${{ inputs.install_command }}  # zizmor: ignore[template-injection] the caller's own command by design
 
       - name: Run mypy
-        run: ${{ inputs.typecheck_command }}
+        run: ${{ inputs.typecheck_command }}  # zizmor: ignore[template-injection] the caller's own command by design
