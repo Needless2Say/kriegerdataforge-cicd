@@ -132,10 +132,39 @@ def load_config(root: Path, registry: Path = REGISTRY) -> Config:
     """
     path = root / "docs" / "tickets" / "config.json"
     try:
-        data = json.loads(path.read_text(encoding = "utf-8"))
+        text = path.read_text(encoding = "utf-8")
     except FileNotFoundError:
         raise Refusal(f"{path} is missing. A repo adopts by a pull request adding its config.json") from None
-    except (OSError, ValueError) as error:
+    except OSError as error:
+        raise Refusal(f"{path} cannot be read, {error}") from None
+    config = parse_config(text, str(path), registry)
+    owner, repo = origin(root)
+    if (owner.lower(), repo.lower()) != (config.owner.lower(), config.repo.lower()):
+        raise Refusal(
+            f"{path} names {config.owner}/{config.repo} but the worktree's origin is {owner}/{repo}. A config "
+            "copied from another repo is rewritten for this one"
+        )
+    return config
+
+
+def parse_config(text: str, path: str, registry: Path = REGISTRY) -> Config:
+    """
+    Read and check a config's text against the registry, its origin left to the caller.
+
+    Args:
+        text: the config's text
+        path: where it was read, for the messages
+        registry: the boards' registry
+
+    Returns:
+        Config: the config
+
+    Raises:
+        Refusal: naming what is wrong with it
+    """
+    try:
+        data = json.loads(text)
+    except ValueError as error:
         raise Refusal(f"{path} cannot be read, {error}") from None
     if not isinstance(data, dict):
         raise Refusal(f"{path} is not a JSON object")
@@ -146,7 +175,7 @@ def load_config(root: Path, registry: Path = REGISTRY) -> Config:
     if unknown or missing:
         raise Refusal(f"{path} has unknown keys {unknown} or lacks {missing}")
     boards = load_registry(registry)
-    config = Config(
+    return Config(
         owner = checked(path, "owner", data["owner"], lambda value: isinstance(value, str) and LOGIN.fullmatch(value)),
         repo = checked(path, "repo", data["repo"], repo_name),
         about = about(path, data["about"], boards),
@@ -156,13 +185,6 @@ def load_config(root: Path, registry: Path = REGISTRY) -> Config:
         boards = boards,
         allow = checked(path, "allow", data.get("allow", {}), lambda value: isinstance(value, dict)),
     )
-    owner, repo = origin(root)
-    if (owner.lower(), repo.lower()) != (config.owner.lower(), config.repo.lower()):
-        raise Refusal(
-            f"{path} names {config.owner}/{config.repo} but the worktree's origin is {owner}/{repo}. A config "
-            "copied from another repo is rewritten for this one"
-        )
-    return config
 
 
 def checked(path: Path, key: str, value: Any, rule: Any) -> Any:

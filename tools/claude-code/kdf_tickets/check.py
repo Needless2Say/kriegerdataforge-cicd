@@ -152,8 +152,32 @@ def ticket_problems(
     problems.extend(label_problems(ticket, config))
     problems.extend(parent_problems(ticket, config, ids))
     problems.extend(issue_problems(ticket, config))
+    problems.extend(after_problems(ticket, config, ids))
     problems.extend(base_problems(stem, ticket, comments))
     return problems
+
+
+def after_problems(ticket: form.Ticket, config: Config, ids: dict[str, list[str]]) -> list[str]:
+    """
+    Check the board block's after, the nearest earlier card the config backs up on that board, <repo>/<id> with the
+    config's own repo and an id a file here holds, never the ticket itself. A fork or a cycle stands, since pull --only
+    writes a moved card's after without its neighbours'.
+
+    Args:
+        ticket: the ticket
+        config: the repo's config
+        ids: every id read
+
+    Returns:
+        list[str]: its problems
+    """
+    after = (ticket.board or {}).get("after")
+    if after is None:
+        return []
+    repo, _, ident = after.partition("/")
+    if repo != config.repo or ident not in ids or ident == ticket.id:
+        return [f"board.after {after!r} is not {config.repo}/<the id of another ticket here>"]
+    return []
 
 
 def state_problems(ticket: form.Ticket) -> list[str]:
