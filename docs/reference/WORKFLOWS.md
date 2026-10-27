@@ -593,7 +593,7 @@ its credential may write workflow files, a bootstrap pull request bringing it be
 
 | Input | Type | Default | Required |
 |---|---|---|---|
-| `pr` | number | none | yes |
+| `pr` | string, a plain positive integer, refused otherwise before any API call (D-092) | none | yes |
 
 - **Secrets.** None, the job's own `GITHUB_TOKEN` alone. **Outputs.** None, its summary names the caller workflow,
   cicd's `main` when the run began, the head, the base's `main`, the image, the scanner's cicd commit and the rules'

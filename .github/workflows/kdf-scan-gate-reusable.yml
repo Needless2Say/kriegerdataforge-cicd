@@ -15,10 +15,12 @@ name: kdf-scan-gate-reusable
 on:
   workflow_call:
     inputs:
+      # a string, since the caller's dispatch input arrives as one and a number input refuses it at startup, held to a
+      # plain positive integer by the first step before any API call names it (D-092)
       pr:
         description: The pull request's number
         required: true
-        type: number
+        type: string
 
 permissions: {}
 
@@ -46,10 +48,16 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
+          PR: ${{ inputs.pr }}
         run: |
           set -euo pipefail
           if [ "$EVENT" != "workflow_dispatch" ] || [ "$REF" != "refs/heads/main" ]; then
             echo "kdf-scan-gate  refused, the gate runs on a dispatch of main alone, not $EVENT on $REF"
+            exit 1
+          fi
+          # the number names GitHub's API paths below, so it is a plain positive integer or nothing runs
+          if ! printf '%s' "$PR" | grep -Eqx '[1-9][0-9]{0,9}'; then
+            echo "kdf-scan-gate  refused, the pull request number is no plain positive integer"
             exit 1
           fi
           if ! printf '%s' "$KDF_SCAN_DIGEST" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
