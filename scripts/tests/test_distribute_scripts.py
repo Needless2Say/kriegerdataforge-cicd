@@ -212,7 +212,7 @@ def test_canonical_recipe_uses_vendor_dir_paths():
 # ── the managed scan block (D-085) ───────────────────────────────────────────
 @pytest.fixture(autouse = True)
 def _an_active_image(monkeypatch):
-    # every test sees one active image unless it names another, since SCAN_IMAGE holds the unpinned marker until A3
+    # every test sees one fixed active image unless it names another, so a later pin never moves these tests
     monkeypatch.setattr(ds, "active_scan_image", lambda: dict(ACTIVE))
 
 
@@ -266,8 +266,11 @@ def test_while_cicd_pins_no_image_the_makefile_is_left_as_it_stands(monkeypatch)
     assert BLOCK_OPEN not in patched and ds.CANONICAL_RECIPE in patched
 
 
-def test_the_repos_scan_image_file_holds_the_unpinned_marker_until_the_first_activation():
-    assert parse_scan_image(ds.SCAN_IMAGE_FILE.read_text(encoding = "utf-8")) == {}
+def test_the_repos_scan_image_file_names_cicds_image_by_its_digest_since_the_first_activation():
+    # A3 pinned the image published from #327's merge, its provenance verified against publish-scan-image.yml on main
+    active = parse_scan_image(ds.SCAN_IMAGE_FILE.read_text(encoding = "utf-8"))
+    assert active and active["image"] == "ghcr.io/needless2say/kdf-scan"
+    assert active["digest"].startswith("sha256:") and len(active["commit"]) == 40
 
 
 def test_the_caller_runs_cicds_reusable_gate_at_main_on_dispatch_alone_with_read_permissions():
