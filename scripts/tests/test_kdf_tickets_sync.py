@@ -175,6 +175,27 @@ def test_comments_are_backed_up_beside_the_ticket(tmp_path: Path) -> None:
     assert _tickets(root)["ticket-number-1"].synced["comments"] == text_digest(side)
 
 
+def test_a_comments_file_checked_out_with_crlf_reads_in_step(tmp_path: Path) -> None:
+    github, root, registry, reader = _setup(tmp_path)
+    github.repos[REPO]["issues"][0]["comments"] = [
+        {
+            "id": "IC_1",
+            "author": {"login": "someone"},
+            "createdAt": "2026-07-13T00:00:00Z",
+            "updatedAt": None,
+            "body": "First.\nSecond line.",
+        },
+    ]
+    _pull(root, registry, reader, mode = "adopt")
+    side = root / "docs" / "tickets" / "ticket-number-1.comments.md"
+    # a checkout under core.autocrlf, as on Windows, writes each line feed as a carriage return and a line feed
+    side.write_bytes(side.read_bytes().replace(b"\n", b"\r\n"))
+    before = side.read_bytes()
+    assert _plan(root, registry, reader)[0] == CLEAN
+    _pull(root, registry, reader, mode = "backup")
+    assert side.read_bytes() == before
+
+
 # the fences
 
 # ======================================================================================================================

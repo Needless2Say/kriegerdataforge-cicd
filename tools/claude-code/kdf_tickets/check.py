@@ -68,8 +68,9 @@ def read_tickets(root: Path) -> tuple[dict[str, tuple[form.Ticket, str]], dict[s
         root: the worktree
 
     Returns:
-        tuple: each ticket and its text by file name, each comments file's text by its ticket's file stem, and the
-            problems met reading, a file the reader cannot take or one that is no ticket's
+        tuple: each ticket and its text by file name, each comments file's text by its ticket's file stem, its
+            carriage return and line feed pairs read as line feeds as a Windows checkout writes them, and the problems
+            met reading, a file the reader cannot take or one that is no ticket's
     """
     tickets:  dict[str, tuple[form.Ticket, str]] = {}
     comments: dict[str, str] = {}
@@ -82,7 +83,7 @@ def read_tickets(root: Path) -> tuple[dict[str, tuple[form.Ticket, str]], dict[s
         if name == "config.json":
             continue
         if path.is_file() and name.endswith(COMMENTS):
-            comments[name[: -len(COMMENTS)]] = path.read_bytes().decode("utf-8", "replace")
+            comments[name[: -len(COMMENTS)]] = path.read_bytes().decode("utf-8", "replace").replace("\r\n", "\n")
             continue
         if not (path.is_file() and name.endswith(".yaml")):
             problems.append(f"{name}: not a ticket file, the folder holds config.json, <id>.yaml and <id>{COMMENTS}")
