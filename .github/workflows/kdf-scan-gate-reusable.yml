@@ -25,9 +25,9 @@ on:
 permissions: {}
 
 env:
-  # the active set, scripts/common/SCAN_IMAGE's, the image published from 4485d21 and its provenance verified
+  # the active set, scripts/common/SCAN_IMAGE's, the image published from 245c1ad and its provenance verified
   KDF_SCAN_IMAGE: ghcr.io/needless2say/kdf-scan
-  KDF_SCAN_DIGEST: sha256:a569b93204cfbc60ba04e4c233c9994853d11b2f9f8b08ce7ded375ec319d2e8
+  KDF_SCAN_DIGEST: sha256:7aeaa2051ce7259a30b761ccbfc89d14f3f71aaeb8ed15fc9898f139abe14f20
   KDF_SCAN_RULES_COMMIT: 17e31e11ebac99fb7dfe1cd288f7a32151b6f3f9
   KDF_SCAN_CONTRACT: 1
   # the canonical caller's SHA-256, a caller change equal to it passing and printed first
