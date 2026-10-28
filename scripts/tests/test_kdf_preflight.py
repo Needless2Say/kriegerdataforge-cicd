@@ -993,11 +993,13 @@ def _run(
     *args: str,
     mode: str = "pass",
     env: dict[str, str | None] | None = None,
+    tool: Path = TOOL,
 ) -> subprocess.CompletedProcess[str]:
     """
-    Run the tool with exactly these arguments, the stand ins playing docker in the given mode, gh, npm and cygpath, git
-    fetching from the rig's remotes, with no docker or git variable of this machine's, a home and a LOCALAPPDATA of the
-    rig's own, and the rig's npm cache, so no test reads the owner's (D-087). A variable given as None is unset.
+    Run the tool, this checkout's unless another copy is named, with exactly these arguments, the stand ins playing
+    docker in the given mode, gh, npm and cygpath, git fetching from the rig's remotes, with no docker or git variable
+    of this machine's, a home and a LOCALAPPDATA of the rig's own, and the rig's npm cache, so no test reads the
+    owner's (D-087). A variable given as None is unset.
     """
     environment: dict[str, str | None] = {
         key: value for key, value in os.environ.items()
@@ -1022,7 +1024,7 @@ def _run(
     # the stand ins for npm and cygpath first, before any PATH a test gives
     environment["PATH"] = f"{rig.stubs.as_posix()}{os.pathsep}{environment['PATH']}"
     done = subprocess.run(
-        [str(BASH), str(TOOL), *args],
+        [str(BASH), str(tool), *args],
         capture_output = True,
         text = True,
         env = {key: value for key, value in environment.items() if value is not None},
@@ -1038,11 +1040,12 @@ def _preflight(
     extra: tuple[str, ...] = (),
     mode: str = "pass",
     env: dict[str, str | None] | None = None,
+    tool: Path = TOOL,
 ) -> subprocess.CompletedProcess[str]:
     args = ["--repo", rig.repo.as_posix()]
     for lane in lanes:
         args += ["--lane", lane]
-    return _run(rig, *args, *extra, mode = mode, env = env)
+    return _run(rig, *args, *extra, mode = mode, env = env, tool = tool)
 
 
 def _logged(rig: Rig) -> list[str]:
@@ -2684,3 +2687,68 @@ def test_a_pin_at_a_ref_no_tag_names_whole_fetches_no_tag(rig: Rig, ref: str) ->
     done = _preflight(rig, "ci-lint", env = _private(rig, pins))
     assert done.returncode == 0, done.stderr
     assert _mirror_tags(rig) == [] and ", no tag, " in done.stdout, done.stdout
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# the workspace, the folder holding the main clone of the tool's checkout
+# ----------------------------------------------------------------------------------------------------------------------
+def _tool_files(checkout: Path) -> Path:
+    """
+    The tool, its image's files and the fetch script whose allowlist it reads, laid out in a checkout as in this repo.
+    """
+    (checkout / "tools" / "claude-code").mkdir(parents = True)
+    (checkout / "scripts").mkdir()
+    shutil.copy2(TOOL, checkout / "tools" / "claude-code" / TOOL.name)
+    shutil.copytree(PREFLIGHT, checkout / "tools" / "claude-code" / PREFLIGHT.name)
+    shutil.copy2(ROOT / "scripts" / "fetch_private_packages.py", checkout / "scripts" / "fetch_private_packages.py")
+    return checkout / "tools" / "claude-code" / TOOL.name
+
+
+def _checkouts(tmp_path: Path) -> tuple[Path, dict[str, Path]]:
+    """
+    A workspace whose path holds a space, a main clone in it with the tool committed, a worktree of that clone under
+    the workspace's temp/ and one outside the workspace, each the tool's path in it by its place.
+    """
+    workspace = tmp_path / "work space"
+    main      = workspace / "kriegerdataforge-cicd"
+    _tool_files(main)
+    _git(main, "init", "-q", "-b", "main")
+    _git(main, "config", "user.email", "dev@example.com")
+    _git(main, "config", "user.name", "Dev")
+    _git(main, "config", "core.autocrlf", "false")
+    _git(main, "add", "-A")
+    _git(main, "commit", "-q", "-m", "the tool")
+    places = {"main": main, "temp": workspace / "temp" / "wt tool", "elsewhere": tmp_path / "elsewhere" / "wt-tool"}
+    for place in ("temp", "elsewhere"):
+        _git(main, "worktree", "add", "-q", "--detach", str(places[place]))
+    return workspace, {place: path / "tools" / "claude-code" / TOOL.name for place, path in places.items()}
+
+
+@pytest.mark.parametrize("place", ["main", "temp", "elsewhere"])
+def test_a_run_from_any_checkout_keeps_its_folder_in_the_workspaces_temp(
+    rig: Rig,
+    tmp_path: Path,
+    place: str,
+) -> None:
+    # a session runs the tool from a worktree under temp when it needs a newer one than the main clone holds, and the
+    # three folders above such a copy are temp, which once kept its runs in temp/temp. The repo run lies outside the
+    # workspace, so a workspace found from --repo fails here too
+    workspace, tools = _checkouts(tmp_path)
+    done = _preflight(rig, "ci-lint", mode = "red", env = {"KDF_PREFLIGHT_DIR": None}, tool = tools[place])
+    assert done.returncode == 1, done.stderr
+    run, = sorted((workspace / "temp" / "kdf-preflight").iterdir())
+    assert (run / "build.log").is_file()
+    assert not (workspace / "temp" / "temp").exists(), "never the runs of the worktree's parent"
+    assert not (tmp_path / "elsewhere" / "temp").exists(), "never the runs of the worktree's parent"
+
+
+def test_a_copy_outside_every_repo_keeps_its_runs_three_folders_above_it(rig: Rig, tmp_path: Path) -> None:
+    # git names no main clone for a copy outside every repo, so the folder three above the script stands, as before,
+    # and git's own complaint stays off the screen
+    workspace = tmp_path / "loose copy"
+    tool      = _tool_files(workspace / "copy")
+    done      = _preflight(rig, "ci-lint", mode = "red", env = {"KDF_PREFLIGHT_DIR": None}, tool = tool)
+    assert done.returncode == 1, done.stderr
+    assert "not a git repository" not in done.stderr, done.stderr
+    run, = sorted((workspace / "temp" / "kdf-preflight").iterdir())
+    assert (run / "build.log").is_file()

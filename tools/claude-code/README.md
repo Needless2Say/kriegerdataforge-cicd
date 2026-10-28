@@ -344,7 +344,7 @@ bash kdf-ask-codex.sh --repo <repo> --brief <rules.md> --kind rules            #
 The brief holds the session's question alone, what to check and why. The tool sets it in the standard frame, read
 only, files in the folder alone, PowerShell for Codex's commands since Git Bash cannot start in its sandbox, the
 ecosystem's writing conventions, the owner's settled decisions from `kriegerdataforge-context/context/SETTLED.md`
-when that clone sits beside this one, and a closing instruction. So no session writes those words again, or forgets
+when that clone sits in the workspace, and a closing instruction. So no session writes those words again, or forgets
 one. `--no-settled` leaves the settled decisions out, and `--dry-run` prints the frame and starts nothing. `--effort`
 is `high` by default, or `xhigh` or `max`, the efforts a read is worth among those OpenAI's API takes for its GPT-6
 models, and any other is refused before Codex starts. `--model` names the model, `gpt-6.1-sol` by default.
@@ -419,6 +419,14 @@ outside `temp`, so the guard asks the owner before a session removes one (D-069)
 beside the frame it read and its JSON events. When the archive cannot be written the tool
 prints the answer before it fails.
 
+The workspace, for this tool and `kdf-preflight.sh` alike, is the folder holding the main clone of the checkout the
+script sits in, which git names through its common folder from a worktree too. So a session that runs the tool from a
+worktree of this repo, under the workspace's `temp/` or anywhere else, archives into the same `codex-archive` and
+reads the same settled decisions as a run from the main clone, where counting three folders up from a worktree under
+`temp/` once archived into `temp/` and framed without them. An ordinary clone with its own `.git` folder is assumed, not
+a separate git folder, a submodule or a bare repo's worktree, and a copy outside every repo takes the folder three
+above itself. `KDF_CODEX_ARCHIVE`, `KDF_SETTLED` and `KDF_PREFLIGHT_DIR` still win, for a test.
+
 The answer's header leads with the verdict, `passed` or why the run failed, settled before the archive is written, so
 the answer of a run that failed never passes for a review. Only a run that passed counts as Codex's view. The kind,
 what Codex read, the model, the effort and the time follow, and the tokens with the cached input apart from the new.
@@ -464,7 +472,8 @@ commit first. Every `GIT_` variable is dropped first. The hash is printed at the
 **What enters.** A tracked file named like a secret file, the names `kdf-ask-codex.sh` refuses but an `.env` example,
 refuses the run before anything is exported, since a build's layers outlive the run. A token's shape in tracked
 content is listed as a warning and not refused, since that text is already in git, and this repo's own tests hold
-fake keys as fixtures. The run's folder, `<workspace>/temp/kdf-preflight/<run id>/`, holds `build.log` and
+fake keys as fixtures. The run's folder, `<workspace>/temp/kdf-preflight/<run id>/`, the workspace as
+`kdf-ask-codex.sh`'s section names it, holds `build.log` and
 `context/`, which is the commit's tar from `git archive` with LF line ends beside `preflight/Dockerfile`,
 `preflight/lanes.sh`, `mirrors/`, empty unless the owner's private Python packages are mirrored, and `npm/`, empty
 unless the owner's private npm packages are served, and nothing else, so a repo's own `.dockerignore` or `Dockerfile`

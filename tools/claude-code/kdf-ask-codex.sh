@@ -28,8 +28,8 @@
 #
 # The brief holds the session's question alone, and the tool sets it in the standard frame. Read only, files in this
 # folder alone, PowerShell for commands since Git Bash cannot start in Codex's sandbox, the ecosystem's writing
-# conventions, the owner's settled decisions from the context repo's context/SETTLED.md when that clone sits beside
-# this one (--no-settled leaves them out), and real problems only. The frame reaches Codex on stdin. Codex runs with
+# conventions, the owner's settled decisions from the context repo's context/SETTLED.md when that clone sits in the
+# workspace (--no-settled leaves them out), and real problems only. The frame reaches Codex on stdin. Codex runs with
 # the flags verified on 2026-10-05, the user's config, MCP servers, plugins, apps, web search, memories and other
 # agents off, a read only sandbox, and nothing kept after the run.
 #
@@ -39,10 +39,13 @@
 # events hold no completed turn or a line that is no event. It warns when the events show Codex doing anything but
 # running commands, reasoning, keeping a plan and answering. The answer, the frame and the events go to the archive,
 # $KDF_CODEX_ARCHIVE or codex-archive in the workspace, kept outside every repo and outside temp, so a session
-# removing temp files never takes it (D-069), each run under a name
-# of its own. The answer's header holds the verdict, passed or why the run failed, settled before the archive is
-# written, so a failed run's answer never passes for a review, then the kind, what was read, the model, the time, and
-# the tokens with the cached input Codex read again apart from the new. --dry-run prints the frame and runs nothing.
+# removing temp files never takes it (D-069), each run under a name of its own. The workspace is the folder holding the
+# main clone of the checkout this script sits in, which git names from a worktree too, so a run from a worktree under
+# temp or anywhere else archives and reads the settled decisions where the main clone's run does. An ordinary clone
+# with its own .git folder is assumed, and a copy outside every repo takes the folder three above itself. The answer's
+# header holds the verdict, passed or why the run failed, settled before the archive is written, so a failed run's
+# answer never passes for a review, then the kind, what was read, the model, the time, and the tokens with the cached
+# input Codex read again apart from the new. --dry-run prints the frame and runs nothing.
 #
 # Exit 0 when Codex answered and changed nothing, 1 when it failed, changed its folder or wrote no answer, or the
 # archive could not be written, 2 on a refusal before it ran. KDF_CODEX_BIN names the codex binary and KDF_SETTLED the
@@ -54,7 +57,13 @@ export LC_ALL=C
 while IFS= read -r variable; do unset "$variable"; done < <(compgen -e | grep '^GIT_')
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-workspace="$(cd "$here/../../.." && pwd)"
+# the workspace holds the main clone that git's common folder names, the same from the clone and from any worktree of
+# it, so a worktree under temp never archives into temp or frames without the settled decisions. Where git names none,
+# a copy outside every repo, or the folder cannot be reached, the folder three above the script stands
+common="$(git -C "$here" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || common=""
+workspace=""
+[ -n "$common" ] && workspace="$(cd "$common/../.." 2>/dev/null && pwd)"
+[ -n "$workspace" ] || workspace="$(cd "$here/../../.." && pwd)"
 codex_bin="${KDF_CODEX_BIN:-codex}"
 settled_file="${KDF_SETTLED-$workspace/kriegerdataforge-context/context/SETTLED.md}"
 archive="${KDF_CODEX_ARCHIVE:-$workspace/codex-archive}"
