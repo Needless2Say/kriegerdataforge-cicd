@@ -118,6 +118,21 @@ LANGUAGES = {
     ".ts": "typescript",
     ".tsx": "typescript",
 }
+# the words a rule file names its languages by, so a run knows what its rules read and a language none reads is
+# uncovered rather than incomplete under KDF's rules alone (D-093). Any other word, generic and regex among them, or a
+# declaration in a form the parse does not read, counts every language read, so a parse fails safe (Codex's review)
+RULE_LANGUAGES = {
+    "python": "python",
+    "python2": "python",
+    "python3": "python",
+    "py": "python",
+    "javascript": "javascript",
+    "js": "javascript",
+    "typescript": "typescript",
+    "ts": "typescript",
+}
+LANGUAGES_KEY  = re.compile(r"""^[ \t]*(?:-[ \t]+)?["']?languages["']?[ \t]*:(?P<rest>.*)$""", re.MULTILINE)
+LANGUAGES_ITEM = re.compile(r"[ \t]*-[ \t]+(?P<word>[^\s#:]+)[ \t]*(?:#.*)?")
 # tests stay out of the scan, the owner's answer to design question 7, by folder and by name
 TEST_FOLDERS = frozenset({"tests", "test", "__tests__", "unit_tests", "integration_tests", "system_tests"})
 TEST_NAMES   = re.compile(r"test_.*\.py|.*_test\.py|conftest\.py|.*\.(?:test|spec)\.(?:js|jsx|mjs|cjs|ts|tsx)")
@@ -141,7 +156,9 @@ GOOD_MARKER  = re.compile(r":\s*(?P<id>[A-Za-z0-9_.-]+)(?P<more>,\S*)?(?:\s+(?P<
 ZIZMOR_MARK  = re.compile(r"#\s*zizmor\s*:\s*ignore\b(?P<rest>.*)")
 GOOD_ZIZMOR  = re.compile(r"\[(?P<id>[A-Za-z0-9_,-]+)\](?:\s+(?P<reason>.*?))?\s*")
 REASON_WORDS = 3
-RULE_ID      = re.compile(r"^\s*-\s+id:\s*['\"]?([A-Za-z0-9_.-]+)", re.MULTILINE)
+# a rule's id, a key at the column of the rules list's items, after the item's dash or under it (Codex's review)
+RULE_ITEM = re.compile(r"(?P<lead>[ \t]*-[ \t]+)(?P<rest>\S.*)?")
+RULE_ID   = re.compile(r"""["']?id["']?[ \t]*:[ \t]*['"]?(?P<id>[A-Za-z0-9_.-]+)""")
 # a marker counts only in a comment, which a reader of the file's kind finds, Codex's read of 2026-10-22, and a file
 # whose comments it cannot read whole counts none. Words after which a slash opens a regular expression and a less than
 # sign an element, a YAML block scalar's header, and the kinds whose markers are read as text alone, as before
@@ -696,9 +713,78 @@ def rules_digest(files: Mapping[str, bytes]) -> str:
     return digest.hexdigest()
 
 
+def covered_languages(machine: Machine) -> frozenset[str]:
+    """
+    The languages this run's rules read, every scanned language with Semgrep's pack, and under KDF's rules alone the
+    languages KDF's own rule files name (D-093).
+
+    Args:
+        machine: the machine
+
+    Returns:
+        frozenset[str]: the languages, as LANGUAGES names them
+    """
+    every = frozenset(LANGUAGES.values())
+    if not machine.kdf_only:
+        return every
+    covered: set[str] = set()
+    for name, data in machine.files.items():
+        if name.startswith("scan_rules/") and name.endswith(YAML_SUFFIXES):
+            named = rule_languages(data.decode("utf-8", "replace"))
+            if named is None:
+                return every
+            covered.update(named)
+    return frozenset(covered) or every
+
+
+def rule_languages(text: str) -> set[str] | None:
+    """
+    The languages one rule file's rules name, in a flow list or a block list, or None when a declaration takes another
+    form, names a word RULE_LANGUAGES does not hold, or the word languages appears where no declaration was read, so
+    the caller fails safe and holds every file to having been read (D-093, Codex's review read).
+
+    Args:
+        text: the rule file
+
+    Returns:
+        set[str] | None: the languages, as LANGUAGES names them, or None
+    """
+    words: list[str] = []
+    found = 0
+    for key in LANGUAGES_KEY.finditer(text):
+        found += 1
+        rest   = key.group("rest").split("#", 1)[0].strip()
+        listed = []
+        if rest.startswith("["):
+            opened = text.index("[", key.start("rest"))
+            closed = text.find("]", opened)
+            if closed < 0:
+                return None
+            listed = text[opened + 1 : closed].split(",")
+        elif rest:
+            return None
+        else:
+            for line in text[key.end() :].splitlines()[1:]:
+                if not line.strip():
+                    continue
+                item = LANGUAGES_ITEM.fullmatch(line)
+                if not item:
+                    break
+                listed.append(item.group("word"))
+        names = [word.strip().strip("'\"").lower() for word in listed]
+        if not names or any(name not in RULE_LANGUAGES for name in names):
+            return None
+        words.extend(names)
+    if found != text.count("languages"):
+        return None
+    return {RULE_LANGUAGES[word] for word in words}
+
+
 def rule_ids(files: Mapping[str, bytes]) -> dict[str, int]:
     """
-    How many rules run under each rule id's last part, so a marker naming one shared by two is refused.
+    How many rules run under each rule id's last part, the id a marker names, so a marker naming one shared by two is
+    refused. A rule's id is the key at the column of the rules list's items, the shallowest list in a rule file,
+    written after the item's dash or on a line of its own (Codex's review read).
 
     Args:
         files: each rule file by its path
@@ -708,8 +794,22 @@ def rule_ids(files: Mapping[str, bytes]) -> dict[str, int]:
     """
     counts: dict[str, int] = {}
     for data in files.values():
-        for rule in RULE_ID.findall(data.decode("utf-8", "replace")):
-            counts[rule] = counts.get(rule, 0) + 1
+        lines   = [line for line in data.decode("utf-8", "replace").splitlines() if not line.lstrip().startswith("#")]
+        columns = [len(item["lead"]) for line in lines if (item := RULE_ITEM.match(line)) and item["rest"]]
+        if not columns:
+            continue
+        column = min(columns)
+        for line in lines:
+            item = RULE_ITEM.match(line)
+            if item and item["rest"] and len(item["lead"]) == column:
+                key = item["rest"]
+            elif not item and len(line) - len(line.lstrip(" \t")) == column:
+                key = line[column:]
+            else:
+                continue
+            if found := RULE_ID.match(key):
+                rule = found["id"].rsplit(".", 1)[-1]
+                counts[rule] = counts.get(rule, 0) + 1
     return counts
 
 # ======================================================================================================================
@@ -1792,6 +1892,8 @@ class Marker:
     reason: str = ""
     bad:    str = ""
     bound:  list[Finding] = field(default_factory = list)
+    # a marker naming a rule of a pack this run did not select, neither bound nor stale (D-093)
+    unevaluated: bool = False
 
 
 def find_markers(path: str, data: bytes) -> list[Marker]:
@@ -1849,22 +1951,28 @@ def find_markers(path: str, data: bytes) -> list[Marker]:
     return markers
 
 
-def bind(markers: list[Marker], findings: list[Finding], ids: Mapping[str, int]) -> None:
+def bind(markers: list[Marker], findings: list[Finding], ids: Mapping[str, int], unevaluated: bool = False) -> None:
     """
     Bind each good marker to the findings of its rule at its place, at the end of a finding's first line, alone on the
     line straight above it, or on a run block's line for a finding inside the block. A marker naming a rule two rules
-    share is refused, and one that binds nothing is stale.
+    share is refused, and one that binds nothing is stale. When a pack did not run, an Opengrep marker naming a rule
+    outside the rules that ran is unevaluated, neither bound nor stale, and one naming a rule that ran is held as ever
+    (D-093, Codex's decision read).
 
     Args:
         markers: the markers, each changed in place
         findings: every finding of the full output, before the policy
         ids: how many rules run under each id's last part
+        unevaluated: whether a pack's rules did not run, so a marker for one of them cannot be judged
     """
     for marker in markers:
         if marker.bad:
             continue
         if marker.tool == "opengrep" and ids.get(marker.rule, 0) > 1:
             marker.bad = f"the rule id {marker.rule} is ambiguous, two rules run under it"
+            continue
+        if marker.tool == "opengrep" and unevaluated and marker.rule not in ids:
+            marker.unevaluated = True
             continue
         line         = marker.line + 1 if marker.alone else marker.line
         marker.bound = [
@@ -2142,6 +2250,7 @@ def coverage(
     completed: set[str],
     ran_zizmor: bool,
     public: bool = False,
+    covered: frozenset[str] | None = None,
 ) -> None:
     """
     Hold what each tool read against the inventory, a recorded limit passing a file's errors only while its content
@@ -2156,9 +2265,24 @@ def coverage(
         completed: the workflow files zizmor completed
         ran_zizmor: whether zizmor ran
         public: whether the output is a public repo's
+        covered: the languages this run's rules read, every one when None, a file in another uncovered and named,
+            never incomplete, since no selected rule could read it (D-093)
     """
-    limits   = {path: (sha, reason) for path, sha, reason in policy.limits}
-    troubled = {path for path, _kind in errors if path} | (set(inventory.code) - scanned)
+    limits    = {path: (sha, reason) for path, sha, reason in policy.limits}
+    uncovered = set() if covered is None else {
+        path for path in inventory.code if LANGUAGES.get(Path(path).suffix) not in covered
+    }
+    if uncovered:
+        names = ", ".join(sorted({LANGUAGES[Path(path).suffix] for path in uncovered}))
+        files = "file" if len(uncovered) == 1 else "files"
+        outcome.lines.append(f"UNCOVERED {len(uncovered)} {files}, {names}, read by no rule of KDF's rules alone")
+        outcome.marks.append("uncovered")
+    # a limit on an uncovered file still passes on its recorded content, since the full run needs it (Codex's review)
+    troubled = (
+        {path for path, _kind in errors if path}
+        | (set(inventory.code) - scanned - uncovered)
+        | (uncovered & set(limits))
+    )
     passed   = set()
     for path in sorted(troubled):
         recorded = limits.get(path)
@@ -2170,7 +2294,7 @@ def coverage(
             said = "reported an error, its words withheld" if public else kind
             outcome.lines.append(f"INCOMPLETE {path or 'no file named'}  Opengrep {said}")
             outcome.incomplete += 1
-    for path in sorted(set(inventory.code) - scanned - passed):
+    for path in sorted(set(inventory.code) - scanned - passed - uncovered):
         outcome.lines.append(f"INCOMPLETE {path}  not read by Opengrep")
         outcome.incomplete += 1
     for path in sorted(set(limits) - passed):
@@ -2214,6 +2338,11 @@ def report(
         if marker.bad:
             outcome.lines.append(f"BAD       {marker.path}:{marker.line}  {marker.bad}")
             outcome.failing += 1
+            continue
+        if marker.unevaluated:
+            outcome.lines.append(
+                f"UNEVAL    {marker.path}:{marker.line}  {marker.rule}, a rule of a pack this run did not select",
+            )
             continue
         for finding in marker.bound:
             accepted.setdefault(finding, marker)
@@ -2469,7 +2598,17 @@ def _scan(
         out.write(f"kdf-scan  {failure}\n")
         out.write(last_line(inventory.commit, inventory.state, machine, outcome, 3, "FAILED") + "\n")
         return 3
-    coverage(outcome, inventory, applied, scanned, errors, completed, bool(inventory.workflows), machine.public)
+    coverage(
+        outcome,
+        inventory,
+        applied,
+        scanned,
+        errors,
+        completed,
+        bool(inventory.workflows),
+        machine.public,
+        covered_languages(machine),
+    )
     markers = []
     for path, data in {**inventory.code, **inventory.workflows}.items():
         markers.extend(find_markers(path, data))
@@ -2478,7 +2617,7 @@ def _scan(
             marker.bad = "a marker in a file the scan does not read"
             markers.append(marker)
     every = findings + z_findings
-    bind(markers, every, ids)
+    bind(markers, every, ids, unevaluated = machine.kdf_only)
     branch = branch_of(machine.git, repo, inventory, base, at_commit is not None)
     if branch.base is None:
         outcome.lines.append(f"INCOMPLETE no merge base with {base}, so the branch's changes cannot be compared")

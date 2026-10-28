@@ -102,6 +102,15 @@ def test_the_gate_is_a_reusable_workflow_that_refuses_any_event_but_a_dispatch_o
     assert "the pull request's base is $base" in GATE
 
 
+def test_the_gate_runs_semgreps_pack_and_never_reduces_its_coverage_silently() -> None:
+    # Codex's decision read on the rule packs, M3, a gate reduced to KDF's rules passed every gate test, so the gate's
+    # pack is held here, the rules fetched at the pinned commit, mounted read only, and no --kdf-only (D-093)
+    scan = GATE.split("- name: Scan the head in the pinned image, offline", 1)[1].split("- name:", 1)[0]
+    assert '-v "$PWD/rules.git:/rules:ro"' in scan and "--kdf-only" not in GATE
+    assert 'fetch --no-tags --quiet --no-write-fetch-head --depth=1 "$RULES_REPO" "$KDF_SCAN_RULES_COMMIT"' in GATE
+    assert "SCAN_PACK" not in GATE and "inputs.pack" not in GATE
+
+
 def test_the_gate_takes_the_pull_request_number_as_the_string_a_dispatch_hands_it() -> None:
     # the pilot's first run, fitness-app-frontend run 40565598485, failed at startup on "Unexpected value '457'", the
     # caller's dispatch input arriving as a string and this input typed number, so the input is a string (D-092)

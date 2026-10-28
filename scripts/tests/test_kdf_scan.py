@@ -17,6 +17,7 @@ import stat
 import subprocess
 import sys
 import time
+import types
 from pathlib import Path
 
 import distribute_scripts as ds
@@ -33,6 +34,8 @@ LAST = re.compile(
 ACCEPT  = "  # nosemgrep: eval-detected the input is a module constant"
 GOOD_OG = "nosemgrep: rule-x the input is constant"
 GOOD_ZZ = "zizmor: ignore[template-injection] a caller sets this"
+# a TypeScript file the fake Opengrep does not read, as a real one reading KDF's Python rule alone never would
+TS_UNREAD = "// OPENGREP-SKIPS-ME\nexport const view = 1;\n"
 # an object id for git cat-file's answers
 OID = "a" * 40
 # the address uv 0.13.1's download metadata names for CPython 3.14.7 on Windows, read on 2026-10-21
@@ -121,6 +124,99 @@ def test_kdf_rules_alone_skip_semgreps_and_name_their_coverage_in_the_last_line(
     assert last(text)["rules"] == "kdf-only"
     assert "kdf-only, Semgrep's rules not run" in text
     assert re.search(r"FAIL\s+src/app\.py:1\s+kdf-test-rule", text) and "eval-detected" not in text
+
+
+# the opt in rule packs (D-093, Codex's decision read on cicd c3561bb), KDF's rules alone the default, so a language no
+# KDF rule reads is uncovered and named, never incomplete, and a marker for a rule that did not run is unevaluated
+def test_kdf_rules_alone_count_a_language_no_kdf_rule_reads_as_uncovered_not_incomplete(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n", "src/view.ts": TS_UNREAD})
+    code, text = run(rig, machine = rig.machine(kdf_only = True, rules = tmp_path / "no-cache.git"))
+    assert code == 0, text
+    assert re.search(r"UNCOVERED 1 file, typescript, read by no rule of KDF's rules alone", text), text
+    assert "INCOMPLETE" not in text and "uncovered" in last(text)["marks"]
+
+
+def test_semgreps_pack_still_counts_a_file_opengrep_did_not_read_as_incomplete(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, SCAN, {"src/app.py": "print(1)\n", "src/view.ts": TS_UNREAD})
+    code, text = run(rig)
+    assert code == 4, text
+    assert "INCOMPLETE src/view.ts  not read by Opengrep" in text and "UNCOVERED" not in text
+
+
+def test_a_marker_for_a_rule_that_did_not_run_is_unevaluated_under_kdf_rules_alone(tmp_path: Path) -> None:
+    files = {"src/app.py": f"eval(x)  # VULN(eval-detected){ACCEPT}\n"}
+    rig   = make_rig(tmp_path, SCAN, files)
+    code, text = run(rig, machine = rig.machine(kdf_only = True, rules = tmp_path / "no-cache.git"))
+    assert code == 0, text
+    assert re.search(r"UNEVAL\s+src/app\.py:1\s+eval-detected, a rule of a pack this run did not select", text), text
+    assert "BAD" not in text
+    # with Semgrep's pack the same marker binds its finding, so it is accepted and never unevaluated
+    code, text = run(make_rig(tmp_path / "full", SCAN, files))
+    assert code == 0 and "ACCEPTED  src/app.py:1  eval-detected" in text and "UNEVAL" not in text, text
+
+
+def test_a_marker_for_a_kdf_rule_that_binds_nothing_stays_stale_under_kdf_rules_alone(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, SCAN, {"src/app.py": "x = 1  # nosemgrep: kdf-test-rule the value is a fixed constant\n"})
+    code, text = run(rig, machine = rig.machine(kdf_only = True, rules = tmp_path / "no-cache.git"))
+    assert code == 1 and "stale, it binds to no kdf-test-rule finding" in text, text
+
+
+# the forms a rule file names its languages in, and every other form failing safe, None holding every file to having
+# been read (Codex's review read of the wrapper half)
+@pytest.mark.parametrize(("text", "languages"), [
+    ("rules:\n- id: a\n  languages: [python]\n", {"python"}),
+    ("rules:\n- id: a\n  languages: [ 'Python', \"js\" ]\n", {"python", "javascript"}),
+    ("rules:\n- id: a\n  languages:\n  - python\n  - ts  # the views\n", {"python", "typescript"}),
+    ("rules:\n  - id: a\n    \"languages\": [python3]\n", {"python"}),
+    ("rules:\n- languages:\n  - python\n  id: a\n- id: b\n  languages: ['javascript']\n", {"python", "javascript"}),
+    ("rules:\n- id: a\n  languages: [generic]\n", None),
+    ("rules:\n- id: a\n  languages: [regex]\n", None),
+    ("rules:\n- id: a\n  languages: [python, go]\n", None),
+    ("rules:\n- id: a\n  languages: python\n", None),
+    ("rules:\n- id: a\n  languages: [python\n", None),
+    ("rules:\n- id: a\n  languages:\n  id2: b\n", None),
+    ('{"rules": [{"id": "a", "languages": ["python"]}]}\n', None),
+    ("rules:\n- id: a  # reads every languages file\n  languages: [python]\n", None),
+])
+def test_a_rule_files_languages_are_read_in_flow_and_block_lists_and_any_other_form_fails_safe(
+    text: str,
+    languages: set[str] | None,
+) -> None:
+    assert SCAN.rule_languages(text) == languages
+
+
+def test_kdf_rules_alone_count_every_language_covered_when_a_rule_file_is_not_read_whole() -> None:
+    every   = frozenset(SCAN.LANGUAGES.values())
+    block   = {"scan_rules/a.yaml": b"rules:\n- id: a\n  languages:\n  - python\n"}
+    generic = {**block, "scan_rules/b.yml": b"rules:\n- id: b\n  languages: [generic]\n"}
+    assert SCAN.covered_languages(types.SimpleNamespace(kdf_only = True, files = block)) == {"python"}
+    assert SCAN.covered_languages(types.SimpleNamespace(kdf_only = True, files = generic)) == every
+    assert SCAN.covered_languages(types.SimpleNamespace(kdf_only = True, files = {})) == every
+    assert SCAN.covered_languages(types.SimpleNamespace(kdf_only = False, files = block)) == every
+
+
+def test_a_rule_id_counts_after_the_items_dash_or_under_it_by_its_last_part_and_never_a_nested_id() -> None:
+    files = {
+        "a.yaml": b"rules:\n- languages: [python]\n  id: rule-a\n  metadata:\n    id: not-a-rule\n",
+        "b.yaml": b"rules:\n  - \"id\": 'kdf.rule-b'\n    languages: [python]\n  # - id: commented-out\n",
+        "c.yml": b"rules:\n- id: rule-a\n  languages: [python]\n  patterns:\n  - pattern: f($X)\n",
+    }
+    assert SCAN.rule_ids(files) == {"rule-a": 2, "rule-b": 1}
+
+
+def test_a_limit_on_a_file_kdf_rules_alone_leave_uncovered_still_passes_on_its_recorded_content(
+    tmp_path: Path,
+) -> None:
+    limit = f"SCAN_LIMIT += src/view.ts@{SCAN.content_sha256(TS_UNREAD.encode('utf-8'))}  # Opengrep reads it partly"
+    rig   = make_rig(tmp_path, SCAN, {"src/view.ts": TS_UNREAD, "Makefile": makefile(limit)})
+    alone = rig.machine(kdf_only = True, rules = tmp_path / "no-cache.git")
+    code, text = run(rig, machine = alone)
+    assert code == 0 and "LIMIT     src/view.ts" in text and "BAD" not in text, text
+    assert run(rig)[0] == 0
+    # a changed file fails its limit under KDF's rules alone as the full run would
+    write(rig.repo, {"src/view.ts": TS_UNREAD.replace("1", "2")})
+    code, text = run(rig, machine = alone)
+    assert code == 1 and re.search(r"BAD\s+src/view\.ts", text), text
 
 
 def test_a_public_repos_log_names_rule_ids_and_never_a_message(tmp_path: Path) -> None:
