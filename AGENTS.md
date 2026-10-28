@@ -110,7 +110,7 @@ repo. As KDF grows, this library may also host AI driven agent workflows, an ide
 | **Full local CI (the gate)** | `make ci` (actionlint, kdf-fmt style, the unit tests and the version check, as `ci.yml` runs them). `make check-all` runs `lint` + `style` + `test` without the version check |
 | Type check | _none in this repo_ (workflow YAML + stdlib scripts, rely on `make lint` + tests) |
 | Version bump (patch / minor / major) | `make bump-patch` / `make bump-minor` / `make bump-major` |
-| Local code scan (D-085, D-088) | `make scan-setup` once, then `make scan`, its last line into the pull request, and `make scan-fixtures` at every pin move |
+| Local code scan (D-085, D-088, D-093) | `make scan-setup` once, then `make scan`, KDF's rules and zizmor, its last line into the pull request, `SCAN_PACK=semgrep` on both for Semgrep's rules under their licence, and `make scan-fixtures` at every pin move |
 | List targets | `make help` |
 
 > **Version gate is strict.** `bump-version-check.yml` requires `VERSION` to be **exactly one** valid

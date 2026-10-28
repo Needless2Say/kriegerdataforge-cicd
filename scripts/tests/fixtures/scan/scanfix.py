@@ -7,8 +7,9 @@ Each fixture builds a small git repo under its temp folder, its Makefile holding
 sync writes, its first commit as origin/main, and runs the image on it as `make scan` does, the network off, the root
 read only, no capability and a user that is not root, the working tree, its git folder and the rules' cache mounted
 read only, then reads the report and the last line. KDF_SCAN_FIXTURE_IMAGE names the image, kdf-scan:local unless set,
-and KDF_SCAN_FIXTURE_RULES the rules' cache, the one `make scan-setup` fills unless set. The vulnerable files are
-written fresh for cicd and name rule ids alone, never copied from the test files of Semgrep's licensed rules, row L25.
+and KDF_SCAN_FIXTURE_RULES the rules' cache, the one `make scan-setup SCAN_PACK=semgrep` fills unless set. The
+vulnerable files are written fresh for cicd and name rule ids alone, never copied from the test files of Semgrep's
+licensed rules, row L25.
 These fixtures read Semgrep's rules, so they run on the owner's machines and never in the public cicd's log.
 """
 
@@ -105,7 +106,7 @@ def installed(image: str = IMAGE) -> Machine:
     if found.returncode != 0:
         pytest.fail(f"no image {image}, make scan-image builds one or make scan-setup pulls the pin", pytrace = False)
     if not RULES.is_dir():
-        pytest.fail(f"no rules' cache at {RULES}, make scan-setup fills it", pytrace = False)
+        pytest.fail(f"no rules' cache at {RULES}, make scan-setup SCAN_PACK=semgrep fills it", pytrace = False)
     return Machine(image, RULES)
 
 

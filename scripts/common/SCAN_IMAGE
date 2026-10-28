@@ -4,8 +4,8 @@
 # here and in .github/workflows/kdf-scan-gate-reusable.yml together, checked against its attestation, so an old image
 # is never called with a new contract. Before the first activation it held the unpinned marker alone.
 image=ghcr.io/needless2say/kdf-scan
-digest=sha256:a569b93204cfbc60ba04e4c233c9994853d11b2f9f8b08ce7ded375ec319d2e8
-commit=4485d2192a36cc72cdf6a5b26cbd427e7f6d2fe1
+digest=sha256:7aeaa2051ce7259a30b761ccbfc89d14f3f71aaeb8ed15fc9898f139abe14f20
+commit=245c1ad8a8b8e512551d9c6ec35a4971295bbbdb
 rules_commit=17e31e11ebac99fb7dfe1cd288f7a32151b6f3f9
 rules_digest=e2ec51f90a9d26ff7fac7a4a268ad24f935ab357add11304b9da141fc9181ff1
 contract=1
