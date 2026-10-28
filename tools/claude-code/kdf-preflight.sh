@@ -87,7 +87,10 @@
 # lock, tar or sha512sum that cannot run, or marker lines that are not one whole and consistent set, with the log's
 # tail. The folder is removed on 0 unless --keep is given and on 2, and kept on 1 and 3 once the run has made it, the
 # questions to GitHub and the allowlist's read coming before it, and its mirrors and npm packages are removed however
-# it ends. KDF_DOCKER_BIN names the docker program, KDF_GH_BIN gh, KDF_PREFLIGHT_DIR the runs folder,
+# it ends. The workspace is the folder holding the main clone of the checkout this script sits in, which git names from
+# a worktree too, so a run from a worktree under temp or anywhere else keeps its folder where the main clone's run does.
+# An ordinary clone with its own .git folder is assumed, and a copy outside every repo takes the folder three above
+# itself. KDF_DOCKER_BIN names the docker program, KDF_GH_BIN gh, KDF_PREFLIGHT_DIR the runs folder,
 # KDF_PREFLIGHT_GIT_BASE where the mirrors are fetched from and KDF_NPM_CACHE the npm cache the tarballs are read from,
 # each for a test.
 set -uo pipefail
@@ -98,7 +101,14 @@ while IFS= read -r variable; do unset "$variable"; done < <(compgen -e | grep '^
 unset SSH_ASKPASS
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-workspace="$(cd "$here/../../.." && pwd)"
+# the workspace holds the main clone that git's common folder names, the same from the clone and from any worktree of
+# it, so a worktree under temp never keeps its runs in temp/temp. Where git names none, a copy outside every repo, or
+# the folder cannot be reached, the folder three above the script stands. preflight/ and the fetch script stay beside
+# the script, since they belong to the checkout being run
+common="$(git -C "$here" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || common=""
+workspace=""
+[ -n "$common" ] && workspace="$(cd "$common/../.." 2>/dev/null && pwd)"
+[ -n "$workspace" ] || workspace="$(cd "$here/../../.." && pwd)"
 docker_bin="${KDF_DOCKER_BIN:-docker}"
 gh_bin="${KDF_GH_BIN:-gh}"
 runs="${KDF_PREFLIGHT_DIR:-$workspace/temp/kdf-preflight}"

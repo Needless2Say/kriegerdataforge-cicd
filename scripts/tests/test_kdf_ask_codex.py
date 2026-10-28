@@ -174,12 +174,14 @@ def _run(
     rig: Rig,
     *args: str,
     mode: str = "clean",
-    env: dict[str, str] | None = None,
+    env: dict[str, str | None] | None = None,
+    tool: Path = TOOL,
 ) -> subprocess.CompletedProcess[str]:
     """
-    Run the tool with exactly these arguments, the stand in playing codex in the given mode, and no role but env's.
+    Run the tool, this checkout's unless another copy is named, with exactly these arguments, the stand in playing
+    codex in the given mode, and no role but env's. A variable given as None is unset.
     """
-    environment = {key: value for key, value in os.environ.items() if key != "KDF_ROLE"}
+    environment: dict[str, str | None] = {key: value for key, value in os.environ.items() if key != "KDF_ROLE"}
     environment.update({
         "KDF_CODEX_BIN": rig.stub.as_posix(),
         "KDF_SETTLED": rig.settled.as_posix(),
@@ -190,19 +192,26 @@ def _run(
         "TMPDIR": rig.tmp.as_posix(),
     })
     environment.update(env or {})
-    return subprocess.run([str(BASH), str(TOOL), *args], capture_output = True, text = True, env = environment)
+    return subprocess.run(
+        [str(BASH), str(tool), *args],
+        capture_output = True,
+        text = True,
+        env = {key: value for key, value in environment.items() if value is not None},
+    )
 
 
 def _ask(
     rig: Rig,
     *extra: str,
     mode: str = "clean",
-    env: dict[str, str] | None = None,
+    env: dict[str, str | None] | None = None,
+    tool: Path = TOOL,
 ) -> subprocess.CompletedProcess[str]:
     """
     Ask about the rig's repo with the rig's brief.
     """
-    return _run(rig, "--repo", rig.repo.as_posix(), "--brief", rig.brief.as_posix(), *extra, mode = mode, env = env)
+    asked = ("--repo", rig.repo.as_posix(), "--brief", rig.brief.as_posix(), *extra)
+    return _run(rig, *asked, mode = mode, env = env, tool = tool)
 
 
 def _logged(rig: Rig, key: str) -> str:
@@ -780,3 +789,72 @@ def test_files_mode_refuses_a_symbolic_link(rig: Rig) -> None:
 def test_help_is_the_tools_own_header() -> None:
     done = subprocess.run([str(BASH), str(TOOL), "--help"], capture_output = True, text = True)
     assert done.returncode == 0 and done.stdout.startswith("kdf-ask-codex.sh, ask Codex")
+
+# ======================================================================================================================
+# the workspace, the folder holding the main clone of the tool's checkout
+# ======================================================================================================================
+
+def _checkouts(tmp_path: Path) -> tuple[Path, dict[str, Path]]:
+    """
+    A workspace whose path holds a space, a main clone in it with the tool committed at tools/claude-code/, a worktree
+    of that clone under the workspace's temp/ and one outside the workspace, each the tool's path in it by its place.
+    """
+    workspace = tmp_path / "work space"
+    main      = workspace / "kriegerdataforge-cicd"
+    (main / "tools" / "claude-code").mkdir(parents = True)
+    shutil.copy2(TOOL, main / "tools" / "claude-code" / TOOL.name)
+    _git(main, "init", "-q", "-b", "main")
+    _git(main, "config", "user.email", "dev@example.com")
+    _git(main, "config", "user.name", "Dev")
+    _git(main, "config", "core.autocrlf", "false")
+    _git(main, "add", "-A")
+    _git(main, "commit", "-q", "-m", "the tool")
+    places = {"main": main, "temp": workspace / "temp" / "wt tool", "elsewhere": tmp_path / "elsewhere" / "wt-tool"}
+    for place in ("temp", "elsewhere"):
+        _git(main, "worktree", "add", "-q", "--detach", str(places[place]))
+    return workspace, {place: path / "tools" / "claude-code" / TOOL.name for place, path in places.items()}
+
+
+def _settled_in(workspace: Path) -> None:
+    settled = workspace / "kriegerdataforge-context" / "context" / "SETTLED.md"
+    settled.parent.mkdir(parents = True)
+    settled.write_text("Settled in the workspace.\n", encoding = "utf-8")
+
+
+def _answered_in(archive: Path) -> list[Path]:
+    return sorted(path for path in archive.glob("*.md") if not path.name.endswith(".frame.md"))
+
+
+@pytest.mark.parametrize("place", ["main", "temp", "elsewhere"])
+def test_a_run_from_any_checkout_archives_and_reads_the_settled_decisions_in_the_workspace(
+    rig: Rig,
+    tmp_path: Path,
+    place: str,
+) -> None:
+    # a session runs the tool from a worktree under temp when it needs a newer one than the main clone holds, and the
+    # three folders above such a copy are temp, which once took the archive into temp and the settled decisions away,
+    # and the repo asked about lies outside the workspace, so a workspace found from --repo fails here too
+    workspace, tools = _checkouts(tmp_path)
+    _settled_in(workspace)
+    done = _ask(rig, tool = tools[place], env = {"KDF_CODEX_ARCHIVE": None, "KDF_SETTLED": None})
+    assert done.returncode == 0, done.stderr
+    answer, = _answered_in(workspace / "codex-archive")
+    assert "**Settled decisions in the frame.** yes." in answer.read_text(encoding = "utf-8")
+    assert "Settled in the workspace." in rig.frame.read_text(encoding = "utf-8")
+    assert not (workspace / "temp" / "codex-archive").exists(), "never the archive of the worktree's parent"
+    assert not (tmp_path / "elsewhere" / "codex-archive").exists(), "never the archive of the worktree's parent"
+
+
+def test_a_copy_outside_every_repo_keeps_the_folder_three_above_it(rig: Rig, tmp_path: Path) -> None:
+    # git names no main clone for a copy outside every repo, so the folder three above the script stands, as before,
+    # and git's own complaint stays off the screen
+    workspace = tmp_path / "loose copy"
+    tool      = workspace / "copy" / "tools" / "claude-code" / TOOL.name
+    tool.parent.mkdir(parents = True)
+    shutil.copy2(TOOL, tool)
+    _settled_in(workspace)
+    done = _ask(rig, tool = tool, env = {"KDF_CODEX_ARCHIVE": None, "KDF_SETTLED": None})
+    assert done.returncode == 0, done.stderr
+    assert "not a git repository" not in done.stderr, done.stderr
+    answer, = _answered_in(workspace / "codex-archive")
+    assert "**Settled decisions in the frame.** yes." in answer.read_text(encoding = "utf-8")
