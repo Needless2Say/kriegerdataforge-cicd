@@ -363,6 +363,14 @@ def test_an_item_on_a_closed_board_is_passed_over(tmp_path: Path) -> None:
     assert _plan(root, registry, reader)[0] == CLEAN
 
 
+def test_a_closed_board_of_the_configs_own_is_refused(tmp_path: Path) -> None:
+    github, root, registry, reader = _setup(tmp_path)
+    _pull(root, registry, reader, mode = "adopt")
+    github.closed_boards.add(BOARD)
+    with pytest.raises(Refusal, match = "closed"):
+        _plan(root, registry, reader)
+
+
 def test_a_card_moved_on_the_board_comes_in_by_pull(tmp_path: Path) -> None:
     github, root, registry, reader = _setup(tmp_path)
     _pull(root, registry, reader, mode = "adopt")

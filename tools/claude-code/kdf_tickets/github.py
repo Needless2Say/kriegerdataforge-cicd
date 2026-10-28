@@ -374,6 +374,9 @@ class Reader:
             project = data.get("node")
             if not project or "items" not in project:
                 raise Refusal(f"the board {node} cannot be read. {SCOPE_FIX}, or check the registry's node id")
+            if project.get("closed"):
+                raise Refusal(f"the board {project['title']} is closed, and a closed board is never backed up. "
+                              "The owner reopens it or the config names an open one")
             number, title = project["number"], project["title"]
             connection = project["items"]
             cards.extend(make_card(item) for item in connection["nodes"] if not item.get("isArchived"))
