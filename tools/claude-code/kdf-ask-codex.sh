@@ -42,9 +42,10 @@
 # removing temp files never takes it (D-069), each run under a name of its own. The workspace is the folder holding the
 # main clone of the checkout this script sits in, which git names from a worktree too, so a run from a worktree under
 # temp or anywhere else archives and reads the settled decisions where the main clone's run does. An ordinary clone
-# with its own .git folder is assumed, and a copy outside every repo takes the folder three above itself. The answer's header holds the verdict, passed or why the run failed, settled before the archive is
-# written, so a failed run's answer never passes for a review, then the kind, what was read, the model, the time, and
-# the tokens with the cached input Codex read again apart from the new. --dry-run prints the frame and runs nothing.
+# with its own .git folder is assumed, and a copy outside every repo takes the folder three above itself. The answer's
+# header holds the verdict, passed or why the run failed, settled before the archive is written, so a failed run's
+# answer never passes for a review, then the kind, what was read, the model, the time, and the tokens with the cached
+# input Codex read again apart from the new. --dry-run prints the frame and runs nothing.
 #
 # Exit 0 when Codex answered and changed nothing, 1 when it failed, changed its folder or wrote no answer, or the
 # archive could not be written, 2 on a refusal before it ran. KDF_CODEX_BIN names the codex binary and KDF_SETTLED the
