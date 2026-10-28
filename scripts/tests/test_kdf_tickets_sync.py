@@ -354,6 +354,23 @@ def test_an_item_on_another_board_is_a_difference(tmp_path: Path) -> None:
     assert code == FOUND and any("ticket-number-1" in line and "Board hosted" in line for line in lines)
 
 
+def test_an_item_on_a_closed_board_is_passed_over(tmp_path: Path) -> None:
+    github, root, registry, reader = _setup(tmp_path)
+    github.repos[REPO]["issues"][0]["boards"] = [BOARD, "PVT_closed_old"]
+    github.closed_boards.add("PVT_closed_old")
+    _pull(root, registry, reader, mode = "adopt")
+    # a closed board is never backed up (design section 3), so an item on one is no difference
+    assert _plan(root, registry, reader)[0] == CLEAN
+
+
+def test_a_closed_board_of_the_configs_own_is_refused(tmp_path: Path) -> None:
+    github, root, registry, reader = _setup(tmp_path)
+    _pull(root, registry, reader, mode = "adopt")
+    github.closed_boards.add(BOARD)
+    with pytest.raises(Refusal, match = "closed"):
+        _plan(root, registry, reader)
+
+
 def test_a_card_moved_on_the_board_comes_in_by_pull(tmp_path: Path) -> None:
     github, root, registry, reader = _setup(tmp_path)
     _pull(root, registry, reader, mode = "adopt")

@@ -48,7 +48,7 @@ query Issues($owner: String!, $name: String!, $after: String) {
           totalCount pageInfo { hasNextPage endCursor }
           nodes { id author { login } createdAt updatedAt body }
         }
-        projectItems(first: 20, includeArchived: false) { totalCount nodes { id project { id } } }
+        projectItems(first: 20, includeArchived: false) { totalCount nodes { id project { id closed } } }
       }
     }
   }
@@ -374,6 +374,9 @@ class Reader:
             project = data.get("node")
             if not project or "items" not in project:
                 raise Refusal(f"the board {node} cannot be read. {SCOPE_FIX}, or check the registry's node id")
+            if project.get("closed"):
+                raise Refusal(f"the board {project['title']} is closed, and a closed board is never backed up. "
+                              "The owner reopens it or the config names an open one")
             number, title = project["number"], project["title"]
             connection = project["items"]
             cards.extend(make_card(item) for item in connection["nodes"] if not item.get("isArchived"))
@@ -428,7 +431,8 @@ def make_issue(node: dict[str, Any]) -> Issue:
         parent = None if not parent else (parent["repository"]["name"], parent["id"], parent["number"]),
         created = node["createdAt"],
         updated = node["updatedAt"],
-        boards = [item["project"]["id"] for item in node["projectItems"]["nodes"]],
+        # a closed board is never backed up, so an issue's item on one is passed over (D-091)
+        boards = [item["project"]["id"] for item in node["projectItems"]["nodes"] if not item["project"].get("closed")],
     )
 
 

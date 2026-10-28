@@ -41,6 +41,7 @@ class FakeGitHub:
         self.boards:         dict[str, dict] = {}
         self.calls:          list[tuple[str, dict]] = []
         self.failing_boards: set[str] = set()
+        self.closed_boards:  set[str] = set()
         self.rate_limited = 0
 
 
@@ -124,7 +125,7 @@ class FakeGitHub:
         }
         node["projectItems"] = {
             "totalCount": len(issue["boards"]),
-            "nodes": [{"id": f"item_{board}", "project": {"id": board}} for board in issue["boards"]],
+            "nodes": [self._item(board) for board in issue["boards"]],
         }
         return node
 
@@ -132,10 +133,17 @@ class FakeGitHub:
     def _board(self, variables: dict) -> dict:
         if variables["id"] in self.failing_boards or variables["id"] not in self.boards:
             return {"errors": [{"type": "INSUFFICIENT_SCOPES", "message": "needs read:project"}]}
-        board = self.boards[variables["id"]]
-        info  = {"hasNextPage": False, "endCursor": None}
-        items = {"pageInfo": info, "nodes": board["cards"]}
-        return {"data": {"node": {"number": board["number"], "title": board["title"], "closed": False, "items": items}}}
+        board  = self.boards[variables["id"]]
+        info   = {"hasNextPage": False, "endCursor": None}
+        items  = {"pageInfo": info, "nodes": board["cards"]}
+        closed = variables["id"] in self.closed_boards
+        return {
+            "data": {"node": {"number": board["number"], "title": board["title"], "closed": closed, "items": items}},
+        }
+
+
+    def _item(self, board: str) -> dict:
+        return {"id": f"item_{board}", "project": {"id": board, "closed": board in self.closed_boards}}
 
 
     def operations(self) -> list[str]:
