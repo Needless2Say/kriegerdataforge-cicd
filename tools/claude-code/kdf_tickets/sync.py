@@ -573,14 +573,17 @@ class Reconciler:
         if board != file.board:
             self.result.differences.append(f"{stem}: board, GitHub's to pull")
             self.result.stamps.append(ORDER if self.order_alone(file.board, board) else card_time or issue.updated)
-        if comments != current.comments:
+        # a checkout under core.autocrlf writes CRLF, so each side reads CRLF as LF once, as text_digest does
+        wanted = None if comments is None else comments.replace("\r\n", "\n")
+        held   = None if current.comments is None else current.comments.replace("\r\n", "\n")
+        if wanted != held:
             self.result.differences.append(f"{stem}: comments, GitHub's to pull")
-            self.result.stamps.extend(comment_stamps(issue, current.comments))
+            self.result.stamps.extend(comment_stamps(issue, held))
         ticket.board = board
         synced["board"] = form.board_digest(board)
         synced["comments"] = None if comments is None else text_digest(comments)
         ticket.synced = synced
-        changed       = form.dump(ticket) != current.text.replace("\r\n", "\n") or comments != current.comments
+        changed       = form.dump(ticket) != current.text.replace("\r\n", "\n") or wanted != held
         return Entry(stem, ticket, comments, changed = changed)
 
 
