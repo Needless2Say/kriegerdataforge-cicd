@@ -191,6 +191,44 @@ def test_a_comments_file_checked_out_with_crlf_reads_in_step(tmp_path: Path) -> 
     # a checkout under core.autocrlf, as on Windows, writes each line feed as a carriage return and a line feed
     side.write_bytes(side.read_bytes().replace(b"\n", b"\r\n"))
     before = side.read_bytes()
+    assert check_clean(root, registry)
+    assert _plan(root, registry, reader)[0] == CLEAN
+    _pull(root, registry, reader, mode = "backup")
+    assert side.read_bytes() == before
+
+
+def test_a_carriage_return_added_before_a_comments_line_feed_is_refused(tmp_path: Path) -> None:
+    github, root, registry, reader = _setup(tmp_path)
+    github.repos[REPO]["issues"][0]["comments"] = [
+        {
+            "id": "IC_1",
+            "author": {"login": "someone"},
+            "createdAt": "2026-07-13T00:00:00Z",
+            "updatedAt": None,
+            "body": "A comment.",
+        },
+    ]
+    _pull(root, registry, reader, mode = "adopt")
+    side = root / "docs" / "tickets" / "ticket-number-1.comments.md"
+    side.write_bytes(side.read_bytes().replace(b"A comment.\n", b"A comment.\r\r\n"))
+    assert not check_clean(root, registry)
+
+
+def test_a_comment_ending_in_a_lone_carriage_return_stays_in_step(tmp_path: Path) -> None:
+    github, root, registry, reader = _setup(tmp_path)
+    github.repos[REPO]["issues"][0]["comments"] = [
+        {
+            "id": "IC_1",
+            "author": {"login": "someone"},
+            "createdAt": "2026-07-13T00:00:00Z",
+            "updatedAt": None,
+            "body": "First.\r",
+        },
+    ]
+    _pull(root, registry, reader, mode = "adopt")
+    side   = root / "docs" / "tickets" / "ticket-number-1.comments.md"
+    before = side.read_bytes()
+    assert check_clean(root, registry)
     assert _plan(root, registry, reader)[0] == CLEAN
     _pull(root, registry, reader, mode = "backup")
     assert side.read_bytes() == before
