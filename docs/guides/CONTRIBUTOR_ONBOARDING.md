@@ -99,7 +99,7 @@ Other useful targets (`make help` lists them all):
 | Run script unit tests + coverage | `make test` |
 | **Full local gate** | `make check-all` |
 | Bump version (pick by impact) | `make bump-patch` / `make bump-minor` / `make bump-major` |
-| Local code scan, before every pull request | `make scan-setup` once, then `make scan`, its last line in the pull request |
+| Local code scan, before every pull request | `make scan-setup` once, then `make scan`, its last line in the pull request. KDF's rules and zizmor by default, `SCAN_PACK=semgrep` on both for Semgrep's rules under their licence (D-093) |
 
 ### Version bump is strict
 
