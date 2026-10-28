@@ -41,6 +41,7 @@ class FakeGitHub:
         self.boards:         dict[str, dict] = {}
         self.calls:          list[tuple[str, dict]] = []
         self.failing_boards: set[str] = set()
+        self.closed_boards:  set[str] = set()
         self.rate_limited = 0
 
 
@@ -124,7 +125,10 @@ class FakeGitHub:
         }
         node["projectItems"] = {
             "totalCount": len(issue["boards"]),
-            "nodes": [{"id": f"item_{board}", "project": {"id": board}} for board in issue["boards"]],
+            "nodes": [
+                {"id": f"item_{board}", "project": {"id": board, "closed": board in self.closed_boards}}
+                for board in issue["boards"]
+            ],
         }
         return node
 

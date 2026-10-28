@@ -48,7 +48,7 @@ query Issues($owner: String!, $name: String!, $after: String) {
           totalCount pageInfo { hasNextPage endCursor }
           nodes { id author { login } createdAt updatedAt body }
         }
-        projectItems(first: 20, includeArchived: false) { totalCount nodes { id project { id } } }
+        projectItems(first: 20, includeArchived: false) { totalCount nodes { id project { id closed } } }
       }
     }
   }
@@ -428,7 +428,8 @@ def make_issue(node: dict[str, Any]) -> Issue:
         parent = None if not parent else (parent["repository"]["name"], parent["id"], parent["number"]),
         created = node["createdAt"],
         updated = node["updatedAt"],
-        boards = [item["project"]["id"] for item in node["projectItems"]["nodes"]],
+        # a closed board is never backed up, so an issue's item on one is passed over (D-091)
+        boards = [item["project"]["id"] for item in node["projectItems"]["nodes"] if not item["project"].get("closed")],
     )
 
 
