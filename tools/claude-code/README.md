@@ -374,10 +374,11 @@ kind's five stays in it for a reader to add.
 The session declares more on top of the five, so every reader of one question gets the same list. `--fix` and
 `--security` swap a review's 3 and 6 and add 10 or 5 as an extra to any other kind, and `--also <n>` adds any
 question of the bank by its number, each once, such as `--also 8` for work where load or a failing dependency
-matters, since question 8 is in no kind's five. Question 18, proportion, is on trial (D-070), in no kind's five and
-asked only by `--also 18`. It kept its number from the candidates it was chosen from, so `--also` takes 1 to 14 or
-18, and 15 to 17 are no questions. If its trial fails it comes out again. A reader of a review who thinks the change
-is a fix or touches security says so. The answer's header names every question asked,
+matters, since question 8 is in no kind's five. Questions 15 existing state, 16 exposure, 17 supply, 18 proportion
+and 19 detection are on trial, 18 since D-070 and the other four since D-094, each in no kind's five and asked only
+by `--also` with its number, which it kept from the candidates it was chosen from, so `--also` takes 1 to 19. A
+question whose trial fails comes out again, its words and its number together. A reader of a review who thinks the
+change is a fix or touches security says so. The answer's header names every question asked,
 `Questions. plan, 1 2 3 6 14 8`, so a frame from a clone that was never pulled shows at once. The kind follows the
 judgment asked, not the subject. A plan to change the rules is a `plan`, and `rules` is for rules, briefs and process
 text alone, proposed or about to be pushed, with the plan's base three. A brief need not repeat its kind's questions,
