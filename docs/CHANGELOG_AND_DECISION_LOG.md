@@ -5043,3 +5043,47 @@ its merge publishing a new image, and the activation pull request pins that imag
 The gate's coverage is unchanged. This merge publishes a new image and changes no run, the pinned image and every
 repo's recipe as they stand. VERSION 0.2.178, and scripts 1.7.3 with the activation.
 
+## D-094. Questions 15, 16, 17 and 19 join the bank on trial, asked only by `--also`
+
+- **Date.** 2026-10-30
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Quick · `tools/claude-code/kdf-ask-codex.sh`, its README, `scripts/tests/test_kdf_ask_codex.py`
+  and `docs/features/review-questions.md` · D-056's bank grows by four questions, as D-070 grew it by one
+
+**Context.** D-070 put question 18, proportion, in the bank on trial and left the numbers 15, 16, 17 and 19 empty.
+They are the other candidates chosen beside it, each asking about a class of miss that none of the fourteen names,
+what a change must meet that already exists, what leaves a private place, what is trusted from outside, and how a
+quiet failure would be seen. The owner chose to try each before it is kept, by replaying past readings with and
+without it, and that needs each question's words where every reader's words live.
+
+**Decision.**
+
+- **Four questions in the bank**, worded once in the array `questions` like the rest.
+  - 15, existing state. What already exists that the change must meet, stored data, caches, issued tokens or keys,
+    config files, other machines or installs, and does each still work after it?
+  - 16, exposure. What leaves the machine or a private repository, to which service or public place, and can it be
+    pulled back?
+  - 17, supply. What new package, image, tool or service is trusted, who publishes it, how is it pinned, and what
+    happens when it changes or disappears?
+  - 19, detection. If it fails quietly, how and when would anyone notice?
+- **No kind asks them by default.** Each is asked only when a session passes `--also` with its number, so every read
+  made today asks exactly what it asked before. `--also` takes 1 to 19, and 20 and every other value are refused.
+- **Each keeps its number**, the one it had among the candidates, so a record of a trial and the bank agree.
+- **On trial**, as 18 is. A question whose trial does not earn it a place comes out again by a later pull request,
+  its words and its number together, and one that earns it stays asked by `--also` until a decision of its own says
+  otherwise.
+
+**Alternatives considered.**
+
+- *Add a question to a kind's five.* Rejected until a trial shows it earns a place, since every read of that kind
+  would change at once.
+- *Renumber the bank without its gap.* Rejected, as D-070 rejected it, since every record of the candidates names
+  these numbers.
+
+**Trade-offs.** A dry run or a read asking all five candidates is longer by five lines, paid only by a session that
+asks for them.
+
+**Consequences.** A session or a replay can ask questions 15 to 19 with `--also`, and nothing else changes. A caller
+that keeps its own copy of the bound refuses 15, 16, 17 and 19 until it widens it. The wrapper is read live from each
+machine's clone, so a reader asks the new questions only once that clone is pulled. VERSION 0.2.183.
+
