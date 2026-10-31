@@ -405,6 +405,12 @@ def _guard_on(project: Path, tool: str, tool_input: object) -> subprocess.Comple
         ),
         ("mcp__claude-artifacts__publish_version", {"content": "x", "file_path": ".env.kdf"}, 'given "file_path"'),
         ("mcp__claude-artifacts__get_artifact", ["x"], "not a set of named fields"),
+        # a string, an empty one and a number or a boolean have no keys of their own to refuse, so only the type check
+        # stops them (Codex's read of 9d517d2)
+        ("mcp__claude-artifacts__get_artifact", "x", "not a set of named fields"),
+        ("mcp__claude-artifacts__get_artifact", "", "not a set of named fields"),
+        ("mcp__claude-artifacts__read_artifact", 5, "not a set of named fields"),
+        ("mcp__claude-artifacts__list_artifacts", True, "not a set of named fields"),
         ("mcp__claude-artifacts__delete_artifact", {"slug": "x"}, "MCP_ALLOWED in kdf-guard.js"),
     ],
 )
@@ -430,13 +436,30 @@ def test_a_listed_artifact_tool_keeps_its_known_fields_whatever_their_type(tmp_p
     assert _guard_on(tmp_path, "mcp__claude-artifacts__read_artifact", lines).returncode == 0
 
 
-@pytest.mark.parametrize(("target", "closed"), [("tokens/.env.local", True), (".env.local", False)])
+@pytest.mark.parametrize(
+    ("target", "closed"),
+    [
+        ("tokens/.env.local", True),
+        (".env.local", False),
+        # an adopted repo whose .env.local still holds a credential, by a built in name, by its example's name and by
+        # a name its example holds commented out, so the rule is whole and not adoption alone (Codex's read of 9d517d2)
+        ("builtin/.env.local", True),
+        ("custom/.env.local", True),
+        ("commented/.env.local", True),
+    ],
+)
 def test_a_link_to_a_env_local_is_judged_by_that_files_rule(tmp_path: Path, target: str, closed: bool) -> None:
     """
     A link whose own name is ordinary is judged where it leads, and a .env.local there by its own rule, closed until its
     repo opens it, where the link once read every .env.local as open (D-095).
     """
     _ignored_tree(tmp_path)
+    # an adopted repo, its example tracked, whose .env.local holds a credential by a built in name alone
+    example = "builtin/.env.kdf.example"
+    (tmp_path / "builtin").mkdir()
+    (tmp_path / example).write_text("PORT=\n", encoding = "utf-8", newline = "\n")
+    (tmp_path / "builtin" / ".env.local").write_text("KDF_SERVICE_KEY=x\n", encoding = "utf-8", newline = "\n")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-f", example], check = True, capture_output = True)
     link = tmp_path / "notes.txt"
     try:
         os.symlink(tmp_path / target, link)
