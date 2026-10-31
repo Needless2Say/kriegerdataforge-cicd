@@ -864,9 +864,13 @@ only, are the last.
 By design, `origin` is a name the guard checks, not a place. It is whatever URL the clone was made from, so a push to
 the `origin` of a clone a session made from some other URL goes there. What the guard refuses is a change to where an
 `origin` leads. A program's bare name is read as the program the PATH finds, and the profile files that set the PATH
-are guardrail files. For an owner's session `mcp__ide__getDiagnostics` is the one MCP tool on the list. A hook that
-times out lets the call through, by Claude Code's design, so the guard keeps a deadline of its own and refuses when it
-runs out. Codex runs in its own sandbox and is not held by this guard yet.
+are guardrail files. For an owner's session the MCP tools on the list are `mcp__ide__getDiagnostics` and six of the
+artifact server's, `guide`, `publish_version`, `edit_version`, `get_artifact`, `read_artifact` and `list_artifacts`,
+each also held to the input fields it takes today, so a field the server adds is refused until the owner lists it.
+`publish_files` is held off with a reason of its own, since it sends files from disk that the guard cannot see, and the
+list is by name, so a server registered under the artifact server's name gets it, the registration files being
+guardrail files (D-095). A hook that times out lets the call through, by Claude Code's design, so the guard keeps a
+deadline of its own and refuses when it runs out. Codex runs in its own sandbox and is not held by this guard yet.
 
 A glob's extra judgments (D-060) only add refusals. A bracket counts as any one character, so two bracket globs that
 bash narrows can be judged as other words, refusing more. `~` is Node's home folder, which on Windows is

@@ -377,6 +377,76 @@ def test_each_closed_file_is_refused_with_its_own_reason(tmp_path: Path, command
     assert says in message
 
 
+def _guard_on(project: Path, tool: str, tool_input: object) -> subprocess.CompletedProcess[str]:
+    """
+    Feed the guard one call of an owner's session with its input as given, a list or a field holding a list among it,
+    which no case's input can spell since a case's input is a set of strings.
+    """
+    env = {key: value for key, value in os.environ.items() if not key.startswith("KDF_")}
+    env["CLAUDE_PROJECT_DIR"] = project.as_posix()
+    payload = {"tool_name": tool, "tool_input": tool_input, "cwd": project.as_posix()}
+    return subprocess.run(
+        [str(NODE), str(GUARD)],
+        input = json.dumps(payload),
+        env = env,
+        capture_output = True,
+        text = True,
+        check = False,
+    )
+
+
+@pytest.mark.parametrize(
+    ("tool", "tool_input", "says"),
+    [
+        (
+            "mcp__claude-artifacts__publish_files",
+            {"files": [{"as": "index.html", "path": "src/app.py"}]},
+            "publish_files is held off the guard's list, since it sends files from disk by their path",
+        ),
+        ("mcp__claude-artifacts__publish_version", {"content": "x", "file_path": ".env.kdf"}, 'given "file_path"'),
+        ("mcp__claude-artifacts__get_artifact", ["x"], "not a set of named fields"),
+        ("mcp__claude-artifacts__delete_artifact", {"slug": "x"}, "MCP_ALLOWED in kdf-guard.js"),
+    ],
+)
+def test_each_artifact_refusal_names_its_own_reason(tmp_path: Path, tool: str, tool_input: object, says: str) -> None:
+    """
+    publish_files says why it is held off and which tool is the checked way, a field the guard does not know is named,
+    input that is not a set of fields is refused, and a tool off the list points at the list (D-095). The cases refuse
+    publish_files by name on main too, so its reason is what tells the two guards apart.
+    """
+    done = _guard_on(tmp_path, tool, tool_input)
+    assert done.returncode == 2, done.stderr
+    assert says in done.stderr
+
+
+def test_a_listed_artifact_tool_keeps_its_known_fields_whatever_their_type(tmp_path: Path) -> None:
+    """
+    The fields are judged by name, so edit_version's list of edits and read_artifact's numbers pass as the server sends
+    them, where a case's input could only spell them as strings (D-095).
+    """
+    edits = {"slug": "x", "base_version": "v", "edits": [{"old_text": "a", "new_text": "b"}]}
+    assert _guard_on(tmp_path, "mcp__claude-artifacts__edit_version", edits).returncode == 0
+    lines = {"slug": "x", "offset": 1, "limit": 50}
+    assert _guard_on(tmp_path, "mcp__claude-artifacts__read_artifact", lines).returncode == 0
+
+
+@pytest.mark.parametrize(("target", "closed"), [("tokens/.env.local", True), (".env.local", False)])
+def test_a_link_to_a_env_local_is_judged_by_that_files_rule(tmp_path: Path, target: str, closed: bool) -> None:
+    """
+    A link whose own name is ordinary is judged where it leads, and a .env.local there by its own rule, closed until its
+    repo opens it, where the link once read every .env.local as open (D-095).
+    """
+    _ignored_tree(tmp_path)
+    link = tmp_path / "notes.txt"
+    try:
+        os.symlink(tmp_path / target, link)
+    except OSError as error:
+        pytest.skip(f"this machine makes no symbolic link, {error}")
+    case = {"role": "owner", "tool": "Read", "file": "${PROJ}/notes.txt"}
+    code, message = _run_case(tmp_path, case)
+    assert code == (2 if closed else 0), message
+
+
 @pytest.mark.parametrize(
     ("command", "says"),
     [
@@ -3438,6 +3508,15 @@ def _matcher_without_the_read_tools(settings: dict) -> None:
     settings["hooks"]["PreToolUse"][0]["matcher"] = matcher.replace("Read|Grep|Glob|", "")
 
 
+def _matcher_without_the_artifact_server(settings: dict) -> None:
+    """
+    A matcher naming the older MCP servers alone, which the samples once let pass while it missed the artifact server's
+    hyphenated names, so the guard never saw them (D-095).
+    """
+    matcher = settings["hooks"]["PreToolUse"][0]["matcher"]
+    settings["hooks"]["PreToolUse"][0]["matcher"] = matcher.replace("mcp__.*", "mcp__ide__.*|mcp__claude_ai_.*")
+
+
 def _without_hook(settings: dict) -> None:
     settings["hooks"] = {}
 
@@ -3457,6 +3536,7 @@ def _hook_points_nowhere(settings: dict) -> None:
         (_without_powershell_deny, "PowerShell tool is not denied"),
         (_narrow_matcher, "matcher misses"),
         (_matcher_without_the_read_tools, "Read, Grep, Glob"),
+        (_matcher_without_the_artifact_server, "mcp__claude-artifacts__publish_files"),
         (_without_hook, "no PreToolUse hook"),
         (_hooks_off, "hooks are switched off"),
         (_hook_points_nowhere, "does not exist"),

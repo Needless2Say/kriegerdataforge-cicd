@@ -451,7 +451,7 @@ clean-deep: ## Deep clean including virtual environment
 # edits, never the gate, which runs from main (cicd D-085).
 SCAN_EXCLUDE ?=
 SCAN_EXCLUDE += scripts/common/scan_rules  # the rules' own test cases are written to match them
-SCAN_LIMIT += tools/claude-code/kdf-guard.js@8a63b395b35afc6b2855476e4f33c88079e9ce4ca2c9df34b341f2294d0398fe  # Opengrep's rule timeout ends before the guard's size
+SCAN_LIMIT += tools/claude-code/kdf-guard.js@78d93a05aac1970dac46a13bc5aa0d2fe2728cb4f6627054cb925177412f231f  # Opengrep's rule timeout ends before the guard's size
 KDF_SCAN_IMAGE := ghcr.io/needless2say/kdf-scan@sha256:7aeaa2051ce7259a30b761ccbfc89d14f3f71aaeb8ed15fc9898f139abe14f20
 KDF_SCAN_RULES_COMMIT := 17e31e11ebac99fb7dfe1cd288f7a32151b6f3f9
 KDF_SCAN_CALLER_SHA := d816ce5c870b0d821e71587c12507dc58d9d23f09318376b0b067742ff063949

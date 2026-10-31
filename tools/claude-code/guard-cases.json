@@ -2170,6 +2170,218 @@
  },
  {
   "role": "owner",
+  "tool": "mcp__claude-artifacts__guide",
+  "input": {
+   "topic": "pages"
+  },
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-artifacts__publish_version",
+  "input": {
+   "content": "<!doctype html><title>x</title>",
+   "title": "x",
+   "icon": "chart"
+  },
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-artifacts__edit_version",
+  "input": {
+   "slug": "x",
+   "base_version": "v",
+   "path": "css/site.css"
+  },
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-artifacts__get_artifact",
+  "input": {
+   "slug": "x"
+  },
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-artifacts__read_artifact",
+  "input": {
+   "slug": "x",
+   "offset": "1",
+   "limit": "50"
+  },
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-artifacts__list_artifacts",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-artifacts__publish_files",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-artifacts__publish_files",
+  "input": {
+   "files": "${PROJ}/src/app.py"
+  },
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-artifacts__delete_artifact",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-artifacts__delete_asset",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-artifacts__db_write",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-artifacts__upload_asset",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-artifacts__copy_file",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-artifacts__create_from_type",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-artifacts__reply_comment",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-artifacts__declare_capabilities",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-artifacts__share",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude_artifacts__guide",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__Claude-Artifacts__guide",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-artifacts__guidex",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-artifacts__guide",
+  "input": {
+   "topic": "pages",
+   "file_path": "${PROJ}/.env.local"
+  },
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-artifacts__publish_version",
+  "input": {
+   "content": "<!doctype html><title>x</title>",
+   "file_path": "${PROJ}/keys/id_rsa"
+  },
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-artifacts__edit_version",
+  "input": {
+   "slug": "x",
+   "files": "${PROJ}/src/app.py"
+  },
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-artifacts__get_artifact",
+  "input": {
+   "slug": "x",
+   "path": "${PROJ}/src/app.py"
+  },
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-artifacts__read_artifact",
+  "input": {
+   "slug": "x",
+   "uri": "file:///etc/passwd"
+  },
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-artifacts__list_artifacts",
+  "input": {
+   "file_paths": "${PROJ}/src/app.py"
+  },
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "mcp__claude-artifacts__guide",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "mcp__claude-artifacts__publish_version",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "mcp__claude-artifacts__edit_version",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "mcp__claude-artifacts__get_artifact",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "mcp__claude-artifacts__read_artifact",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "mcp__claude-artifacts__list_artifacts",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "mcp__claude-artifacts__publish_files",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
   "tool": "CronCreate",
   "expect": "allow"
  },

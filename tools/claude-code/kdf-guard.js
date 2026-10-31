@@ -64,10 +64,36 @@ const FILE_TOOLS = /^(Edit|Write|MultiEdit|NotebookEdit)$/;
 // diagnostics tool alone stays allowed, its code runner is refused like any other (D-060).
 const OUTWARD_TOOLS = /^(mcp__(?!ide__getDiagnostics$)|Artifact|SendUserFile$|SendMessage$|PushNotification$|RemoteTrigger$|Cron|DesignSync$|EnterWorktree$|Workflow$|WebFetch$|WebSearch$)/;
 // The MCP tools any session may call, each by its whole name. A tool not on the list is refused, so a server or
-// connector added later is refused until the owner adds its tools here by pull request (D-066).
-const MCP_ALLOWED = new Set(['mcp__ide__getDiagnostics']);
+// connector added later is refused until the owner adds its tools here by pull request (D-066). The artifact server's
+// tools that read, guide and publish a page as text are on it, and none that sends a file from disk (D-095).
+const MCP_ALLOWED = new Set([
+  'mcp__ide__getDiagnostics',
+  'mcp__claude-artifacts__guide', 'mcp__claude-artifacts__publish_version', 'mcp__claude-artifacts__edit_version',
+  'mcp__claude-artifacts__get_artifact', 'mcp__claude-artifacts__read_artifact', 'mcp__claude-artifacts__list_artifacts'
+]);
 const MCP_WHY = 'A session calls only the MCP tools on the guard\'s list, MCP_ALLOWED in kdf-guard.js, which the owner '
   + 'changes by pull request. ';
+// The input fields each listed artifact tool takes today, by the server's own description. A call carrying any other
+// field is refused, so a field the server adds later, one that reads a file from disk among them, fails closed until
+// the owner lists it here. edit_version's path is a file inside the artifact, never one on disk. A listed tool with no
+// row is judged by its name alone (D-095).
+const MCP_INPUT_KEYS = new Map([
+  ['mcp__claude-artifacts__guide', ['topic']],
+  ['mcp__claude-artifacts__publish_version', ['content', 'slug', 'base_version', 'title', 'icon', 'favicon', 'label',
+    'contract', 'deadline', 'shared_live', 'artifact_title']],
+  ['mcp__claude-artifacts__edit_version', ['slug', 'base_version', 'edits', 'path', 'title', 'label', 'shared_live',
+    'artifact_title']],
+  ['mcp__claude-artifacts__get_artifact', ['slug']],
+  ['mcp__claude-artifacts__read_artifact', ['slug', 'offset', 'limit']],
+  ['mcp__claude-artifacts__list_artifacts', ['limit', 'shared_only', 'type']]
+]);
+const MCP_KEYS_WHY = 'A listed artifact tool takes only the input fields the guard knows, MCP_INPUT_KEYS in '
+  + 'kdf-guard.js, so a field the server adds is refused until the owner lists it by pull request. ';
+// publish_files sends files from disk by their path, and its bytes never pass through the session, so the guard cannot
+// see what it sends. It is held off the list, not merely left off it, and says so (D-095).
+const PUBLISH_FILES = 'mcp__claude-artifacts__publish_files';
+const PUBLISH_FILES_WHY = 'publish_files is held off the guard\'s list, since it sends files from disk by their path '
+  + 'and the guard cannot see what it sends. Publish a page with publish_version, whose text the session wrote. ';
 
 // Files that hold the guardrails. A session never edits them, the owner does. Git's global and system config are
 // among them, since a remote's push URL or a pushInsteadOf there sends every repo's origin somewhere else (D-062).
@@ -213,8 +239,24 @@ function run(input) {
     checkReadTool(tool, args);
   } else if (MODE === 'reviewer' && OUTWARD_TOOLS.test(tool)) {
     deny('Reviewers use no connector, artifact, message, schedule or notification tool. ' + tool + ' is refused.', tool);
-  } else if (/^mcp__/i.test(tool) && !MCP_ALLOWED.has(tool)) {
-    deny(MCP_WHY + tool + ' is not on it.', tool);
+  } else if (/^mcp__/i.test(tool)) {
+    checkMcpTool(tool, input.tool_input);
+  }
+}
+
+// An MCP tool is judged by its whole name, and a listed artifact tool by the fields it was given too (D-066, D-095).
+function checkMcpTool(tool, given) {
+  if (tool === PUBLISH_FILES) deny(PUBLISH_FILES_WHY, tool);
+  if (!MCP_ALLOWED.has(tool)) deny(MCP_WHY + tool + ' is not on it.', tool);
+  const known = MCP_INPUT_KEYS.get(tool);
+  if (!known || given === undefined || given === null) return;
+  if (typeof given !== 'object' || Array.isArray(given)) {
+    deny(MCP_KEYS_WHY + tool + ' was given input that is not a set of named fields.', tool + ' input not an object');
+  }
+  const unknown = Object.keys(given).filter((key) => !known.includes(key));
+  if (unknown.length) {
+    const named = unknown.map((key) => JSON.stringify(key.slice(0, 60))).join(', ');
+    deny(MCP_KEYS_WHY + tool + ' was given ' + named + '.', tool + ' ' + named);
   }
 }
 
@@ -329,7 +371,10 @@ function isClosed(p) {
   const abs = resolvedPath(s);
   if (abs && abs !== s && !LOCAL_ENV.test(s) && KEY_FILE.test(abs)) return true;
   const real = abs ? realOf(abs) : '';
-  return Boolean(real) && real.toLowerCase() !== abs.toLowerCase() && isSecretFile(real);
+  if (!real || real.toLowerCase() === abs.toLowerCase()) return false;
+  // a link that leads to a .env.local is judged by that file's own rule, closed until its repo opens it, where
+  // isSecretFile alone leaves every .env.local open (D-095)
+  return LOCAL_ENV.test(real) ? !localEnvOpen(real) : isSecretFile(real);
 }
 
 function checkClosed(p, detail) {
