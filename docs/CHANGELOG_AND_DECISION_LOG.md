@@ -5087,3 +5087,49 @@ asks for them.
 that keeps its own copy of the bound refuses 15, 16, 17 and 19 until it widens it. The wrapper is read live from each
 machine's clone, so a reader asks the new questions only once that clone is pulled. VERSION 0.2.183.
 
+## D-095. The artifact server's text tools on the guard's MCP list, each held to its known fields
+
+- **Date.** 2026-10-31
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Standard · `tools/claude-code/kdf-guard.js`, `guard-cases.json`, `check-wiring.js`, `install.sh`,
+  the tools' README, `scripts/tests/test_claude_code_tools.py` and the `Makefile`'s `SCAN_LIMIT` line · D-066's list
+  grows, no workflow input changed
+
+**Context.** Claude's artifact tools became an MCP server, `claude-artifacts`, its tools named
+`mcp__claude-artifacts__<tool>`, and D-066's list refused every one of them, so a session could not publish or read a
+page. The server's tools include one, `publish_files`, that sends files from disk by their path, its bytes never
+passing through the session, and the guard read a listed MCP tool's name and never its input, so listing it would let
+a file the guard keeps closed to a `Read` leave the machine.
+
+**Decision.**
+
+1. `MCP_ALLOWED` gains six of the server's tools, `guide`, `publish_version`, `edit_version`, `get_artifact`,
+   `read_artifact` and `list_artifacts`, each by its whole name. Every other tool of the server, the deletes, the
+   uploads, the copies, the database writes, the comments and the pins, stays refused until the owner lists it.
+2. Each listed artifact tool is held to the input fields it takes today, `MCP_INPUT_KEYS`, and a call carrying any
+   other field is refused, so a field the server adds later, one that reads a file from disk among them, fails closed
+   until the owner's pull request lists it. `edit_version`'s `path` names a file inside the artifact and stays one of
+   its fields. A listed tool with no row, the IDE tool, keeps the rule by name alone.
+3. `publish_files` is held off the list with a reason of its own, which names `publish_version`, whose text the
+   session wrote, as the checked way. A page of several files or an image waits for a change of its own that holds
+   every path to where it may come from.
+4. A link whose own name is ordinary and which leads to a `.env.local` is judged by that file's own rule, closed
+   until its repo opens it, where the link was read as open.
+5. The list is by name, so a server registered under the artifact server's name gets it. A session cannot register
+   one, the registration files being guardrail files.
+6. `check-wiring.js` asks the hook's matcher to cover two of the server's hyphenated names, and `install.sh`'s smoke
+   test refuses `publish_files`, so a source that lists it never goes live.
+
+**Alternatives considered.**
+
+- *List `publish_files` and check each path against the secret file rule.* Rejected, since the rule names a few kinds
+  of file and an upload whose bytes no one sees needs a rule of where a file may come from, not of what it may not be.
+- *List the tools by name alone.* Rejected, since a field the server adds would pass unseen, the same gap again.
+
+**Trade-offs.** A harmless field the server adds is refused until the owner lists it, one pull request, the more
+secure option. A page is published as one document of text, and images wait.
+
+**Consequences.** The guard's change reaches a machine only through `install.sh`, the owner's, and `SCAN_LIMIT`'s
+recorded hash for `kdf-guard.js` moves with it. 33 new cases, three tests of their own and a checker case. VERSION
+0.2.184.
+

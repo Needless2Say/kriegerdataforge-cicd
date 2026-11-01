@@ -51,6 +51,8 @@ expect 2 "reviewer" "$(call "git add .")" "'git add .'"
 expect 0 "" "$(call "git status")" "'git status'"
 expect 2 "" '{"tool_name":"Read","tool_input":{"file_path":".env.kdf"},"cwd":"."}' "a Read of .env.kdf"
 expect 2 "" "not json" "input that is not JSON"
+# publish_files sends files the guard cannot see, so a source that lists it never goes live (D-095)
+expect 2 "" '{"tool_name":"mcp__claude-artifacts__publish_files","tool_input":{},"cwd":"."}' "publish_files"
 # the previous copy is kept only when it differs, so installing the same guard twice keeps the way back (D-060)
 kept="the previous copy kept as kdf-guard.prev.js"
 if [ -f "$hooks/kdf-guard.js" ] && ! cmp -s "$hooks/kdf-guard.js" "$staged"; then
@@ -61,8 +63,8 @@ fi
 mv -f "$staged" "$hooks/kdf-guard.js"
 chmod +x "$hooks/kdf-guard.js"
 say "Installed $hooks/kdf-guard.js, $kept."
-say "Smoke test passed, a push to main, a reviewer git add, a Read of .env.kdf and input that is not JSON are refused,"
-say "and git status runs."
+say "Smoke test passed, a push to main, a reviewer git add, a Read of .env.kdf, input that is not JSON and"
+say "publish_files are refused, and git status runs."
 
 # The compaction hook (D-058), beside the guard. It refuses nothing, so its smoke test is that input it cannot read
 # prints nothing and exits 0.

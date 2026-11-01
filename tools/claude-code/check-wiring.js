@@ -24,7 +24,10 @@ const MUST_MATCH = [
   'Bash', 'PowerShell', 'Monitor', 'Read', 'Grep', 'Glob', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'WebFetch',
   'WebSearch', 'mcp__claude_ai_Google_Drive__share_file', 'mcp__ide__executeCode', 'Artifact', 'ArtifactData',
   'SendUserFile', 'SendMessage', 'PushNotification', 'RemoteTrigger', 'CronCreate', 'DesignSync', 'EnterWorktree',
-  'Workflow'
+  'Workflow',
+  // the artifact server's hyphenated names, one the guard lists and one it holds off, so a matcher that names only
+  // the older servers fails here and not in silence (D-095)
+  'mcp__claude-artifacts__publish_version', 'mcp__claude-artifacts__publish_files'
 ];
 // A second fence behind the guard, for a call it never sees. .env.local is not among them, the owner opened
 // it on 2026-09-29 and the guard keeps one that still holds a credential closed. .env.kdf holds the credentials, and
