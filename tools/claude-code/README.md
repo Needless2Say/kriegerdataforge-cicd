@@ -146,11 +146,12 @@ any case and with the dots, spaces and stream Windows drops from its end, so `id
 count. These come before every exception, so an example or a tracked `*.tfvars` under `keys/` or a store is closed,
 named as written, from the folder the shell is in, or where a link leads. A search is judged by where it reaches, so
 `rg` and the Grep tool are refused when a root, or the folder they run in when none is given, is a store, lies inside
-one or lies above the home folder's tool folders, the home folder, its `AppData/Roaming`, `.config` and
-`.local/share`, while `rg x D:/KriegerDataForge` and a search of `~/.claude/projects` stay open. `rg -L` and
-`--follow` are refused, `git diff --no-index` on a folder is refused, and a search glob, `rg -g` or the Grep tool's
-`glob`, each brace list read as every glob it spells, is refused when one name could match both it and a store's shape,
-`id_*`, `*.tfst*` and `terraform.*` among them, while `*.yml` passes. A copy into a store is refused, a revision word
+one or lies above any store a tool keeps in the home folder, so `~` and `~/.claude` are refused while
+`rg x D:/KriegerDataForge` and a search of `~/.claude/projects` stay open. `rg -L` and `--follow` are refused,
+`git diff --no-index` on a folder is refused, and a search glob, `rg -g` or the Grep tool's `glob`, read as rg reads
+it with each brace list spelled out, an escape as its character and a bracket as any one character, is refused when
+one name could match both it and a store's shape, `id_*`, `*.tfst*`, `terraform.*` and `*.k\e\y` among them, while
+`*.yml` and `**/*.md` pass. A copy into a store is refused, a revision word
 is judged by each path after its colons, `HEAD:.env.kdf` and `:0:keys/x` among them, `gh auth status -t` and
 `--show-token` are refused beside `gh auth token`, and `git stash` with `-a` or `--all` and `git stash show` with its
 untracked options are refused, since ignored files would leave the tree with no file named. A jq filter ending in

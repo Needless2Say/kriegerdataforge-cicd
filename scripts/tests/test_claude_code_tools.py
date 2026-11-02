@@ -431,6 +431,14 @@ def test_each_closed_file_is_refused_with_its_own_reason(tmp_path: Path, command
         ({"tool": "Bash", "command": "gh auth status -at"}, "The login and its token are the owner's."),
         ({"tool": "Bash", "command": "git stash push --all"}, STASH_SAYS),
         ({"tool": "Bash", "command": "git stash show -u"}, STASH_SAYS),
+        # the routes Codex's read of fc89ac1 found open, each pinned to its own reason
+        ({"tool": "Bash", "command": "rg -g '.credentials.json' token ~/.claude"}, SEARCH_SAYS),
+        ({"tool": "Bash", "command": "rg -g '*.k\\e\\y' x src"}, GLOB_SAYS),
+        ({"tool": "Bash", "command": "rg -g '*.[k/]ey' x src"}, GLOB_SAYS),
+        ({"tool": "Bash", "command": "cat terraform.tfstate~"}, STORE_SAYS),
+        ({"tool": "Bash", "command": "git show x:.env.kdf"}, "Secret files are the owner's"),
+        ({"tool": "Bash", "command": "cat server.key."}, STORE_SAYS),
+        ({"tool": "Bash", "command": "gh auth status -t=true"}, "The login and its token are the owner's."),
     ],
 )
 def test_each_credential_store_route_is_refused_with_its_own_reason(

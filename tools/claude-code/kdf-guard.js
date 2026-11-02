@@ -150,7 +150,8 @@ const reEscape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const STORE_FOLDER = new RegExp('(^|/)(' + STORES.folders.map(reEscape).join('|') + ')(/|$)');
 const STORE_FILE = new RegExp('(^|/)(' + STORES.files.map(reEscape).join('|') + ')$');
 const STORE_KEY = new RegExp('(^|/)(' + STORES.keyPrefixes.map(reEscape).join('|') + ')[^/]*$');
-const STORE_ENDING = new RegExp(STORES.endings.map((e) => (e === 'tfstate' ? '\\.tfstate(\\.[^/]*)?$'
+// terraform's state with anything after its ending, a backup, a copy or an editor's terraform.tfstate~ (Codex's read)
+const STORE_ENDING = new RegExp(STORES.endings.map((e) => (e === 'tfstate' ? '\\.tfstate[^/]*$'
   : '\\.' + reEscape(e) + '$')).join('|'));
 const KEYS_BELOW = /(^|\/)keys\//;
 // A name as Windows opens it, in lower case, each part without the dots and spaces Windows drops from its end or a
@@ -452,16 +453,19 @@ function checkClosed(p, detail) {
 }
 
 // A search's reach, every folder rg or the Grep tool reads below its root. It is refused when a root is a store, lies
-// inside one, or lies above the home folder's tool folders, the home folder itself, its AppData/Roaming, .config and
-// .local/share, judged as written and where it really leads, so D:/KriegerDataForge and ~/.claude/projects stay
-// open while ~ and C:/Users do not (D-096).
+// inside one, or lies above any store a tool keeps in the home folder, in the home folder itself, its AppData/Roaming
+// or its .local/share, so ~, C:/Users and ~/.claude, above Claude Code's sign in file, are refused, judged as written
+// and where it really leads, while D:/KriegerDataForge and ~/.claude/projects stay open (D-096, Codex's read).
 function searchReachesStore(root) {
   const home = foldName(os.homedir());
-  const above = [home, home + '/appdata/roaming', home + '/.config', home + '/.local/share'];
+  const stores = [];
+  for (const base of [home, home + '/appdata/roaming', home + '/.local/share']) {
+    for (const name of [...STORES.folders, ...STORES.files]) stores.push(base + '/' + name);
+  }
   for (const at of new Set([toAbs(root), realOf(root)].map(foldName))) {
     if (isStore(at) || isStore(at + '/x')) return true;
     const dir = at.endsWith('/') ? at : at + '/';
-    if (above.some((p) => p === at || p.startsWith(dir))) return true;
+    if (stores.some((p) => p === at || p.startsWith(dir))) return true;
   }
   return false;
 }
@@ -532,19 +536,64 @@ function globsMeet(a, b) {
 function checkSearchGlob(glob, whole) {
   if (String(glob).startsWith('!')) return;
   const samples = [...DOT_SECRET_NAMES, '.env.local', 'id.pem', 'x.tfvars', 'x.tfvars.json'];
+  const steps = (name) => globSteps(name.toLowerCase(), ALL_WILD);
+  // a part that is a run of any alone, * or **, spells no folder's name, so **/*.md is judged by its last part
+  const named = (p) => !(p.length === 1 && p[0] === STAR);
   for (const alt of braceAlternatives(String(glob))) {
-    const parts = alt.replace(/\\/g, '/').split('/').filter(Boolean);
-    const last = parts.length ? parts[parts.length - 1] : '*';
-    const steps = globSteps(last, ALL_WILD);
-    if (samples.some((name) => globMatch(steps, name)) || parts.some((p) => /^keys$/i.test(p))) {
+    const parts = rgGlobParts(alt);
+    const last = parts.length ? parts[parts.length - 1] : [STAR];
+    if (samples.some((n) => globsMeet(last, steps(n))) || parts.some((p) => named(p) && globsMeet(p, steps('keys')))) {
       deny('An rg glob that could include a secret file overrides rg\'s skipping of them. Narrow the glob.', whole);
     }
-    const lower = globSteps(last.toLowerCase(), ALL_WILD);
-    if (STORE_GLOBS.some((g) => globsMeet(lower, globSteps(g, ALL_WILD)))) deny(STORE_GLOB_WHY, whole);
-    const folders = STORES.folders.filter((f) => !f.includes('/')).map((f) => globSteps(f, ALL_WILD));
-    const meets = (p) => folders.some((f) => globsMeet(globSteps(p.toLowerCase(), ALL_WILD), f));
-    if (parts.some(meets)) deny(STORE_GLOB_WHY, whole);
+    if (STORE_GLOBS.some((g) => globsMeet(last, steps(g)))) deny(STORE_GLOB_WHY, whole);
+    // a part that could be a store's folder, .config/gh as two parts in a row
+    for (const folder of STORES.folders.map((f) => f.split('/').map(steps))) {
+      const at = (k) => folder.every((f, j) => k + j < parts.length && named(parts[k + j])
+        && globsMeet(parts[k + j], f));
+      if (parts.some((_, k) => at(k))) deny(STORE_GLOB_WHY, whole);
+    }
   }
+}
+
+// A search glob as rg reads it, its path parts split at a / outside a bracket, a backslash taking the character after
+// it as itself, a bracket expression read as any one character, a / inside it among them, and * or ** as a run of any,
+// each part in lower case, so neither an escape nor a class hides a name (D-096, Codex's read).
+function rgGlobParts(glob) {
+  const s = String(glob);
+  const parts = [[]];
+  for (let i = 0; i < s.length; i++) {
+    const part = parts[parts.length - 1];
+    const c = s[i];
+    if (c === '\\' && i + 1 < s.length) {
+      part.push(s[++i].toLowerCase());
+      continue;
+    }
+    if (c === '/') {
+      parts.push([]);
+      continue;
+    }
+    if (c === '*') {
+      if (part[part.length - 1] !== STAR) part.push(STAR);
+      continue;
+    }
+    if (c === '?') {
+      part.push(ONE);
+      continue;
+    }
+    if (c === '[') {
+      let j = i + 1;
+      if (s[j] === '!' || s[j] === '^') j++;
+      if (s[j] === ']') j++;
+      while (j < s.length && s[j] !== ']') j += s[j] === '\\' ? 2 : 1;
+      if (j < s.length) {
+        part.push(ONE);
+        i = j;
+        continue;
+      }
+    }
+    part.push(c.toLowerCase());
+  }
+  return parts.filter((p) => p.length);
 }
 
 // Programs whose first word is a pattern, which may spell .env with a backslash or a caret, '^\.env' for example.
@@ -818,11 +867,12 @@ function checkSecretWords(toks, prog, args, whole) {
     if (/^-[^-]/.test(t.t)) for (let k = 2; k < t.t.length; k++) words.push(t.t.slice(k));
     // a revision word names a file in git's objects after each colon, HEAD:.env.kdf, :0:.env.kdf or
     // stash@{0}:keys/x, so the text after each is judged as a path too. A .env.local there is closed outright, since
-    // the working copy's file says nothing of the one in git. A drive's colon, D:/x, names the same path as the word
-    // itself (D-096).
+    // the working copy's file says nothing of the one in git. A drive's colon followed by a separator, D:/x, names the
+    // same path as the word itself, while a one letter revision such as x:.env.kdf is judged like any other (D-096,
+    // Codex's read).
     for (const w of [...words]) {
       for (let k = w.indexOf(':'); k >= 0; k = w.indexOf(':', k + 1)) {
-        if (k === 1 && /^[A-Za-z]$/.test(w[0])) continue;
+        if (k === 1 && /^[A-Za-z][:][\\/]/.test(w.slice(0, 3))) continue;
         const after = w.slice(k + 1);
         if (LOCAL_ENV.test(after)) deny(SECRET_WHY, whole);
         // a URL's //host/x or a network path is judged by its name alone, never resolved, which would reach the network
@@ -2908,9 +2958,9 @@ function checkGh(args, whole) {
     deny('The login and its token are the owner\'s.', whole);
   }
   // gh auth status prints the token itself with -t or --show-token, a short flag in a cluster such as -at among them,
-  // a cluster read whole, which refuses -ht's hostname t too, more and never less (D-096)
+  // or given a value, -t=true, a cluster read whole, which refuses -ht's hostname t too, more and never less (D-096)
   if (group === 'auth' && verb === 'status'
-    && lower.some((a) => /^--show-token(=|$)/.test(a) || /^-[a-z]*t[a-z]*$/.test(a))) {
+    && lower.some((a) => /^--show-token(=|$)/.test(a) || /^-[a-z]*t[a-z]*(=|$)/.test(a))) {
     deny('The login and its token are the owner\'s.', whole);
   }
   if (group === 'alias' || group === 'extension') deny('gh aliases and extensions can hide a refused command.', whole);

@@ -5164,20 +5164,25 @@ prints the GitHub token while `gh auth token` was refused, and a stash made with
 2. The stores come before every exception, on the written, the resolved and the real path, so an `.env` example or a
    tracked `*.tfvars` under `keys/` or a store is closed with it. The change only adds refusals.
 3. A search is judged by where it reaches. `rg` and the Grep tool are refused when a root, or the folder they run in
-   when none is given, is a store, lies inside one, or lies above the home folder's tool folders, the home folder
-   itself, its `AppData/Roaming`, `.config` and `.local/share`, so a search of a repo or of `~/.claude/projects` stays
-   open. `rg -L` and `--follow` are refused, and so is `git diff --no-index` on a folder. A search glob, `rg -g` and,
-   for the first time, the Grep tool's `glob`, is read with each brace list spelled out, and is refused when one name
-   could match both it and a store's shape, the shapes exact so `*.yml` passes while `id_*`, `*.tfst*` and
-   `terraform.*` do not. The older check of the `.env` and `*.tfvars` names applies to the Grep tool's glob too, so a
-   `*.json` glob is refused there as it already is for `rg`, the owner's choice, a JSON search using the Grep tool's
-   `type` instead. A brace list had hidden a name from that older check, `rg -g '{.env*,x}'`, and is now spelled out.
+   when none is given, is a store, lies inside one, or lies above any store a tool keeps in the home folder, its
+   `AppData/Roaming` or its `.local/share`, so `~`, `~/.config` and `~/.claude`, above Claude Code's sign in file, are
+   refused while a search of a repo or of `~/.claude/projects` stays open. `rg -L` and `--follow` are refused, and so
+   is `git diff --no-index` on a folder. A search glob, `rg -g` and, for the first time, the Grep tool's `glob`, is
+   read as rg reads it, each brace list spelled out, a backslash taking the next character as itself and a bracket as
+   any one character with no split inside it, and is refused when one name could match both it and a store's shape,
+   or when a part of it could name a store's folder. The shapes are exact so `*.yml` and `**/*.md` pass while `id_*`,
+   `*.tfst*`, `terraform.*` and `*.k\e\y` do not. The older check of the `.env` and `*.tfvars` names applies to the
+   Grep tool's glob too, so a `*.json` glob is refused there as it already is for `rg`, the owner's choice, a JSON
+   search using the Grep tool's `type` instead. A brace list had hidden a name from that older check,
+   `rg -g '{.env*,x}'`, and is now spelled out.
 4. A copy's destination meets the closed rule, so nothing is laid down in a store, whether its file exists or not.
 5. A revision word is judged by the text after each of its colons as a path, `HEAD:.env.kdf`, `:0:.env.kdf` and
    `stash@{0}:keys/x` among them. A `.env.local` there is closed outright, since the working copy's file says nothing
-   of the one in git. A drive's colon is passed over, since it names the same path as the word, and a URL's `//host`
-   is judged by its name and never resolved.
-6. `gh auth status` with `-t`, `--show-token` or a short cluster holding `t` is refused beside `gh auth token`.
+   of the one in git. A drive's colon followed by a separator, `D:/x`, is passed over, since it names the same path
+   as the word, while a one letter revision such as `x:.env.kdf` is judged, and a URL's `//host` is judged by its name
+   and never resolved.
+6. `gh auth status` with `-t`, `--show-token` or a short cluster holding `t`, with or without a value, is refused
+   beside `gh auth token`.
 7. `git stash`, `git stash push` and `git stash save` with `-a` or `--all`, and `git stash show` with `-u`,
    `--include-untracked` or `--only-untracked`, are refused. A stash made with ignored files before this change still
    holds them in its third parent, which a revision reads with no flag to refuse, and the guard reads no git object,
@@ -5209,8 +5214,11 @@ writes to open it, since scripts run unread. A tool that moves its sign in file 
 search of a folder above the home folder's tools, a JSON glob in the Grep tool and a jq filter ending in `.key` are
 refused where they did no harm.
 
-**Consequences.** 68 new refused cases, each allowed by the guard before this change, and 23 allowed controls, a
-test of each route's own reason, a checker test, three wrapper cases, the repo map's places and the roles page's
-words. The guard's change reaches a machine only through `install.sh`, the owner's, which replaces any interim hand
-edit of the installed guard, and `SCAN_LIMIT`'s recorded hash for `kdf-guard.js` moves with it.
+**Consequences.** 79 new refused cases, all but one allowed by the guard before this change, `git grep --no-index`
+kept refused, and 26 allowed controls, a test of each route's own reason, a checker test, three wrapper cases, the
+repo map's places and the roles page's words. Codex's security read of the first commit found four routes the build
+left open, a glob over `~/.claude`, an escape or a class in a glob, a state file with no dot after `.tfstate` and a
+one letter revision, each pinned by a case and closed in the second. The guard's change reaches a machine only through
+`install.sh`, the owner's, which replaces any interim hand edit of the installed guard, and `SCAN_LIMIT`'s recorded
+hash for `kdf-guard.js` moves with it.
 
