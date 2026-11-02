@@ -119,7 +119,9 @@ token_shapes='gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,}|-----BEGIN 
 token_shapes="$token_shapes|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}"
 # the names of secret files, matched in any case, exactly kdf-ask-codex.sh's
 secret_globs=('.env*' '*.pem' '*.key' '*.p12' '*.pfx' '*.tfvars' '*.tfstate*' 'id_rsa*' 'id_dsa*' 'id_ecdsa*'
-	'id_ed25519*' '.git-credentials' '.netrc')
+	'id_ed25519*' '.git-credentials' '.netrc' '_netrc')
+# the credential stores the guard closes whole, exactly kdf-ask-codex.sh's, matched as a whole part of the path
+secret_places=('.ssh' '.codex' '.docker' 'github cli' 'com.vercel.cli' '.config/gh' '.claude/.credentials.json')
 # CI's PIN in fetch_private_packages.py as an extended regular expression, held to it by a test
 pin_pattern="git\\+https://github\\.com/Needless2Say/[A-Za-z0-9._-]+\\.git@[^][:space:]#;,'\"[]+"
 # the files CI's fetch plan reads by default, its requirement_files input
@@ -195,8 +197,12 @@ redact() { sed -E 's#(https?://)[^/[:space:]@]+@#\1***@#g'; }
 # whether a tracked path is named like a secret file or sits under a keys folder, judged from the name alone. An .env
 # example is no secret, as the guard holds, and anything under keys/ is one whatever its name
 secret_name() {
-	local path="${1,,}" glob
+	local path="${1,,}" glob place
 	case "/$path" in */keys/*) return 0 ;; esac
+	# a store before the example's exception, so an example inside one is closed with it (D-096)
+	for place in "${secret_places[@]}"; do
+		case "/$path/" in */"$place"/*) return 0 ;; esac
+	done
 	case "${path##*/}" in .env*.example) return 1 ;; esac
 	for glob in "${secret_globs[@]}"; do
 		# shellcheck disable=SC2254 # the glob is a pattern on purpose

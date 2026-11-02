@@ -133,6 +133,62 @@ function isSecretFile(p) {
   if (TFVARS_FILE.test(s)) return !trackedByGit(s);
   return KEY_FILE.test(s);
 }
+// The machine's credential stores, closed to every session wherever they are, and the one list every check that
+// judges a name reads, the rule, the search globs and the dot globs, so no copy drifts (D-096). A folder is closed
+// whole and as a word with nothing after it, a file by its name whatever git says, a key by the prefix its tool writes,
+// and a container or a state file by its ending, terraform's state with any ending after it, its backup among them.
+// Every *.key is closed, a hidden one too, so a jq filter ending in .key is refused and is written .["key"] instead,
+// the owner's choice of 2026-11-01. keys/ stays closed below it alone as KEY_FILE has it, since a bare keys is also a
+// jq filter and a common word.
+const STORES = {
+  folders: ['.ssh', '.codex', '.docker', 'github cli', 'com.vercel.cli', '.config/gh'],
+  files: ['.git-credentials', '.netrc', '_netrc', '.claude/.credentials.json'],
+  keyPrefixes: ['id_rsa', 'id_dsa', 'id_ecdsa', 'id_ed25519'],
+  endings: ['pem', 'p12', 'pfx', 'key', 'tfstate']
+};
+const reEscape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const STORE_FOLDER = new RegExp('(^|/)(' + STORES.folders.map(reEscape).join('|') + ')(/|$)');
+const STORE_FILE = new RegExp('(^|/)(' + STORES.files.map(reEscape).join('|') + ')$');
+const STORE_KEY = new RegExp('(^|/)(' + STORES.keyPrefixes.map(reEscape).join('|') + ')[^/]*$');
+const STORE_ENDING = new RegExp(STORES.endings.map((e) => (e === 'tfstate' ? '\\.tfstate(\\.[^/]*)?$'
+  : '\\.' + reEscape(e) + '$')).join('|'));
+const KEYS_BELOW = /(^|\/)keys\//;
+// A name as Windows opens it, in lower case, each part without the dots and spaces Windows drops from its end or a
+// stream after a colon, so id_rsa. and terraform.tfstate:x name the files they open. A drive's colon is kept, and a
+// short name such as GITHUB~1 is left to the real path, which names the folder in full.
+function foldName(p) {
+  return String(p).replace(/\\/g, '/').toLowerCase().split('/').map((part, k) => {
+    if (part === '.' || part === '..' || (k === 0 && /^[a-z]:$/.test(part))) return part;
+    return part.replace(/:.*$/, '').replace(/[. ]+$/, '');
+  }).join('/');
+}
+function isStore(p) {
+  const n = foldName(p);
+  return STORE_FOLDER.test(n) || STORE_FILE.test(n) || STORE_KEY.test(n) || STORE_ENDING.test(n) || KEYS_BELOW.test(n);
+}
+// A store named as written, from the folder the shell is in, or where a link really leads.
+function storeAt(p) {
+  const s = String(p || '');
+  if (!s) return false;
+  if (isStore(s)) return true;
+  if (s.startsWith('-')) return false;
+  const abs = resolvedPath(s);
+  if (abs && isStore(abs)) return true;
+  const real = abs ? realOf(abs) : '';
+  return Boolean(real) && real.toLowerCase() !== abs.toLowerCase() && isStore(real);
+}
+// The globs a search may not include, each store a name alone can close in the shape its tool writes, a container by
+// its ending, terraform's state and its two backup shapes, the login files and the keys by their names. A name closed
+// only under its folder, an auth.json or a hosts.yml, is the search's root rule. The shapes are exact so a name such
+// as id_rsa.yml or a.tfstate.ts, which a trailing run of any would let any glob meet, keeps *.yml and *.ts open while
+// id_*, *.tfst* and terraform.* meet a store.
+const STORE_GLOBS = [
+  ...STORES.endings.map((e) => '*.' + e), '*.tfstate.backup', '*.tfstate.*.backup',
+  ...STORES.files.filter((f) => !f.includes('/')),
+  ...STORES.keyPrefixes
+];
+// The stores whose own name starts with a dot, for a glob such as .net* that bash expands wherever it runs.
+const STORE_DOT_NAMES = [...STORES.folders, ...STORES.files].filter((n) => n.startsWith('.') && !n.includes('/'));
 // Credentials that work beyond this machine. The env standard keeps them in .env.kdf, and a repo's .env.kdf.example
 // names its own on top of these.
 const KDF_CREDENTIALS = [
@@ -151,6 +207,14 @@ const ADMIN_WHY = '.env.dev and .env.prod are the owner\'s admin files for the D
 const CREDENTIAL_WHY = 'This .env.local is closed. It opens once its repo has adopted the env standard, a tracked '
   + '.env.kdf.example beside it, and it holds none of the credentials that work beyond this machine, which the '
   + 'standard keeps in .env.kdf. Ask the owner.';
+const STORE_WHY = 'A tool\'s sign in file, a key or a terraform state file is the owner\'s. No session reads, copies '
+  + 'into or searches one, it only checks that one exists with ls, test or stat. Ask the owner.';
+const STORE_SEARCH_WHY = 'A search that can reach a credential store is refused. Search inside the repo or folder '
+  + 'you need, below the home folder\'s tool folders and outside any store.';
+const STORE_GLOB_WHY = 'An rg glob that could match a key, a terraform state file or a login file overrides rg\'s '
+  + 'skipping of them. Narrow the glob.';
+const STASH_WHY = 'A stash that holds ignored files carries every secret file out of the working tree with no file '
+  + 'named. Stash tracked and untracked files alone, or ask the owner.';
 // Programs that only check that a file exists, the one thing a session may do with a secret file.
 const EXISTENCE_ONLY = new Set(['test', '[', '[[', 'ls', 'dir', 'stat']);
 // Programs that print what a file holds. A reviewer never points one at a path git ignores.
@@ -364,6 +428,9 @@ function localEnvOpen(p) {
 function isClosed(p) {
   const s = String(p || '');
   if (!s) return false;
+  // a store before any exception, so an example or a tracked *.tfvars inside a closed folder is closed with it, on the
+  // written, the resolved and the real path (D-096)
+  if (storeAt(s)) return true;
   if (LOCAL_ENV.test(s) ? !localEnvOpen(s) : isSecretFile(s)) return true;
   // the same path from the folder the shell is in, so cd keys && cat id_rsa names keys/id_rsa, and where it really
   // leads, so a link to a secret file is one (D-068)
@@ -380,7 +447,104 @@ function isClosed(p) {
 function checkClosed(p, detail) {
   if (!isClosed(p)) return;
   const s = String(p);
-  deny(LOCAL_ENV.test(s) ? CREDENTIAL_WHY : ADMIN_ENV.test(s) ? ADMIN_WHY : SECRET_WHY, detail);
+  const why = storeAt(s) ? STORE_WHY : LOCAL_ENV.test(s) ? CREDENTIAL_WHY : ADMIN_ENV.test(s) ? ADMIN_WHY : SECRET_WHY;
+  deny(why, detail);
+}
+
+// A search's reach, every folder rg or the Grep tool reads below its root. It is refused when a root is a store, lies
+// inside one, or lies above the home folder's tool folders, the home folder itself, its AppData/Roaming, .config and
+// .local/share, judged as written and where it really leads, so D:/KriegerDataForge and ~/.claude/projects stay
+// open while ~ and C:/Users do not (D-096).
+function searchReachesStore(root) {
+  const home = foldName(os.homedir());
+  const above = [home, home + '/appdata/roaming', home + '/.config', home + '/.local/share'];
+  for (const at of new Set([toAbs(root), realOf(root)].map(foldName))) {
+    if (isStore(at) || isStore(at + '/x')) return true;
+    const dir = at.endsWith('/') ? at : at + '/';
+    if (above.some((p) => p === at || p.startsWith(dir))) return true;
+  }
+  return false;
+}
+
+function checkSearchRoots(roots, whole) {
+  for (const root of roots) if (searchReachesStore(root)) deny(STORE_SEARCH_WHY, whole);
+}
+
+// The globs a brace list spells, {a,b}x as ax and bx, nested ones too, as rg reads them, so a brace cannot hide a name
+// the glob checks look for. A list past 64 alternatives is read as matching anything, which refuses more, never less.
+function braceAlternatives(glob, budget = { left: 64 }) {
+  const open = glob.indexOf('{');
+  if (open < 0) return [glob];
+  let depth = 0;
+  for (let k = open; k < glob.length; k++) {
+    if (glob[k] === '{') depth++;
+    if (glob[k] !== '}' || --depth > 0) continue;
+    const parts = [];
+    let level = 0;
+    let from = open + 1;
+    for (let j = open + 1; j < k; j++) {
+      if (glob[j] === '{') level++;
+      else if (glob[j] === '}') level--;
+      else if (glob[j] === ',' && level === 0) {
+        parts.push(glob.slice(from, j));
+        from = j + 1;
+      }
+    }
+    parts.push(glob.slice(from, k));
+    const out = [];
+    for (const part of parts) {
+      for (const alt of braceAlternatives(glob.slice(0, open) + part + glob.slice(k + 1), budget)) {
+        if (--budget.left < 0) return ['*'];
+        out.push(alt);
+      }
+    }
+    return out;
+  }
+  return [glob];
+}
+
+// Whether one name could match both globs, read step by step as globSteps gives them, a run of any matching any
+// characters and a bracket taken as any one, so the answer is never no when a name could match both.
+function globsMeet(a, b) {
+  const seen = new Set();
+  const stack = [[0, 0]];
+  while (stack.length) {
+    const [i, j] = stack.pop();
+    const key = i + ',' + j;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (i === a.length && j === b.length) return true;
+    const x = a[i];
+    const y = b[j];
+    if (x === STAR) stack.push([i + 1, j]);
+    if (y === STAR) stack.push([i, j + 1]);
+    if (i >= a.length || j >= b.length) continue;
+    if (x === STAR && y !== STAR) stack.push([i, j + 1]);
+    else if (y === STAR && x !== STAR) stack.push([i + 1, j]);
+    else if (x !== STAR && (x === ONE || y === ONE || x === y)) stack.push([i + 1, j + 1]);
+  }
+  return false;
+}
+
+// A search glob, rg's -g and --iglob or the Grep tool's glob, read as every name it could include. One that could
+// include a store a name alone closes, or a part that could be a store's folder, is refused, and so is one that could
+// include a secret file's name, as before. An exclusion, !<glob>, only narrows.
+function checkSearchGlob(glob, whole) {
+  if (String(glob).startsWith('!')) return;
+  const samples = [...DOT_SECRET_NAMES, '.env.local', 'id.pem', 'x.tfvars', 'x.tfvars.json'];
+  for (const alt of braceAlternatives(String(glob))) {
+    const parts = alt.replace(/\\/g, '/').split('/').filter(Boolean);
+    const last = parts.length ? parts[parts.length - 1] : '*';
+    const steps = globSteps(last, ALL_WILD);
+    if (samples.some((name) => globMatch(steps, name)) || parts.some((p) => /^keys$/i.test(p))) {
+      deny('An rg glob that could include a secret file overrides rg\'s skipping of them. Narrow the glob.', whole);
+    }
+    const lower = globSteps(last.toLowerCase(), ALL_WILD);
+    if (STORE_GLOBS.some((g) => globsMeet(lower, globSteps(g, ALL_WILD)))) deny(STORE_GLOB_WHY, whole);
+    const folders = STORES.folders.filter((f) => !f.includes('/')).map((f) => globSteps(f, ALL_WILD));
+    const meets = (p) => folders.some((f) => globsMeet(globSteps(p.toLowerCase(), ALL_WILD), f));
+    if (parts.some(meets)) deny(STORE_GLOB_WHY, whole);
+  }
 }
 
 // Programs whose first word is a pattern, which may spell .env with a backslash or a caret, '^\.env' for example.
@@ -624,6 +788,7 @@ function checkDotGlob(word, whole) {
   const last = String(word || '').split(/[\\/]/).pop();
   if (!last.startsWith('.') || !GLOB_CHAR.test(last)) return;
   const steps = globSteps(last, ALL_WILD);
+  if (STORE_DOT_NAMES.some((name) => globMatch(steps, name))) deny(STORE_WHY, whole);
   if (DOT_SECRET_NAMES.some((name) => globMatch(steps, name))) deny(SECRET_WHY, whole);
 }
 
@@ -651,6 +816,24 @@ function checkSecretWords(toks, prog, args, whole) {
     for (const w of words.filter((x) => x.startsWith('@'))) words.push(w.slice(1));
     // a value joined to a short option, grep -f.env.kdf or a cluster such as -nfkeys/id_rsa, read as each tail
     if (/^-[^-]/.test(t.t)) for (let k = 2; k < t.t.length; k++) words.push(t.t.slice(k));
+    // a revision word names a file in git's objects after each colon, HEAD:.env.kdf, :0:.env.kdf or
+    // stash@{0}:keys/x, so the text after each is judged as a path too. A .env.local there is closed outright, since
+    // the working copy's file says nothing of the one in git. A drive's colon, D:/x, names the same path as the word
+    // itself (D-096).
+    for (const w of [...words]) {
+      for (let k = w.indexOf(':'); k >= 0; k = w.indexOf(':', k + 1)) {
+        if (k === 1 && /^[A-Za-z]$/.test(w[0])) continue;
+        const after = w.slice(k + 1);
+        if (LOCAL_ENV.test(after)) deny(SECRET_WHY, whole);
+        // a URL's //host/x or a network path is judged by its name alone, never resolved, which would reach the network
+        if (/^(\/\/|\\\\)/.test(after)) {
+          if (isStore(after)) deny(STORE_WHY, whole);
+          if (ENV_FILE.test(after) && !/\.example$/i.test(after)) deny(SECRET_WHY, whole);
+          continue;
+        }
+        words.push(after);
+      }
+    }
     for (const w of words) checkClosed(w, whole);
   }
 }
@@ -744,6 +927,12 @@ function checkReviewerOpens(p, detail) {
 function checkReadTool(tool, args) {
   const target = String((tool === 'Read' ? args.file_path : args.path) || '');
   if (target && tool !== 'Glob') checkClosed(target, tool + ' ' + target);
+  // the Grep tool is rg, so its reach and its glob meet rg's rules, its root the folder the session is in when no
+  // path is given (D-096)
+  if (tool === 'Grep') {
+    checkSearchRoots([target || CWD], tool + ' ' + (target || CWD));
+    if (args.glob) checkSearchGlob(args.glob, tool + ' glob ' + args.glob);
+  }
   if (MODE !== 'reviewer') return;
   if (target) checkReviewerOpens(target, tool + ' ' + target);
   if (tool === 'Glob') {
@@ -1218,17 +1407,19 @@ const LIST = {
       + '--no-unicode --crlf --encoding= -E= --engine= --pcre2 --auto-hybrid-regex --max-filesize= --version -V',
     why: RG_WHY,
     // a glob that includes overrides rg's skipping of hidden and ignored files, so one that could match a secret
-    // file's name is refused, while one that excludes, !<glob>, only narrows (D-068)
+    // file's name is refused, while one that excludes, !<glob>, only narrows (D-068). A search reaches every folder
+    // below its roots, so a root at, inside or above a credential store is refused, the folder rg runs in when no root
+    // is given, and so is following a link below an ordinary root (D-096).
     check: (o, whole) => {
-      const secrets = [...DOT_SECRET_NAMES, '.env.local', 'id.pem', 'x.tfvars', 'x.tfvars.json'];
-      for (const v of o.values.filter((x) => /^(-g|--glob|--iglob)$/.test(x.name))) {
-        if (v.value.startsWith('!')) continue;
-        const parts = v.value.replace(/\\/g, '/').split('/');
-        const last = globSteps(parts[parts.length - 1], ALL_WILD);
-        if (secrets.some((name) => globMatch(last, name)) || parts.some((p) => /^keys$/i.test(p))) {
-          deny('An rg glob that could include a secret file overrides rg\'s skipping of them. Narrow the glob.', whole);
-        }
+      if (o.has('-L') || o.has('--follow')) {
+        deny('rg -L and --follow follow a link below the folder searched to wherever it leads, a credential store '
+          + 'among them. Search without them.', whole);
       }
+      const named = o.values.some((v) => v.name === '-e' || v.name === '--regexp') || o.has('--files')
+        || o.has('--type-list');
+      const roots = o.operands.slice(named ? 0 : 1).filter((r) => r !== '-');
+      checkSearchRoots(roots.length ? roots : [CWD], whole);
+      for (const v of o.values.filter((x) => /^(-g|--glob|--iglob)$/.test(x.name))) checkSearchGlob(v.value, whole);
     }
   },
   sort: {
@@ -1777,6 +1968,14 @@ function stashForm(rest, whole) {
   const sub = Object.prototype.hasOwnProperty.call(subs, first) ? first : 'push';
   const words = sub === first ? rest.slice(1) : rest;
   const o = readOpts(subs[sub], words, 'git stash ' + sub, whole, GIT_WHY);
+  // ignored files ride in a stash made with -a or --all, git stash save among the push forms, and come back out of
+  // one through show's untracked options, so both are refused. A stash made with them before this change still holds
+  // them in its third parent, which a revision reads with no flag here, so the owner lists each clone's stashes once
+  // (D-096)
+  if (sub === 'push' && (o.has('-a') || o.has('--all'))) deny(STASH_WHY, whole);
+  if (sub === 'show' && (o.has('-u') || o.has('--include-untracked') || o.has('--only-untracked'))) {
+    deny(STASH_WHY, whole);
+  }
   return { sub: 'stash', stash: sub, ...o };
 }
 
@@ -2247,6 +2446,9 @@ function checkCopyTree(prog, operands, whole) {
     for (const base of [path.join(toAbs(dest), path.basename(toAbs(src))), toAbs(dest)]) {
       const to = rel ? path.join(base, rel) : base;
       if (isProtected(to)) deny(GUARDRAIL_WHY, whole);
+      // a copy into a store lays a file down where a tool reads its login, so the destination meets the closed rule
+      // too, whether the file there exists or not (D-096)
+      if (isClosed(to)) deny(storeAt(to) ? STORE_WHY : SECRET_WHY, whole);
     }
     if (isClosed(from) || (prog === 'mv' && isProtected(from))) deny(isClosed(from) ? SECRET_WHY : GUARDRAIL_WHY, whole);
   };
@@ -2366,6 +2568,12 @@ function checkGit(args, whole, plain) {
   checkGitOptions(args, whole);
   const { sub, rest } = gitSplit(args);
   if (MODE === 'reviewer') reviewerGit(sub, rest, whole);
+  // git diff --no-index on a folder compares every file the two hold, a store's among them, with no file named, so a
+  // folder is refused there and two files are judged by name as any word is (D-096)
+  if (sub === 'diff' && rest.includes('--no-index') && rest.some((a) => !a.startsWith('-') && isDir(a))) {
+    deny('git diff --no-index on a folder compares every file it holds, a secret file or a store among them, with '
+      + 'no file named. Name the two files.', whole);
+  }
   if (sub === 'push') checkPush(rest, whole, plain ? plainGitDir(args) : '');
   else if (sub === 'tag') checkTag(rest, whole);
   else if (sub === 'config') checkConfig(rest, whole);
@@ -2697,6 +2905,12 @@ function checkGh(args, whole) {
     deny('Repository settings, keys and lifecycle are the owner\'s.', whole);
   }
   if (group === 'auth' && ['token', 'logout', 'refresh', 'setup-git'].includes(verb)) {
+    deny('The login and its token are the owner\'s.', whole);
+  }
+  // gh auth status prints the token itself with -t or --show-token, a short flag in a cluster such as -at among them,
+  // a cluster read whole, which refuses -ht's hostname t too, more and never less (D-096)
+  if (group === 'auth' && verb === 'status'
+    && lower.some((a) => /^--show-token(=|$)/.test(a) || /^-[a-z]*t[a-z]*$/.test(a))) {
     deny('The login and its token are the owner\'s.', whole);
   }
   if (group === 'alias' || group === 'extension') deny('gh aliases and extensions can hide a refused command.', whole);

@@ -51,11 +51,20 @@ When your role is unclear, take the narrower one and ask the owner.
    session and every model. Nothing reads, writes, copies, sources or passes one to a command, and checking that one
    exists is the only thing allowed. A stack or a test that needs one starts through the repo's make target, which
    reads the file itself. The env standard in `skills.md` splits a repo's local settings in two files.
-   - **`.env.local` is open once its repo has adopted the standard.** It holds the values that work only on this
-     machine, and by the owner's decision every model may read it, but only where git tracks a `.env.kdf.example`
-     beside it, since until then it may hold anything, a file `vercel env pull` wrote for example. Even then check it
-     first without reading it, adding every name that `.env.kdf.example` lists, commented out or not, to the pattern
-     below. When the example is missing or this finds a line, leave the file closed and tell the owner.
+   - **A tool's sign in files, keys and terraform state are closed wherever they are**, in a repo or in the home
+     folder, and no session reads, copies into or searches one. These are the folders `.ssh`, `.codex`, `.docker`,
+     the GitHub CLI's, `.config/gh` or `GitHub CLI` under AppData, and the Vercel CLI's `com.vercel.cli`, Claude
+     Code's `.claude/.credentials.json`, `.git-credentials`, `.netrc` and `_netrc`, the keys `id_rsa`, `id_dsa`,
+     `id_ecdsa` and `id_ed25519` with their companions, every `*.key`, `*.p12` and `*.pfx`, and every `*.tfstate`
+     with its backups. A search's root is never one, inside one or above the home folder's tool folders, a link is
+     never followed into one, a stash never takes ignored files, and `gh auth status` never shows its token. This
+     comes before every allowance below, so an example or a tracked `*.tfvars` under `keys/` or a store is closed too.
+   - **`.env.local` is open once its repo has adopted the standard**, outside `keys/` and the stores above. It holds
+     the values that work only on this machine, and by the owner's decision every model may read it, but only where
+     git tracks a `.env.kdf.example` beside it, since until then it may hold anything, a file `vercel env pull` wrote
+     for example. Even then check it first without reading it, adding every name that `.env.kdf.example` lists,
+     commented out or not, to the pattern below. When the example is missing or this finds a line, leave the file
+     closed and tell the owner.
 
      ```bash
      grep -qE '^[[:space:]]*(export[[:space:]]+)?(GH_PACKAGES_PAT|GH_NPM_TOKEN|KDF_OIDC_CLIENT_SECRET|KDF_SERVICE_KEY|AUTH_RESEND_API_KEY|AUTH_TWILIO_AUTH_TOKEN|AUTH_ADMIN_EMAIL_PASSWORD)[[:space:]]*=[[:space:]]*[^[:space:]]' .env.local
@@ -67,7 +76,7 @@ When your role is unclear, take the narrower one and ask the owner.
      against the DEV and PROD databases, and backups such as `.env.local.bak`, and so are a `*.tfvars` git does not
      track, `*.pem` and anything under `keys/`. The examples, `.env.example`, `.env.local.example` or
      `.env.kdf.example`, and a tracked `*.tfvars` such as terraform's `common.auto.tfvars` hold no secret and are
-     open.
+     open, outside `keys/` and the stores above.
    - Name a variable, never its value, in code, logs, reports and messages, a value from `.env.local` included.
 6. **Follow `.gitignore`.** What git ignores is not the project. It is local environments, installed dependencies,
    build output, caches, logs, and the files that hold secrets. Never search, open, quote or pass on a path git

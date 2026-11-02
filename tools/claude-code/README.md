@@ -135,7 +135,26 @@ call (D-068). And so are `gh gist`, deploy keys and account keys.
 copies, sources or passes one to a command, in the shell or to Read, Grep, Edit and Write. `test`, `ls`, `stat` and
 `git check-ignore` may name one, since they only show that it exists. A secret file is every `.env` file but an
 example and `.env.local`, backups such as `.env.local.bak` included, a `*.tfvars` git does not track, `*.pem` and
-`keys/`. Terraform's committed `common.auto.tfvars` stays readable. The words
+`keys/`. Terraform's committed `common.auto.tfvars` stays readable.
+
+**The machine's credential stores are closed too, wherever they are** (D-096). `STORES` in the guard is the one list
+every check of a name reads. The folders `.ssh`, `.codex`, `.docker`, `GitHub CLI`, `com.vercel.cli` and `.config/gh`
+are closed whole and as a word with nothing after it, and so are `.claude/.credentials.json`, `.git-credentials`,
+`.netrc`, `_netrc`, the keys `id_rsa`, `id_dsa`, `id_ecdsa` and `id_ed25519` with anything after their names, every
+`*.key`, `*.p12` and `*.pfx`, and every `*.tfstate` with any ending after it. A name is read as Windows opens it, in
+any case and with the dots, spaces and stream Windows drops from its end, so `id_rsa.` and `terraform.tfstate:x`
+count. These come before every exception, so an example or a tracked `*.tfvars` under `keys/` or a store is closed,
+named as written, from the folder the shell is in, or where a link leads. A search is judged by where it reaches, so
+`rg` and the Grep tool are refused when a root, or the folder they run in when none is given, is a store, lies inside
+one or lies above the home folder's tool folders, the home folder, its `AppData/Roaming`, `.config` and
+`.local/share`, while `rg x D:/KriegerDataForge` and a search of `~/.claude/projects` stay open. `rg -L` and
+`--follow` are refused, `git diff --no-index` on a folder is refused, and a search glob, `rg -g` or the Grep tool's
+`glob`, each brace list read as every glob it spells, is refused when one name could match both it and a store's shape,
+`id_*`, `*.tfst*` and `terraform.*` among them, while `*.yml` passes. A copy into a store is refused, a revision word
+is judged by each path after its colons, `HEAD:.env.kdf` and `:0:keys/x` among them, `gh auth status -t` and
+`--show-token` are refused beside `gh auth token`, and `git stash` with `-a` or `--all` and `git stash show` with its
+untracked options are refused, since ignored files would leave the tree with no file named. A jq filter ending in
+`.key` is refused with the rest and is written `.["key"]`. The words
 checked are the program, its arguments, the value after an `=`, a curl style `@file`, and a redirect's target, whatever
 the program, so `--env-file=.env.prod`, `-d @.env.kdf` and `ls >.env.kdf` count. A search pattern such as `'^\.env'`
 that names no file on disk is not a path. A glob, a `*`, `?` or `[` outside quotes, `".e"nv*` included, is judged by
@@ -400,8 +419,9 @@ so a `main` that moved on is not read as part of it.
 Files mode copies a folder into a throwaway repo and checks the copy, so nothing that lands in the source after the
 checks reaches Codex. It refuses a folder that is a repo or holds one, a symbolic link, a file named like a secret
 file in any case (`.env*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.tfvars`, `*.tfstate*`, an ssh key,
-`.git-credentials`, `.netrc` and anything under `keys/`) and a file holding a token's shape. A secret's name refuses
-the folder before anything is copied, so a secret file already there is never copied. The brief's name is judged
+`.git-credentials`, `.netrc`, `_netrc` and anything under `keys/` or a credential store's folder, the guard's list,
+D-096) and a file holding a token's shape. A secret's name refuses the folder before anything is copied, the folder's
+own name included, so a secret file already there is never copied. The brief's name is judged
 from the path given, before the file is read, and then the brief is read once, into a copy that is held to the same
 checks and to no link, and the frame is built from that copy, so a brief changed after its check never reaches
 Codex. Either way the folder must hold nothing git ignores or does not track before Codex starts, and every `GIT_`

@@ -36,6 +36,15 @@ const SECRET_READ_DENIES = [
   'Read(**/.env.kdf)', 'Read(**/.env.dev)', 'Read(**/.env.prod)', 'Read(**/.env.test)', 'Read(**/*.tfvars)',
   'Read(**/*.pem)'
 ];
+// A **/ line refuses nothing outside the folder a session starts in, so the names the guard closes without exception,
+// the state files, the key containers, the login files and the keys, are denied again rooted at the workspace, and the
+// home folder's stores in the ~/ form (D-096). .env.local and the .env examples stay out, their checks the guard's.
+const ROOTED_NAMES = ['*.tfstate*', '*.key', '*.p12', '*.pfx', '.git-credentials', '.netrc', '_netrc', 'id_rsa*',
+  'id_dsa*', 'id_ecdsa*', 'id_ed25519*'];
+const HOME_STORES = ['.ssh/**', '.codex/**', '.docker/**', '.claude/.credentials.json', '.git-credentials', '.netrc',
+  '_netrc'].concat(process.platform === 'win32'
+  ? ['AppData/Roaming/GitHub CLI/**', 'AppData/Roaming/com.vercel.cli/**']
+  : ['.config/gh/**', '.local/share/com.vercel.cli/**']);
 
 const argv = process.argv.slice(2);
 const flag = (name) => argv.includes(name);
@@ -47,6 +56,26 @@ const installedGuard = path.join(home, '.claude', 'hooks', 'kdf-guard.js');
 const repoGuard = path.join(__dirname, 'kdf-guard.js');
 const hookPath = home.replace(/\\/g, '/') + '/.claude/hooks/kdf-guard.js';
 
+// The workspace, the folder above the main clone git's common folder names, the same from the clone and from any
+// worktree of it, as kdf-ask-codex.sh finds it, else the folder three above this script. In a deny rule a path from the
+// root is written with //, a drive as //d/ in lower case.
+function workspaceRule() {
+  let workspace = '';
+  try {
+    const common = require('child_process').execFileSync('git', ['-C', __dirname, 'rev-parse', '--path-format=absolute',
+      '--git-common-dir'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }).trim();
+    if (common) workspace = path.resolve(common, '..', '..');
+  } catch (err) {
+    workspace = '';
+  }
+  if (!workspace) workspace = path.resolve(__dirname, '..', '..', '..');
+  const s = workspace.replace(/\\/g, '/');
+  const drive = /^([A-Za-z]):\/?(.*)$/.exec(s);
+  return drive ? '//' + drive[1].toLowerCase() + '/' + drive[2].replace(/\/$/, '') : '/' + s.replace(/\/$/, '');
+}
+const storeReadDenies = () => ROOTED_NAMES.map((n) => 'Read(' + workspaceRule() + '/**/' + n + ')')
+  .concat(HOME_STORES.map((s) => 'Read(~/' + s + ')'));
+
 function recommended() {
   return {
     defaultShell: 'bash',
@@ -54,7 +83,7 @@ function recommended() {
     hooks: {
       PreToolUse: [{ matcher: MATCHER, hooks: [{ type: 'command', command: 'node "' + hookPath + '" || exit 2' }] }]
     },
-    permissions: { deny: ['PowerShell'].concat(SECRET_READ_DENIES) }
+    permissions: { deny: ['PowerShell'].concat(SECRET_READ_DENIES, storeReadDenies()) }
   };
 }
 
@@ -120,7 +149,14 @@ if (settings) {
 
   const missingReads = SECRET_READ_DENIES.filter((r) => !deny.includes(r));
   if (missingReads.length) add('WARN', 'secret files are not denied to the Read tool', missingReads.join(' '));
-  else add('PASS', 'secret files are denied to the Read tool');
+  else add('PASS', 'secret files in the folder a session starts in are denied to the Read tool');
+  // a warning that names each line, never a failure, as for the lines above (D-096)
+  const missingStores = storeReadDenies().filter((r) => !deny.includes(r));
+  if (missingStores.length) {
+    add('WARN', 'credential stores outside that folder are not denied to the Read tool', missingStores.join(' '));
+  } else {
+    add('PASS', 'the workspace\'s and the home folder\'s credential stores are denied to the Read tool');
+  }
   if (!deny.includes('Bash(gh pr merge *)')) add('WARN', 'the Bash deny rule for gh pr merge is absent', 'the guard still refuses it, the rule is the second fence');
 }
 
