@@ -150,9 +150,11 @@ one or lies above any store a tool keeps in the home folder, so `~` and `~/.clau
 `rg x D:/KriegerDataForge` and a search of `~/.claude/projects` stay open. `rg -L` and `--follow` are refused,
 `git diff --no-index` on a folder is refused, and a search glob, `rg -g` or the Grep tool's `glob`, read as rg reads
 it with each brace list spelled out, an escape as its character and a bracket as any one character, is refused when
-one name could match both it and a store's shape, `id_*`, `*.tfst*`, `terraform.*` and `*.k\e\y` among them, while
-`*.yml` and `**/*.md` pass. A copy into a store is refused, a revision word
-is judged by each path after its colons, `HEAD:.env.kdf` and `:0:keys/x` among them, `gh auth status -t` and
+one name could match both it and a container's or a login file's shape, when a part of it could name a store's
+folder, `.config` among them, or when its own characters spell some of `.tfstate` or `id_rsa`, so `id_*`, `*.tfst*`,
+`terraform.*`, `*.tfstate~` and `*.k\e\y` are refused while `*.ts`, `*.yml` and `**/*.md` pass. A copy into a store
+is refused, a revision word is judged by each path after its colons, `HEAD:.env.kdf` and `:0:keys/x` among them,
+`gh auth status -t` and
 `--show-token` are refused beside `gh auth token`, and `git stash` with `-a` or `--all` and `git stash show` with its
 untracked options are refused, since ignored files would leave the tree with no file named. A jq filter ending in
 `.key` is refused with the rest and is written `.["key"]`. The words

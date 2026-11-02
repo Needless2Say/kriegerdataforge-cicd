@@ -7258,5 +7258,14 @@
  { "role": "owner", "tool": "Bash", "command": "cat C:/x/notes.md", "expect": "allow" },
  { "role": "owner", "tool": "Bash", "command": "rg -g 'src/*.md' x", "expect": "allow" },
  { "role": "owner", "tool": "Bash", "command": "rg -g '**/*.md' x", "expect": "allow" },
+ { "role": "owner", "tool": "Bash", "command": "rg -g '*.[k\\]ey' x src", "expect": "block" },
+ { "role": "owner", "tool": "Grep", "input": { "pattern": "x", "path": "${PROJ}/src", "glob": "*.[k\\]ey" }, "expect": "block" },
+ { "role": "owner", "tool": "Bash", "command": "rg -g '.config' -g '**/.config/*/*.yml' token src", "expect": "block" },
+ { "role": "owner", "tool": "Bash", "command": "rg -g '.config' x src", "expect": "block" },
+ { "role": "owner", "tool": "Grep", "input": { "pattern": "x", "path": "${PROJ}/src", "glob": "*.tfstate~" }, "expect": "block" },
+ { "role": "owner", "tool": "Bash", "command": "rg -g '*.tfsta[t]e~' x src", "expect": "block" },
+ { "role": "owner", "tool": "Bash", "command": "rg -g 'id_rsa_*' x src", "expect": "block" },
+ { "role": "owner", "tool": "Bash", "command": "rg -g '*_rsa*' x src", "expect": "block" },
+ { "role": "owner", "tool": "Bash", "command": "rg -g '*.md' x src", "expect": "allow" },
  { "role": "owner", "tool": "Bash", "command": "jq .key notes/auth.json", "expect": "block" }
 ]

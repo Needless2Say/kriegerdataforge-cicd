@@ -439,6 +439,10 @@ def test_each_closed_file_is_refused_with_its_own_reason(tmp_path: Path, command
         ({"tool": "Bash", "command": "git show x:.env.kdf"}, "Secret files are the owner's"),
         ({"tool": "Bash", "command": "cat server.key."}, STORE_SAYS),
         ({"tool": "Bash", "command": "gh auth status -t=true"}, "The login and its token are the owner's."),
+        # the routes Codex's read of 275d2b0 found open
+        ({"tool": "Bash", "command": "rg -g '*.[k\\]ey' x src"}, GLOB_SAYS),
+        ({"tool": "Bash", "command": "rg -g '.config' -g '**/.config/*/*.yml' token src"}, GLOB_SAYS),
+        ({"tool": "Bash", "command": "rg -g '*.tfsta[t]e~' x src"}, GLOB_SAYS),
     ],
 )
 def test_each_credential_store_route_is_refused_with_its_own_reason(

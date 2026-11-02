@@ -178,15 +178,19 @@ function storeAt(p) {
   const real = abs ? realOf(abs) : '';
   return Boolean(real) && real.toLowerCase() !== abs.toLowerCase() && isStore(real);
 }
-// The globs a search may not include, each store a name alone can close in the shape its tool writes, a container by
-// its ending, terraform's state and its two backup shapes, the login files and the keys by their names. A name closed
-// only under its folder, an auth.json or a hosts.yml, is the search's root rule. The shapes are exact so a name such
-// as id_rsa.yml or a.tfstate.ts, which a trailing run of any would let any glob meet, keeps *.yml and *.ts open while
-// id_*, *.tfst* and terraform.* meet a store.
+// The globs a search may not include, each store a name alone can close. A container and a login file in their exact
+// shape. Terraform's state and the keys may have anything after their names, so a glob meets one only when its own
+// characters, a letter, a ? or a bracket, stand for some of the part a name must hold, .tfstate or id_rsa, which
+// refuses *.tfstate~, *.tfsta[t]e~, terraform.*, id_* and *_rsa*, while *.ts, *.yml and *.md, whose run of any alone
+// would cover a name such as x.tfstate.ts, stay open, the owner's choice of 2026-11-02. A name closed only under its
+// folder, an auth.json or a hosts.yml, is the search's root rule.
 const STORE_GLOBS = [
-  ...STORES.endings.map((e) => '*.' + e), '*.tfstate.backup', '*.tfstate.*.backup',
-  ...STORES.files.filter((f) => !f.includes('/')),
-  ...STORES.keyPrefixes
+  ...STORES.endings.filter((e) => e !== 'tfstate').map((e) => '*.' + e),
+  ...STORES.files.filter((f) => !f.includes('/'))
+];
+const STORE_SPELLED = [
+  { glob: '*.tfstate*', from: 1, to: 9 },
+  ...STORES.keyPrefixes.map((k) => ({ glob: k + '*', from: 0, to: k.length }))
 ];
 // The stores whose own name starts with a dot, for a glob such as .net* that bash expands wherever it runs.
 const STORE_DOT_NAMES = [...STORES.folders, ...STORES.files].filter((n) => n.startsWith('.') && !n.includes('/'));
@@ -508,24 +512,28 @@ function braceAlternatives(glob, budget = { left: 64 }) {
 }
 
 // Whether one name could match both globs, read step by step as globSteps gives them, a run of any matching any
-// characters and a bracket taken as any one, so the answer is never no when a name could match both.
-function globsMeet(a, b) {
+// characters and a bracket taken as any one, so the answer is never no when a name could match both. With from and to,
+// b's steps from to to must be met at least once by one of a's own characters, a letter, a ? or a bracket, never by
+// a's run of any alone, the spelled part STORE_SPELLED names.
+function globsMeet(a, b, from = 0, to = 0) {
   const seen = new Set();
-  const stack = [[0, 0]];
+  const stack = [[0, 0, to <= from]];
   while (stack.length) {
-    const [i, j] = stack.pop();
-    const key = i + ',' + j;
+    const [i, j, hit] = stack.pop();
+    const key = i + ',' + j + ',' + hit;
     if (seen.has(key)) continue;
     seen.add(key);
-    if (i === a.length && j === b.length) return true;
+    if (i === a.length && j === b.length && hit) return true;
     const x = a[i];
     const y = b[j];
-    if (x === STAR) stack.push([i + 1, j]);
-    if (y === STAR) stack.push([i, j + 1]);
+    if (x === STAR) stack.push([i + 1, j, hit]);
+    if (y === STAR) stack.push([i, j + 1, hit]);
     if (i >= a.length || j >= b.length) continue;
-    if (x === STAR && y !== STAR) stack.push([i, j + 1]);
-    else if (y === STAR && x !== STAR) stack.push([i + 1, j]);
-    else if (x !== STAR && (x === ONE || y === ONE || x === y)) stack.push([i + 1, j + 1]);
+    if (x === STAR && y !== STAR) stack.push([i, j + 1, hit]);
+    else if (y === STAR && x !== STAR) stack.push([i + 1, j, hit]);
+    else if (x !== STAR && (x === ONE || y === ONE || x === y)) {
+      stack.push([i + 1, j + 1, hit || (j >= from && j < to)]);
+    }
   }
   return false;
 }
@@ -546,18 +554,18 @@ function checkSearchGlob(glob, whole) {
       deny('An rg glob that could include a secret file overrides rg\'s skipping of them. Narrow the glob.', whole);
     }
     if (STORE_GLOBS.some((g) => globsMeet(last, steps(g)))) deny(STORE_GLOB_WHY, whole);
-    // a part that could be a store's folder, .config/gh as two parts in a row
-    for (const folder of STORES.folders.map((f) => f.split('/').map(steps))) {
-      const at = (k) => folder.every((f, j) => k + j < parts.length && named(parts[k + j])
-        && globsMeet(parts[k + j], f));
-      if (parts.some((_, k) => at(k))) deny(STORE_GLOB_WHY, whole);
-    }
+    if (STORE_SPELLED.some((s) => globsMeet(last, steps(s.glob), s.from, s.to))) deny(STORE_GLOB_WHY, whole);
+    // a part that could name a store's folder, each part of .config/gh on its own, since a glob such as .config lets
+    // rg into that hidden folder and a later run of any stands for gh (Codex's read of 275d2b0)
+    const folders = STORES.folders.flatMap((f) => f.split('/')).map(steps);
+    if (parts.some((p) => named(p) && folders.some((f) => globsMeet(p, f)))) deny(STORE_GLOB_WHY, whole);
   }
 }
 
 // A search glob as rg reads it, its path parts split at a / outside a bracket, a backslash taking the character after
-// it as itself, a bracket expression read as any one character, a / inside it among them, and * or ** as a run of any,
-// each part in lower case, so neither an escape nor a class hides a name (D-096, Codex's read).
+// it as itself, a bracket expression read as any one character, a / or a backslash inside it among its members as rg
+// takes them, and * or ** as a run of any, each part in lower case, so neither an escape nor a class hides a name
+// (D-096, Codex's reads).
 function rgGlobParts(glob) {
   const s = String(glob);
   const parts = [[]];
@@ -584,7 +592,7 @@ function rgGlobParts(glob) {
       let j = i + 1;
       if (s[j] === '!' || s[j] === '^') j++;
       if (s[j] === ']') j++;
-      while (j < s.length && s[j] !== ']') j += s[j] === '\\' ? 2 : 1;
+      while (j < s.length && s[j] !== ']') j++;
       if (j < s.length) {
         part.push(ONE);
         i = j;

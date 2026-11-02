@@ -5168,13 +5168,16 @@ prints the GitHub token while `gh auth token` was refused, and a stash made with
    `AppData/Roaming` or its `.local/share`, so `~`, `~/.config` and `~/.claude`, above Claude Code's sign in file, are
    refused while a search of a repo or of `~/.claude/projects` stays open. `rg -L` and `--follow` are refused, and so
    is `git diff --no-index` on a folder. A search glob, `rg -g` and, for the first time, the Grep tool's `glob`, is
-   read as rg reads it, each brace list spelled out, a backslash taking the next character as itself and a bracket as
-   any one character with no split inside it, and is refused when one name could match both it and a store's shape,
-   or when a part of it could name a store's folder. The shapes are exact so `*.yml` and `**/*.md` pass while `id_*`,
-   `*.tfst*`, `terraform.*` and `*.k\e\y` do not. The older check of the `.env` and `*.tfvars` names applies to the
-   Grep tool's glob too, so a `*.json` glob is refused there as it already is for `rg`, the owner's choice, a JSON
-   search using the Grep tool's `type` instead. A brace list had hidden a name from that older check,
-   `rg -g '{.env*,x}'`, and is now spelled out.
+   read as rg reads it, each brace list spelled out, a backslash taking the next character as itself outside a
+   bracket and as one of its members inside one, and a bracket as any one character with no split inside it. It is
+   refused when one name could match both it and a container's or a login file's exact shape, or when a part of it
+   could name a store's folder, each part of `.config/gh` on its own. Terraform's state and the keys may have anything
+   after their names, so a glob meets them only when its own characters spell some of `.tfstate` or `id_rsa`, the
+   owner's choice, so `*.tfstate~`, `terraform.*`, `id_*` and `*.k\e\y` are refused while `*.ts`, `*.yml` and
+   `**/*.md` pass, a name such as `x.tfstate.ts` reachable by their run of any alone. The older check of the `.env`
+   and `*.tfvars` names applies to the Grep tool's glob too, so a `*.json` glob is refused there as it already is for
+   `rg`, the owner's choice, a JSON search using the Grep tool's `type` instead. A brace list had hidden a name from
+   that older check, `rg -g '{.env*,x}'`, and is now spelled out.
 4. A copy's destination meets the closed rule, so nothing is laid down in a store, whether its file exists or not.
 5. A revision word is judged by the text after each of its colons as a path, `HEAD:.env.kdf`, `:0:.env.kdf` and
    `stash@{0}:keys/x` among them. A `.env.local` there is closed outright, since the working copy's file says nothing
@@ -5210,15 +5213,18 @@ prints the GitHub token while `gh auth token` was refused, and a stash made with
   key file would stay readable.
 
 **Trade-offs.** A name closes a store to a command or a tool that names or searches it, never to a script a session
-writes to open it, since scripts run unread. A tool that moves its sign in file is open until the list names it. A
-search of a folder above the home folder's tools, a JSON glob in the Grep tool and a jq filter ending in `.key` are
-refused where they did no harm.
+writes to open it, since scripts run unread. A glob whose run of any alone covers a state file's or a key's name,
+`*.ts` over `x.tfstate.ts`, passes, the owner's choice over refusing every extension glob. A tool that moves its sign
+in file is open until the list names it. A search of a folder above the home folder's tools, a JSON glob in the Grep
+tool and a jq filter ending in `.key` are refused where they did no harm.
 
-**Consequences.** 79 new refused cases, all but one allowed by the guard before this change, `git grep --no-index`
-kept refused, and 26 allowed controls, a test of each route's own reason, a checker test, three wrapper cases, the
+**Consequences.** 87 new refused cases, all but one allowed by the guard before this change, `git grep --no-index`
+kept refused, and 27 allowed controls, a test of each route's own reason, a checker test, three wrapper cases, the
 repo map's places and the roles page's words. Codex's security read of the first commit found four routes the build
 left open, a glob over `~/.claude`, an escape or a class in a glob, a state file with no dot after `.tfstate` and a
-one letter revision, each pinned by a case and closed in the second. The guard's change reaches a machine only through
+one letter revision, each pinned by a case and closed in the second, and its read of the second found three more, a
+backslash inside a bracket, `.config/gh` through a run of any and a state backup by glob, closed in the third. The
+guard's change reaches a machine only through
 `install.sh`, the owner's, which replaces any interim hand edit of the installed guard, and `SCAN_LIMIT`'s recorded
 hash for `kdf-guard.js` moves with it.
 
