@@ -37,7 +37,7 @@ from pathlib import Path
 # module constants
 # the names of secret files, matched in any case, exactly the lists of kdf-ask-codex.sh and kdf-preflight.sh beside
 # this file, which a test holds them to, and anything under a keys folder is closed whatever its name
-SECRET_GLOBS     = (
+SECRET_GLOBS = (
     ".env*",
     "*.pem",
     "*.key",
@@ -51,6 +51,18 @@ SECRET_GLOBS     = (
     "id_ed25519*",
     ".git-credentials",
     ".netrc",
+    "_netrc",
+)
+# the credential stores the guard closes whole, exactly the lists of kdf-ask-codex.sh and kdf-preflight.sh, each matched
+# as a whole part of the path in any case (D-096)
+SECRET_PLACES    = (
+    ".ssh",
+    ".codex",
+    ".docker",
+    "github cli",
+    "com.vercel.cli",
+    ".config/gh",
+    ".claude/.credentials.json",
 )
 COMMANDS         = ("defs", "imports", "callers", "callees", "test-importers")
 GENERATED_FOLDER = "vercel_api"
@@ -1990,11 +2002,13 @@ def closed(path: str) -> bool:
         path: the path in the tree
 
     Returns:
-        bool: True for a secret file's name in any case or anything under a keys folder
+        bool: True for a secret file's name in any case, or anything under a keys folder or a credential store
     """
     # a backslash is a byte of a name git tracks, from a Linux commit, and read as a separator as the guard reads one
     lowered = path.lower().replace("\\", "/")
     if "/keys/" in f"/{lowered}":
+        return True
+    if any(f"/{place}/" in f"/{lowered}/" for place in SECRET_PLACES):
         return True
     return any(fnmatch.fnmatchcase(lowered.rpartition("/")[2], glob) for glob in SECRET_GLOBS)
 

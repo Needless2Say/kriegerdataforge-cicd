@@ -793,6 +793,34 @@ def test_files_mode_refuses_a_secret_name_before_it_copies_anything(rig: Rig) ->
     assert "-R" not in log.read_text(encoding = "utf-8").split(), "the brief was copied, the folder never was"
 
 
+@pytest.mark.parametrize("inside", [".codex/auth.json", "home/.ssh/config", "AppData/Roaming/GitHub CLI/hosts.yml"])
+def test_files_mode_refuses_a_credential_store_inside_the_folder(rig: Rig, inside: str) -> None:
+    """
+    A store's folder anywhere below the folder handed over refuses it, whatever the file inside is named, its contents
+    harmless and outside the token shapes, so the name alone refuses it (D-096).
+    """
+    bundle = rig.tmp / "bundle"
+    target = bundle / inside
+    target.parent.mkdir(parents = True)
+    target.write_text("{}\n", encoding = "utf-8")
+    done = _run(rig, "--files", bundle.as_posix(), "--brief", rig.brief.as_posix())
+    assert done.returncode == 2 and f"{inside} in" in done.stderr and "secret file" in done.stderr, done.stderr
+    assert not rig.log.exists() and not _left(rig)
+
+
+def test_files_mode_refuses_a_folder_whose_own_name_is_a_store(rig: Rig) -> None:
+    """
+    A folder handed over whole that is itself a store, a .ssh, is refused by its own name, where the check of the files
+    below it alone once read notes.txt and let it through (D-096).
+    """
+    bundle = rig.tmp / ".ssh"
+    bundle.mkdir()
+    (bundle / "notes.txt").write_text("harmless\n", encoding = "utf-8")
+    done = _run(rig, "--files", bundle.as_posix(), "--brief", rig.brief.as_posix())
+    assert done.returncode == 2 and "named like a secret file or a store" in done.stderr, done.stderr
+    assert not rig.log.exists() and not _left(rig)
+
+
 def test_files_mode_checks_the_copy_so_a_file_that_lands_during_it_is_caught(rig: Rig) -> None:
     bundle = rig.tmp / "bundle"
     bundle.mkdir()

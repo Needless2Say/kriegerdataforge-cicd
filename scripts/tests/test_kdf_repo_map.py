@@ -1305,6 +1305,8 @@ def test_the_closed_names_are_exactly_the_two_tools_lists() -> None:
         text  = (TOOLS / tool).read_text(encoding = "utf-8")
         block = re.search(r"secret_globs=\(([^)]*)\)", text).group(1)
         assert tuple(re.findall(r"'([^']*)'", block)) == module.SECRET_GLOBS, tool
+        places = re.search(r"secret_places=\(([^)]*)\)", text).group(1)
+        assert tuple(re.findall(r"'([^']*)'", places)) == module.SECRET_PLACES, tool
 
 
 def test_closed_paths_are_secret_names_in_any_case_and_anything_under_keys() -> None:
@@ -1318,9 +1320,25 @@ def test_closed_paths_are_secret_names_in_any_case_and_anything_under_keys() -> 
         "keys\\secret.py",
         "conf\\.ENV.py",
         "app\\KEYS\\x.py",
+        # a credential store's folder and its one file, nested and as the name of the folder itself (D-096)
+        "home/.ssh/config.py",
+        ".codex/x.py",
+        "AppData\\Roaming\\GitHub CLI\\hosts.py",
+        "x/.Claude/.credentials.json",
+        "ops/_netrc",
+        ".docker",
     ):
         assert closed(path), path
-    for path in ("api/keystore.py", "api/monkeys.py", "svc/env.py", "api/main.py"):
+    for path in (
+        "api/keystore.py",
+        "api/monkeys.py",
+        "svc/env.py",
+        "api/main.py",
+        "api/sshd.py",
+        "docs/codex.py",
+        ".claude/settings.py",
+        "src/github_cli.py",
+    ):
         assert not closed(path), path
 
 

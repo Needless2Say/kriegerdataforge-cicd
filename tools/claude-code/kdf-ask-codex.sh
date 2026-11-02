@@ -76,16 +76,23 @@ say() { printf 'kdf-ask-codex: %s\n' "$*"; }
 usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"; }
 # the names of secret files, matched in any case, the guard's names and the usual key and state files
 secret_globs=('.env*' '*.pem' '*.key' '*.p12' '*.pfx' '*.tfvars' '*.tfstate*' 'id_rsa*' 'id_dsa*' 'id_ecdsa*'
-	'id_ed25519*' '.git-credentials' '.netrc')
-# whether a path is named like a secret file or sits under a keys folder, judged from the name alone, no file read
+	'id_ed25519*' '.git-credentials' '.netrc' '_netrc')
+# the credential stores the guard closes whole, each a folder a tool keeps its login in or the one file of a folder
+# that is, matched as a whole part of the path in any case, so a folder named like one is closed too (D-096)
+secret_places=('.ssh' '.codex' '.docker' 'github cli' 'com.vercel.cli' '.config/gh' '.claude/.credentials.json')
+# whether a path is named like a secret file or sits under a keys folder or a store, judged from the name alone, no
+# file read
 secret_name() {
-	local path="${1,,}" glob
+	local path="${1,,}" glob place
 	path="${path//\\//}"   # a Windows path's backslashes, so its last part is still its name
 	for glob in "${secret_globs[@]}"; do
 		# shellcheck disable=SC2254 # the glob is a pattern on purpose
 		case "${path##*/}" in $glob) return 0 ;; esac
 	done
 	case "/$path" in */keys/*) return 0 ;; esac
+	for place in "${secret_places[@]}"; do
+		case "/$path/" in */"$place"/*) return 0 ;; esac
+	done
 	return 1
 }
 # the first file under a folder named like a secret file, as its path below that folder
@@ -205,7 +212,9 @@ if [ -n "$repo" ]; then
 else
 	files="$(cd "$files" 2>/dev/null && pwd)" || die 2 "--files is not a directory"
 	[ ! -e "$files/.git" ] || die 2 "$files is a repo, read it with --repo"
-	# a secret's name refuses the folder before anything is copied
+	# a secret's name refuses the folder before anything is copied, the folder's own name too, so a folder that is a
+	# store, a .ssh handed whole, is never read by what it holds (D-096)
+	! secret_name "$files" || die 2 "$files is named like a secret file or a store, Codex never reads one"
 	found="$(secret_under "$files")"
 	[ -z "$found" ] || die 2 "$found in $files is named like a secret file, Codex never reads one"
 	# and every check reads the copy, so nothing that lands in the source after them reaches Codex

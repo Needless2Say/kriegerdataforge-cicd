@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -65,6 +66,13 @@ CITING_DOC = (
     "Zero `client.py:2-0`, `client.py:0` and data `gone.csv:1`.\n"
 )
 
+# the reasons the credential stores' routes give, written apart from the guard's own text (D-096)
+STORE_SAYS   = "A tool's sign in file, a key or a terraform state file is the owner's."
+SEARCH_SAYS  = "A search that can reach a credential store is refused."
+GLOB_SAYS    = "could match a key, a terraform state file or a login file"
+STASH_SAYS   = "A stash that holds ignored files"
+BRACKET_SAYS = "A search glob holding a [ is refused"
+
 # what the guard refuses, in the words the role charter must keep, so a model that runs no guard is told the same
 GUARD_RULES_IN_WORDS = (
     "merge",
@@ -88,6 +96,17 @@ GUARD_RULES_IN_WORDS = (
     "*.tfvars",
     "*.pem",
     "keys/",
+    # the credential stores (D-096)
+    ".ssh",
+    ".codex",
+    ".docker",
+    ".claude/.credentials.json",
+    ".git-credentials",
+    "id_ed25519",
+    "*.key",
+    "*.tfstate",
+    "`gh auth status`",
+    "a stash never takes ignored files",
     ".claude/settings",
     ".mcp.json",
     "git hooks",
@@ -314,6 +333,18 @@ def _ignored_tree(project: Path) -> None:
         "push": "a file\n",
         "main": "a file\n",
         "--force": "a file\n",
+        # harmless files in the shapes of the credential stores, an example and a tracked *.tfvars under a closed
+        # folder, a key named by its real prefix outside one, and the near misses that stay open (D-096)
+        ".codex/auth.json": "{}\n",
+        ".ssh/.env.example": "PORT=\n",
+        "keys/.env.example": "PORT=\n",
+        "keys/common.auto.tfvars": "region = \"x\"\n",
+        "ssh-copy/id_ed25519": "not a key\n",
+        "notes/id_x": "nothing\n",
+        "notes/auth.json": "{}\n",
+        "keyboard.md": "nothing\n",
+        "tfstate.md": "nothing\n",
+        "plain/notes.txt": "nothing\n",
     }
     for name, text in files.items():
         target = project / name
@@ -327,6 +358,9 @@ def _ignored_tree(project: Path) -> None:
         "commented/.env.kdf.example",
         "moved/.env.kdf.example",
         "docs/reviews/TRACKED.md",
+        "keys/.env.example",
+        "keys/common.auto.tfvars",
+        ".ssh/.env.example",
     ]
     subprocess.run(["git", "-C", str(project), "add", "-f", *tracked], check = True, capture_output = True)
 
@@ -374,6 +408,65 @@ def test_each_closed_file_is_refused_with_its_own_reason(tmp_path: Path, command
     _ignored_tree(tmp_path)
     code, message = _run_case(tmp_path, {"role": "owner", "tool": "Bash", "command": command, "expect": "block"})
     assert code == 2
+    assert says in message
+
+
+@pytest.mark.parametrize(
+    ("case", "says"),
+    [
+        ({"tool": "Bash", "command": "cat ~/.codex/auth.json"}, STORE_SAYS),
+        ({"tool": "Bash", "command": "cat terraform.tfstate:x"}, STORE_SAYS),
+        ({"tool": "Read", "file": "${PROJ}/keys/.env.example"}, STORE_SAYS),
+        ({"tool": "Bash", "command": "cp src/app.py .docker/config.json"}, STORE_SAYS),
+        ({"tool": "Bash", "command": "git show HEAD~1:keys/x"}, STORE_SAYS),
+        ({"tool": "Bash", "command": "rg oauth_token ~"}, SEARCH_SAYS),
+        ({"tool": "Grep", "input": {"pattern": "x", "path": "~"}}, SEARCH_SAYS),
+        ({"tool": "Bash", "command": "rg -L x src"}, "rg -L and --follow follow a link"),
+        ({"tool": "Bash", "command": "git diff --no-index src a"}, "git diff --no-index on a folder"),
+        ({"tool": "Bash", "command": "rg -g 'id_*' x"}, GLOB_SAYS),
+        ({"tool": "Grep", "input": {"pattern": "x", "glob": "*.tfstate*"}}, GLOB_SAYS),
+        ({"tool": "Bash", "command": "rg -g '{.env*,x}' x"}, "An rg glob that could include a secret file"),
+        ({"tool": "Grep", "input": {"pattern": "x", "glob": ".env*"}}, "An rg glob that could include a secret file"),
+        ({"tool": "Bash", "command": "git show HEAD:.env.kdf"}, "Secret files are the owner's"),
+        ({"tool": "Bash", "command": "git show HEAD:.env.local"}, "Secret files are the owner's"),
+        ({"tool": "Bash", "command": "gh auth status -at"}, "The login and its token are the owner's."),
+        ({"tool": "Bash", "command": "git stash push --all"}, STASH_SAYS),
+        ({"tool": "Bash", "command": "git stash show -u"}, STASH_SAYS),
+        # the routes Codex's read of fc89ac1 found open, each pinned to its own reason
+        ({"tool": "Bash", "command": "rg -g '.credentials.json' token ~/.claude"}, SEARCH_SAYS),
+        ({"tool": "Bash", "command": "rg -g '*.k\\e\\y' x src"}, GLOB_SAYS),
+        ({"tool": "Bash", "command": "rg -g '*.[k/]ey' x src"}, BRACKET_SAYS),
+        ({"tool": "Bash", "command": "cat terraform.tfstate~"}, STORE_SAYS),
+        ({"tool": "Bash", "command": "git show x:.env.kdf"}, "Secret files are the owner's"),
+        ({"tool": "Bash", "command": "cat server.key."}, STORE_SAYS),
+        ({"tool": "Bash", "command": "gh auth status -t=true"}, "The login and its token are the owner's."),
+        # the routes Codex's read of 275d2b0 found open
+        ({"tool": "Bash", "command": "rg -g '*.[k\\]ey' x src"}, BRACKET_SAYS),
+        ({"tool": "Bash", "command": "rg -g '.config' -g '**/.config/*/*.yml' token src"}, GLOB_SAYS),
+        ({"tool": "Bash", "command": "rg -g '*.tfsta[t]e~' x src"}, BRACKET_SAYS),
+        # a bracket that holds a / is a separator to rg, Codex's read of 49dc502, and the ranges, negations and mixed
+        # separators its read of 819088e found, every bracket refused whole on the owner's choice
+        ({"tool": "Bash", "command": "rg -g 'src[/]id_rsa' x src"}, BRACKET_SAYS),
+        ({"tool": "Bash", "command": "rg -g 'src[/].config[/]gh[/]hosts.yml' token src"}, BRACKET_SAYS),
+        ({"tool": "Bash", "command": "rg -g 'src[/]i[d/]_rsa' x src"}, BRACKET_SAYS),
+        ({"tool": "Bash", "command": "rg -g '*.[Z-k]ey' x src"}, BRACKET_SAYS),
+        ({"tool": "Bash", "command": "rg -g '*.[!K]ey' x src"}, BRACKET_SAYS),
+        ({"tool": "Grep", "input": {"pattern": "x", "glob": "[i-i][d-d][_-_][r-r][s-s][a-a]"}}, BRACKET_SAYS),
+    ],
+)
+def test_each_credential_store_route_is_refused_with_its_own_reason(
+    tmp_path: Path,
+    case: dict[str, object],
+    says: str,
+) -> None:
+    """
+    Each route to a credential store the guard closes says why, a name, a search's reach, a link followed, two folders
+    compared, a glob, a copy's destination, a revision word, a printed token and a stash of ignored files. Every call
+    here passes the guard at 5c5c999, so its reason is what shows the new rule refused it and no other (D-096).
+    """
+    _ignored_tree(tmp_path)
+    code, message = _run_case(tmp_path, {"role": "owner", "expect": "block", **case})
+    assert code == 2, message
     assert says in message
 
 
@@ -3589,6 +3682,30 @@ def test_the_checker_fails_on_broken_json_and_warns_on_secret_reads(rig: Rig) ->
     assert "WARN" in warned.stdout
     (rig.home / ".claude" / "settings.json").write_text("{ nope", encoding = "utf-8")
     assert _checker(rig.home).returncode == 1
+
+
+def test_the_printed_block_denies_the_stores_past_the_sessions_folder_and_a_missing_line_warns(rig: Rig) -> None:
+    """
+    A **/ line refuses nothing outside the folder a session starts in, so the block also denies the state files, the
+    key containers, the login files and the keys rooted at the workspace, a drive as //d/ in lower case, and the home
+    folder's stores in the ~/ form. A missing one only warns and names itself, never a failure, and the .env.local and
+    example lines stay out of the deny list (D-096).
+    """
+    deny   = _printed_settings(rig.home)["permissions"]["deny"]
+    rooted = [line for line in deny if line.startswith("Read(//")]
+    assert any(line.endswith("/**/*.tfstate*)") for line in rooted), deny
+    assert any(line.endswith("/**/id_ed25519*)") for line in rooted), deny
+    assert not any(re.match(r"Read\(//[A-Z]/", line) for line in rooted), rooted
+    for home_line in ("Read(~/.ssh/**)", "Read(~/.codex/**)", "Read(~/.claude/.credentials.json)"):
+        assert home_line in deny
+    assert not any(".env.local" in line or ".example" in line for line in deny)
+    settings = json.loads((rig.home / ".claude" / "settings.json").read_text(encoding = "utf-8"))
+    settings["permissions"]["deny"].remove("Read(~/.ssh/**)")
+    _write_settings(rig.home, settings)
+    done = _checker(rig.home)
+    assert done.returncode == 0, done.stdout
+    assert "WARN credential stores outside that folder are not denied to the Read tool" in done.stdout
+    assert "Read(~/.ssh/**)" in done.stdout
 
 
 def test_the_checker_warns_when_the_guard_command_lacks_its_exit_2(rig: Rig) -> None:
