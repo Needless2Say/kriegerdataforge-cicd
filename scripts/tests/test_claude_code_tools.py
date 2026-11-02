@@ -443,6 +443,9 @@ def test_each_closed_file_is_refused_with_its_own_reason(tmp_path: Path, command
         ({"tool": "Bash", "command": "rg -g '*.[k\\]ey' x src"}, GLOB_SAYS),
         ({"tool": "Bash", "command": "rg -g '.config' -g '**/.config/*/*.yml' token src"}, GLOB_SAYS),
         ({"tool": "Bash", "command": "rg -g '*.tfsta[t]e~' x src"}, GLOB_SAYS),
+        # a bracket that holds a / is a separator to rg, Codex's read of 49dc502
+        ({"tool": "Bash", "command": "rg -g 'src[/]id_rsa' x src"}, GLOB_SAYS),
+        ({"tool": "Bash", "command": "rg -g 'src[/].config[/]gh[/]hosts.yml' token src"}, GLOB_SAYS),
     ],
 )
 def test_each_credential_store_route_is_refused_with_its_own_reason(

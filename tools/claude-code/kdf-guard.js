@@ -512,9 +512,10 @@ function braceAlternatives(glob, budget = { left: 64 }) {
 }
 
 // Whether one name could match both globs, read step by step as globSteps gives them, a run of any matching any
-// characters and a bracket taken as any one, so the answer is never no when a name could match both. With from and to,
-// b's steps from to to must be met at least once by one of a's own characters, a letter, a ? or a bracket, never by
-// a's run of any alone, the spelled part STORE_SPELLED names.
+// characters and a bracket the characters it holds, so the answer is never no when a name could match both. With from
+// and to, b's steps from to to must be met at least once by a letter a spells, a character written out or a bracket
+// holding that one character alone, never by a run of any, a ? or a bracket of many, the spelled part STORE_SPELLED
+// names, the owner's rule that a glob's own letters spell some of the store's name.
 function globsMeet(a, b, from = 0, to = 0) {
   const seen = new Set();
   const stack = [[0, 0, to <= from]];
@@ -531,11 +532,46 @@ function globsMeet(a, b, from = 0, to = 0) {
     if (i >= a.length || j >= b.length) continue;
     if (x === STAR && y !== STAR) stack.push([i, j + 1, hit]);
     else if (y === STAR && x !== STAR) stack.push([i + 1, j, hit]);
-    else if (x !== STAR && (x === ONE || y === ONE || x === y)) {
-      stack.push([i + 1, j + 1, hit || (j >= from && j < to)]);
-    }
+    else if (x !== STAR && stepsFit(x, y)) stack.push([i + 1, j + 1, hit || (spells(x) && j >= from && j < to)]);
   }
   return false;
+}
+
+// Whether a glob's step spells a letter, a character written out or a bracket that holds one character alone.
+function spells(x) {
+  return typeof x === 'string' || Boolean(x && x.cls && x.single);
+}
+
+// Whether two single character steps could stand for one character, a ? for any, a bracket for the characters it
+// holds, two brackets taken as able to share one, which refuses more and never less.
+function stepsFit(x, y) {
+  if (x === ONE || y === ONE) return true;
+  if (x && x.cls) return y && y.cls ? true : x.test(y);
+  if (y && y.cls) return y.test(x);
+  return x === y;
+}
+
+// A bracket expression as rg reads it, from what lies between [ and ], its members, its ranges and a leading ! or ^
+// that turns it round, each in lower case as every other step is. A backslash inside it is one of its members.
+function rgClass(body) {
+  let k = 0;
+  const negate = body[0] === '!' || body[0] === '^';
+  if (negate) k = 1;
+  const singles = new Set();
+  const ranges = [];
+  for (; k < body.length; k++) {
+    if (k + 2 < body.length && body[k + 1] === '-') {
+      ranges.push([body[k].toLowerCase(), body[k + 2].toLowerCase()]);
+      k += 2;
+    } else {
+      singles.add(body[k].toLowerCase());
+    }
+  }
+  return {
+    cls: true,
+    single: !negate && !ranges.length && singles.size === 1,
+    test: (c) => (singles.has(c) || ranges.some(([a, b]) => a <= c && c <= b)) !== negate
+  };
 }
 
 // A search glob, rg's -g and --iglob or the Grep tool's glob, read as every name it could include. One that could
@@ -547,8 +583,11 @@ function checkSearchGlob(glob, whole) {
   const steps = (name) => globSteps(name.toLowerCase(), ALL_WILD);
   // a part that is a run of any alone, * or **, spells no folder's name, so **/*.md is judged by its last part
   const named = (p) => !(p.length === 1 && p[0] === STAR);
-  for (const alt of braceAlternatives(String(glob))) {
-    const parts = rgGlobParts(alt);
+  // a bracket that can hold a / is read both ways, as one character of a part and as a separator between parts, since
+  // rg lets src[/]id_rsa match src/id_rsa (Codex's read of 49dc502)
+  const readings = [];
+  for (const alt of braceAlternatives(String(glob))) readings.push(rgGlobParts(alt, false), rgGlobParts(alt, true));
+  for (const parts of readings) {
     const last = parts.length ? parts[parts.length - 1] : [STAR];
     if (samples.some((n) => globsMeet(last, steps(n))) || parts.some((p) => named(p) && globsMeet(p, steps('keys')))) {
       deny('An rg glob that could include a secret file overrides rg\'s skipping of them. Narrow the glob.', whole);
@@ -563,10 +602,10 @@ function checkSearchGlob(glob, whole) {
 }
 
 // A search glob as rg reads it, its path parts split at a / outside a bracket, a backslash taking the character after
-// it as itself, a bracket expression read as any one character, a / or a backslash inside it among its members as rg
-// takes them, and * or ** as a run of any, each part in lower case, so neither an escape nor a class hides a name
-// (D-096, Codex's reads).
-function rgGlobParts(glob) {
+// it as itself, a bracket expression as the characters it holds, a / or a backslash inside it among its members as rg
+// takes them, and * or ** as a run of any, each part in lower case, so neither an escape nor a class hides a name.
+// With split, a bracket that can hold a / splits the parts there instead (D-096, Codex's reads).
+function rgGlobParts(glob, split) {
   const s = String(glob);
   const parts = [[]];
   for (let i = 0; i < s.length; i++) {
@@ -594,7 +633,9 @@ function rgGlobParts(glob) {
       if (s[j] === ']') j++;
       while (j < s.length && s[j] !== ']') j++;
       if (j < s.length) {
-        part.push(ONE);
+        const cls = rgClass(s.slice(i + 1, j));
+        if (split && cls.test('/')) parts.push([]);
+        else part.push(cls);
         i = j;
         continue;
       }
