@@ -67,10 +67,11 @@ CITING_DOC = (
 )
 
 # the reasons the credential stores' routes give, written apart from the guard's own text (D-096)
-STORE_SAYS  = "A tool's sign in file, a key or a terraform state file is the owner's."
-SEARCH_SAYS = "A search that can reach a credential store is refused."
-GLOB_SAYS   = "could match a key, a terraform state file or a login file"
-STASH_SAYS  = "A stash that holds ignored files"
+STORE_SAYS   = "A tool's sign in file, a key or a terraform state file is the owner's."
+SEARCH_SAYS  = "A search that can reach a credential store is refused."
+GLOB_SAYS    = "could match a key, a terraform state file or a login file"
+STASH_SAYS   = "A stash that holds ignored files"
+BRACKET_SAYS = "A search glob holding a [ is refused"
 
 # what the guard refuses, in the words the role charter must keep, so a model that runs no guard is told the same
 GUARD_RULES_IN_WORDS = (
@@ -434,18 +435,23 @@ def test_each_closed_file_is_refused_with_its_own_reason(tmp_path: Path, command
         # the routes Codex's read of fc89ac1 found open, each pinned to its own reason
         ({"tool": "Bash", "command": "rg -g '.credentials.json' token ~/.claude"}, SEARCH_SAYS),
         ({"tool": "Bash", "command": "rg -g '*.k\\e\\y' x src"}, GLOB_SAYS),
-        ({"tool": "Bash", "command": "rg -g '*.[k/]ey' x src"}, GLOB_SAYS),
+        ({"tool": "Bash", "command": "rg -g '*.[k/]ey' x src"}, BRACKET_SAYS),
         ({"tool": "Bash", "command": "cat terraform.tfstate~"}, STORE_SAYS),
         ({"tool": "Bash", "command": "git show x:.env.kdf"}, "Secret files are the owner's"),
         ({"tool": "Bash", "command": "cat server.key."}, STORE_SAYS),
         ({"tool": "Bash", "command": "gh auth status -t=true"}, "The login and its token are the owner's."),
         # the routes Codex's read of 275d2b0 found open
-        ({"tool": "Bash", "command": "rg -g '*.[k\\]ey' x src"}, GLOB_SAYS),
+        ({"tool": "Bash", "command": "rg -g '*.[k\\]ey' x src"}, BRACKET_SAYS),
         ({"tool": "Bash", "command": "rg -g '.config' -g '**/.config/*/*.yml' token src"}, GLOB_SAYS),
-        ({"tool": "Bash", "command": "rg -g '*.tfsta[t]e~' x src"}, GLOB_SAYS),
-        # a bracket that holds a / is a separator to rg, Codex's read of 49dc502
-        ({"tool": "Bash", "command": "rg -g 'src[/]id_rsa' x src"}, GLOB_SAYS),
-        ({"tool": "Bash", "command": "rg -g 'src[/].config[/]gh[/]hosts.yml' token src"}, GLOB_SAYS),
+        ({"tool": "Bash", "command": "rg -g '*.tfsta[t]e~' x src"}, BRACKET_SAYS),
+        # a bracket that holds a / is a separator to rg, Codex's read of 49dc502, and the ranges, negations and mixed
+        # separators its read of 819088e found, every bracket refused whole on the owner's choice
+        ({"tool": "Bash", "command": "rg -g 'src[/]id_rsa' x src"}, BRACKET_SAYS),
+        ({"tool": "Bash", "command": "rg -g 'src[/].config[/]gh[/]hosts.yml' token src"}, BRACKET_SAYS),
+        ({"tool": "Bash", "command": "rg -g 'src[/]i[d/]_rsa' x src"}, BRACKET_SAYS),
+        ({"tool": "Bash", "command": "rg -g '*.[Z-k]ey' x src"}, BRACKET_SAYS),
+        ({"tool": "Bash", "command": "rg -g '*.[!K]ey' x src"}, BRACKET_SAYS),
+        ({"tool": "Grep", "input": {"pattern": "x", "glob": "[i-i][d-d][_-_][r-r][s-s][a-a]"}}, BRACKET_SAYS),
     ],
 )
 def test_each_credential_store_route_is_refused_with_its_own_reason(

@@ -148,12 +148,12 @@ named as written, from the folder the shell is in, or where a link leads. A sear
 `rg` and the Grep tool are refused when a root, or the folder they run in when none is given, is a store, lies inside
 one or lies above any store a tool keeps in the home folder, so `~` and `~/.claude` are refused while
 `rg x D:/KriegerDataForge` and a search of `~/.claude/projects` stay open. `rg -L` and `--follow` are refused,
-`git diff --no-index` on a folder is refused, and a search glob, `rg -g` or the Grep tool's `glob`, read as rg reads
-it with each brace list spelled out, an escape as its character, a bracket as the characters it holds and one that
-can hold a `/` as a separator too, is refused when one name could match both it and a container's or a login file's
+`git diff --no-index` on a folder is refused, and a search glob, `rg -g` or the Grep tool's `glob`, is refused when
+it holds a `[`, since a bracket can hide a name, and is otherwise read as rg reads it, each brace list spelled out and
+an escape as its character. It is refused when one name could match both it and a container's or a login file's
 shape, when a part of it could name a store's folder, `.config` among them, or when its own letters spell some of
-`.tfstate` or `id_rsa`, so `id_*`, `*.tfst*`, `terraform.*`, `*.tfstate~`, `src[/]id_rsa` and `*.k\e\y` are refused
-while `*.ts`, `*.yml`, `**/*.md` and `src/[a-z]*.md` pass. A copy into a store
+`.tfstate` or `id_rsa`, so `id_*`, `*.tfst*`, `terraform.*`, `*.tfstate~`, `src/[a-z]*.md` and `*.k\e\y` are refused
+while `*.ts`, `*.yml` and `**/*.md` pass. A copy into a store
 is refused, a revision word is judged by each path after its colons, `HEAD:.env.kdf` and `:0:keys/x` among them,
 `gh auth status -t` and
 `--show-token` are refused beside `gh auth token`, and `git stash` with `-a` or `--all` and `git stash show` with its

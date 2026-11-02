@@ -7271,8 +7271,14 @@
  { "role": "owner", "tool": "Bash", "command": "rg -g 'src[/].config' -g 'src[/].config[/]gh[/]hosts.yml' token src", "expect": "block" },
  { "role": "owner", "tool": "Bash", "command": "rg -g 'src[!x]id_rsa' x src", "expect": "block" },
  { "role": "owner", "tool": "Bash", "command": "rg -g 'src[.-0]id_rsa' x src", "expect": "block" },
- { "role": "owner", "tool": "Bash", "command": "rg -g 'src/[a-z]*.md' x", "expect": "allow" },
+ { "role": "owner", "tool": "Bash", "command": "rg -g 'src/[a-z]*.md' x", "expect": "block" },
  { "role": "owner", "tool": "Bash", "command": "rg -g '[i]d_*' x src", "expect": "block" },
+ { "role": "owner", "tool": "Bash", "command": "rg -g 'src[/]i[d/]_rsa' x src", "expect": "block" },
+ { "role": "owner", "tool": "Bash", "command": "rg -g '*.[Z-k]ey' x src", "expect": "block" },
+ { "role": "owner", "tool": "Bash", "command": "rg --iglob '*.[!K]ey' x src", "expect": "block" },
+ { "role": "owner", "tool": "Bash", "command": "rg -g '[i-i][d-d][_-_][r-r][s-s][a-a]' x src", "expect": "block" },
+ { "role": "owner", "tool": "Grep", "input": { "pattern": "x", "path": "${PROJ}/src", "glob": "src/[a-z]*.md" }, "expect": "block" },
+ { "role": "owner", "tool": "Bash", "command": "rg -g '!*.[ch]' x src", "expect": "allow" },
  { "role": "owner", "tool": "Bash", "command": "rg -g '*.?f*' x src", "expect": "block" },
  { "role": "owner", "tool": "Bash", "command": "jq .key notes/auth.json", "expect": "block" }
 ]
