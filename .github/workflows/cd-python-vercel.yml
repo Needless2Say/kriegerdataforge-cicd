@@ -217,12 +217,14 @@ jobs:
           python-version: "3.14"
           cache: "pip"
 
+      # The packages token reaches git through this step's environment, as fetch-private-packages.yml
+      # gives it, never through a command's arguments or a global config file a later step reads.
       - name: Install Python dependencies
-        run: |
-          git config --global url."https://__token__:${GH_PACKAGES_PAT}@github.com/".insteadOf "https://github.com/"
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
         env:
-          GH_PACKAGES_PAT: ${{ secrets.GH_PACKAGES_PAT }}
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: ${{ format('url.https://__token__:{0}@github.com/.insteadOf', secrets.GH_PACKAGES_PAT) }}
+          GIT_CONFIG_VALUE_0: https://github.com/
 
       - name: Compact API for Vercel
         run: python scripts/vercel_compactor.py
@@ -341,12 +343,18 @@ jobs:
           set +e
           URL="${DEPLOY_URL}/healthz"
           HEADERS="${RUNNER_TEMP}/healthz.headers"
+          # the bypass value reaches curl as a header file, never as an argument a process listing reads
+          BYPASS_HEADER="${RUNNER_TEMP}/bypass.header"
+          trap 'rm -f "$BYPASS_HEADER"' EXIT
+          if [ -n "$BYPASS" ]; then
+            (umask 077 && printf 'x-vercel-protection-bypass: %s\n' "$BYPASS" > "$BYPASS_HEADER")
+          fi
           code=""
           protected=""
           platform=""
           for attempt in 1 2 3 4 5 6; do
             if [ -n "$BYPASS" ]; then
-              answer="$(curl -s -o /dev/null -D "$HEADERS" -w '%{http_code} %{redirect_url}' -H "x-vercel-protection-bypass: $BYPASS" "$URL")"
+              answer="$(curl -s -o /dev/null -D "$HEADERS" -w '%{http_code} %{redirect_url}' -H "@$BYPASS_HEADER" "$URL")"
             else
               answer="$(curl -s -o /dev/null -D "$HEADERS" -w '%{http_code} %{redirect_url}' "$URL")"
             fi
