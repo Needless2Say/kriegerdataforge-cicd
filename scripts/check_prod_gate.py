@@ -32,11 +32,20 @@ its head is the tag's commit, the release's own workflow, or when it was dispatc
 default branch, which the branch rules protect. A dispatch on any other branch does not count, that branch's
 copy of the workflow may have dropped a lane and kept the job's name.
 
+The evidence is bound to the commit the deploy checks out. The deploy's release job resolves the tag once and
+passes its commit as the expected commit, and a tag that names another commit now moved since, which denies on
+prod. A gate is a dispatch whose head is its dispatch ref while its jobs check out the tag, so a run found by its
+head proves no more than one found by its job's name, and the name carries the version and no commit. So once a
+repo's tag ruleset, which blocks a `v*` tag's update and deletion, was read back, its date in
+`tag_ruleset_dates.json`, a run counts by either lookup only when it began after that date. A repo with no date
+keeps the rule above, and its guarantee and no stronger.
+
 Inputs (CLI flags take precedence over environment variables):
-  --repo         / DEPLOY_REPO        / GITHUB_REPOSITORY            e.g. "Needless2Say/fitness-app-frontend"
-  --version      / DEPLOY_VERSION                                    e.g. "1.2.0", the tag is v1.2.0
-  --environment  / DEPLOY_ENVIRONMENT                                "dev" or "prod"
-  --workflow     / PROD_GATE_WORKFLOW                                the workflow file, default prod-gate.yml
+  --repo             / DEPLOY_REPO        / GITHUB_REPOSITORY        e.g. "Needless2Say/fitness-app-frontend"
+  --version          / DEPLOY_VERSION                                e.g. "1.2.0", the tag is v1.2.0
+  --environment      / DEPLOY_ENVIRONMENT                            "dev" or "prod"
+  --workflow         / PROD_GATE_WORKFLOW                            the workflow file, default prod-gate.yml
+  --expected-commit  / EXPECTED_COMMIT                               the commit the release job resolved
   GH_TOKEN / GITHUB_TOKEN                                            a token with actions: read on the repo
   GITHUB_API_URL                                                     default https://api.github.com
 
@@ -53,11 +62,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
+from datetime import datetime
+from pathlib import Path
 
 # ======================================================================================================================
 # Configuration
@@ -80,14 +92,67 @@ ENVIRONMENT_PROD: str = "prod"
 # a fetch answers the parsed JSON body, or raises ApiError with the status
 Fetch = Callable[[str], dict]
 
+# each repo's date its tag ruleset was read back, recorded by the fence, beside this script in the sparse checkout
+RULESET_DATES_FILE: Path = Path(__file__).with_name("tag_ruleset_dates.json")
+
+# a full commit SHA as git and the release job write it
+COMMIT: re.Pattern[str] = re.compile(r"[0-9a-f]{40}")
+
 # the CLI's help tail, the variables each flag falls back to
 EPILOG: str = "\n".join((
     "Values fall back to environment variables when flags are omitted:",
-    "  --repo         <- DEPLOY_REPO / GITHUB_REPOSITORY",
-    "  --version      <- DEPLOY_VERSION",
-    "  --environment  <- DEPLOY_ENVIRONMENT",
-    "  --workflow     <- PROD_GATE_WORKFLOW (default prod-gate.yml)",
+    "  --repo             <- DEPLOY_REPO / GITHUB_REPOSITORY",
+    "  --version          <- DEPLOY_VERSION",
+    "  --environment      <- DEPLOY_ENVIRONMENT",
+    "  --workflow         <- PROD_GATE_WORKFLOW (default prod-gate.yml)",
+    "  --expected-commit  <- EXPECTED_COMMIT",
 ))
+
+# ======================================================================================================================
+# The ruleset dates
+# ======================================================================================================================
+
+def parse_time(value: object) -> datetime | None:
+    """
+    Read one of GitHub's ISO 8601 times, its Z included, as an aware time.
+
+    Args:
+        value: The time as GitHub or the dates file writes it
+
+    Returns:
+        The time, or None when the value is no aware time
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        when = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return when if when.tzinfo is not None else None
+
+
+def load_ruleset_dates(path: Path | None = None) -> dict[str, str]:
+    """
+    Read each repo's tag ruleset date.
+
+    Args:
+        path: The file, the shipped one when None
+
+    Returns:
+        owner/name to the date its tag ruleset was read back
+
+    Raises:
+        ValueError: When the file is not the shape it should be, or a date is no aware time
+        OSError: When the file cannot be read
+    """
+    data  = json.loads((path or RULESET_DATES_FILE).read_text(encoding = "utf-8"))
+    dates = data.get("dates") if isinstance(data, dict) else None
+    if not isinstance(dates, dict):
+        raise ValueError("the file holds no dates object")
+    for repo, when in dates.items():
+        if not isinstance(repo, str) or parse_time(when) is None:
+            raise ValueError(f"the date of {repo!r} is no aware ISO 8601 time")
+    return dates
 
 # ======================================================================================================================
 # The API
@@ -216,13 +281,15 @@ def successful_run(
     workflow: str,
     sha: str,
     version: str,
+    since: datetime | None = None,
 ) -> tuple[dict, str] | None:
     """
     Find the newest successful run of the PROD Gate for one release, and say how it was found.
 
     A run counts when its passed job is named after the release, ``PROD Gate v<version>``, the job that needs
     every lane of the suite (D-027). The workflow it ran must be one to trust, the release's own, its head the
-    tag's commit, or the default branch's.
+    tag's commit, or the default branch's. With ``since``, a run counts by either lookup only when it began after
+    it, the date the repo's tag ruleset was read back.
 
     Args:
         fetch: The API reader
@@ -231,6 +298,7 @@ def successful_run(
         workflow: The workflow file name
         sha: The tag's commit
         version: The release version, without the v
+        since: The repo's tag ruleset date, None for a repo with none
 
     Returns:
         ``(run, how)``, ``how`` a phrase for the verdict, or None when there is none
@@ -250,8 +318,12 @@ def successful_run(
             run: The run, as the runs listing returned it
 
         Returns:
-            True when the job ran and passed
+            True when the job ran and passed, and the run began after ``since`` when there is one
         """
+        if since is not None:
+            began = parse_time(run.get("run_started_at") or run.get("created_at"))
+            if began is None or began <= since:
+                return False
         return any(job.get("name") == wanted for job in _passed_jobs(fetch, api_url, repo, run))
 
 
@@ -287,12 +359,14 @@ def decide(
     version: str,
     environment: str,
     workflow: str,
+    expected_commit: str | None = None,
+    ruleset_date: str | None = None,
 ) -> tuple[bool, str]:
     """
     Decide whether the deploy may proceed, and say why in one sentence.
 
     Fails closed on PROD. On DEV the lookup's result is reported and the deploy is allowed, unless GitHub could
-    not be asked at all, which denies everywhere since nothing is known.
+    not be asked at all, or an input is malformed, which denies everywhere since nothing is known.
 
     Args:
         fetch: The API reader, ``github_fetch`` in the job and a map in the tests
@@ -301,6 +375,8 @@ def decide(
         version: The release version, without the v
         environment: The target, dev or prod
         workflow: The PROD Gate workflow file name
+        expected_commit: The commit the release job resolved, None for a caller that passes none
+        ruleset_date: The repo's tag ruleset date, binding only with an expected commit
 
     Returns:
         ``(allowed, reason)``
@@ -308,6 +384,14 @@ def decide(
     tag     = f"v{version}"
     gated   = environment.strip().lower() == ENVIRONMENT_PROD
     verdict = "denied" if gated else "noted, the gate applies to prod"
+    since   = None
+    if expected_commit is not None:
+        if not COMMIT.fullmatch(expected_commit):
+            return False, f"The expected commit {expected_commit!r} is no full commit SHA (denied, nothing is known)."
+        if ruleset_date is not None:
+            since = parse_time(ruleset_date)
+            if since is None:
+                return False, f"The tag ruleset date {ruleset_date!r} of {repo} is no time (denied, nothing is known)."
     try:
         sha = tag_commit(fetch, api_url, repo, tag)
         if sha is None:
@@ -315,8 +399,13 @@ def decide(
                 f"There is no tag {tag} in {repo}, so no PROD Gate run can have tested it ({verdict}). "
                 f"The release workflow creates the tag when VERSION lands on main."
             )
+        if expected_commit is not None and sha != expected_commit:
+            return (not gated), (
+                f"{tag} names commit {sha[:12]} in {repo}, but the release job resolved it to {expected_commit[:12]}, "
+                f"so the tag moved since ({verdict})."
+            )
         try:
-            found = successful_run(fetch, api_url, repo, workflow, sha, version)
+            found = successful_run(fetch, api_url, repo, workflow, sha, version, since)
         except ApiError as exc:
             if exc.status == 404:
                 return (not gated), (
@@ -330,8 +419,9 @@ def decide(
             f"the calling cd.yml grants it on its deploy job (denied, nothing is known)."
         )
     if found is None:
+        bound = f", begun after its tag ruleset was read back at {ruleset_date}," if since is not None else ""
         return (not gated), (
-            f"No successful PROD Gate run of {workflow} exists for {tag} (commit {sha[:12]}) in {repo} "
+            f"No successful PROD Gate run of {workflow}{bound} exists for {tag} (commit {sha[:12]}) in {repo} "
             f"({verdict}). Dispatch it for the release, Actions, PROD Gate, Run workflow, on the default branch, "
             f"version {version}, and deploy again once it is green. A run of the E2E workflow alone does not "
             f"count, nor does a PROD Gate dispatched on another branch, nor one a lane of which failed."
@@ -392,6 +482,7 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--version", default = None, help = "the release version being deployed, e.g. 0.3.7")
     parser.add_argument("--environment", default = None, help = "target environment, dev or prod")
     parser.add_argument("--workflow", default = None, help = "the PROD Gate workflow file name, default prod-gate.yml")
+    parser.add_argument("--expected-commit", default = None, help = "the commit the deploy's release job resolved")
     return parser.parse_args(argv)
 
 
@@ -430,6 +521,7 @@ def main(argv: list[str] | None = None) -> int:
     version     = _resolve(args.version, "DEPLOY_VERSION").strip().lstrip("v")
     environment = _resolve(args.environment, "DEPLOY_ENVIRONMENT").strip().lower()
     workflow    = _resolve(args.workflow, "PROD_GATE_WORKFLOW") or DEFAULT_WORKFLOW
+    expected    = _resolve(args.expected_commit, "EXPECTED_COMMIT").strip() or None
     api_url     = os.environ.get("GITHUB_API_URL", "").rstrip("/") or DEFAULT_API_URL
 
     inputs  = (("repo", repo), ("version", version), ("environment", environment))
@@ -442,6 +534,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
+    try:
+        ruleset_date = load_ruleset_dates().get(repo)
+    except (OSError, ValueError) as exc:
+        _emit(f"the tag ruleset dates cannot be read, {exc} (denied)", ok = False, environment = environment)
+        return 1
     allowed, reason = decide(
         github_fetch,
         api_url = api_url,
@@ -449,6 +546,8 @@ def main(argv: list[str] | None = None) -> int:
         version = version,
         environment = environment,
         workflow = workflow,
+        expected_commit = expected,
+        ruleset_date = ruleset_date,
     )
     _emit(reason, ok = allowed, environment = environment)
     return 0 if allowed else 1
