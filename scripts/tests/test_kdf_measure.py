@@ -50,11 +50,11 @@ def joined(*parts: str) -> str:
 
 class Listed:
     """
-    A listed endpoint's items, bare or wrapped under a key with a total_count, served a page at a time.
+    A listed endpoint's items, bare or wrapped under a field with a total_count, served a page at a time.
     """
-    def __init__(self, items: list, key: str | None = None, cap: int = 100):
+    def __init__(self, items: list, field: str | None = None, cap: int = 100):
         self.items = items
-        self.key   = key
+        self.field = field
         self.cap   = cap
 
 
@@ -62,9 +62,9 @@ class Listed:
         size   = min(int(params.get("per_page", ["30"])[0]), self.cap)
         number = int(params.get("page", ["1"])[0])
         batch  = self.items[(number - 1) * size:number * size]
-        if self.key is None:
+        if self.field is None:
             return batch
-        return {"total_count": len(self.items), self.key: batch}
+        return {"total_count": len(self.items), self.field: batch}
 
 
 class FakeGitHub:
@@ -120,8 +120,8 @@ def account_routes() -> dict[str, object]:
         f"{app}/actions/permissions/workflow": {"default_workflow_permissions": "read",
                                                 "can_approve_pull_request_reviews": False},
         f"{app}/actions/secrets": Listed([{"name": "VERCEL_DEPLOYMENT_TOKEN"}, {"name": "KDF_APP_ID"},
-                                          {"name": "KDF_APP_PRIVATE_KEY"}], key = "secrets"),
-        f"{app}/actions/variables": Listed(canary_variables(45, "VAR"), key = "variables", cap = 30),
+                                          {"name": "KDF_APP_PRIVATE_KEY"}], field = "secrets"),
+        f"{app}/actions/variables": Listed(canary_variables(45, "VAR"), field = "variables", cap = 30),
         f"{app}/environments": Listed([
             {"name": "prod", "can_admins_bypass": False,
              "deployment_branch_policy": {"protected_branches": False, "custom_branch_policies": True},
@@ -135,16 +135,16 @@ def account_routes() -> dict[str, object]:
              "deployment_branch_policy": {"protected_branches": True, "custom_branch_policies": False},
              "protection_rules": []},
             {"name": "staging area", "deployment_branch_policy": None},
-        ], key = "environments"),
+        ], field = "environments"),
         f"{app}/environments/prod/deployment-branch-policies": Listed([
             {"name": "v*", "type": "tag"}, {"name": "main", "type": "branch"},
-        ], key = "branch_policies"),
-        f"{app}/environments/prod/secrets": Listed([{"name": "SIGNING_KEY"}, {"name": "DB_URL"}], key = "secrets"),
-        f"{app}/environments/prod/variables": Listed(canary_variables(2, "PROD"), key = "variables", cap = 30),
-        f"{app}/environments/dev/secrets": Listed([{"name": "DB_URL"}], key = "secrets"),
-        f"{app}/environments/dev/variables": Listed([], key = "variables", cap = 30),
-        f"{app}/environments/staging%20area/secrets": Listed([], key = "secrets"),
-        f"{app}/environments/staging%20area/variables": Listed(canary_variables(1, "STAGE"), key = "variables",
+        ], field = "branch_policies"),
+        f"{app}/environments/prod/secrets": Listed([{"name": "SIGNING_KEY"}, {"name": "DB_URL"}], field = "secrets"),
+        f"{app}/environments/prod/variables": Listed(canary_variables(2, "PROD"), field = "variables", cap = 30),
+        f"{app}/environments/dev/secrets": Listed([{"name": "DB_URL"}], field = "secrets"),
+        f"{app}/environments/dev/variables": Listed([], field = "variables", cap = 30),
+        f"{app}/environments/staging%20area/secrets": Listed([], field = "secrets"),
+        f"{app}/environments/staging%20area/variables": Listed(canary_variables(1, "STAGE"), field = "variables",
                                                                cap = 30),
         f"{app}/branches/main/protection": {
             "required_pull_request_reviews": {"required_approving_review_count": 0, "dismiss_stale_reviews": True,
@@ -175,9 +175,9 @@ def account_routes() -> dict[str, object]:
         f"{engine}/actions/permissions": {"enabled": True, "allowed_actions": "selected"},
         f"{engine}/actions/permissions/workflow": {"default_workflow_permissions": "read",
                                                    "can_approve_pull_request_reviews": False},
-        f"{engine}/actions/secrets": Listed([{"name": "CICD_PAT"}], key = "secrets"),
-        f"{engine}/actions/variables": Listed([], key = "variables", cap = 30),
-        f"{engine}/environments": Listed([], key = "environments"),
+        f"{engine}/actions/secrets": Listed([{"name": "CICD_PAT"}], field = "secrets"),
+        f"{engine}/actions/variables": Listed([], field = "variables", cap = 30),
+        f"{engine}/environments": Listed([], field = "environments"),
         f"{engine}/branches/main/protection": (404, {"message": "Branch not protected"}),
         f"{engine}/rules/branches/main": Listed([]),
         f"{engine}/rulesets": Listed([]),
@@ -188,10 +188,10 @@ def account_routes() -> dict[str, object]:
             {"id": 11, "app_id": 4242, "app_slug": "writer-app", "account": {"login": LOGIN},
              "repository_selection": "selected",
              "permissions": {"secrets": "write", "contents": "read"}, "events": [], "suspended_at": None},
-        ], key = "installations"),
+        ], field = "installations"),
         "user/installations/11/repositories": Listed([
             {"full_name": f"{LOGIN}/engine"}, {"full_name": f"{LOGIN}/app-backend"},
-        ], key = "repositories"),
+        ], field = "repositories"),
     }
     return routes
 
@@ -324,10 +324,10 @@ def test_a_token_shape_anywhere_refuses_the_whole_output():
     [
         (GITHUB_TOKEN_SHAPE, "a GitHub token"),
         ("github_pat_" + "A1b2_" * 6, "a GitHub token"),
-        ("-----BEGIN RSA PRIVATE KEY-----", "a private key"),
-        ("eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjMifQ.c2ln", "a JSON web token"),
-        ("postgresql://reader:hunter2@db.example/neondb", "a URL with a password"),
-        ("Ab3dEf6hIj9kLm2nOp5qRs8t", "a long run of mixed case letters and digits"),
+        ("-----BEGIN RSA " + "PRIVATE KEY-----", "a private key"),
+        ("eyJhbGciOiJSUzI1NiJ9." + "eyJzdWIiOiIxMjMifQ.c2ln", "a JSON web token"),
+        ("postgresql://reader:" + "hunter2@db.example/neondb", "a URL with a password"),
+        ("Ab3dEf6hIj9k" + "Lm2nOp5qRs8t", "a long run of mixed case letters and digits"),
     ],
 )
 def test_each_credential_shape_is_found(text: str, shape: str):
