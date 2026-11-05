@@ -9,8 +9,9 @@ max_module_lines = 1000
 
 quiet_degenerate_sections = true
 
-# this repo's Python is scripts/, its src tree, and the repo map's module beside the machine's tools (D-082), all strict
-roots = ["scripts", "tools/claude-code"]
+# this repo's Python is scripts/, its src tree, the repo map's module beside the machine's tools (D-082), and the
+# measure, the owner's read only account of secrets and rules by name, all strict
+roots = ["scripts", "tools/claude-code", "tools/measure"]
 
 # backup snapshots are frozen artifacts, not living code, and the scan's KDF rules sit beside their test cases, written
 # in Opengrep's test form to be flagged (D-085)
