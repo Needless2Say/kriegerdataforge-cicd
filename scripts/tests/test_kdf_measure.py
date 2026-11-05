@@ -20,7 +20,7 @@ from urllib.parse import parse_qs
 import pytest
 
 MODULE_PATH        = Path(__file__).resolve().parents[2] / "tools" / "measure" / "kdf_measure.py"
-LOGIN              = "owner-login"
+LOGIN              = "OwnerLogin2Name"
 CANARY             = "CANARY"
 GITHUB_TOKEN_SHAPE = "ghp_" + "A1b2" * 9
 
@@ -229,7 +229,7 @@ def test_full_run_prints_every_name_and_setting():
             "prevent_self_review=- wait_timer=0",
         ),
         joined(
-            "repo app-backend environment prod admin_bypass=false branch_rule=selected reviewers=User:owner-login",
+            "repo app-backend environment prod admin_bypass=false branch_rule=selected reviewers=User:OwnerLogin2Name",
             "prevent_self_review=false wait_timer=0",
         ),
         "repo app-backend environment prod policy branch main",
@@ -249,23 +249,23 @@ def test_full_run_prints_every_name_and_setting():
             "enforce_admins=false force_pushes=false deletions=false linear_history=false",
             "conversation_resolution=false signatures=false lock_branch=false push_restrictions=-",
         ),
-        "repo app-backend branch_rule main deletion ruleset=7 source=owner-login/app-backend",
+        "repo app-backend branch_rule main deletion ruleset=7 source=OwnerLogin2Name/app-backend",
         joined(
             'repo app-backend ruleset 7 name="Protect tags" target=tag enforcement=active source=Repository',
             "include=refs/tags/v* exclude=- rules=deletion,update bypass=RepositoryRole:5:always",
         ),
-        "repo app-backend collaborator owner-login role=admin",
+        "repo app-backend collaborator OwnerLogin2Name role=admin",
         "repo app-backend invitation invited-login permission=write",
         'repo app-backend deploy_key "a deploy key" read_only=false',
         "repo engine visibility=public default_branch=main archived=false fork=false",
         "repo engine secret CICD_PAT",
         "repo engine protection main none",
         joined(
-            "installation writer-app app_id=4242 id=11 account=owner-login selection=selected suspended=false",
+            "installation writer-app app_id=4242 id=11 account=OwnerLogin2Name selection=selected suspended=false",
             "permissions=contents:read,secrets:write events=-",
         ),
-        "installation writer-app repo owner-login/app-backend",
-        "installation writer-app repo owner-login/engine",
+        "installation writer-app repo OwnerLogin2Name/app-backend",
+        "installation writer-app repo OwnerLogin2Name/engine",
         "offers private rulesets=yes admin_bypass_switch=absent/present",
     ]
     for line in expected:
@@ -316,7 +316,20 @@ def test_a_token_shape_anywhere_refuses_the_whole_output():
     assert status == 2
     assert out == ""
     assert "a GitHub token" in err
+    assert "repo app-backend" in err
     assert GITHUB_TOKEN_SHAPE not in err
+
+
+def test_a_refusal_names_no_opening_that_itself_holds_a_shape():
+    routes = account_routes()
+    routes["user/repos"].items.append(
+        {"name": GITHUB_TOKEN_SHAPE, "full_name": f"{LOGIN}/x", "private": False, "owner": {"login": LOGIN}},
+    )
+    status, out, err, _ = run(routes)
+    assert status == 2
+    assert out == ""
+    assert GITHUB_TOKEN_SHAPE not in err
+    assert "a GitHub token" in err
 
 
 @pytest.mark.parametrize(
@@ -328,6 +341,7 @@ def test_a_token_shape_anywhere_refuses_the_whole_output():
         ("eyJhbGciOiJSUzI1NiJ9." + "eyJzdWIiOiIxMjMifQ.c2ln", "a JSON web token"),
         ("postgresql://reader:" + "hunter2@db.example/neondb", "a URL with a password"),
         ("Ab3dEf6hIj9k" + "Lm2nOp5qRs8t", "a long run of mixed case letters and digits"),
+        ("q3Zt8Lk2Wb5Yx+Fp9Rm1H" + "s7Vd/Nc4Ga6Ej0Ku2Oi3Ty", "a long base64 run"),
     ],
 )
 def test_each_credential_shape_is_found(text: str, shape: str):
@@ -340,6 +354,11 @@ def test_ordinary_names_and_settings_hold_no_credential_shape():
         "repo kriegerdataforge-template-fastapi secret REPORTS_CRON_SECRET_TIFFANYS_SPACE",
         "installation an-app permissions=administration:write,environments:write,secrets:write",
         "login Needless2Say plan=pro scopes=gist,read:org,repo,workflow",
+        "installation kdf-cicd-automation repo Needless2Say/kriegerdataforge-template-fastapi",
+        "repo kriegerdataforge branch_rule main deletion ruleset=7 source=Needless2Say/kriegerdataforge",
+        "repo tiffanys-space-backend collaborator Needless2Say role=admin",
+        "repo kriegerdataforge deploy_key MyLaptop-Key-2026-Personal-Backup read_only=true",
+        "installation vercel app_id=8329 id=31112 account=Needless2Say selection=all permissions=contents:read",
     ])
     assert kdf_measure().find_value_shape(lines) is None
 
@@ -370,7 +389,7 @@ def test_a_failed_read_is_named_and_the_rest_still_printed():
     status, out, err, _ = run(routes)
     assert status == 1
     assert "unreadable repo app-backend collaborators status=500" in out.splitlines()
-    assert "repo engine collaborator owner-login role=admin" in out.splitlines()
+    assert "repo engine collaborator OwnerLogin2Name role=admin" in out.splitlines()
     assert "Reads that failed, 1" in err
 
 

@@ -31,8 +31,10 @@ repository, as the private repositories answered.
 - The login's token, since every call goes through `gh api` and the token stays inside `gh`.
 
 Before anything is printed, the whole output is checked for the shape of a credential, a GitHub token, a private key,
-a JSON web token, a URL with a password, or a run of 24 or more letters and digits mixing upper and lower case. One
-match refuses the whole output, exit 2, naming the line by its number and the shape alone.
+a JSON web token, a URL with a password, a base64 run of 40 or more characters, or a run of 24 or more letters and
+digits with no separator, mixing upper and lower case and a digit. A separator such as `/`, `-` or `_` splits a run,
+so a full repository name under a mixed case login reads as short pieces. One match refuses the whole output, exit 2,
+naming the line by its number, its opening words when they hold no shape themselves, and the shape alone.
 
 ## Running it
 

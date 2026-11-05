@@ -13,8 +13,9 @@ the admin bypass switch on a private repository.
 It never prints a value. Each line is built from the fields named here alone, so a variable's value and a deploy
 key's public key never reach a line, and webhooks are not read at all, since a hook's URL may carry a credential.
 Before anything is printed the whole output is checked for the shape of a credential, a GitHub token, a private key,
-a JSON web token, a URL with a password or a long run of mixed case letters and digits, and it is refused whole when
-one appears, naming the line by its number and the shape alone. Every call goes through `gh api`, so the login's
+a JSON web token, a URL with a password, a long base64 run or a long run of mixed case letters and digits with no
+separator, and it is refused whole when one appears, naming the line by its number, its opening words and the shape
+alone. Every call goes through `gh api`, so the login's
 token stays inside `gh` and never passes through this script.
 
 Exit status 0, every read answered. 1, a read was refused or failed, each named by an `unreadable` line. 2, the
@@ -66,13 +67,18 @@ VALUE_SHAPES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("a private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY")),
     ("a JSON web token", re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.")),
     ("a URL with a password", re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@")),
+    # a separator splits a run, so owner/repo-name and a hyphenated title read as short pieces, never one run
+    (
+        "a long base64 run",
+        re.compile(r"(?=[A-Za-z0-9+/]*[a-z])(?=[A-Za-z0-9+/]*[A-Z])(?=[A-Za-z0-9+/]*[0-9])[A-Za-z0-9+/]{40,}"),
+    ),
     (
         "a long run of mixed case letters and digits",
-        re.compile(
-            r"(?=[A-Za-z0-9+/_-]*[a-z])(?=[A-Za-z0-9+/_-]*[A-Z])(?=[A-Za-z0-9+/_-]*[0-9])[A-Za-z0-9+/_-]{24,}"
-        ),
+        re.compile(r"(?=[A-Za-z0-9]*[a-z])(?=[A-Za-z0-9]*[A-Z])(?=[A-Za-z0-9]*[0-9])[A-Za-z0-9]{24,}"),
     ),
 )
+# the leading words of a refused line a refusal names, so the line is found without printing it
+OPENING_WORDS = 2
 
 # ======================================================================================================================
 # Reading GitHub through gh
@@ -297,6 +303,24 @@ def find_value_shape(lines: list[str]) -> tuple[int, str] | None:
             if pattern.search(text):
                 return number, name
     return None
+
+
+def refusal(lines: list[str], number: int, shape: str) -> str:
+    """
+    The message for a refused output, naming the line by its number and its opening words, and never its text.
+
+    Args:
+        lines: Every line of the output
+        number: The refused line's number, counted from 1
+        shape: The name of the shape the line holds
+
+    Returns:
+        The message, which leaves the opening words out when they hold a shape themselves
+    """
+    opening = " ".join(lines[number - 1].split(" ")[:OPENING_WORDS])
+    if find_value_shape([opening]) is not None:
+        return f"Refused, line {number} holds the shape of {shape}, so nothing is printed.\n"
+    return f"Refused, line {number}, opening {opening}, holds the shape of {shape}, so nothing is printed.\n"
 
 # ======================================================================================================================
 # The measure
@@ -909,8 +933,7 @@ def main(
         return 3
     found = find_value_shape(lines)
     if found is not None:
-        number, shape = found
-        err.write(f"Refused, line {number} holds the shape of {shape}, so nothing is printed.\n")
+        err.write(refusal(lines, *found))
         return 2
     out.write("\n".join(lines) + "\n")
     if unreadable:
