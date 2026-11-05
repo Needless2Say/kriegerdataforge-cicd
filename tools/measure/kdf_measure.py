@@ -48,12 +48,14 @@ from urllib.parse import quote
 # Configuration
 # ======================================================================================================================
 
-MEASURE_VERSION = 1
+MEASURE_VERSION = 2
 PAGE_SIZE       = 100
 MAX_PAGES       = 50
-# the statuses a list read reports beside GitHub's own, a body that is not the expected shape, and a list cut short
+# the statuses a read reports beside GitHub's own, a body that is not the expected shape, a list cut short, and gh
+# giving no answer GitHub wrote, a network failure among them
 MALFORMED = -1
 TRUNCATED = -2
+TRANSPORT = -3
 # the branch whose protection and rules are read in every repository, beside its default branch when that differs
 PROTECTED_BRANCH = "main"
 # the words GitHub answers with when the account's plan does not offer a feature on a private repository
@@ -66,7 +68,7 @@ VALUE_SHAPES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("a GitHub token", re.compile(r"(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})")),
     ("a private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY")),
     ("a JSON web token", re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.")),
-    ("a URL with a password", re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@")),
+    ("a URL with a password", re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s/:@]*:[^\s/@]+@")),
     # a separator splits a run, so owner/repo-name and a hyphenated title read as short pieces, never one run
     (
         "a long base64 run",
@@ -149,15 +151,15 @@ def gh_fetch(path: str, *, run: Callable[..., subprocess.CompletedProcess] = sub
     """
     One GET through `gh api --include`, so the login's token stays inside `gh`.
 
+    A run of gh that writes no answer GitHub wrote, because gh cannot start, is not signed in or the network failed,
+    reads as the status TRANSPORT, so the read is named where it failed and gh's own words are never repeated.
+
     Args:
         path: The API path with its query, such as repos/owner/name/environments?per_page=100&page=1
         run: The process runner, subprocess.run in a run and a stand in for the tests
 
     Returns:
-        GitHub's answer, a refused read included
-
-    Raises:
-        GhUnavailable: When gh cannot be run or writes nothing
+        GitHub's answer, a refused read included, or a Response with the status TRANSPORT
     """
     try:
         completed = run(
@@ -167,19 +169,23 @@ def gh_fetch(path: str, *, run: Callable[..., subprocess.CompletedProcess] = sub
             encoding = "utf-8",
             check = False,
         )
-    except OSError as error:
-        raise GhUnavailable(f"gh could not be run, {type(error).__name__}") from None
+    except OSError:
+        return Response(status = TRANSPORT)
     if not completed.stdout:
-        raise GhUnavailable("gh answered with nothing, so it may not be signed in")
-    return parse_include(completed.stdout)
+        return Response(status = TRANSPORT)
+    try:
+        return parse_include(completed.stdout)
+    except GhUnavailable:
+        return Response(status = TRANSPORT)
 
 
 def fetch_list(fetch: Fetch, path: str, key: str | None = None) -> tuple[list, int]:
     """
     Every item of a listed endpoint, page by page.
 
-    A wrapped list, one with a `total_count`, ends when the count is reached, since some endpoints cap a page below
-    the size asked for. A bare list ends at a page shorter than the size asked for, and either ends at an empty page.
+    GitHub marks a page with more to come by its Link header's next, so the list goes on while one is there and ends
+    when none is, whatever a page's length, since some endpoints cap a page below the size asked for. A wrapped list,
+    one with a `total_count`, that ends short of its count is truncated, never taken as whole.
 
     Args:
         fetch: The GET to use
@@ -200,13 +206,12 @@ def fetch_list(fetch: Fetch, path: str, key: str | None = None) -> tuple[list, i
         if not isinstance(batch, list):
             return items, MALFORMED
         items.extend(batch)
+        if 'rel="next"' in response.headers.get("link", ""):
+            continue
         total = body.get("total_count") if key is not None and isinstance(body, dict) else None
-        if not batch:
-            return items, 200
-        if isinstance(total, int) and len(items) >= total:
-            return items, 200
-        if total is None and len(batch) < PAGE_SIZE:
-            return items, 200
+        if isinstance(total, int) and len(items) < total:
+            return items, TRUNCATED
+        return items, 200
     return items, TRUNCATED
 
 # ======================================================================================================================
@@ -255,28 +260,12 @@ def line_of(*parts: object, **fields: object) -> str:
     return " ".join(words)
 
 
-def number_of(value: object) -> int:
-    """
-    An id as a number for sorting.
-
-    Args:
-        value: The id as GitHub gave it
-
-    Returns:
-        The number, or 0 when it is not one
-    """
-    try:
-        return int(str(value))
-    except ValueError:
-        return 0
-
-
 def status_word(status: int) -> str:
     """
     A status as a line shows it.
 
     Args:
-        status: GitHub's status, or MALFORMED or TRUNCATED
+        status: GitHub's status, or MALFORMED, TRUNCATED or TRANSPORT
 
     Returns:
         GitHub's number, or the name of the script's own stop
@@ -285,27 +274,36 @@ def status_word(status: int) -> str:
         return "malformed"
     if status == TRUNCATED:
         return "truncated"
+    if status == TRANSPORT:
+        return "transport"
     return str(status)
 
 
-def find_value_shape(lines: list[str]) -> tuple[int, str] | None:
+def find_value_shape(lines: list[str], known: tuple[str, ...] = ()) -> tuple[int, str] | None:
     """
     The first line that holds a credential's shape.
 
+    Each known name, the login a run reads, is set aside in a copy of each line before the shapes are sought, so a
+    full repository name under a mixed case login is read as its repository part, and the rest of the line in full.
+
     Args:
         lines: Every line of the output
+        known: The names a run has read as names, the login among them
 
     Returns:
         The line's number, counted from 1, and the shape's name, or None when no line holds one
     """
     for number, text in enumerate(lines, start = 1):
-        for name, pattern in VALUE_SHAPES:
+        for name in known:
+            if name:
+                text = text.replace(name, "-")
+        for shape, pattern in VALUE_SHAPES:
             if pattern.search(text):
-                return number, name
+                return number, shape
     return None
 
 
-def refusal(lines: list[str], number: int, shape: str) -> str:
+def refusal(lines: list[str], number: int, shape: str, known: tuple[str, ...] = ()) -> str:
     """
     The message for a refused output, naming the line by its number and its opening words, and never its text.
 
@@ -313,12 +311,13 @@ def refusal(lines: list[str], number: int, shape: str) -> str:
         lines: Every line of the output
         number: The refused line's number, counted from 1
         shape: The name of the shape the line holds
+        known: The names a run has read as names, as find_value_shape takes them
 
     Returns:
         The message, which leaves the opening words out when they hold a shape themselves
     """
     opening = " ".join(lines[number - 1].split(" ")[:OPENING_WORDS])
-    if find_value_shape([opening]) is not None:
+    if find_value_shape([opening], known) is not None:
         return f"Refused, line {number} holds the shape of {shape}, so nothing is printed.\n"
     return f"Refused, line {number}, opening {opening}, holds the shape of {shape}, so nothing is printed.\n"
 
@@ -371,13 +370,15 @@ class Measure:
             parts: The words that name the list in an `unreadable` line
 
         Returns:
-            The objects read, or None when the read failed
+            The objects read, or None when the read failed or a member is not an object
         """
         items, status = fetch_list(self.fetch, path, key)
+        if status == 200 and not all(isinstance(item, dict) for item in items):
+            status = MALFORMED
         if status != 200:
             self.fail(*parts, status = status)
             return None
-        return [item for item in items if isinstance(item, dict)]
+        return items
 
 
 def unavailable(response: Response) -> bool:
@@ -492,7 +493,11 @@ def measure_names(measure: Measure, path: str, key: str, *parts: object) -> None
     items = measure.list_or_fail(path, key, *parts)
     if items is None:
         return
-    for name in sorted(str(item.get("name", "")) for item in items):
+    names = [item.get("name") for item in items]
+    if not all(isinstance(name, str) and name for name in names):
+        measure.fail(*parts, status = MALFORMED)
+        return
+    for name in sorted(names):
         measure.add(*parts, name)
 
 
@@ -504,11 +509,15 @@ def environment_rule(environment: dict) -> str:
         environment: The environment as GitHub describes it
 
     Returns:
-        any, protected, selected, or unknown for a policy of no known form
+        any for an explicit null policy, protected, selected, or unknown for a policy missing or of no known form
     """
-    policy = environment.get("deployment_branch_policy")
-    if not isinstance(policy, dict):
+    if "deployment_branch_policy" not in environment:
+        return "unknown"
+    policy = environment["deployment_branch_policy"]
+    if policy is None:
         return "any"
+    if not isinstance(policy, dict):
+        return "unknown"
     if policy.get("protected_branches"):
         return "protected"
     if policy.get("custom_branch_policies"):
@@ -556,8 +565,11 @@ def measure_environments(measure: Measure, slug: str, name: str, private: bool) 
     environments = measure.list_or_fail(f"repos/{slug}/environments", "environments", "repo", name, "environments")
     if environments is None:
         return
-    for environment in sorted(environments, key = lambda env: str(env.get("name", ""))):
-        env_name   = str(environment.get("name", ""))
+    if not all(isinstance(env.get("name"), str) and env.get("name") for env in environments):
+        measure.fail("repo", name, "environments", status = MALFORMED)
+        return
+    for environment in sorted(environments, key = lambda env: str(env["name"])):
+        env_name   = str(environment["name"])
         env_path   = f"repos/{slug}/environments/{quote(env_name, safe = '')}"
         has_switch = "can_admins_bypass" in environment
         if private:
@@ -689,9 +701,33 @@ def bypass_names(ruleset: dict) -> list[str]:
     return names
 
 
+def rule_parameters(parameters: dict) -> dict[str, object]:
+    """
+    A ruleset rule's parameters as a line's fields, in a fixed order, so a weakened rule shows as a changed line.
+
+    Args:
+        parameters: The rule's parameters as GitHub describes them
+
+    Returns:
+        Each parameter by its name, a required status check as context@app or context@any, any other object or list
+        of objects as compact JSON with its keys sorted, and every other value as it is
+    """
+    fields: dict[str, object] = {}
+    for key in sorted(parameters):
+        value = parameters[key]
+        if isinstance(value, list) and value and all(isinstance(item, dict) and "context" in item for item in value):
+            fields[key] = [f"{item.get('context')}@{item.get('integration_id') or 'any'}" for item in value]
+        elif isinstance(value, dict) or (isinstance(value, list) and any(isinstance(item, dict) for item in value)):
+            fields[key] = json.dumps(value, sort_keys = True, separators = (",", ":"))
+        else:
+            fields[key] = value
+    return fields
+
+
 def measure_rulesets(measure: Measure, slug: str, name: str, private: bool) -> None:
     """
-    The rules that reach `main`, then every ruleset with its target, its refs, its rules and who may bypass it.
+    The rules that reach `main`, then every ruleset with its target, its refs, its rules and who may bypass it, and
+    each of its rules that takes parameters on a line of its own with them.
 
     Args:
         measure: The run
@@ -699,14 +735,12 @@ def measure_rulesets(measure: Measure, slug: str, name: str, private: bool) -> N
         name: The repository's name, as its lines show it
         private: Whether the repository is private, so its answer tells whether the plan offers rulesets
     """
-    branch_rules = measure.list_or_fail(
-        f"repos/{slug}/rules/branches/{PROTECTED_BRANCH}",
-        None,
-        "repo",
-        name,
-        "branch_rules",
-        PROTECTED_BRANCH,
-    )
+    rules_path   = f"repos/{slug}/rules/branches/{PROTECTED_BRANCH}"
+    branch_rules = None
+    if private and unavailable(measure.fetch(f"{rules_path}?per_page={PAGE_SIZE}&page=1")):
+        measure.add("repo", name, "branch_rules", PROTECTED_BRANCH, "unavailable")
+    else:
+        branch_rules = measure.list_or_fail(rules_path, None, "repo", name, "branch_rules", PROTECTED_BRANCH)
     for rule in sorted(branch_rules or [], key = lambda item: (str(item.get("type")), str(item.get("ruleset_id")))):
         measure.add(
             "repo",
@@ -726,7 +760,7 @@ def measure_rulesets(measure: Measure, slug: str, name: str, private: bool) -> N
         return
     if private:
         measure.private_rulesets.add("yes")
-    for summary in sorted(rulesets, key = lambda item: number_of(item.get("id"))):
+    for summary in sorted(rulesets, key = lambda item: (len(str(item.get("id"))), str(item.get("id")))):
         ruleset_id = summary.get("id")
         detail     = measure.fetch(f"repos/{slug}/rulesets/{ruleset_id}")
         if detail.status != 200 or not isinstance(detail.body, dict):
@@ -749,6 +783,19 @@ def measure_rulesets(measure: Measure, slug: str, name: str, private: bool) -> N
             rules = [rule.get("type") for rule in body.get("rules") or [] if isinstance(rule, dict)],
             bypass = bypass_names(body),
         )
+        ruled = [rule for rule in body.get("rules") or [] if isinstance(rule, dict)]
+        for rule in sorted(ruled, key = lambda item: str(item.get("type"))):
+            parameters = rule.get("parameters")
+            if isinstance(parameters, dict) and parameters:
+                measure.add(
+                    "repo",
+                    name,
+                    "ruleset",
+                    ruleset_id,
+                    "rule",
+                    rule.get("type"),
+                    **rule_parameters(parameters),
+                )
 
 
 def measure_people(measure: Measure, slug: str, name: str) -> None:
@@ -816,7 +863,7 @@ def measure_installations(measure: Measure) -> None:
         measure: The run
     """
     installations = measure.list_or_fail("user/installations", "installations", "installations")
-    for installation in sorted(installations or [], key = lambda item: number_of(item.get("id"))):
+    for installation in sorted(installations or [], key = lambda item: (len(str(item.get("id"))), str(item.get("id")))):
         app             = installation.get("app_slug")
         installation_id = installation.get("id")
         account         = installation.get("account") if isinstance(installation.get("account"), dict) else {}
@@ -843,7 +890,12 @@ def measure_installations(measure: Measure) -> None:
             measure.add("installation", app, "repo", repository.get("full_name"))
 
 
-def run_measure(fetch: Fetch, names: list[str], login_only: bool, taken: str) -> tuple[list[str], int]:
+def run_measure(
+    fetch: Fetch,
+    names: list[str],
+    login_only: bool,
+    taken: str,
+) -> tuple[list[str], int, tuple[str, ...]]:
     """
     Every line of one run.
 
@@ -854,11 +906,11 @@ def run_measure(fetch: Fetch, names: list[str], login_only: bool, taken: str) ->
         taken: The time of the run, as its second line shows it
 
     Returns:
-        The lines and the count of reads that failed
+        The lines, the count of reads that failed, and the names read as names, the login alone today
     """
     login, login_line = read_login(fetch)
     if login_only:
-        return [login_line], 0
+        return [login_line], 0, (login,)
     measure = Measure(fetch = fetch)
     measure.add("measure", "kdf-measure", version = MEASURE_VERSION)
     measure.add("taken", taken)
@@ -872,7 +924,7 @@ def run_measure(fetch: Fetch, names: list[str], login_only: bool, taken: str) ->
         rulesets = "/".join(sorted(measure.private_rulesets)) or "unknown",
         admin_bypass_switch = "/".join(sorted(measure.private_bypass)) or "unknown",
     )
-    return measure.lines, measure.unreadable
+    return measure.lines, measure.unreadable, (login,)
 
 # ======================================================================================================================
 # Entry point
@@ -927,13 +979,13 @@ def main(
     err   = err if err is not None else sys.stderr
     taken = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
-        lines, unreadable = run_measure(fetch or gh_fetch, args.repo, args.login_only, taken)
+        lines, unreadable, known = run_measure(fetch or gh_fetch, args.repo, args.login_only, taken)
     except GhUnavailable as error:
         err.write(f"The measure could not start, {error}.\n")
         return 3
-    found = find_value_shape(lines)
+    found = find_value_shape(lines, known)
     if found is not None:
-        err.write(refusal(lines, *found))
+        err.write(refusal(lines, *found, known))
         return 2
     out.write("\n".join(lines) + "\n")
     if unreadable:

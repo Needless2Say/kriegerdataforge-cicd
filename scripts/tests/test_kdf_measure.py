@@ -50,21 +50,25 @@ def joined(*parts: str) -> str:
 
 class Listed:
     """
-    A listed endpoint's items, bare or wrapped under a field with a total_count, served a page at a time.
+    A listed endpoint's items, bare or wrapped under a field with a total_count, served a page at a time, each page
+    with more to come marked by a Link header's next as GitHub marks it. A total may be given that the items do not
+    reach, and a cap below the size asked for, as some endpoints have.
     """
-    def __init__(self, items: list, field: str | None = None, cap: int = 100):
+    def __init__(self, items: list, field: str | None = None, cap: int = 100, total: int | None = None):
         self.items = items
         self.field = field
         self.cap   = cap
+        self.total = total
 
 
-    def page(self, params: dict[str, list[str]]) -> object:
+    def page(self, params: dict[str, list[str]]) -> tuple[object, bool]:
         size   = min(int(params.get("per_page", ["30"])[0]), self.cap)
         number = int(params.get("page", ["1"])[0])
         batch  = self.items[(number - 1) * size:number * size]
+        more   = number * size < len(self.items)
         if self.field is None:
-            return batch
-        return {"total_count": len(self.items), self.field: batch}
+            return batch, more
+        return {"total_count": len(self.items) if self.total is None else self.total, self.field: batch}, more
 
 
 class FakeGitHub:
@@ -85,10 +89,15 @@ class FakeGitHub:
         if base not in self.routes:
             return response(status = 404, body = {"message": "Not Found"})
         route = self.routes[base]
+        if isinstance(route, kdf_measure().Response):
+            return route
         status, body = route if isinstance(route, tuple) else (200, route)
-        if isinstance(body, Listed):
-            body = body.page(params)
         headers = {"x-oauth-scopes": self.scopes} if base == "user" and self.scopes is not None else {}
+        if isinstance(body, Listed):
+            body, more = body.page(params)
+            if more:
+                following = int(params.get("page", ["1"])[0]) + 1
+                headers["link"] = f'<https://api.github.com/{base}?page={following}>; rel="next"'
         return response(status = status, headers = headers, body = body)
 
 
@@ -161,12 +170,28 @@ def account_routes() -> dict[str, object]:
         },
         f"{app}/rules/branches/main": Listed([{"type": "deletion", "ruleset_id": 7,
                                                "ruleset_source": f"{LOGIN}/app-backend"}]),
-        f"{app}/rulesets": Listed([{"id": 7}]),
+        f"{app}/rulesets": Listed([{"id": 8}, {"id": 7}]),
         f"{app}/rulesets/7": {
             "name": "Protect tags", "target": "tag", "enforcement": "active", "source_type": "Repository",
             "conditions": {"ref_name": {"include": ["refs/tags/v*"], "exclude": []}},
             "rules": [{"type": "update"}, {"type": "deletion"}],
             "bypass_actors": [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}],
+        },
+        f"{app}/rulesets/8": {
+            "name": "main protection", "target": "branch", "enforcement": "active", "source_type": "Repository",
+            "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
+            "rules": [
+                {"type": "pull_request", "parameters": {"required_approving_review_count": 1,
+                                                        "dismiss_stale_reviews_on_push": True,
+                                                        "allowed_merge_methods": ["squash", "merge"]}},
+                {"type": "required_status_checks", "parameters": {
+                    "strict_required_status_checks_policy": True,
+                    "required_status_checks": [{"context": "ci / test", "integration_id": 15368},
+                                               {"context": "secret scan"}],
+                }},
+                {"type": "deletion"},
+            ],
+            "bypass_actors": [],
         },
         f"{app}/collaborators": Listed([{"login": LOGIN, "role_name": "admin"}]),
         f"{app}/invitations": Listed([{"invitee": {"login": "invited-login"}, "permissions": "write"}]),
@@ -214,7 +239,7 @@ def test_full_run_prints_every_name_and_setting():
     status, out, err, _ = run(account_routes())
     lines = out.splitlines()
     assert status == 0, err
-    assert lines[0] == "measure kdf-measure version=1"
+    assert lines[0] == "measure kdf-measure version=2"
     assert lines[1].startswith("taken ")
     assert lines[2] == f"login {LOGIN} plan=pro scopes=gist,read:org,repo,workflow"
     expected = [
@@ -253,6 +278,18 @@ def test_full_run_prints_every_name_and_setting():
         joined(
             'repo app-backend ruleset 7 name="Protect tags" target=tag enforcement=active source=Repository',
             "include=refs/tags/v* exclude=- rules=deletion,update bypass=RepositoryRole:5:always",
+        ),
+        joined(
+            'repo app-backend ruleset 8 name="main protection" target=branch enforcement=active source=Repository',
+            "include=~DEFAULT_BRANCH exclude=- rules=deletion,pull_request,required_status_checks bypass=-",
+        ),
+        joined(
+            "repo app-backend ruleset 8 rule pull_request allowed_merge_methods=merge,squash",
+            "dismiss_stale_reviews_on_push=true required_approving_review_count=1",
+        ),
+        joined(
+            "repo app-backend ruleset 8 rule required_status_checks",
+            'required_status_checks="ci / test@15368","secret scan@any" strict_required_status_checks_policy=true',
         ),
         "repo app-backend collaborator OwnerLogin2Name role=admin",
         "repo app-backend invitation invited-login permission=write",
@@ -340,6 +377,7 @@ def test_a_refusal_names_no_opening_that_itself_holds_a_shape():
         ("-----BEGIN RSA " + "PRIVATE KEY-----", "a private key"),
         ("eyJhbGciOiJSUzI1NiJ9." + "eyJzdWIiOiIxMjMifQ.c2ln", "a JSON web token"),
         ("postgresql://reader:" + "hunter2@db.example/neondb", "a URL with a password"),
+        ("redis://:" + "hunter2@cache.example:6379", "a URL with a password"),
         ("Ab3dEf6hIj9k" + "Lm2nOp5qRs8t", "a long run of mixed case letters and digits"),
         ("q3Zt8Lk2Wb5Yx+Fp9Rm1H" + "s7Vd/Nc4Ga6Ej0Ku2Oi3Ty", "a long base64 run"),
     ],
@@ -430,6 +468,96 @@ def test_a_login_that_cannot_be_read_stops_the_measure():
     assert out == ""
     assert "could not start" in err
 
+
+def test_a_transport_failure_at_the_login_stops_the_measure():
+    routes = account_routes()
+    routes["user"] = kdf_measure().Response(status = kdf_measure().TRANSPORT)
+    status, out, err, _ = run(routes)
+    assert status == 3
+    assert out == ""
+    assert "status transport" in err
+
+
+def test_a_transport_failure_midway_is_named_and_the_rest_still_printed():
+    routes = account_routes()
+    routes[f"repos/{LOGIN}/app-backend/collaborators"] = kdf_measure().Response(status = kdf_measure().TRANSPORT)
+    status, out, err, _ = run(routes)
+    assert status == 1, err
+    assert "unreadable repo app-backend collaborators status=transport" in out.splitlines()
+    assert "repo engine collaborator OwnerLogin2Name role=admin" in out.splitlines()
+
+
+def test_a_ruleset_parameter_change_changes_the_reading():
+    before = [line for line in run(account_routes())[1].splitlines() if not line.startswith("taken ")]
+    routes = account_routes()
+    routes[f"repos/{LOGIN}/app-backend/rulesets/8"]["rules"][0]["parameters"]["required_approving_review_count"] = 0
+    after   = [line for line in run(routes)[1].splitlines() if not line.startswith("taken ")]
+    changed = sorted(set(before) ^ set(after))
+    assert len(changed) == 2
+    assert all(line.startswith("repo app-backend ruleset 8 rule pull_request") for line in changed)
+
+
+def test_a_wrapped_list_short_of_its_count_is_truncated():
+    routes = account_routes()
+    routes[f"repos/{LOGIN}/engine/actions/secrets"] = Listed([{"name": "CICD_PAT"}], field = "secrets", total = 2)
+    status, out, _, _ = run(routes)
+    assert status == 1
+    assert "unreadable repo engine secret status=truncated" in out.splitlines()
+
+
+def test_a_short_page_with_a_next_link_is_followed():
+    routes = account_routes()
+    people = [{"login": LOGIN, "role_name": "admin"}, {"login": "second-login", "role_name": "read"}]
+    routes[f"repos/{LOGIN}/engine/collaborators"] = Listed(people, cap = 1)
+    status, out, err, fake = run(routes)
+    assert status == 0, err
+    assert "repo engine collaborator second-login role=read" in out.splitlines()
+    assert f"repos/{LOGIN}/engine/collaborators?affiliation=all&per_page=100&page=2" in fake.calls
+
+
+def test_a_null_list_member_is_malformed():
+    routes = account_routes()
+    routes[f"repos/{LOGIN}/engine/environments"] = Listed([None], field = "environments")
+    status, out, _, _ = run(routes)
+    assert status == 1
+    assert "unreadable repo engine environments status=malformed" in out.splitlines()
+
+
+def test_an_environment_with_no_name_is_malformed():
+    routes = account_routes()
+    routes[f"repos/{LOGIN}/engine/environments"] = Listed([{"deployment_branch_policy": None}], field = "environments")
+    status, out, _, _ = run(routes)
+    assert status == 1
+    assert "unreadable repo engine environments status=malformed" in out.splitlines()
+
+
+def test_an_environment_without_its_policy_field_reads_unknown():
+    routes = account_routes()
+    routes[f"repos/{LOGIN}/engine/environments"] = Listed([{"name": "dev"}], field = "environments")
+    routes[f"repos/{LOGIN}/engine/environments/dev/secrets"] = Listed([], field = "secrets")
+    routes[f"repos/{LOGIN}/engine/environments/dev/variables"] = Listed([], field = "variables", cap = 30)
+    status, out, err, _ = run(routes)
+    assert status == 0, err
+    dev = next(line for line in out.splitlines() if line.startswith("repo engine environment dev "))
+    assert "branch_rule=unknown" in dev
+
+
+def test_a_long_repository_name_under_the_login_is_no_shape():
+    routes = account_routes()
+    routes["user/installations/11/repositories"].items.append({"full_name": f"{LOGIN}/opentelemetryinstrumentation"})
+    status, out, err, _ = run(routes)
+    assert status == 0, err
+    assert f"installation writer-app repo {LOGIN}/opentelemetryinstrumentation" in out.splitlines()
+
+
+def test_branch_rules_the_plan_does_not_offer_are_a_finding_not_a_failure():
+    routes  = account_routes()
+    upgrade = (403, {"message": "Upgrade to GitHub Pro or make this repository public to enable this feature."})
+    routes[f"repos/{LOGIN}/app-backend/rules/branches/main"] = upgrade
+    status, out, err, _ = run(routes)
+    assert status == 0, err
+    assert "repo app-backend branch_rules main unavailable" in out.splitlines()
+
 # ======================================================================================================================
 # Reading through gh
 # ======================================================================================================================
@@ -469,22 +597,28 @@ def test_gh_fetch_reads_a_refused_answer():
     assert response.message() == "branch not protected"
 
 
-def test_gh_fetch_with_no_answer_is_unavailable():
+def test_gh_fetch_with_no_answer_is_a_transport_failure():
     def runner(args: list[str], **_: object) -> subprocess.CompletedProcess:
         return subprocess.CompletedProcess(args = args, returncode = 4, stdout = "", stderr = "not signed in")
 
 
-    with pytest.raises(kdf_measure().GhUnavailable):
-        kdf_measure().gh_fetch("user", run = runner)
+    assert kdf_measure().gh_fetch("user", run = runner).status == kdf_measure().TRANSPORT
 
 
-def test_gh_that_cannot_run_is_unavailable():
+def test_gh_that_cannot_run_is_a_transport_failure():
     def runner(args: list[str], **_: object) -> subprocess.CompletedProcess:
         raise FileNotFoundError("gh")
 
 
-    with pytest.raises(kdf_measure().GhUnavailable):
-        kdf_measure().gh_fetch("user", run = runner)
+    assert kdf_measure().gh_fetch("user", run = runner).status == kdf_measure().TRANSPORT
+
+
+def test_gh_answering_with_no_status_line_is_a_transport_failure():
+    def runner(args: list[str], **_: object) -> subprocess.CompletedProcess:
+        return completed("gh: something went wrong")
+
+
+    assert kdf_measure().gh_fetch("user", run = runner).status == kdf_measure().TRANSPORT
 
 
 def test_an_answer_with_no_status_line_is_unavailable():
