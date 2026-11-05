@@ -5,10 +5,11 @@
 #   1. Loads its secrets. A job with `environment:` reads repository AND environment
 #      secrets together, so the two singular tokens live at REPOSITORY level (one value
 #      everywhere) while the genuinely per-env values stay environment-scoped.
-#   2. Pauses for approval only where the calling repository's environment configures
-#      a required reviewer. None does today (measured 2026-09-17, no environment
-#      carries a reviewer or a branch policy), so the deployer authorization gate
-#      below is what stands in front of the token.
+#   2. Holds those secrets to the branch rule of the calling repository's environment,
+#      `main` alone, with no reviewer. The rule binds the run's ref, never the code the
+#      run checks out, so the `release` job resolves the tag to a commit on main and the
+#      deploy checks out that commit by its SHA. The deployer authorization gate below
+#      decides who deploys.
 #
 # Deploy steps (hub register row 83, the owner's order of 2026-09-25):
 #   1. Compact api/ into vercel_api/app/ via vercel_compactor.py
@@ -185,10 +186,9 @@ jobs:
     if: github.actor == github.triggering_actor
     runs-on: ubuntu-slim
 
-    # Names the caller repo's GitHub Environment. The job reads its secrets, and pauses for
-    # approval only where that environment configures a required reviewer. None does today
-    # (measured 2026-09-17), so the deployer authorization gate above is the control. No
-    # id-token permission: the pinned Vercel CLI never requests a GitHub OIDC token.
+    # Names the caller repo's GitHub Environment, held to main, and the job reads its secrets.
+    # It deploys the commit the release job resolved, never the tag. No id-token permission:
+    # the pinned Vercel CLI never requests a GitHub OIDC token.
     environment: ${{ inputs.environment }}
 
     permissions:

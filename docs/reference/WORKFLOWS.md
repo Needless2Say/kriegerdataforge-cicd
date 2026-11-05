@@ -53,30 +53,32 @@ workflow). There are no push triggered deploys, Vercel git auto deploy is off. F
 2. The reusable CD workflow's **`authorize`** job runs *first* (before any approval or secret load)
    and fails closed if the actor is not an approved deployer. See
    [Deployer authorization gate](#deployer-authorization-gate).
-3. The two Vercel deploys then run **`verify-prod-gate`**, which asks GitHub for a successful run of
-   the consumer's own PROD Gate workflow for the release, and fails closed on `prod` when there is
-   none. See [PROD gate](#prod-gate).
+3. The two Vercel deploys then run **`release`**, which resolves `v<version>` to a commit and refuses
+   one that is not on `main` (`scripts/check_release_commit.py`), and **`verify-prod-gate`**, which
+   asks GitHub for a successful run of the consumer's own PROD Gate workflow for that commit, and
+   fails closed on `prod` when there is none. See [PROD gate](#prod-gate).
 4. The `deploy`/`apply` job declares `environment: ${{ inputs.environment }}`, which loads that
-   environment's secrets and pauses for approval only where the environment configures a
-   required reviewer. Measured on 2026-09-17, no environment in any repo carries a reviewer or a
-   branch policy, so the deployer authorization gate is the control in front of the token.
+   environment's secrets. An environment's branch rule binds the run's ref, never the code the run
+   checks out, so the deploy checks out the commit `release` resolved by its SHA and compares its
+   checkout with it, never the tag. Each `dev` and `prod` is to be held to `main` alone with no
+   reviewer, so a run from a branch never reaches the secrets, and the deployer authorization gate
+   decides who deploys.
 5. The deploy runs. A Next.js deploy pulls the project, builds once and ships the prebuilt
    output. A Python deploy deploys without the domains, migrates, smokes the new deployment and
    only then promotes it (D-016).
 
 ### Environment approval model
 
-The model below is the intended one. The reviewers it names are not configured anywhere today
-(measured 2026-09-17), which is why the deployer authorization gate exists. The GitHub
-Environments and their intended required reviewers are provisioned by
-[`issue-create-repo.yml:168-223`](../../.github/workflows/issue-create-repo.yml) and documented in
-`MANUAL_SETUP.md` Phase 4 (the owner's, in `kriegerdataforge-context/ops/`). The **only** environment names in use, and the
-keys the deployer registry is keyed on, are:
+No environment asks for a reviewer, and the deployer authorization gate decides who deploys. The
+GitHub Environments are provisioned by
+[`issue-create-repo.yml`](../../.github/workflows/issue-create-repo.yml), each held to `main`, and
+documented in `MANUAL_SETUP.md` Phase 4 (the owner's, in `kriegerdataforge-context/ops/`). The **only**
+environment names in use, and the keys the deployer registry is keyed on, are:
 
 | GitHub Environment | Required reviewer(s) | Deployment branch policy |
 |---|---|---|
-| `dev` | Owner (provisioned owner only, a collaborator may be **added manually** to the `dev` required reviewers list, `issue-create-repo.yml:198-223`, completion checklist line 277) | `main` only |
-| `prod` | Owner only (`issue-create-repo.yml:168-196`) | `main` only |
+| `dev` | None | `main` only |
+| `prod` | None | `main` only |
 | `github-pages` | Owner (`arthurs-portfolio` and `kriegerdataforge-portfolio`, self contained Pages deploys, `MANUAL_SETUP.md` Phase 4 "For arthurs-portfolio") | GitHub Pages (no `dev`/`prod`) |
 
 > **There is no `infra` / `infrastructure` / `development` / `production` environment.** The Terraform
@@ -99,10 +101,9 @@ trimmed token is a masked step output read by the steps that call Vercel's API a
 
 ## Deployer authorization gate
 
-GitHub cannot restrict **who** may `workflow_dispatch` a run. Anyone with write access can. The
-Environment gate covers `prod` (owner only reviewer), but on `dev` a collaborator is also an allowed
-reviewer and could self-approve. So every reusable CD workflow runs a **deployer authorization gate**
-as its first job.
+GitHub cannot restrict **who** may `workflow_dispatch` a run. Anyone with write access can, and a
+branch's workflow holding `actions: write` can dispatch one with its own token. So every reusable CD
+workflow runs a **deployer authorization gate** as its first job.
 
 **How it works:**
 
@@ -111,9 +112,14 @@ as its first job.
    `cd.yml` runs the same gate before its build.)
 2. `authorize` sparse checks out this repo's `scripts/` and runs
    [`scripts/check_deployer.py`](../../scripts/check_deployer.py) (`cd-nextjs-vercel.yml:47-70`).
-3. The script matches `github.triggering_actor` (whoever clicked **Run workflow**) against
+3. The script matches both of the run's users, `github.actor`, who started the run and chose its
+   inputs and whom a rerun keeps, read from the runner's own `GITHUB_ACTOR`, and
+   `github.triggering_actor`, whoever clicked **Run workflow** or reran it, against
    [`scripts/deployer_registry.json`](../../scripts/deployer_registry.json), keyed by
-   `github.repository` and the target `environment`. Matching is case-insensitive.
+   `github.repository` and the target `environment`. Both must be listed, so an approved deployer's
+   rerun of a deploy another started stays denied. Matching is case-insensitive. A rerun of failed
+   jobs alone keeps the gate's pass, so every later job of the two Vercel deploys runs only when
+   `github.actor == github.triggering_actor`.
 4. **Not authorized → the job fails → the deploy job never runs.** Because `authorize` has **no
    `environment:`**, it runs *before* the approval is even requested. An unauthorized dispatch fails
    fast, no approval notification, no secrets loaded (fail closed).
@@ -123,7 +129,7 @@ as its first job.
 ```json
 {
   "deployers": {
-    "Needless2Say/fitness-app-frontend": { "dev": ["Needless2Say", "Ascensionn"], "prod": ["Needless2Say"] },
+    "Needless2Say/fitness-app-frontend": { "dev": ["Needless2Say"], "prod": ["Needless2Say"] },
     "Needless2Say/arthurs-portfolio":    { "github-pages": ["Needless2Say"] }
   }
 }
@@ -777,17 +783,23 @@ jobs:
 #### `_authorize-owner.yml`
 
 A reusable fail closed gate that other **privileged ops workflows in *this* repo** call as a job via
-the local path `./.github/workflows/_authorize-owner.yml` and `needs:`. It compares
-`github.triggering_actor` to `github.repository_owner` (case insensitive) and fails closed on a
-mismatch. The leading `_` + local path usage signal it is **internal**. Tenants do not call it.
+the local path `./.github/workflows/_authorize-owner.yml` and `needs:`. It compares both
+`github.actor`, who started the run and whom a rerun keeps, and `github.triggering_actor`, whoever
+triggered or reran it, to `github.repository_owner` (case insensitive) and fails closed unless both
+match, so the owner's rerun of a run another started stays denied. A rerun of failed jobs alone
+keeps its passed output, so every job that `needs:` it tests both actors in its own `if:` too
+(`scripts/tests/test_owner_check.py`). The leading `_` + local path usage signal it is
+**internal**. Tenants do not call it.
 
 - **Inputs.** None. **Secrets.** None.
-- **Output.** `authorized`. `'true'` only when the actor is the repo owner (`:16-19`, job output
-  `:28-29`).
-- **Permissions.** Top level `contents: read` (`:21-22`).
-- **Callers (this repo).** `ops-rotate-secrets.yml`, `ops-distribute-kit.yml`, `ops-setup-e2e.yml`,
-  `ops-provision-projects.yml`, `ops-distribute-app-secrets.yml`, `ops-triage-reports.yml`,
-  `distribute-kit.yml`, `distribute-gh-pat.yml`, `rotate-vercel-tokens.yml`.
+- **Output.** `authorized`. `'true'` only when both actors are the repo owner.
+- **Permissions.** Top level `contents: read`.
+- **Callers (this repo).** `ops-rotate-secrets.yml`, `ops-distribute-kit.yml`, `ops-distribute-scripts.yml`,
+  `ops-distribute-all.yml`, `ops-setup-e2e.yml`, `ops-provision-projects.yml`,
+  `ops-distribute-app-secrets.yml`, `ops-triage-reports.yml`, `issue-create-repo.yml`,
+  `distribute-kit.yml`, `distribute-gh-pat.yml`, `rotate-vercel-tokens.yml`, and on a manual dispatch
+  alone `hub-prune-tokens.yml`, `trigger-reports-triage.yml` and `check-secret-expiry.yml`, whose
+  schedules run as before.
 
 ```yaml
 # consumed only within kriegerdataforge-cicd
@@ -900,7 +912,7 @@ owner gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for 
 |---|---|---|---|
 | `ci.yml` | `pull_request` → `main` | actionlint + kdf-fmt over `scripts/` and `tools/claude-code/`, the roots `kdf-fmt.toml` names (D-082) + pytest (`scripts/tests/`) + calls `bump-version-check.yml`, and D-075's skip and cancel probes, no required check, `skip-probe-nested` calling `probe-nested.yml`, a `workflow_call` only `ci.yml` calls, the scan beside a lane called with `skip: true`, and D-077's `postgres-lane-proof`, the integration lane by a local reference holding its service's `server_version_num`, no required check | n/a |
 | `release.yml` | `push` `main`, `paths: [VERSION]` | calls `create-github-release.yml` (`contents:write`) | n/a |
-| `issue-create-repo.yml` | `issues: labeled` (`new-repo`) | provisions a repo from a template. Creates `prod`+`dev` Environments (owner reviewer, `main` only). Branch protection. Uses **repo level** `CICD_PAT` (Administration/Contents/Environments/Secrets/Variables/Actions R-W + Members: Read) | inline owner check |
+| `issue-create-repo.yml` | `issues: labeled` (`new-repo`) | provisions a repo from a template. Creates `prod`+`dev` Environments (`main` only, no reviewer). Branch protection. Its completion checklist is the registries and a rotation, so no secret is pasted by hand. Uses **repo level** `CICD_PAT` (Administration/Contents/Environments/Secrets/Variables/Actions R-W + Members: Read) | `_authorize-owner` |
 | `ops-rotate-secrets.yml` | `issues: labeled` (`ops:rotate-secrets`) | issue form front end for `rotate_secret.py` (`check`/`generate`/`paste`) | `_authorize-owner` |
 | `ops-distribute-kit.yml` | `issues: labeled` (`ops:distribute-kit`) | issue form front end for `distribute_kit.py` (`check`/`distribute`) | `_authorize-owner` |
 | `ops-distribute-scripts.yml` | `issues: labeled` (`ops:distribute-scripts`) | issue form front end for `distribute_scripts.py`, the script sync sibling of `ops-distribute-kit.yml` (ADR D-013). Issue content flows through env vars into an argv array and `mode` is allow listed | `_authorize-owner` |
@@ -908,14 +920,14 @@ owner gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for 
 | `ops-setup-e2e.yml` | `issues: labeled` (`ops:setup-e2e`) | arms an E2E-journey repo. Writes `RUN_E2E_GATE=false`, `USE_GITHUB_APP=true`, copies `KDF_APP_ID`/`KDF_APP_PRIVATE_KEY`. Validates target against the fixed 6-repo allow list | `_authorize-owner` |
 | `ops-provision-projects.yml` | `issues: labeled` (`ops:provision-projects`) | issue form front end for `provision_projects.py` (`check`/`execute`). Adopts/creates the 6 Projects v2 boards from `projects_registry.json`. Runs on an owner staged **classic** PAT in `SECRET_VALUE_NEW`. Neither an App token nor a fine grained PAT can manage user owned ProjectsV2 (ADR D-010 W1 finding) | `_authorize-owner` |
 | `ops-distribute-app-secrets.yml` | `issues: labeled` (`ops:distribute-app-secrets`) | issue form front end for `distribute_app_secrets.py` (`check`/`execute`). Copies this repo's `KDF_APP_ID`/`KDF_APP_PRIVATE_KEY` to every consumer repo in `secret_registry.json` (`distribute_source_env` entries, the 12-repo registry list generalizes `ops-setup-e2e`'s fixed copy step). App token scoped `secrets:write` to exactly those repos. Run after an App key rotation (§8.3a) or when onboarding a consumer | `_authorize-owner` |
-| `ops-triage-reports.yml` | `issues: labeled` (`ops:triage-reports`) | issue form front end for `trigger_triage.py` (`dry-run`/`execute`, dev/prod). The owner's "run triage now" button. Fires the selected apps' `/reports/triage/cron` endpoints from `reports_registry.json` and comments the metadata only result (executing against prod requires the Confirm dropdown). Ops guide, the owner's `REPORTS_TRIAGE_OPS.md` (`kriegerdataforge-context/ops/`) | `_authorize-owner` |
+| `ops-triage-reports.yml` | `issues: labeled` (`ops:triage-reports`) | issue form front end for `trigger_triage.py` (`dry-run`/`execute`, dev/prod). The owner's "run triage now" button. Fires the selected apps' `/reports/triage/cron` endpoints from `reports_registry.json` and comments the metadata only result (executing against prod requires the Confirm dropdown). The issue body is parsed in a job with no secret and no token, and the cron copies are read in another that names the environment the parse chose. Ops guide, the owner's `REPORTS_TRIAGE_OPS.md` (`kriegerdataforge-context/ops/`) | `_authorize-owner` |
 | `distribute-kit.yml` | `workflow_dispatch` (`mode` check/distribute, `only`, `repos`) + weekly `schedule` (drift alarm) | runs `distribute_kit.py`. Opens one sync PR per drifted repo. `check` also fails on a gap in a repo's own files (the `AGENTS.md` role pointer, `.env.kdf.example`, `.env.kdf` ignored), which that repo fixes itself | `_authorize-owner` (dispatch only) |
 | `distribute-gh-pat.yml` | `workflow_dispatch` | distributes a staged `GH_PACKAGES_PAT_NEW` via `rotate_secret.py --mode paste` | `_authorize-owner` |
 | `rotate-vercel-tokens.yml` | monthly `schedule` + `workflow_dispatch` | re-mints the shared `VERCEL_DEPLOYMENT_TOKEN` (`--mode generate`, 45-day life) and opens a PR stamping the new expiry | `_authorize-owner` (dispatch only) |
-| `check-secret-expiry.yml` | weekly `schedule` (Mon 09:00 UTC) + `workflow_dispatch` | `rotate_secret.py --mode check --secrets all --live`. Each `check.live` token goes to its own provider alone for its real expiry (GitHub's `github-authentication-token-expiration` header, Vercel's token metadata), the date alone printed, and a registry date that disagrees is drift (D-049). Keeps one dedup tracking issue (`ops:secret-expiry`) open/closed | n/a (`issues:write`, `CICD_PAT`, `GH_PACKAGES_PAT` and `VERCEL_MASTER_TOKEN` to the check step alone) |
+| `check-secret-expiry.yml` | weekly `schedule` (Mon 09:00 UTC) + `workflow_dispatch` | `rotate_secret.py --mode check --secrets all --live`. Each `check.live` token goes to its own provider alone for its real expiry (GitHub's `github-authentication-token-expiration` header, Vercel's token metadata), the date alone printed, and a registry date that disagrees is drift (D-049). Keeps one dedup tracking issue (`ops:secret-expiry`) open/closed | `_authorize-owner` on a dispatch, the schedule unchanged (`issues:write`, `CICD_PAT`, `GH_PACKAGES_PAT` and `VERCEL_MASTER_TOKEN` to the check step alone) |
 | `check-oidc-rp-drift.yml` | weekly `schedule` (Mon 12:30 UTC) + `workflow_dispatch` | PL-084 interim guard. `check_oidc_drift.py` compares the copy pasted OIDC RP core (`oidc.ts` + callback/initiate/logout routes, `scripts/oidc_drift_manifest.json`) across the two tenant frontends. Keeps one dedup tracking issue (`ops:oidc-rp-drift`) open while any pair differs. Paths + changed line counts only, never file contents | n/a (App token/`CICD_PAT` for cross repo reads, `issues:write`) |
-| `trigger-reports-triage.yml` | weekly `schedule` (Mon 09:23 UTC) + `workflow_dispatch` (`apps`, `environment`, `dry_run`) | `trigger_triage.py`: POSTs each selected app's `X-Cron-Secret`-gated `/reports/triage/cron` (`reports_registry.json`). **Disarmed at birth**: the schedule job requires `vars.RUN_REPORTS_TRIAGE == 'true'` AND per app registry `enabled: true`. Scheduled runs = enabled apps against prod. POSTs never status retried, output metadata only | n/a (dispatch is maintainer only by repo perms, schedule gated by `RUN_REPORTS_TRIAGE`) |
-| `hub-prune-tokens.yml` | daily `schedule` (04:17 UTC) + `workflow_dispatch` (`environment`) | POSTs the auth hub's `CRON_SECRET` gated `/internal/cron/prune-tokens` once per environment, which deletes expired denylist rows, spent verification tokens, audit rows past retention, abandoned registrations and expired OIDC rows in the hub (hub DEFERRED row 21). **Disarmed at birth**, the schedule job requires `vars.RUN_HUB_PRUNE == 'true'`, arm it with the hub release whose route answers POST. Per environment secrets `KDF_HUB_URL_{DEV,PROD}` and `KDF_HUB_CRON_SECRET_{DEV,PROD}`, an environment missing either is skipped with a notice. Prints the per table counts only | n/a (dispatch is maintainer only by repo perms, schedule gated by `RUN_HUB_PRUNE`) |
+| `trigger-reports-triage.yml` | weekly `schedule` (Mon 09:23 UTC) + `workflow_dispatch` (`apps`, `environment`, `dry_run`) | `trigger_triage.py`: POSTs each selected app's `X-Cron-Secret`-gated `/reports/triage/cron` (`reports_registry.json`). **Disarmed at birth**: the schedule job requires `vars.RUN_REPORTS_TRIAGE == 'true'` AND per app registry `enabled: true`. Scheduled runs = enabled apps against prod. POSTs never status retried, output metadata only | `_authorize-owner` on a dispatch, the schedule gated by `RUN_REPORTS_TRIAGE` |
+| `hub-prune-tokens.yml` | daily `schedule` (04:17 UTC) + `workflow_dispatch` (`environment`) | POSTs the auth hub's `CRON_SECRET` gated `/internal/cron/prune-tokens` once per environment, which deletes expired denylist rows, spent verification tokens, audit rows past retention, abandoned registrations and expired OIDC rows in the hub (hub DEFERRED row 21). **Disarmed at birth**, the schedule job requires `vars.RUN_HUB_PRUNE == 'true'`, arm it with the hub release whose route answers POST. Per environment secrets `KDF_HUB_URL_{DEV,PROD}` and `KDF_HUB_CRON_SECRET_{DEV,PROD}`, an environment missing either fails its run, so a prune that never ran is never green. Prints the per table counts only | `_authorize-owner` on a dispatch, the schedule gated by `RUN_HUB_PRUNE` |
 | `codeql.yml` | `push` / `pull_request` → `main` + weekly `schedule` (Sun 00:00 UTC) | CodeQL through the centralized reusable workflow, one leg for `python` and one for `javascript-typescript` over `scripts`, `e2e` and `tools` (D-085, design 5.8), hosted with no local target. The analyze job stays skipped until `vars.ENABLE_CODEQL == 'true'`, free on this public repo | n/a |
 | `mirror-ci-images.yml` | `push` `main`, `paths` its own file alone, + `workflow_dispatch` with no `inputs` + daily `schedule` (06:23 UTC) | The copier of every image CI pulls (D-077, D-080), the next section | n/a (`main` guard on its copy job, `packages: write` to that job alone, both proof jobs and the workflow `{}`) |
 | `publish-scan-image.yml` | `push` `main`, `paths` the scan's sources and its own file, + `workflow_dispatch` | Builds the local code scan's image into an OCI archive, inspects every layer for the stock rules, runs the image's own fixtures, then pushes that archive to `ghcr.io/needless2say/kdf-scan` tagged with its commit, attests it in GitHub's attestation store and reads it anonymously (D-088, D-089). Nothing is deleted, and an image runs nowhere until an activating pull request pins its digest | n/a (`main` guard on both jobs, the build job `{}`, `packages`, `attestations` and `id-token` write to the publish job alone) |
