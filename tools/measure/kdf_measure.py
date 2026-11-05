@@ -48,15 +48,15 @@ UPGRADE_WORDS = ("upgrade to github pro", "make this repository public")
 Fetch = Callable[[str], "Response"]
 
 # the shapes of a credential that refuse the whole output, each named, so a refusal names the shape and never the
-# text, the exact shapes sought in each line as it is
+# text, every shape sought in each line whole, with no name set aside
 EXACT_SHAPES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("a GitHub token", re.compile(r"(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})")),
     ("a private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY")),
     ("a JSON web token", re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.")),
     ("a URL with a password", re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s/:@]*:[^\s/@]+@")),
 )
-# the run shapes, sought with the login set aside where it stands as a field or an owner, never inside other text. A
-# separator splits a run, so owner/repo-name and a hyphenated title read as short pieces, never one run
+# the run shapes. A separator splits a run, so owner/repo-name and a hyphenated title read as short pieces, while a long
+# name with no separator fails closed, a case kept for later
 RUN_SHAPES: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "a long base64 run",
@@ -267,28 +267,18 @@ def status_word(status: int) -> str:
     return str(status)
 
 
-def find_value_shape(lines: list[str], known: tuple[str, ...] = ()) -> tuple[int, str] | None:
+def find_value_shape(lines: list[str]) -> tuple[int, str] | None:
     """
-    The first line that holds a credential's shape.
-
-    The exact shapes are sought in each line as it is. Only for the run shapes is a known name, the login a run reads,
-    set aside, and only where it stands as a whole field or as the owner before a slash, never inside other text.
+    The first line that holds a credential's shape, every shape sought in each line whole.
 
     Args:
         lines: Every line of the output
-        known: The names a run has read as names, the login among them
 
     Returns:
         The line's number, counted from 1, and the shape's name, or None when no line holds one
     """
-    owners = [re.compile(rf'(?<![A-Za-z0-9+/_.-]){re.escape(name)}(?=/|[\s,"]|$)') for name in known if name]
     for number, text in enumerate(lines, start = 1):
-        for shape, pattern in EXACT_SHAPES:
-            if pattern.search(text):
-                return number, shape
-        for owner in owners:
-            text = owner.sub("-", text)
-        for shape, pattern in RUN_SHAPES:
+        for shape, pattern in (*EXACT_SHAPES, *RUN_SHAPES):
             if pattern.search(text):
                 return number, shape
     return None
@@ -304,7 +294,7 @@ def refusal(lines: list[str], number: int, shape: str) -> str:
         shape: The name of the shape the line holds
 
     Returns:
-        The message, which leaves the opening words out when they hold a shape themselves, with no name set aside
+        The message, which leaves the opening words out when they hold a shape themselves
     """
     opening = " ".join(lines[number - 1].split(" ")[:OPENING_WORDS])
     if find_value_shape([opening]) is not None:
@@ -662,7 +652,7 @@ def measure_protection(measure: Measure, slug: str, name: str, branch: str, priv
         last_push_approval = reviews.get("require_last_push_approval") if reviews else None,
         pull_request_bypass = actor_names(reviews.get("bypass_pull_request_allowances") if reviews else None),
         checks_strict = checks.get("strict") if checks else None,
-        checks = checks.get("contexts") if checks else None,
+        checks = json.dumps(sorted(checks.get("contexts") or []), separators = (",", ":")) if checks else None,
         enforce_admins = enabled(body.get("enforce_admins")),
         force_pushes = enabled(body.get("allow_force_pushes")),
         deletions = enabled(body.get("allow_deletions")),
@@ -887,12 +877,7 @@ def measure_installations(measure: Measure) -> None:
             measure.add("installation", app, "repo", repository.get("full_name"))
 
 
-def run_measure(
-    fetch: Fetch,
-    names: list[str],
-    login_only: bool,
-    taken: str,
-) -> tuple[list[str], int, tuple[str, ...]]:
+def run_measure(fetch: Fetch, names: list[str], login_only: bool, taken: str) -> tuple[list[str], int]:
     """
     Every line of one run.
 
@@ -903,11 +888,11 @@ def run_measure(
         taken: The time of the run, as its second line shows it
 
     Returns:
-        The lines, the count of reads that failed, and the names read as names, the login alone today
+        The lines and the count of reads that failed
     """
     login, login_line = read_login(fetch)
     if login_only:
-        return [login_line], 0, (login,)
+        return [login_line], 0
     measure = Measure(fetch = fetch)
     measure.add("measure", "kdf-measure", version = MEASURE_VERSION)
     measure.add("taken", taken)
@@ -921,7 +906,7 @@ def run_measure(
         rulesets = "/".join(sorted(measure.private_rulesets)) or "unknown",
         admin_bypass_switch = "/".join(sorted(measure.private_bypass)) or "unknown",
     )
-    return measure.lines, measure.unreadable, (login,)
+    return measure.lines, measure.unreadable
 
 # ======================================================================================================================
 # Entry point
@@ -976,11 +961,11 @@ def main(
     err   = err if err is not None else sys.stderr
     taken = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
-        lines, unreadable, known = run_measure(fetch or gh_fetch, args.repo, args.login_only, taken)
+        lines, unreadable = run_measure(fetch or gh_fetch, args.repo, args.login_only, taken)
     except GhUnavailable as error:
         err.write(f"The measure could not start, {error}.\n")
         return 3
-    found = find_value_shape(lines, known)
+    found = find_value_shape(lines)
     if found is not None:
         err.write(refusal(lines, *found))
         return 2

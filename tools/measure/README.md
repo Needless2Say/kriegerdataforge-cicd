@@ -34,10 +34,11 @@ repository, as the private repositories answered.
 
 Before anything is printed, the whole output is checked for the shape of a credential, a GitHub token, a private key,
 a JSON web token, a URL with a password, its user name empty or not, a base64 run of 40 or more characters, or a run
-of 24 or more letters and digits with no separator, mixing upper and lower case and a digit. A separator such as `/`,
-`-` or `_` splits a run, and the login a run reads is set aside before the check, so a full repository name under a
-mixed case login reads as its repository part. One match refuses the whole output, exit 2, naming the line by its
-number, its opening words when they hold no shape themselves, and the shape alone.
+of 24 or more letters and digits with no separator, mixing upper and lower case and a digit. Every line is checked
+whole. A separator such as `/`, `-` or `_` splits a run, so a full repository name under a mixed case login reads as
+short pieces, while a name long enough with no separator would read as a run and refuse the output, failing closed.
+One match refuses the whole output, exit 2, naming the line by its number, its opening words when they hold no shape
+themselves, and the shape alone.
 
 ## Running it
 

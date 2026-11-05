@@ -270,7 +270,8 @@ def test_full_run_prints_every_name_and_setting():
         'repo app-backend environment "staging area" variable STAGE_00',
         joined(
             "repo app-backend protection main pull_request=true approvals=0 dismiss_stale=true code_owners=false",
-            'last_push_approval=false pull_request_bypass=- checks_strict=true checks="ci / lint","ci / test"',
+            "last_push_approval=false pull_request_bypass=- checks_strict=true",
+            'checks="[\\"ci / lint\\",\\"ci / test\\"]"',
             "enforce_admins=false force_pushes=false deletions=false linear_history=false",
             "conversation_resolution=false signatures=false lock_branch=false push_restrictions=-",
         ),
@@ -314,7 +315,17 @@ def test_full_run_prints_every_name_and_setting():
 def test_status_check_names_with_spaces_are_quoted_whole():
     lines      = run(account_routes())[1].splitlines()
     protection = next(line for line in lines if line.startswith("repo app-backend protection main"))
-    assert 'checks="ci / lint","ci / test"' in protection
+    assert 'checks="[\\"ci / lint\\",\\"ci / test\\"]"' in protection
+
+
+def test_two_classic_checks_and_one_named_with_a_comma_read_differently():
+    two = account_routes()
+    two[f"repos/{LOGIN}/app-backend/branches/main/protection"]["required_status_checks"]["contexts"] = ["lint", "test"]
+    one = account_routes()
+    one[f"repos/{LOGIN}/app-backend/branches/main/protection"]["required_status_checks"]["contexts"] = ["lint,test"]
+    first  = [line for line in run(two)[1].splitlines() if not line.startswith("taken ")]
+    second = [line for line in run(one)[1].splitlines() if not line.startswith("taken ")]
+    assert first != second
 
 
 def test_no_value_reaches_the_output():
@@ -402,28 +413,27 @@ def test_ordinary_names_and_settings_hold_no_credential_shape():
     assert kdf_measure().find_value_shape(lines) is None
 
 
-def test_a_token_holding_the_login_inside_it_is_still_refused():
-    token = "ghp_" + "x" * 10 + LOGIN + "x" * 12
-    assert kdf_measure().find_value_shape([f"repo a deploy_key {token} read_only=true"], (LOGIN,)) is not None
+@pytest.mark.parametrize(
+    "value",
+    [
+        "ghp_" + "x" * 10 + LOGIN + "x" * 12,
+        "A/" + "b1C/" * 9 + "d2",
+        "Zq9" + LOGIN + "Wx7Yv5Ut3",
+    ],
+    ids = ["a token holding the login", "a base64 run opening with a short owner", "a mixed run holding the login"],
+)
+def test_every_line_is_checked_whole_with_no_name_set_aside(value: str):
+    assert kdf_measure().find_value_shape([f"repo a deploy_key {value} read_only=true"]) is not None
 
 
-def test_a_one_letter_login_hides_no_token():
-    assert kdf_measure().find_value_shape([f"repo a deploy_key {GITHUB_TOKEN_SHAPE}"], ("A",)) is not None
-    run_shape = "Ab3dEf6hIj9k" + "Lm2nOp5qRs8t"
-    assert kdf_measure().find_value_shape([f"repo a ruleset 1 name={run_shape}"], ("b",)) is not None
-
-
-def test_a_mixed_run_holding_the_login_inside_it_is_still_refused():
-    run_shape = "Zq9" + LOGIN + "Wx7Yv5Ut3"
-    assert kdf_measure().find_value_shape([f"repo a ruleset 1 name={run_shape}"], (LOGIN,)) is not None
-
-
-def test_the_login_is_set_aside_only_as_a_field_or_an_owner():
-    known = (LOGIN,)
-    assert kdf_measure(
-    ).find_value_shape([f"installation app repo {LOGIN}/opentelemetryinstrumentation"], known) is None
-    assert kdf_measure().find_value_shape([f"repo app collaborator {LOGIN} role=admin"], known) is None
-    assert kdf_measure().find_value_shape([f"repo app environment prod reviewers=User:{LOGIN}"], known) is None
+def test_a_login_and_its_repositories_hold_no_shape():
+    lines = [
+        f"repo app collaborator {LOGIN} role=admin",
+        f"repo app environment prod reviewers=User:{LOGIN}",
+        f"installation app repo {LOGIN}/app-backend",
+        f"repo app branch_rule main deletion ruleset=7 source={LOGIN}/app-backend",
+    ]
+    assert kdf_measure().find_value_shape(lines) is None
 
 
 def test_a_refusal_never_names_an_opening_holding_a_token_beside_the_login():
@@ -594,12 +604,14 @@ def test_an_environment_without_its_policy_field_reads_unknown():
     assert "branch_rule=unknown" in dev
 
 
-def test_a_long_repository_name_under_the_login_is_no_shape():
+def test_a_long_repository_name_with_no_hyphen_is_refused_safely():
+    # a case kept for later, a name long enough with no separator reads as a base64 run, and the run fails closed
     routes = account_routes()
     routes["user/installations/11/repositories"].items.append({"full_name": f"{LOGIN}/opentelemetryinstrumentation"})
     status, out, err, _ = run(routes)
-    assert status == 0, err
-    assert f"installation writer-app repo {LOGIN}/opentelemetryinstrumentation" in out.splitlines()
+    assert status == 2
+    assert out == ""
+    assert "a long base64 run" in err
 
 
 def test_branch_rules_the_plan_does_not_offer_are_a_finding_not_a_failure():
