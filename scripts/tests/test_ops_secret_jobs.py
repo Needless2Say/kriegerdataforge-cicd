@@ -77,6 +77,30 @@ def test_the_npm_token_is_recorded_as_a_read_alone():
     assert entry["scopes"] == ["read:packages"]
 
 
+def _provisioner_steps() -> dict[str, str]:
+    jobs = _load("issue-create-repo.yml")["jobs"]
+    return {step["name"]: step.get("run", "") for step in jobs["create-repo"]["steps"]}
+
+
+@pytest.mark.parametrize("environment", ["prod", "dev"])
+def test_the_provisioner_holds_each_environment_to_main_and_asks_for_no_reviewer(environment):
+    steps = _provisioner_steps()
+    run   = next(run for name, run in steps.items() if f"environments/{environment}\"" in run)
+    assert "reviewers" not in run and "OWNER_ID" not in run
+    assert '"custom_branch_policies": true' in run and '"protected_branches": false' in run
+    assert f"environments/{environment}/deployment-branch-policies" in run
+    assert '-f name="main"' in run and '-f type="branch"' in run
+
+
+def test_the_provisioners_comment_sends_the_owner_to_the_registries_and_a_rotation():
+    comment = _provisioner_steps()["Post completion comment"]
+    for gone in ("Collaborator", "add friend", "approval gate", "Required reviewers"):
+        assert gone not in comment
+    for named in ("scripts/deployer_registry.json", "scripts/secret_registry.json", "VERCEL_DEPLOYMENT_TOKEN",
+                  "KDF_APP_ID", "Rotate Vercel Deployment Token"):
+        assert named in comment
+
+
 def _prune_step() -> dict:
     return _load("hub-prune-tokens.yml")["jobs"]["prune"]["steps"][0]
 
