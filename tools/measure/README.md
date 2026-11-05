@@ -1,8 +1,7 @@
 # The measure
 
 `kdf_measure.py` prints where each secret and rule of an account sits, by name and setting alone, and never a value.
-It is the account's first and last reading when secrets move into environments held to `main`, run once before
-anything changes and again at the end, and the two outputs are compared line by line.
+Run before a change to the account's settings and again after it, the two outputs compare line by line.
 
 ## What it reads
 
