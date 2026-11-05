@@ -1,26 +1,10 @@
 """
 The measure, a read only account of where each secret and rule sits, by name and setting alone.
 
-The owner runs it with their own `gh` login, from a worktree at `origin/main`, and keeps its output, so a later run
-is compared with it line by line. For every repository the login owns, or each one `--repo` names, it reads the
-visibility and default branch, the Actions settings, the secrets and variables by name, each environment with its
-branch rule, its reviewers, the admin bypass and its secrets and variables by name, the protection of `main` and of
-the default branch, the rules that reach `main`, every ruleset, the collaborators with their roles, the pending
-invitations and the deploy keys. Then every GitHub App installation the login can see, with the App's id, its
-permissions and repositories, and the login's own plan and scopes, and whether the account's plan offers rulesets and
-the admin bypass switch on a private repository.
-
-It never prints a value. Each line is built from the fields named here alone, so a variable's value and a deploy
-key's public key never reach a line, and webhooks are not read at all, since a hook's URL may carry a credential.
-Before anything is printed the whole output is checked for the shape of a credential, a GitHub token, a private key,
-a JSON web token, a URL with a password, a long base64 run or a long run of mixed case letters and digits with no
-separator, and it is refused whole when one appears, naming the line by its number, its opening words and the shape
-alone. Every call goes through `gh api`, so the login's
-token stays inside `gh` and never passes through this script.
-
-Exit status 0, every read answered. 1, a read was refused or failed, each named by an `unreadable` line. 2, the
-output was refused for a credential's shape and nothing was printed. 3, `gh` could not run or the login could not be
-read.
+The owner runs it with their own `gh` login from a worktree at `origin/main`, and two runs compare line by line. What
+it reads, its lines and its exits are in this folder's README. It never prints a value. Each line is built from named
+fields alone, every call is a GET through `gh api` so the token stays inside `gh`, and the whole output is refused,
+exit 2, when any line holds a credential's shape.
 
 Usage:
     python tools/measure/kdf_measure.py > measure.txt
@@ -48,12 +32,14 @@ from urllib.parse import quote
 # Configuration
 # ======================================================================================================================
 
-MEASURE_VERSION = 1
+MEASURE_VERSION = 2
 PAGE_SIZE       = 100
 MAX_PAGES       = 50
-# the statuses a list read reports beside GitHub's own, a body that is not the expected shape, and a list cut short
+# the statuses a read reports beside GitHub's own, a body that is not the expected shape, a list cut short, and gh
+# giving no answer GitHub wrote, a network failure among them
 MALFORMED = -1
 TRUNCATED = -2
+TRANSPORT = -3
 # the branch whose protection and rules are read in every repository, beside its default branch when that differs
 PROTECTED_BRANCH = "main"
 # the words GitHub answers with when the account's plan does not offer a feature on a private repository
@@ -61,13 +47,17 @@ UPGRADE_WORDS = ("upgrade to github pro", "make this repository public")
 # one GET by its path, answered as a Response, gh in a run and a fake in the tests
 Fetch = Callable[[str], "Response"]
 
-# the shapes of a credential that refuse the whole output, each named, so a refusal names the shape and never the text
-VALUE_SHAPES: tuple[tuple[str, re.Pattern[str]], ...] = (
+# the shapes of a credential that refuse the whole output, each named, so a refusal names the shape and never the
+# text, every shape sought in each line whole, with no name set aside
+EXACT_SHAPES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("a GitHub token", re.compile(r"(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})")),
     ("a private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY")),
     ("a JSON web token", re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.")),
-    ("a URL with a password", re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@")),
-    # a separator splits a run, so owner/repo-name and a hyphenated title read as short pieces, never one run
+    ("a URL with a password", re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s/:@]*:[^\s/@]+@")),
+)
+# the run shapes. A separator splits a run, so owner/repo-name and a hyphenated title read as short pieces, while a long
+# name with no separator fails closed, a case kept for later
+RUN_SHAPES: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "a long base64 run",
         re.compile(r"(?=[A-Za-z0-9+/]*[a-z])(?=[A-Za-z0-9+/]*[A-Z])(?=[A-Za-z0-9+/]*[0-9])[A-Za-z0-9+/]{40,}"),
@@ -149,15 +139,15 @@ def gh_fetch(path: str, *, run: Callable[..., subprocess.CompletedProcess] = sub
     """
     One GET through `gh api --include`, so the login's token stays inside `gh`.
 
+    A run of gh that writes no answer GitHub wrote, because gh cannot start, is not signed in or the network failed,
+    reads as the status TRANSPORT, so the read is named where it failed and gh's own words are never repeated.
+
     Args:
         path: The API path with its query, such as repos/owner/name/environments?per_page=100&page=1
         run: The process runner, subprocess.run in a run and a stand in for the tests
 
     Returns:
-        GitHub's answer, a refused read included
-
-    Raises:
-        GhUnavailable: When gh cannot be run or writes nothing
+        GitHub's answer, a refused read included, or a Response with the status TRANSPORT
     """
     try:
         completed = run(
@@ -167,19 +157,23 @@ def gh_fetch(path: str, *, run: Callable[..., subprocess.CompletedProcess] = sub
             encoding = "utf-8",
             check = False,
         )
-    except OSError as error:
-        raise GhUnavailable(f"gh could not be run, {type(error).__name__}") from None
+    except OSError:
+        return Response(status = TRANSPORT)
     if not completed.stdout:
-        raise GhUnavailable("gh answered with nothing, so it may not be signed in")
-    return parse_include(completed.stdout)
+        return Response(status = TRANSPORT)
+    try:
+        return parse_include(completed.stdout)
+    except GhUnavailable:
+        return Response(status = TRANSPORT)
 
 
 def fetch_list(fetch: Fetch, path: str, key: str | None = None) -> tuple[list, int]:
     """
     Every item of a listed endpoint, page by page.
 
-    A wrapped list, one with a `total_count`, ends when the count is reached, since some endpoints cap a page below
-    the size asked for. A bare list ends at a page shorter than the size asked for, and either ends at an empty page.
+    GitHub marks a page with more to come by its Link header's next, so the list goes on while one is there and ends
+    when none is, whatever a page's length, since some endpoints cap a page below the size asked for. A wrapped list,
+    one with a `total_count`, that ends short of its count is truncated, never taken as whole.
 
     Args:
         fetch: The GET to use
@@ -200,13 +194,12 @@ def fetch_list(fetch: Fetch, path: str, key: str | None = None) -> tuple[list, i
         if not isinstance(batch, list):
             return items, MALFORMED
         items.extend(batch)
+        if 'rel="next"' in response.headers.get("link", ""):
+            continue
         total = body.get("total_count") if key is not None and isinstance(body, dict) else None
-        if not batch:
-            return items, 200
-        if isinstance(total, int) and len(items) >= total:
-            return items, 200
-        if total is None and len(batch) < PAGE_SIZE:
-            return items, 200
+        if isinstance(total, int) and len(items) < total:
+            return items, TRUNCATED
+        return items, 200
     return items, TRUNCATED
 
 # ======================================================================================================================
@@ -255,28 +248,12 @@ def line_of(*parts: object, **fields: object) -> str:
     return " ".join(words)
 
 
-def number_of(value: object) -> int:
-    """
-    An id as a number for sorting.
-
-    Args:
-        value: The id as GitHub gave it
-
-    Returns:
-        The number, or 0 when it is not one
-    """
-    try:
-        return int(str(value))
-    except ValueError:
-        return 0
-
-
 def status_word(status: int) -> str:
     """
     A status as a line shows it.
 
     Args:
-        status: GitHub's status, or MALFORMED or TRUNCATED
+        status: GitHub's status, or MALFORMED, TRUNCATED or TRANSPORT
 
     Returns:
         GitHub's number, or the name of the script's own stop
@@ -285,12 +262,14 @@ def status_word(status: int) -> str:
         return "malformed"
     if status == TRUNCATED:
         return "truncated"
+    if status == TRANSPORT:
+        return "transport"
     return str(status)
 
 
 def find_value_shape(lines: list[str]) -> tuple[int, str] | None:
     """
-    The first line that holds a credential's shape.
+    The first line that holds a credential's shape, every shape sought in each line whole.
 
     Args:
         lines: Every line of the output
@@ -299,9 +278,9 @@ def find_value_shape(lines: list[str]) -> tuple[int, str] | None:
         The line's number, counted from 1, and the shape's name, or None when no line holds one
     """
     for number, text in enumerate(lines, start = 1):
-        for name, pattern in VALUE_SHAPES:
+        for shape, pattern in (*EXACT_SHAPES, *RUN_SHAPES):
             if pattern.search(text):
-                return number, name
+                return number, shape
     return None
 
 
@@ -371,13 +350,15 @@ class Measure:
             parts: The words that name the list in an `unreadable` line
 
         Returns:
-            The objects read, or None when the read failed
+            The objects read, or None when the read failed or a member is not an object
         """
         items, status = fetch_list(self.fetch, path, key)
+        if status == 200 and not all(isinstance(item, dict) for item in items):
+            status = MALFORMED
         if status != 200:
             self.fail(*parts, status = status)
             return None
-        return [item for item in items if isinstance(item, dict)]
+        return items
 
 
 def unavailable(response: Response) -> bool:
@@ -492,7 +473,11 @@ def measure_names(measure: Measure, path: str, key: str, *parts: object) -> None
     items = measure.list_or_fail(path, key, *parts)
     if items is None:
         return
-    for name in sorted(str(item.get("name", "")) for item in items):
+    names = [item.get("name") for item in items]
+    if not all(isinstance(name, str) and name for name in names):
+        measure.fail(*parts, status = MALFORMED)
+        return
+    for name in sorted(names):
         measure.add(*parts, name)
 
 
@@ -504,11 +489,15 @@ def environment_rule(environment: dict) -> str:
         environment: The environment as GitHub describes it
 
     Returns:
-        any, protected, selected, or unknown for a policy of no known form
+        any for an explicit null policy, protected, selected, or unknown for a policy missing or of no known form
     """
-    policy = environment.get("deployment_branch_policy")
-    if not isinstance(policy, dict):
+    if "deployment_branch_policy" not in environment:
+        return "unknown"
+    policy = environment["deployment_branch_policy"]
+    if policy is None:
         return "any"
+    if not isinstance(policy, dict):
+        return "unknown"
     if policy.get("protected_branches"):
         return "protected"
     if policy.get("custom_branch_policies"):
@@ -556,8 +545,11 @@ def measure_environments(measure: Measure, slug: str, name: str, private: bool) 
     environments = measure.list_or_fail(f"repos/{slug}/environments", "environments", "repo", name, "environments")
     if environments is None:
         return
-    for environment in sorted(environments, key = lambda env: str(env.get("name", ""))):
-        env_name   = str(environment.get("name", ""))
+    if not all(isinstance(env.get("name"), str) and env.get("name") for env in environments):
+        measure.fail("repo", name, "environments", status = MALFORMED)
+        return
+    for environment in sorted(environments, key = lambda env: str(env["name"])):
+        env_name   = str(environment["name"])
         env_path   = f"repos/{slug}/environments/{quote(env_name, safe = '')}"
         has_switch = "can_admins_bypass" in environment
         if private:
@@ -660,7 +652,7 @@ def measure_protection(measure: Measure, slug: str, name: str, branch: str, priv
         last_push_approval = reviews.get("require_last_push_approval") if reviews else None,
         pull_request_bypass = actor_names(reviews.get("bypass_pull_request_allowances") if reviews else None),
         checks_strict = checks.get("strict") if checks else None,
-        checks = checks.get("contexts") if checks else None,
+        checks = json.dumps(sorted(checks.get("contexts") or []), separators = (",", ":")) if checks else None,
         enforce_admins = enabled(body.get("enforce_admins")),
         force_pushes = enabled(body.get("allow_force_pushes")),
         deletions = enabled(body.get("allow_deletions")),
@@ -689,9 +681,40 @@ def bypass_names(ruleset: dict) -> list[str]:
     return names
 
 
+def rule_parameters(parameters: dict) -> dict[str, object]:
+    """
+    A ruleset rule's parameters as a line's fields, in a fixed order, so a weakened rule shows as a changed line.
+
+    Args:
+        parameters: The rule's parameters as GitHub describes them
+
+    Returns:
+        Each parameter by its name. A list as a JSON array sorted, so each element keeps its bounds and GitHub's order
+        changes nothing, a required status check in it as context@app or context@any. An object as compact JSON with
+        its keys sorted, and every other value as it is
+    """
+    fields: dict[str, object] = {}
+    for key in sorted(parameters):
+        value = parameters[key]
+        if isinstance(value, list):
+            items = [
+                f"{item.get('context')}@{item.get('integration_id') or 'any'}"
+                if isinstance(item, dict) and "context" in item
+                else json.dumps(item, sort_keys = True, separators = (",", ":")) if isinstance(item, dict) else item
+                for item in value
+            ]
+            fields[key] = json.dumps(sorted(items, key = str), separators = (",", ":"))
+        elif isinstance(value, dict):
+            fields[key] = json.dumps(value, sort_keys = True, separators = (",", ":"))
+        else:
+            fields[key] = value
+    return fields
+
+
 def measure_rulesets(measure: Measure, slug: str, name: str, private: bool) -> None:
     """
-    The rules that reach `main`, then every ruleset with its target, its refs, its rules and who may bypass it.
+    The rules that reach `main`, then every ruleset with its target, its refs, its rules and who may bypass it, and
+    each of its rules that takes parameters on a line of its own with them.
 
     Args:
         measure: The run
@@ -699,14 +722,12 @@ def measure_rulesets(measure: Measure, slug: str, name: str, private: bool) -> N
         name: The repository's name, as its lines show it
         private: Whether the repository is private, so its answer tells whether the plan offers rulesets
     """
-    branch_rules = measure.list_or_fail(
-        f"repos/{slug}/rules/branches/{PROTECTED_BRANCH}",
-        None,
-        "repo",
-        name,
-        "branch_rules",
-        PROTECTED_BRANCH,
-    )
+    rules_path   = f"repos/{slug}/rules/branches/{PROTECTED_BRANCH}"
+    branch_rules = None
+    if private and unavailable(measure.fetch(f"{rules_path}?per_page={PAGE_SIZE}&page=1")):
+        measure.add("repo", name, "branch_rules", PROTECTED_BRANCH, "unavailable")
+    else:
+        branch_rules = measure.list_or_fail(rules_path, None, "repo", name, "branch_rules", PROTECTED_BRANCH)
     for rule in sorted(branch_rules or [], key = lambda item: (str(item.get("type")), str(item.get("ruleset_id")))):
         measure.add(
             "repo",
@@ -726,7 +747,7 @@ def measure_rulesets(measure: Measure, slug: str, name: str, private: bool) -> N
         return
     if private:
         measure.private_rulesets.add("yes")
-    for summary in sorted(rulesets, key = lambda item: number_of(item.get("id"))):
+    for summary in sorted(rulesets, key = lambda item: (len(str(item.get("id"))), str(item.get("id")))):
         ruleset_id = summary.get("id")
         detail     = measure.fetch(f"repos/{slug}/rulesets/{ruleset_id}")
         if detail.status != 200 or not isinstance(detail.body, dict):
@@ -749,6 +770,19 @@ def measure_rulesets(measure: Measure, slug: str, name: str, private: bool) -> N
             rules = [rule.get("type") for rule in body.get("rules") or [] if isinstance(rule, dict)],
             bypass = bypass_names(body),
         )
+        ruled = [rule for rule in body.get("rules") or [] if isinstance(rule, dict)]
+        for rule in sorted(ruled, key = lambda item: str(item.get("type"))):
+            parameters = rule.get("parameters")
+            if isinstance(parameters, dict) and parameters:
+                measure.add(
+                    "repo",
+                    name,
+                    "ruleset",
+                    ruleset_id,
+                    "rule",
+                    rule.get("type"),
+                    **rule_parameters(parameters),
+                )
 
 
 def measure_people(measure: Measure, slug: str, name: str) -> None:
@@ -816,7 +850,7 @@ def measure_installations(measure: Measure) -> None:
         measure: The run
     """
     installations = measure.list_or_fail("user/installations", "installations", "installations")
-    for installation in sorted(installations or [], key = lambda item: number_of(item.get("id"))):
+    for installation in sorted(installations or [], key = lambda item: (len(str(item.get("id"))), str(item.get("id")))):
         app             = installation.get("app_slug")
         installation_id = installation.get("id")
         account         = installation.get("account") if isinstance(installation.get("account"), dict) else {}
