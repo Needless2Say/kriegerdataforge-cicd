@@ -118,6 +118,14 @@ def test_a_manual_run_of_each_newly_gated_workflow_calls_the_check(workflow):
     assert checks[0]["if"] == "github.event_name == 'workflow_dispatch'", "the schedule's path stays unchanged"
 
 
+def test_the_repo_provisioner_calls_the_shared_check_rather_than_its_own():
+    jobs   = _load("issue-create-repo.yml")["jobs"]
+    checks = [job for job in jobs.values() if job.get("uses") == CALL]
+    assert len(checks) == 1, "issue-create-repo.yml calls the owner check"
+    assert "github.event.label.name == 'new-repo'" in checks[0]["if"]
+    assert "github.triggering_actor }}" not in yaml.safe_dump(jobs), "no check of its own reads one actor alone"
+
+
 @pytest.mark.parametrize("workflow", _callers())
 def test_every_job_after_the_check_tests_both_actors_itself(workflow):
     for name, job in _load(workflow)["jobs"].items():

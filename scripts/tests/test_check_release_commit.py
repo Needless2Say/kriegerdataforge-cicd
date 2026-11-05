@@ -209,6 +209,15 @@ def test_every_job_that_checks_out_the_caller_checks_out_the_release_commit_and_
         assert "v${{ inputs.version }}" not in str([step.get("with", {}).get("ref") for step in steps])
 
 
+@pytest.mark.parametrize("workflow", DEPLOYS)
+def test_every_job_after_the_deployer_check_runs_only_for_the_login_that_started_the_run(workflow):
+    # a rerun of failed jobs alone keeps the deployer check's passed result, so a rerun by another login never runs
+    for name, job in _jobs(workflow).items():
+        if name == "authorize":
+            continue
+        assert "github.actor == github.triggering_actor" in str(job.get("if", "")), f"{workflow} job {name}"
+
+
 def _bash() -> str | None:
     git_bash = Path("C:/Program Files/Git/bin/bash.exe")
     if git_bash.exists():

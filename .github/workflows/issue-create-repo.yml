@@ -51,44 +51,32 @@ jobs:
   # is case-insensitive (GitHub logins are case-insensitive) and is not hard-coded
   # to a username.
   #
-  # Actor source: github.triggering_actor (NOT github.event.sender.login) to match
-  # check_deployer.py and the CD workflows, and so a manual "Re-run jobs" is
-  # attributed to whoever re-ran it (the stored event payload's sender is frozen
-  # to the original labeler on a re-run). The `if:` also pins the event action to
-  # `labeled` so only a label-add — not some other issue event carrying the label —
-  # can reach the gate.
+  # The check is the shared `_authorize-owner.yml`, which requires both the run's
+  # actor, who labelled the issue and whom a rerun keeps, and its triggering actor,
+  # whoever reran it, to be the owner, so the owner's rerun of a run another
+  # started stays denied. The `if:` also pins the event action to `labeled` so
+  # only a label-add — not some other issue event carrying the label — can reach
+  # the gate.
   #
   # Owner follow-up (config, not code): scope CICD_PAT down to the minimum the
   # provisioning steps need — it currently carries org-wide Administration +
   # Secrets:write.
   authorize:
-    name: Authorize issue actor
-    runs-on: ubuntu-slim
     if: github.event.action == 'labeled' && github.event.label.name == 'new-repo'
-    permissions:
-      contents: read
-    steps:
-      - name: Verify the triggering actor is the repository owner
-        env:
-          ACTOR: ${{ github.triggering_actor }}
-          OWNER: ${{ github.repository_owner }}
-        run: |
-          actor_lc="$(echo "$ACTOR" | tr '[:upper:]' '[:lower:]')"
-          owner_lc="$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')"
-          if [[ -z "$actor_lc" || "$actor_lc" != "$owner_lc" ]]; then
-            echo "::error::DENIED: '${ACTOR}' is not the repository owner ('${OWNER}'). Only the owner may provision repositories (this workflow uses CICD_PAT with org Administration + Secrets:write). Failing closed."
-            exit 1
-          fi
-          echo "OK: '${ACTOR}' is the repository owner — authorized to provision repositories."
+    uses: ./.github/workflows/_authorize-owner.yml
 
   create-repo:
     name: Create repository from template
     runs-on: ubuntu-slim
     needs: authorize
 
-    # only run when the new repo label is added AND the actor is authorized (the
-    # `needs: authorize` failure on a non-owner short-circuits this job)
-    if: github.event.label.name == 'new-repo'
+    # only run when the new repo label is added AND the check passed, testing both
+    # actors here too since a rerun of failed jobs alone keeps the check's output
+    if: >-
+      github.event.label.name == 'new-repo' &&
+      needs.authorize.outputs.authorized == 'true' &&
+      github.actor == github.repository_owner &&
+      github.triggering_actor == github.repository_owner
 
     steps:
       - name: Parse issue form body

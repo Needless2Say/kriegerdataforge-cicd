@@ -23,6 +23,13 @@ from check_deployer import (
 
 
 # ── Shared fixtures ────────────────────────────────────────────────────────────
+@pytest.fixture(autouse = True)
+def _the_runner_names_the_owner_as_the_starter(monkeypatch):
+    # the runner sets GITHUB_ACTOR, who started the run, in every job. a test that is about the starter sets its own
+    monkeypatch.setenv("GITHUB_ACTOR", "Needless2Say")
+    monkeypatch.delenv("DEPLOY_STARTED_BY", raising = False)
+
+
 @pytest.fixture
 def sample_registry():
     return {
@@ -244,16 +251,45 @@ class TestMain:
         assert rc == 0
 
 
-    def test_triggering_actor_preferred_over_github_actor(self, sample_registry, monkeypatch):
-        # github.triggering_actor (approved) should win over GITHUB_ACTOR (not approved).
+    def test_an_approved_rerun_of_a_run_another_started_is_denied(self, sample_registry, monkeypatch):
+        # a rerun keeps github.actor, who started the run, and sets the triggering actor to whoever reran it, so an
+        # approved deployer's rerun of a deploy a stranger started stays denied
         monkeypatch.setenv("DEPLOY_REPO", "Needless2Say/fitness-app-frontend")
         monkeypatch.setenv("DEPLOY_ENVIRONMENT", "dev")
         monkeypatch.delenv("DEPLOY_ACTOR", raising = False)
+        monkeypatch.delenv("DEPLOY_STARTED_BY", raising = False)
         monkeypatch.setenv("GITHUB_TRIGGERING_ACTOR", "Ascensionn")
         monkeypatch.setenv("GITHUB_ACTOR", "someone-else")
         with self._patch_registry(sample_registry):
             rc = main([])
+        assert rc == 1
+
+
+    def test_the_bot_that_started_a_run_is_denied_when_the_owner_reruns_it(self, sample_registry, monkeypatch):
+        monkeypatch.setenv("GITHUB_ACTOR", "github-actions[bot]")
+        monkeypatch.delenv("DEPLOY_STARTED_BY", raising = False)
+        with self._patch_registry(sample_registry):
+            rc = main(["--repo", "Needless2Say/kriegerdataforge", "--actor", "Needless2Say", "--environment", "prod"])
+        assert rc == 1
+
+
+    def test_the_flag_for_who_started_the_run_wins_over_the_runner(self, sample_registry, monkeypatch):
+        monkeypatch.setenv("GITHUB_ACTOR", "github-actions[bot]")
+        with self._patch_registry(sample_registry):
+            rc = main([
+                "--repo", "Needless2Say/kriegerdataforge", "--actor", "Needless2Say", "--started-by", "needless2say",
+                "--environment", "prod",
+            ])
         assert rc == 0
+
+
+    def test_a_run_whose_starter_is_unknown_is_denied(self, sample_registry, monkeypatch, capsys):
+        for var in ("DEPLOY_STARTED_BY", "GITHUB_ACTOR"):
+            monkeypatch.delenv(var, raising = False)
+        with self._patch_registry(sample_registry):
+            rc = main(["--repo", "Needless2Say/kriegerdataforge", "--actor", "Needless2Say", "--environment", "prod"])
+        assert rc == 1
+        assert "started_by" in capsys.readouterr().out
 
 
     def test_denied_message_printed(self, sample_registry, capsys):

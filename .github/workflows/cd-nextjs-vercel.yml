@@ -95,6 +95,8 @@ jobs:
   verify-prod-gate:
     name: Verify the PROD Gate passed for v${{ inputs.version }}
     needs: [authorize, release]
+    # a rerun of failed jobs alone keeps the deployer check's pass, so only the login that started the run reruns it
+    if: github.actor == github.triggering_actor
     runs-on: ubuntu-slim
     permissions:
       contents: read
@@ -127,6 +129,8 @@ jobs:
   release:
     name: Check v${{ inputs.version }} is on main
     needs: authorize
+    # a rerun of failed jobs alone keeps the deployer check's pass, so only the login that started the run reruns it
+    if: github.actor == github.triggering_actor
     runs-on: ubuntu-slim
     permissions:
       contents: read
@@ -159,6 +163,8 @@ jobs:
   deploy:
     name: Deploy (${{ inputs.environment }})
     needs: [authorize, release, verify-prod-gate]
+    # a rerun of failed jobs alone keeps the deployer check's pass, so only the login that started the run reruns it
+    if: github.actor == github.triggering_actor
     runs-on: ubuntu-slim
 
     # Names the caller repo's GitHub Environment. The job reads its secrets, and pauses for
