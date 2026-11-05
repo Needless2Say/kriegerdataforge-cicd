@@ -179,15 +179,12 @@ class TestLoadRegistry:
 
     def test_real_registry_seeded_expectations(self):
         """
-        Guards the seeded policy: owner everywhere, Ascensionn on the two fitness repos' dev only.
+        Guards the seeded policy: the owner everywhere and no one else.
         """
         deployers = _load_registry()["deployers"]
         for repo, envs in deployers.items():
             for env, users in envs.items():
-                assert "Needless2Say" in users, f"owner missing from {repo}[{env}]"
-        for repo in ("Needless2Say/fitness-app-frontend", "Needless2Say/fitness-app-backend"):
-            assert "Ascensionn" in deployers[repo]["dev"]
-            assert "Ascensionn" not in deployers[repo]["prod"]
+                assert users == ["Needless2Say"], f"{repo}[{env}] lists {users}"
 
 
 # ── parse_cli_args ─────────────────────────────────────────────────────────────
@@ -200,6 +197,19 @@ class TestParseCLIArgs:
     def test_parses_all_flags(self):
         args = parse_cli_args(["--repo", "o/r", "--actor", "me", "--environment", "dev"])
         assert (args.repo, args.actor, args.environment) == ("o/r", "me", "dev")
+
+
+# ── the real registry ─────────────────────────────────────────────────────────
+class TestTheRealRegistry:
+    @pytest.mark.parametrize("repo", ["Needless2Say/fitness-app-backend", "Needless2Say/fitness-app-frontend"])
+    def test_a_login_no_longer_listed_is_refused_on_dev(self, repo):
+        ok, _ = is_authorized(_load_registry(), repo, "dev", "Ascensionn")
+        assert ok is False
+
+
+    def test_the_comment_names_both_users_the_check_reads(self):
+        comment = _load_registry()["_comment"]
+        assert "github.actor" in comment and "github.triggering_actor" in comment
 
 
 # ── main ───────────────────────────────────────────────────────────────────────

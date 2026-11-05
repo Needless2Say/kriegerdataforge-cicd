@@ -9,7 +9,9 @@ never ran is never green. Its step's shell runs here under bash.
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -52,6 +54,27 @@ def test_the_triage_parses_the_issue_in_a_job_with_no_secret_and_fires_in_the_ch
     assert BODY not in _text(fire), "the job that holds the cron copies never reads the issue body"
     assert fire["environment"] == "${{ needs.%s.outputs.environment }}" % parsers[0]
     assert parsers[0] in fire["needs"]
+
+
+def _registry() -> list[dict]:
+    return json.loads((ROOT / "scripts" / "secret_registry.json").read_text(encoding = "utf-8"))["secrets"]
+
+
+def test_every_secret_the_hub_prune_reads_has_a_registry_entry_of_its_own():
+    text  = (WORKFLOWS / "hub-prune-tokens.yml").read_text(encoding = "utf-8")
+    names = sorted(set(re.findall(r"secrets\.([A-Z0-9_]+)", text)))
+    assert names == ["KDF_HUB_CRON_SECRET_DEV", "KDF_HUB_CRON_SECRET_PROD", "KDF_HUB_URL_DEV", "KDF_HUB_URL_PROD"]
+    entries = {entry["name"]: entry for entry in _registry()}
+    for name in names:
+        # one entry per value, so a paste writes one environment's value and never the other's
+        targets = entries[name]["github_repo_secrets"]
+        assert targets == [{"repo": "Needless2Say/kriegerdataforge-cicd", "secret_name": name}]
+        assert entries[name]["kind"] == "paste"
+
+
+def test_the_npm_token_is_recorded_as_a_read_alone():
+    entry = next(entry for entry in _registry() if entry["name"] == "GH_NPM_TOKEN")
+    assert entry["scopes"] == ["read:packages"]
 
 
 def _prune_step() -> dict:
