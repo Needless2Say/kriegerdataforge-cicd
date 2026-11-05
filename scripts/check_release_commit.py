@@ -173,10 +173,10 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         0 when the release's commit is on main, 1 when it is not or cannot be known
     """
-    args             = parse_cli_args(argv)
-    version          = (args.version or os.environ.get("DEPLOY_VERSION", "")).strip()
-    ok, reason, sha  = check(Path(args.repo_dir), version, args.main_ref)
-    line             = f"{'OK' if ok else 'REFUSED'}: {reason}"
+    args    = parse_cli_args(argv)
+    version = (args.version or os.environ.get("DEPLOY_VERSION", "")).strip()
+    ok, reason, sha = check(Path(args.repo_dir), version, args.main_ref)
+    line = f"{'OK' if ok else 'REFUSED'}: {reason}"
     print(line)
     _append("GITHUB_STEP_SUMMARY", f"### Release check\n\n{line}\n")
     if not ok:

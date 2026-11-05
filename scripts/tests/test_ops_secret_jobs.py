@@ -96,8 +96,13 @@ def test_the_provisioners_comment_sends_the_owner_to_the_registries_and_a_rotati
     comment = _provisioner_steps()["Post completion comment"]
     for gone in ("Collaborator", "add friend", "approval gate", "Required reviewers"):
         assert gone not in comment
-    for named in ("scripts/deployer_registry.json", "scripts/secret_registry.json", "VERCEL_DEPLOYMENT_TOKEN",
-                  "KDF_APP_ID", "Rotate Vercel Deployment Token"):
+    for named in (
+        "scripts/deployer_registry.json",
+        "scripts/secret_registry.json",
+        "VERCEL_DEPLOYMENT_TOKEN",
+        "KDF_APP_ID",
+        "Rotate Vercel Deployment Token",
+    ):
         assert named in comment
 
 
@@ -112,13 +117,13 @@ def test_the_hub_prune_fails_when_an_environment_has_no_credentials(tmp_path, hu
         pytest.skip("no bash to run the step's shell")
     script = tmp_path / "prune.sh"
     script.write_text(_prune_step()["run"], encoding = "utf-8", newline = "\n")
-    env    = {
+    env = {
         **os.environ,
         "ENVIRONMENT": "dev",
         "HUB_URL": hub_url,
         "CRON_SECRET": cron_secret,
         "GITHUB_STEP_SUMMARY": (tmp_path / "summary").as_posix(),
     }
-    run    = subprocess.run([bash, script.as_posix()], env = env, capture_output = True, text = True, cwd = tmp_path)
+    run = subprocess.run([bash, script.as_posix()], env = env, capture_output = True, text = True, cwd = tmp_path)
     assert run.returncode != 0, run.stdout + run.stderr
     assert "::error::" in run.stdout

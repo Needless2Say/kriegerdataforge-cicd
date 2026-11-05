@@ -13,15 +13,11 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
+import check_release_commit as release
 import pytest
 import yaml
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-import check_release_commit as release  # noqa: E402
 
 ROOT      = Path(__file__).resolve().parents[2]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -137,7 +133,7 @@ def test_a_shallow_history_is_refused(repo, tmp_path):
 
 
 def test_main_writes_the_commit_to_the_step_output(repo, tmp_path, monkeypatch):
-    head   = _git(repo, "rev-parse", "main")
+    head = _git(repo, "rev-parse", "main")
     _git(repo, "tag", "v1.2.0", head)
     output = tmp_path / "output"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
@@ -247,11 +243,21 @@ def test_a_tag_moved_after_the_check_is_caught_by_the_compare(repo, tmp_path, wo
     script.write_text(_compare_shell(workflow), encoding = "utf-8", newline = "\n")
     # a checkout of the moved tag differs from the commit the check resolved, and the compare refuses it
     _git(repo, "checkout", "-q", "--detach", "v1.2.0")
-    run = subprocess.run([bash, "-e", script.as_posix()], cwd = repo, env = {**os.environ, "RELEASE_SHA": resolved},
-                         capture_output = True, text = True)
+    run = subprocess.run(
+        [bash, "-e", script.as_posix()],
+        cwd = repo,
+        env = {**os.environ, "RELEASE_SHA": resolved},
+        capture_output = True,
+        text = True,
+    )
     assert run.returncode != 0
     # a checkout of the resolved commit, what the job does, passes it
     _git(repo, "checkout", "-q", "--detach", resolved)
-    run = subprocess.run([bash, "-e", script.as_posix()], cwd = repo, env = {**os.environ, "RELEASE_SHA": resolved},
-                         capture_output = True, text = True)
+    run = subprocess.run(
+        [bash, "-e", script.as_posix()],
+        cwd = repo,
+        env = {**os.environ, "RELEASE_SHA": resolved},
+        capture_output = True,
+        text = True,
+    )
     assert run.returncode == 0, run.stdout + run.stderr

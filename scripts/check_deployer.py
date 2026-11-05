@@ -130,13 +130,13 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description = "Verify the dispatching user is an approved deployer for this repo + environment.",
         formatter_class = argparse.RawDescriptionHelpFormatter,
-        epilog = (
-            "Values fall back to environment variables when flags are omitted:\n"
-            "  --repo         <- DEPLOY_REPO / GITHUB_REPOSITORY\n"
-            "  --actor        <- DEPLOY_ACTOR / GITHUB_TRIGGERING_ACTOR / GITHUB_ACTOR\n"
-            "  --started-by   <- DEPLOY_STARTED_BY / GITHUB_ACTOR\n"
-            "  --environment  <- DEPLOY_ENVIRONMENT"
-        ),
+        epilog = "\n".join((
+            "Values fall back to environment variables when flags are omitted:",
+            "  --repo         <- DEPLOY_REPO / GITHUB_REPOSITORY",
+            "  --actor        <- DEPLOY_ACTOR / GITHUB_TRIGGERING_ACTOR / GITHUB_ACTOR",
+            "  --started-by   <- DEPLOY_STARTED_BY / GITHUB_ACTOR",
+            "  --environment  <- DEPLOY_ENVIRONMENT",
+        )),
     )
     parser.add_argument("--repo", default = None, help = "owner/repo, e.g. Needless2Say/tiffanys-space")
     parser.add_argument("--actor", default = None, help = "GitHub username that triggered or reran the deploy")

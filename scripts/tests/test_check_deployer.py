@@ -201,6 +201,9 @@ class TestParseCLIArgs:
 
 # ── the real registry ─────────────────────────────────────────────────────────
 class TestTheRealRegistry:
+    """
+    The registry this repo ships, read as the gate reads it.
+    """
     @pytest.mark.parametrize("repo", ["Needless2Say/fitness-app-backend", "Needless2Say/fitness-app-frontend"])
     def test_a_login_no_longer_listed_is_refused_on_dev(self, repo):
         ok, _ = is_authorized(_load_registry(), repo, "dev", "Ascensionn")

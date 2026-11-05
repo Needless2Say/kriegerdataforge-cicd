@@ -19,12 +19,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-ROOT       = Path(__file__).resolve().parents[2]
-WORKFLOWS  = ROOT / ".github" / "workflows"
-CHECK      = "_authorize-owner.yml"
-CALL       = f"./.github/workflows/{CHECK}"
-OWNER      = "Needless2Say"
-BOTH       = (
+ROOT        = Path(__file__).resolve().parents[2]
+WORKFLOWS   = ROOT / ".github" / "workflows"
+CHECK       = "_authorize-owner.yml"
+CALL        = f"./.github/workflows/{CHECK}"
+OWNER       = "Needless2Say"
+BOTH        = (
     "github.actor == github.repository_owner",
     "github.triggering_actor == github.repository_owner",
 )
@@ -57,6 +57,7 @@ def _resolve(value: str, context: dict[str, str]) -> str:
     def one(match: re.Match[str]) -> str:
         return context[match.group(1).strip()]
 
+
     return re.sub(r"\$\{\{(.+?)\}\}", one, value)
 
 
@@ -72,14 +73,14 @@ def _run_check(tmp_path: Path, actor: str, triggering_actor: str) -> tuple[int, 
     }
     script  = tmp_path / "check.sh"
     script.write_text(step["run"], encoding = "utf-8", newline = "\n")
-    output  = tmp_path / "output"
-    env     = {
+    output = tmp_path / "output"
+    env    = {
         **os.environ,
         **{name: _resolve(str(value), context) for name, value in step["env"].items()},
         "GITHUB_OUTPUT": output.as_posix(),
         "GITHUB_STEP_SUMMARY": (tmp_path / "summary").as_posix(),
     }
-    run     = subprocess.run([bash, "-e", script.as_posix()], env = env, capture_output = True, text = True)
+    run    = subprocess.run([bash, "-e", script.as_posix()], env = env, capture_output = True, text = True)
     return run.returncode, output.read_text(encoding = "utf-8") if output.exists() else ""
 
 

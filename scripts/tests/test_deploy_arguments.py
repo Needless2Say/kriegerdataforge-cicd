@@ -41,7 +41,9 @@ def test_the_python_install_hands_git_the_packages_token_through_its_environment
     step = _step("cd-python-vercel.yml", "Install Python dependencies")
     env  = step["env"]
     assert env["GIT_CONFIG_COUNT"] == "1"
-    assert env["GIT_CONFIG_KEY_0"] == "${{ format('url.https://__token__:{0}@github.com/.insteadOf', secrets.GH_PACKAGES_PAT) }}"
+    assert env[
+        "GIT_CONFIG_KEY_0"
+    ] == "${{ format('url.https://__token__:{0}@github.com/.insteadOf', secrets.GH_PACKAGES_PAT) }}"
     assert env["GIT_CONFIG_VALUE_0"] == "https://github.com/"
     assert "GH_PACKAGES_PAT" not in step["run"]
 

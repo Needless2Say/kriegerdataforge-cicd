@@ -20,6 +20,11 @@ OTHER = "fedcba9876543210fedcba9876543210fedcba98"
 REPOSITORY = f"{API}/repos/{REPO}"
 WORKFLOW   = "prod-gate.yml"
 
+# a repo's tag ruleset date, and the start times of a gate run before and after it
+RULESET_DATE = "2026-11-10T12:00:00Z"
+BEFORE       = "2026-11-09T08:00:00Z"
+AFTER        = "2026-11-11T08:00:00Z"
+
 # a PROD Gate run's jobs, the lanes and the last job, which needs every lane and carries the release (D-027)
 RELEASE_JOBS = [
     {"name": "CI / unit-tests / Unit Tests", "conclusion": "success"},
@@ -393,11 +398,6 @@ class TestMain:
 # The gate's evidence bound to the commit and the tag ruleset's date
 # ======================================================================================================================
 
-RULESET_DATE = "2026-11-10T12:00:00Z"
-BEFORE       = "2026-11-09T08:00:00Z"
-AFTER        = "2026-11-11T08:00:00Z"
-
-
 def _started(run: dict, when: str) -> dict:
     return {**run, "run_started_at": when, "created_at": when}
 
@@ -416,6 +416,9 @@ def _bound(answers: dict[str, object], expected: str | None, date: str | None, e
 
 
 class TestEvidence:
+    """
+    The expected commit and the ruleset date, each lookup held to a run begun after it.
+    """
     def test_an_expected_commit_the_tag_names_keeps_todays_rule_until_the_repo_has_a_date(self):
         ok, reason = _bound(_github(runs = [_started(_run(7), BEFORE)]), SHA, None)
         assert ok, reason
@@ -474,6 +477,9 @@ class TestEvidence:
 
 
 class TestRulesetDates:
+    """
+    The dates file the fence fills, read by main for the repo it deploys.
+    """
     def test_the_shipped_file_reads(self):
         dates = gate.load_ruleset_dates()
         assert isinstance(dates, dict)
