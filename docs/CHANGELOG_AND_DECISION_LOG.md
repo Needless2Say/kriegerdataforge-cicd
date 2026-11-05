@@ -5234,3 +5234,8 @@ refuses every search glob holding a bracket and drops the reading of them, and t
 guard's change reaches a machine only through `install.sh`, the owner's, which replaces any interim hand edit of the
 installed guard, and `SCAN_LIMIT`'s recorded hash for `kdf-guard.js` moves with it.
 
+**Update, 2026-11-05 (kit v1.28.0, cicd v0.2.186).** Point 11's roles page reaches the other repos as kit v1.28.0,
+the three markers moved together and no kit text changed, since the page merged here with this decision. The
+kdf-sdk's Phase B review found its synced copy behind the kit by that paragraph alone, and the owner asked for the
+version before that phase's pull request. Every other repo takes it at the next Distribute, which is the owner's.
+
