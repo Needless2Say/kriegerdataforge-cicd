@@ -94,7 +94,7 @@ jobs:
   # runs listing needs actions: read, which the calling cd.yml grants on its deploy job.
   verify-prod-gate:
     name: Verify the PROD Gate passed for v${{ inputs.version }}
-    needs: authorize
+    needs: [authorize, release]
     runs-on: ubuntu-slim
     permissions:
       contents: read
@@ -115,11 +115,50 @@ jobs:
           DEPLOY_REPO: ${{ github.repository }}
           DEPLOY_VERSION: ${{ inputs.version }}
           DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+          EXPECTED_COMMIT: ${{ needs.release.outputs.sha }}
           GH_TOKEN: ${{ github.token }}
+
+  # ── Release check ──────────────────────────────────────────────────────────
+  # The environment's branch rule binds the run's ref, never the code the run checks out. So
+  # before any job that names an environment, the release's tag is resolved to a commit and
+  # refused unless that commit is on main, whose every commit the owner merged, and every
+  # later job checks out that commit by its SHA and compares its checkout with it, never the
+  # tag (scripts/check_release_commit.py).
+  release:
+    name: Check v${{ inputs.version }} is on main
+    needs: authorize
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.check.outputs.sha }}
+    steps:
+      - name: Check out the caller with its history and tags
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Check out the release check (kriegerdataforge-cicd)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Needless2Say/kriegerdataforge-cicd
+          ref: main
+          sparse-checkout: scripts
+          path: _kdf_cicd
+          token: ${{ github.token }}
+          persist-credentials: false
+
+      - name: Resolve the tag and refuse a commit off main
+        id: check
+        run: python3 _kdf_cicd/scripts/check_release_commit.py
+        env:
+          DEPLOY_VERSION: ${{ inputs.version }}
 
   deploy:
     name: Deploy (${{ inputs.environment }})
-    needs: [authorize, verify-prod-gate]
+    needs: [authorize, release, verify-prod-gate]
     runs-on: ubuntu-slim
 
     # Names the caller repo's GitHub Environment. The job reads its secrets, and pauses for
@@ -135,7 +174,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: v${{ inputs.version }}
+          ref: ${{ needs.release.outputs.sha }}
+
+      - name: Compare the checkout with the release commit
+        env:
+          RELEASE_SHA: ${{ needs.release.outputs.sha }}
+        run: |
+          head="$(git rev-parse HEAD)"
+          if [ -z "${RELEASE_SHA}" ] || [ "${head}" != "${RELEASE_SHA}" ]; then
+            echo "::error::the checkout is ${head}, not the commit '${RELEASE_SHA}' the release check resolved"
+            exit 1
+          fi
+          echo "deploying ${head}, the commit the release check resolved"
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
