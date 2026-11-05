@@ -1,26 +1,10 @@
 """
 The measure, a read only account of where each secret and rule sits, by name and setting alone.
 
-The owner runs it with their own `gh` login, from a worktree at `origin/main`, and keeps its output, so a later run
-is compared with it line by line. For every repository the login owns, or each one `--repo` names, it reads the
-visibility and default branch, the Actions settings, the secrets and variables by name, each environment with its
-branch rule, its reviewers, the admin bypass and its secrets and variables by name, the protection of `main` and of
-the default branch, the rules that reach `main`, every ruleset, the collaborators with their roles, the pending
-invitations and the deploy keys. Then every GitHub App installation the login can see, with the App's id, its
-permissions and repositories, and the login's own plan and scopes, and whether the account's plan offers rulesets and
-the admin bypass switch on a private repository.
-
-It never prints a value. Each line is built from the fields named here alone, so a variable's value and a deploy
-key's public key never reach a line, and webhooks are not read at all, since a hook's URL may carry a credential.
-Before anything is printed the whole output is checked for the shape of a credential, a GitHub token, a private key,
-a JSON web token, a URL with a password, a long base64 run or a long run of mixed case letters and digits with no
-separator, and it is refused whole when one appears, naming the line by its number, its opening words and the shape
-alone. Every call goes through `gh api`, so the login's
-token stays inside `gh` and never passes through this script.
-
-Exit status 0, every read answered. 1, a read was refused or failed, each named by an `unreadable` line. 2, the
-output was refused for a credential's shape and nothing was printed. 3, `gh` could not run or the login could not be
-read.
+The owner runs it with their own `gh` login from a worktree at `origin/main`, and two runs compare line by line. What
+it reads, its lines and its exits are in this folder's README. It never prints a value. Each line is built from named
+fields alone, every call is a GET through `gh api` so the token stays inside `gh`, and the whole output is refused,
+exit 2, when any line holds a credential's shape.
 
 Usage:
     python tools/measure/kdf_measure.py > measure.txt
@@ -63,13 +47,17 @@ UPGRADE_WORDS = ("upgrade to github pro", "make this repository public")
 # one GET by its path, answered as a Response, gh in a run and a fake in the tests
 Fetch = Callable[[str], "Response"]
 
-# the shapes of a credential that refuse the whole output, each named, so a refusal names the shape and never the text
-VALUE_SHAPES: tuple[tuple[str, re.Pattern[str]], ...] = (
+# the shapes of a credential that refuse the whole output, each named, so a refusal names the shape and never the
+# text, the exact shapes sought in each line as it is
+EXACT_SHAPES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("a GitHub token", re.compile(r"(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})")),
     ("a private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY")),
     ("a JSON web token", re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.")),
     ("a URL with a password", re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s/:@]*:[^\s/@]+@")),
-    # a separator splits a run, so owner/repo-name and a hyphenated title read as short pieces, never one run
+)
+# the run shapes, sought with the login set aside where it stands as a field or an owner, never inside other text. A
+# separator splits a run, so owner/repo-name and a hyphenated title read as short pieces, never one run
+RUN_SHAPES: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "a long base64 run",
         re.compile(r"(?=[A-Za-z0-9+/]*[a-z])(?=[A-Za-z0-9+/]*[A-Z])(?=[A-Za-z0-9+/]*[0-9])[A-Za-z0-9+/]{40,}"),
@@ -283,8 +271,8 @@ def find_value_shape(lines: list[str], known: tuple[str, ...] = ()) -> tuple[int
     """
     The first line that holds a credential's shape.
 
-    Each known name, the login a run reads, is set aside in a copy of each line before the shapes are sought, so a
-    full repository name under a mixed case login is read as its repository part, and the rest of the line in full.
+    The exact shapes are sought in each line as it is. Only for the run shapes is a known name, the login a run reads,
+    set aside, and only where it stands as a whole field or as the owner before a slash, never inside other text.
 
     Args:
         lines: Every line of the output
@@ -293,17 +281,20 @@ def find_value_shape(lines: list[str], known: tuple[str, ...] = ()) -> tuple[int
     Returns:
         The line's number, counted from 1, and the shape's name, or None when no line holds one
     """
+    owners = [re.compile(rf'(?<![A-Za-z0-9+/_.-]){re.escape(name)}(?=/|[\s,"]|$)') for name in known if name]
     for number, text in enumerate(lines, start = 1):
-        for name in known:
-            if name:
-                text = text.replace(name, "-")
-        for shape, pattern in VALUE_SHAPES:
+        for shape, pattern in EXACT_SHAPES:
+            if pattern.search(text):
+                return number, shape
+        for owner in owners:
+            text = owner.sub("-", text)
+        for shape, pattern in RUN_SHAPES:
             if pattern.search(text):
                 return number, shape
     return None
 
 
-def refusal(lines: list[str], number: int, shape: str, known: tuple[str, ...] = ()) -> str:
+def refusal(lines: list[str], number: int, shape: str) -> str:
     """
     The message for a refused output, naming the line by its number and its opening words, and never its text.
 
@@ -311,13 +302,12 @@ def refusal(lines: list[str], number: int, shape: str, known: tuple[str, ...] = 
         lines: Every line of the output
         number: The refused line's number, counted from 1
         shape: The name of the shape the line holds
-        known: The names a run has read as names, as find_value_shape takes them
 
     Returns:
-        The message, which leaves the opening words out when they hold a shape themselves
+        The message, which leaves the opening words out when they hold a shape themselves, with no name set aside
     """
     opening = " ".join(lines[number - 1].split(" ")[:OPENING_WORDS])
-    if find_value_shape([opening], known) is not None:
+    if find_value_shape([opening]) is not None:
         return f"Refused, line {number} holds the shape of {shape}, so nothing is printed.\n"
     return f"Refused, line {number}, opening {opening}, holds the shape of {shape}, so nothing is printed.\n"
 
@@ -709,15 +699,22 @@ def rule_parameters(parameters: dict) -> dict[str, object]:
         parameters: The rule's parameters as GitHub describes them
 
     Returns:
-        Each parameter by its name, a required status check as context@app or context@any, any other object or list
-        of objects as compact JSON with its keys sorted, and every other value as it is
+        Each parameter by its name. A list as a JSON array sorted, so each element keeps its bounds and GitHub's order
+        changes nothing, a required status check in it as context@app or context@any. An object as compact JSON with
+        its keys sorted, and every other value as it is
     """
     fields: dict[str, object] = {}
     for key in sorted(parameters):
         value = parameters[key]
-        if isinstance(value, list) and value and all(isinstance(item, dict) and "context" in item for item in value):
-            fields[key] = [f"{item.get('context')}@{item.get('integration_id') or 'any'}" for item in value]
-        elif isinstance(value, dict) or (isinstance(value, list) and any(isinstance(item, dict) for item in value)):
+        if isinstance(value, list):
+            items = [
+                f"{item.get('context')}@{item.get('integration_id') or 'any'}"
+                if isinstance(item, dict) and "context" in item
+                else json.dumps(item, sort_keys = True, separators = (",", ":")) if isinstance(item, dict) else item
+                for item in value
+            ]
+            fields[key] = json.dumps(sorted(items, key = str), separators = (",", ":"))
+        elif isinstance(value, dict):
             fields[key] = json.dumps(value, sort_keys = True, separators = (",", ":"))
         else:
             fields[key] = value
@@ -985,7 +982,7 @@ def main(
         return 3
     found = find_value_shape(lines, known)
     if found is not None:
-        err.write(refusal(lines, *found, known))
+        err.write(refusal(lines, *found))
         return 2
     out.write("\n".join(lines) + "\n")
     if unreadable:

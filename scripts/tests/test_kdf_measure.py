@@ -284,12 +284,13 @@ def test_full_run_prints_every_name_and_setting():
             "include=~DEFAULT_BRANCH exclude=- rules=deletion,pull_request,required_status_checks bypass=-",
         ),
         joined(
-            "repo app-backend ruleset 8 rule pull_request allowed_merge_methods=merge,squash",
+            'repo app-backend ruleset 8 rule pull_request allowed_merge_methods="[\\"merge\\",\\"squash\\"]"',
             "dismiss_stale_reviews_on_push=true required_approving_review_count=1",
         ),
         joined(
             "repo app-backend ruleset 8 rule required_status_checks",
-            'required_status_checks="ci / test@15368","secret scan@any" strict_required_status_checks_policy=true',
+            'required_status_checks="[\\"ci / test@15368\\",\\"secret scan@any\\"]"',
+            "strict_required_status_checks_policy=true",
         ),
         "repo app-backend collaborator OwnerLogin2Name role=admin",
         "repo app-backend invitation invited-login permission=write",
@@ -399,6 +400,57 @@ def test_ordinary_names_and_settings_hold_no_credential_shape():
         "installation vercel app_id=8329 id=31112 account=Needless2Say selection=all permissions=contents:read",
     ])
     assert kdf_measure().find_value_shape(lines) is None
+
+
+def test_a_token_holding_the_login_inside_it_is_still_refused():
+    token = "ghp_" + "x" * 10 + LOGIN + "x" * 12
+    assert kdf_measure().find_value_shape([f"repo a deploy_key {token} read_only=true"], (LOGIN,)) is not None
+
+
+def test_a_one_letter_login_hides_no_token():
+    assert kdf_measure().find_value_shape([f"repo a deploy_key {GITHUB_TOKEN_SHAPE}"], ("A",)) is not None
+    run_shape = "Ab3dEf6hIj9k" + "Lm2nOp5qRs8t"
+    assert kdf_measure().find_value_shape([f"repo a ruleset 1 name={run_shape}"], ("b",)) is not None
+
+
+def test_a_mixed_run_holding_the_login_inside_it_is_still_refused():
+    run_shape = "Zq9" + LOGIN + "Wx7Yv5Ut3"
+    assert kdf_measure().find_value_shape([f"repo a ruleset 1 name={run_shape}"], (LOGIN,)) is not None
+
+
+def test_the_login_is_set_aside_only_as_a_field_or_an_owner():
+    known = (LOGIN,)
+    assert kdf_measure(
+    ).find_value_shape([f"installation app repo {LOGIN}/opentelemetryinstrumentation"], known) is None
+    assert kdf_measure().find_value_shape([f"repo app collaborator {LOGIN} role=admin"], known) is None
+    assert kdf_measure().find_value_shape([f"repo app environment prod reviewers=User:{LOGIN}"], known) is None
+
+
+def test_a_refusal_never_names_an_opening_holding_a_token_beside_the_login():
+    routes = account_routes()
+    token  = "ghp_" + "x" * 10 + LOGIN + "x" * 12
+    routes["user/repos"].items.append(
+        {"name": token, "full_name": f"{LOGIN}/x", "private": False, "owner": {"login": LOGIN}},
+    )
+    status, out, err, _ = run(routes)
+    assert status == 2
+    assert out == ""
+    assert token not in err
+
+
+def test_two_checks_and_one_check_named_with_a_comma_read_differently():
+    two = account_routes()
+    two[f"repos/{LOGIN}/app-backend/rulesets/8"]["rules"][1]["parameters"]["required_status_checks"] = [
+        {"context": "lint"},
+        {"context": "test"},
+    ]
+    one = account_routes()
+    one[f"repos/{LOGIN}/app-backend/rulesets/8"]["rules"][1]["parameters"]["required_status_checks"] = [
+        {"context": "lint@any,test"},
+    ]
+    first  = [line for line in run(two)[1].splitlines() if not line.startswith("taken ")]
+    second = [line for line in run(one)[1].splitlines() if not line.startswith("taken ")]
+    assert first != second
 
 
 def test_the_module_never_reads_a_value_field():
