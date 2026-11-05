@@ -55,7 +55,9 @@ jobs:
       always() &&
       github.repository == 'Needless2Say/kriegerdataforge-cicd' &&
       (github.event_name != 'workflow_dispatch' ||
-        (needs.authorize.result == 'success' && needs.authorize.outputs.authorized == 'true'))
+        (needs.authorize.result == 'success' && needs.authorize.outputs.authorized == 'true' &&
+          github.actor == github.repository_owner &&
+          github.triggering_actor == github.repository_owner))
     runs-on: ubuntu-slim
 
     steps:

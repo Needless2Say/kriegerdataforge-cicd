@@ -15,8 +15,8 @@ name: Hub Prune Tokens
 # hub's Vercel project, see the hub's docs/reference/CONFIGURATION.md.
 #   KDF_HUB_URL_DEV,  KDF_HUB_CRON_SECRET_DEV
 #   KDF_HUB_URL_PROD, KDF_HUB_CRON_SECRET_PROD
-# An environment whose two secrets are not both set is skipped with a notice rather than failed, so one
-# environment can be armed before another.
+# An environment whose two secrets are not both set fails its run, so a prune that never ran is never green. The
+# schedule runs both environments, so arm RUN_HUB_PRUNE once both are set.
 #
 # FAILURE SEMANTICS. The prune is idempotent garbage collection, a failed run leaves rows for the next night and
 # corrupts nothing. A red run means look, not retry in a loop.
@@ -48,10 +48,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  authorize:
+    # a manual dispatch is the owner's alone. The schedule has no human actor, so its path is unchanged
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/_authorize-owner.yml
+
   prune:
     name: Prune ${{ matrix.environment }}
-    # schedule obeys the RUN_HUB_PRUNE arm switch, a manual dispatch always may run
-    if: github.event_name == 'workflow_dispatch' || vars.RUN_HUB_PRUNE == 'true'
+    needs: authorize
+    # schedule obeys the RUN_HUB_PRUNE arm switch. A manual dispatch runs only once the owner check passed, and tests
+    # both actors here too, since a rerun of failed jobs alone keeps the check's passed output
+    if: >-
+      always() &&
+      ((github.event_name == 'schedule' && vars.RUN_HUB_PRUNE == 'true') ||
+        (github.event_name == 'workflow_dispatch' &&
+          needs.authorize.result == 'success' && needs.authorize.outputs.authorized == 'true' &&
+          github.actor == github.repository_owner &&
+          github.triggering_actor == github.repository_owner))
     runs-on: ubuntu-slim
     timeout-minutes: 5
     strategy:
@@ -67,9 +80,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${HUB_URL}" ] || [ -z "${CRON_SECRET}" ]; then
-            echo "::notice::${ENVIRONMENT} has no hub URL or cron secret configured, skipped"
-            echo "### Hub prune, ${ENVIRONMENT}: skipped, secrets not configured" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+            echo "::error::${ENVIRONMENT} has no hub URL or cron secret configured, so nothing was pruned"
+            echo "### Hub prune, ${ENVIRONMENT}: failed, secrets not configured" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
           fi
           status=$(curl --silent --show-error --output body.json --write-out '%{http_code}' \
             --max-time 120 \

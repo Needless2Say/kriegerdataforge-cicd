@@ -63,10 +63,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  authorize:
+    # A manual dispatch is the owner's alone. The schedule has no human actor, so its path is unchanged.
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/_authorize-owner.yml
+
   trigger:
     name: Fire triage cron endpoints
-    # Schedule obeys the RUN_REPORTS_TRIAGE arm switch; manual dispatch always may run.
-    if: github.event_name == 'workflow_dispatch' || vars.RUN_REPORTS_TRIAGE == 'true'
+    needs: authorize
+    # Schedule obeys the RUN_REPORTS_TRIAGE arm switch. A manual dispatch runs only once the owner check passed, and
+    # tests both actors here too, since a rerun of failed jobs alone keeps the check's passed output.
+    if: >-
+      always() &&
+      ((github.event_name == 'schedule' && vars.RUN_REPORTS_TRIAGE == 'true') ||
+        (github.event_name == 'workflow_dispatch' &&
+          needs.authorize.result == 'success' && needs.authorize.outputs.authorized == 'true' &&
+          github.actor == github.repository_owner &&
+          github.triggering_actor == github.repository_owner))
     runs-on: ubuntu-slim
     steps:
       - name: Checkout

@@ -41,7 +41,9 @@ jobs:
       always() &&
       github.repository == 'Needless2Say/kriegerdataforge-cicd' &&
       (github.event_name != 'workflow_dispatch' ||
-        (needs.authorize.result == 'success' && needs.authorize.outputs.authorized == 'true'))
+        (needs.authorize.result == 'success' && needs.authorize.outputs.authorized == 'true' &&
+          github.actor == github.repository_owner &&
+          github.triggering_actor == github.repository_owner))
     runs-on: ubuntu-slim
 
     # No GitHub Environment — uses repo-level secrets only
@@ -105,9 +107,13 @@ jobs:
   open-expiry-pr:
     name: Open expiry-bump PR
     needs: rotate
+    # A rerun of this job alone keeps the rotate job's passed result, so a dispatch tests both actors here too.
     if: >-
       needs.rotate.result == 'success' &&
-      github.repository == 'Needless2Say/kriegerdataforge-cicd'
+      github.repository == 'Needless2Say/kriegerdataforge-cicd' &&
+      (github.event_name != 'workflow_dispatch' ||
+        (github.actor == github.repository_owner &&
+          github.triggering_actor == github.repository_owner))
     runs-on: ubuntu-slim
     permissions:
       contents: read # the branch push + PR are done with the App token (or CICD_PAT), not GITHUB_TOKEN

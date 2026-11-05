@@ -6,16 +6,18 @@ name: Authorize (owner-only)
 # control. Every privileged ops workflow calls this as a job and `needs:` it; if the check
 # fails the privileged job is skipped (fail closed).
 #
-# We compare github.triggering_actor (NOT github.event.sender.login) to github.repository_owner
-# so that a manual "Re-run jobs" is attributed to whoever re-ran it, not the frozen original
-# actor in the stored event payload. The comparison is case-insensitive (GitHub logins are) and
-# is never hard-coded to a username.
+# Both actors must be github.repository_owner. A rerun keeps github.actor, who started the run, and
+# sets github.triggering_actor to whoever reran it. Checking triggering_actor stops another's rerun of
+# the owner's run, and checking actor stops the owner's rerun of a run another started, whose inputs
+# and event are that other's. A rerun of failed jobs alone keeps this check's passed output, so each
+# job that needs it tests both actors in its own `if` too. The comparison is case-insensitive (GitHub
+# logins are) and is never hard-coded to a username.
 
 on:
   workflow_call:
     outputs:
       authorized:
-        description: "'true' only when the triggering actor is the repository owner."
+        description: "'true' only when both the run's actor and its triggering actor are the repository owner."
         value: ${{ jobs.verify.outputs.authorized }}
 
 permissions:
@@ -23,7 +25,7 @@ permissions:
 
 jobs:
   verify:
-    name: Verify triggering actor is the repository owner
+    name: Verify both actors are the repository owner
     runs-on: ubuntu-slim
     outputs:
       authorized: ${{ steps.check.outputs.authorized }}
@@ -31,13 +33,15 @@ jobs:
       - name: Compare actor to repository owner
         id: check
         env:
-          ACTOR: ${{ github.triggering_actor }}
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           OWNER: ${{ github.repository_owner }}
         run: |
           actor_lc="$(printf '%s' "$ACTOR" | tr '[:upper:]' '[:lower:]')"
+          triggering_lc="$(printf '%s' "$TRIGGERING_ACTOR" | tr '[:upper:]' '[:lower:]')"
           owner_lc="$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')"
-          if [ -z "$actor_lc" ] || [ "$actor_lc" != "$owner_lc" ]; then
-            msg="DENIED: '${ACTOR}' is not the repository owner ('${OWNER}'). These ops run with CICD_PAT (org-wide secrets/admin) — failing closed."
+          if [ -z "$owner_lc" ] || [ "$actor_lc" != "$owner_lc" ] || [ "$triggering_lc" != "$owner_lc" ]; then
+            msg="DENIED: the run was started by '${ACTOR}' and triggered by '${TRIGGERING_ACTOR}', and both must be the repository owner ('${OWNER}'). These ops run with CICD_PAT (org-wide secrets/admin) — failing closed."
             echo "::error::${msg}"
             {
               echo "### Ops authorization"
@@ -47,7 +51,7 @@ jobs:
             echo "authorized=false" >> "$GITHUB_OUTPUT"
             exit 1
           fi
-          msg="OK: '${ACTOR}' is the repository owner — authorized to run this workflow."
+          msg="OK: '${ACTOR}' started and '${TRIGGERING_ACTOR}' triggered the run, both the repository owner — authorized to run this workflow."
           # ::notice:: surfaces it in the run's Annotations; the step summary shows it on the run page
           # (same style as the deployer authorization check, check_deployer.py _emit).
           echo "::notice title=Ops authorization::${msg}"
