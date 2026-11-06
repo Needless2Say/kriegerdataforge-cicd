@@ -1,0 +1,10 @@
+# Exact fingerprints, commit:file:rule:line, of made up private keys in test fixtures, a DER shape with a counting body
+# and no key in it. The fixtures now build their PEM markers from two parts, so no later line forms a key block, and a
+# fingerprint names one commit's line alone, so none here can hide a future finding.
+7eea960800d6cd344b905ee48a396fae4e26f553:scripts/tests/test_ops_writers.py:private-key:52
+7eea960800d6cd344b905ee48a396fae4e26f553:scripts/tests/test_ops_writers.py:private-key:54
+7eea960800d6cd344b905ee48a396fae4e26f553:scripts/tests/test_distribute_app_secrets.py:private-key:35
+7eea960800d6cd344b905ee48a396fae4e26f553:scripts/tests/test_distribute_app_secrets.py:private-key:37
+d8b0ab4a7538da3b071cedfa444c55db7ba6e879:scripts/tests/test_ops_writers.py:private-key:46
+d8b0ab4a7538da3b071cedfa444c55db7ba6e879:scripts/tests/test_distribute_app_secrets.py:private-key:72
+d8b0ab4a7538da3b071cedfa444c55db7ba6e879:scripts/tests/test_distribute_app_secrets.py:private-key:129

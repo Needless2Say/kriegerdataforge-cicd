@@ -30,13 +30,14 @@ CICD = "Needless2Say/kriegerdataforge-cicd"
 
 # a key shaped as an RSA key is, one DER sequence whose declared length, 1190 bytes, is the bytes that follow, its body
 # a fake, so the shape check sees whole key material, and the same key with interior lines removed
-DER  = b"\x30\x82\x04\xa6" + bytes(range(256)) * 4 + bytes(range(166))
-BODY = base64.b64encode(DER).decode()
-PEM = "-----BEGIN RSA PRIVATE KEY-----\n" + "\n".join(textwrap.wrap(BODY, 64)) + "\n-----END RSA PRIVATE KEY-----\n"
+# the PEM markers are built from two parts, so no line of this file is ever a whole key block to a secret scanner
+BEGIN     = "-----BEGIN RSA " + "PRIVATE KEY-----"
+END       = "-----END RSA " + "PRIVATE KEY-----"
+DER       = b"\x30\x82\x04\xa6" + bytes(range(256)) * 4 + bytes(range(166))
+BODY      = base64.b64encode(DER).decode()
+PEM       = f"{BEGIN}\n" + "\n".join(textwrap.wrap(BODY, 64)) + f"\n{END}\n"
 TRUNCATED = "\n".join(PEM.splitlines()[:3] + PEM.splitlines()[9:]) + "\n"
-NOT_DER   = "-----BEGIN RSA PRIVATE KEY-----\n" + "\n".join(
-    textwrap.wrap("A" * 1600, 64),
-) + "\n-----END RSA PRIVATE KEY-----\n"
+NOT_DER   = f"{BEGIN}\n" + "\n".join(textwrap.wrap("A" * 1600, 64)) + f"\n{END}\n"
 OLD_PEM   = PEM.replace(BODY[8:12], "AAAA", 1)
 MARK      = BODY[8:48]
 
@@ -134,10 +135,10 @@ def test_looks_valid_pem():
 
 
 @pytest.mark.parametrize("value", [
-    "-----BEGIN RSA PRIVATE KEY-----",
-    "-----BEGIN RSA PRIVATE KEY-----\n-----END RSA PRIVATE KEY-----\n",
-    "-----BEGIN RSA PRIVATE KEY-----\nMIIshort\n-----END RSA PRIVATE KEY-----\n",
-    "-----BEGIN RSA PRIVATE KEY-----\n" + "A" * 1600 + "\n-----END PRIVATE KEY-----\n",
+    BEGIN,
+    f"{BEGIN}\n{END}\n",
+    f"{BEGIN}\nMIIshort\n{END}\n",
+    f"{BEGIN}\n" + "A" * 1600 + "\n" + END.replace("RSA ", "") + "\n",
     "junk\n" + PEM,
     PEM.replace(BODY[8:12], "!@#$", 1),
     # a key of 512 and more body characters with interior lines removed passed, Codex's fourth read

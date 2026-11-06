@@ -46,14 +46,14 @@ CONTEXT    = "Needless2Say/kriegerdataforge-context"
 BOOTSTRAP  = ("ops-distribute-app-secrets.yml", "run", "bootstrap-token")
 ARM        = "vars.ARM_OPS_SCHEDULE"
 # a key shaped as an RSA key is, one DER sequence whose declared length is the bytes that follow, and the same key with
-# interior lines removed
-DER  = b"\x30\x82\x04\xa6" + bytes(range(256)) * 4 + bytes(range(166))
-BODY = base64.b64encode(DER).decode()
-PEM = "-----BEGIN RSA PRIVATE KEY-----\n" + "\n".join(textwrap.wrap(BODY, 64)) + "\n-----END RSA PRIVATE KEY-----\n"
+# interior lines removed, its markers built from two parts so no line of this file is a whole key block to a scanner
+BEGIN     = "-----BEGIN RSA " + "PRIVATE KEY-----"
+END       = "-----END RSA " + "PRIVATE KEY-----"
+DER       = b"\x30\x82\x04\xa6" + bytes(range(256)) * 4 + bytes(range(166))
+BODY      = base64.b64encode(DER).decode()
+PEM       = f"{BEGIN}\n" + "\n".join(textwrap.wrap(BODY, 64)) + f"\n{END}\n"
 TRUNCATED = "\n".join(PEM.splitlines()[:3] + PEM.splitlines()[9:]) + "\n"
-NOT_DER   = "-----BEGIN RSA PRIVATE KEY-----\n" + "\n".join(
-    textwrap.wrap("A" * 1600, 64),
-) + "\n-----END RSA PRIVATE KEY-----\n"
+NOT_DER   = f"{BEGIN}\n" + "\n".join(textwrap.wrap("A" * 1600, 64)) + f"\n{END}\n"
 
 
 def _load(path: Path) -> dict:
@@ -184,9 +184,9 @@ def _bash() -> str | None:
     ("123456", "a key that is no pem", False),
     (PEM, "123456", False),
     # a header alone or a truncated key passed, Codex's third read of step 6
-    ("123456", "-----BEGIN RSA PRIVATE KEY-----", False),
-    ("123456", "-----BEGIN RSA PRIVATE KEY-----\n-----END RSA PRIVATE KEY-----\n", False),
-    ("123456", "-----BEGIN RSA PRIVATE KEY-----\nMIIshort\n-----END RSA PRIVATE KEY-----\n", False),
+    ("123456", BEGIN, False),
+    ("123456", f"{BEGIN}\n{END}\n", False),
+    ("123456", f"{BEGIN}\nMIIshort\n{END}\n", False),
     ("123456", "junk\n" + PEM, False),
     # a key of 512 and more body characters with interior lines removed passed, Codex's fourth read of step 6
     ("123456", TRUNCATED, False),

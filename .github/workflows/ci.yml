@@ -139,7 +139,8 @@ jobs:
 
   # The secret scan every other repo calls, now run on this public repo too. A local reference, like style, so a change
   # to secret-scan.yml is exercised by the pull request that makes it. It uses the default gitleaks rules, since this
-  # repo has no .gitleaks.toml, and its full history held no finding on gitleaks 8.30.1 on 2026-09-29.
+  # repo has no .gitleaks.toml, and its full history held no finding on gitleaks 8.30.1 on 2026-09-29. `.gitleaksignore`
+  # names seven exact fingerprints of made up keys in two commits of the secrets fence's step 6 test fixtures.
   secret-scan:
     uses: ./.github/workflows/secret-scan.yml
 
