@@ -119,6 +119,18 @@ def test_a_manual_run_of_each_newly_gated_workflow_calls_the_check(workflow):
     assert checks[0]["if"] == "github.event_name == 'workflow_dispatch'", "the schedule's path stays unchanged"
 
 
+@pytest.mark.parametrize("workflow", _callers())
+def test_the_check_inherits_no_write_from_its_caller(workflow):
+    # a called workflow's job may hold what its caller's job holds, so the call names its own or inherits a read
+    data = _load(workflow)
+    for job in data["jobs"].values():
+        if job.get("uses") != CALL or "permissions" in job:
+            continue
+        granted = data.get("permissions", {})
+        assert isinstance(granted, dict), f"{workflow} grants {granted!r} to the owner check"
+        assert "write" not in granted.values(), f"{workflow} grants {granted} to the owner check"
+
+
 def test_the_repo_provisioner_calls_the_shared_check_rather_than_its_own():
     jobs   = _load("issue-create-repo.yml")["jobs"]
     checks = [job for job in jobs.values() if job.get("uses") == CALL]
