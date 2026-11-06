@@ -71,6 +71,7 @@ LIVE_SOURCES = {"github": "GitHub", "vercel-current": "Vercel", "vercel-named": 
 # a token marked `check.recorded` lives in ops, so the ops run keeps its expiry as the cicd repository variable
 # EXPIRY_<NAME> and the weekly monitor reads that fact (the secrets fence)
 RECORDED_PREFIX = "EXPIRY_"
+FACT_STATUSES   = ("ok", "rejected", "no-expiry", "no-token", "error")
 
 # the throwaway token the prove-master mode mints with the master token and deletes at once
 PROVE_MASTER_TOKEN_NAME = "kdf-prove-master-throwaway"
@@ -700,6 +701,38 @@ def cmd_record_expiry(
     return 1 if failed else 0
 
 
+def _read_fact(raw: str) -> dict[str, str] | None:
+    """
+    A recorded expiry fact read whole, or None when any part of it is not as `cmd_record_expiry` writes it.
+
+    Exactly `expires`, `status` and `recorded`, each once, a known status, the recording time a UTC time, and a date
+    when the status is `ok` or `none` otherwise, so no malformed, repeated or inconsistent fact reads as healthy.
+
+    Args:
+        raw: The variable's value
+
+    Returns:
+        The three fields, or None
+    """
+    fact: dict[str, str] = {}
+    for part in raw.split():
+        key, sep, value = part.partition("=")
+        if not sep or not value or key in fact or key not in ("expires", "status", "recorded"):
+            return None
+        fact[key] = value
+    if len(fact) != 3 or fact["status"] not in FACT_STATUSES:
+        return None
+    try:
+        datetime.strptime(fact["recorded"], "%Y-%m-%dT%H:%M:%SZ")
+        if fact["status"] == "ok":
+            datetime.strptime(fact["expires"], "%Y-%m-%d")
+        elif fact["expires"] != "none":
+            return None
+    except ValueError:
+        return None
+    return fact
+
+
 def _check_recorded(entry: dict, environ: dict[str, str] | None = None) -> int:
     """
     The weekly check of a token whose expiry the ops run records, read from that fact and never the registry's date.
@@ -717,8 +750,8 @@ def _check_recorded(entry: dict, environ: dict[str, str] | None = None) -> int:
     if not raw:
         print(f"  {name}: no recorded expiry yet. Dispatch Rotate Vercel Deployment Token with mode record-expiry.")
         return 1
-    fact = dict(part.split("=", 1) for part in raw.split() if "=" in part)
-    if not {"expires", "status", "recorded"} <= set(fact):
+    fact = _read_fact(raw)
+    if fact is None:
         print(f"  {name}: ERROR — the recorded fact {RECORDED_PREFIX}{name} is one the check cannot read.")
         return 1
     when = f"recorded {fact['recorded']}"
@@ -728,11 +761,10 @@ def _check_recorded(entry: dict, environ: dict[str, str] | None = None) -> int:
     if fact["status"] == "no-expiry":
         print(f"  {name}: OK — its provider reported no expiry ({when}).")
         return 0
-    try:
-        expiry = datetime.strptime(fact["expires"], "%Y-%m-%d").replace(tzinfo = timezone.utc)
-    except ValueError:
+    if fact["status"] != "ok":
         print(f"  {name}: ERROR — no date was read when {when}, the read said {fact['status']}.")
         return 1
+    expiry    = datetime.strptime(fact["expires"], "%Y-%m-%d").replace(tzinfo = timezone.utc)
     warn_days = (entry.get("check") or {}).get("warn_days_before_expiry", 14)
     days      = (expiry - datetime.now(timezone.utc)).days
     if days < 0:

@@ -546,6 +546,11 @@ class TestRecordedExpiry:
         assert "recorded 2026-11-06T12:00:00Z" in capsys.readouterr().out
 
 
+    def test_a_token_its_provider_gives_no_expiry_is_healthy(self, monkeypatch, capsys):
+        assert self._recorded(monkeypatch, "expires=none status=no-expiry recorded=2026-11-06T12:00:00Z")[0] == 0
+        assert "no expiry" in capsys.readouterr().out
+
+
     def test_a_missing_fact_is_said_plainly_and_needs_a_look(self, monkeypatch, capsys):
         assert self._recorded(monkeypatch, None)[0] == 1
         out = capsys.readouterr().out
@@ -554,9 +559,20 @@ class TestRecordedExpiry:
 
     @pytest.mark.parametrize(("value", "said"), [
         ("expires=none status=rejected recorded=2026-11-06T12:00:00Z", "REJECTED"),
+        ("expires=none status=error recorded=2026-11-06T12:00:00Z", "the read said error"),
+        ("expires=none status=no-token recorded=2026-11-06T12:00:00Z", "the read said no-token"),
         (f"expires={_past(3)} status=ok recorded=2026-11-06T12:00:00Z", "EXPIRED"),
         (f"expires={_future(5)} status=ok recorded=2026-11-06T12:00:00Z", "WARNING"),
         ("garbage", "cannot read"),
+        # Codex's read of step 6, each a fact that once read as healthy
+        ("expires=2099-01-01 status=error recorded=invalid", "cannot read"),
+        ("expires=garbage status=no-expiry recorded=invalid", "cannot read"),
+        ("expires=none status=rejected recorded=2026-11-06T12:00:00Z status=ok", "cannot read"),
+        (f"expires={_future(60)} status=ok recorded=not-a-time", "cannot read"),
+        (f"expires={_future(60)} status=ok recorded=2026-11-06T12:00:00Z extra=1", "cannot read"),
+        ("expires=none status=ok recorded=2026-11-06T12:00:00Z", "cannot read"),
+        (f"expires={_future(60)} status=rejected recorded=2026-11-06T12:00:00Z", "cannot read"),
+        (f"expires={_future(60)} status=fine recorded=2026-11-06T12:00:00Z", "cannot read"),
     ])
     def test_a_recorded_fact_that_is_not_healthy_needs_a_look(self, monkeypatch, capsys, value, said):
         assert self._recorded(monkeypatch, value)[0] == 1

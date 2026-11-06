@@ -162,6 +162,9 @@ def _select_repos(entries: list[dict], raw: str) -> list[str]:
             if repo is None:
                 sys.exit(f"Error: '{part}' is not a distribution target in the registry. Nothing was written.")
             chosen.append(repo)
+        if not chosen:
+            # an empty repositories list would mint a token over the App's whole installation
+            sys.exit("Error: the selection names no repo. Name the repos, or ALL. Nothing was minted or written.")
     return sorted(set(chosen), key = lambda repo: (repo.lower() == CICD.lower(), repo))
 
 # ======================================================================================================================
@@ -284,19 +287,13 @@ def cmd_execute(entries: list[dict], gh_token: str, repos: list[str] | None = No
     errors: list[str] = []
     print(f"Distributing {', '.join(entry['name'] for entry in entries)} to {len(repos)} repo(s):")
     for owner_repo in repos:
+        if owner_repo == CICD and errors:
+            # cicd's own pair is what a rerun mints from, the bootstrap's authority, so it is replaced only once every
+            # other write succeeded
+            print(f"{owner_repo}: skipped, another write failed, so cicd's own pair is left as it is for a rerun")
+            continue
         print(f"{owner_repo}:")
-        for entry in entries:
-            for target in entry.get("github_repo_secrets", []):
-                if target["repo"] != owner_repo:
-                    continue
-                label = f"{owner_repo} [repo] {target['secret_name']}"
-                print(f"  {target['secret_name']}", end = " ... ", flush = True)
-                try:
-                    update_github_repo_secret(gh_token, owner_repo, target["secret_name"], values[entry["name"]])
-                    print("OK")
-                except Exception as exc:  # noqa: BLE001
-                    print(f"FAILED - {exc}")
-                    errors.append(f"{label}: {exc}")
+        _write_repo(owner_repo, entries, values, gh_token, errors)
     print()
     if errors:
         print(f"{len(errors)} target(s) failed (PUT is idempotent — fix and re-run to converge):")
@@ -305,6 +302,35 @@ def cmd_execute(entries: list[dict], gh_token: str, repos: list[str] | None = No
         return 1
     print("All targets updated successfully.")
     return 0
+
+
+def _write_repo(owner_repo: str, entries: list[dict], values: dict[str, str], gh_token: str, errors: list[str]) -> None:
+    """
+    Write each value one repo holds, in the entries' order, and stop at the first failure.
+
+    A failure before the key keeps the repo's old pair whole, so the repo never mints from a new id and an old key.
+
+    Args:
+        owner_repo: The repo, owner/name
+        entries: The distributable entries
+        values: Each entry's source value by its name
+        gh_token: A token that writes the repo's secrets
+        errors: The run's failures, added to
+    """
+    for entry in entries:
+        for target in entry.get("github_repo_secrets", []):
+            if target["repo"] != owner_repo:
+                continue
+            label = f"{owner_repo} [repo] {target['secret_name']}"
+            print(f"  {target['secret_name']}", end = " ... ", flush = True)
+            try:
+                update_github_repo_secret(gh_token, owner_repo, target["secret_name"], values[entry["name"]])
+                print("OK")
+            except Exception as exc:  # noqa: BLE001
+                print(f"FAILED - {exc}")
+                errors.append(f"{label}: {exc}")
+                print(f"  the rest of {owner_repo}'s values are not written, its pair stays as it was before")
+                return
 
 # ======================================================================================================================
 # Mode: targets

@@ -268,8 +268,8 @@ def test_cmd_execute_partial_failure_aggregates_and_continues(entries, source_en
     assert cmd_execute(entries, "tok") == 1
     out = capsys.readouterr().out
     assert "FAILED - boom" in out
-    # the failure did not stop the rest of the fan-out
-    assert out.count("OK") == 2
+    # the failure stopped r1's other half and did not stop the other repos
+    assert out.count("OK") == 1
     assert "1 target(s) failed" in out
 
 
@@ -341,6 +341,35 @@ def test_a_selected_run_touches_exactly_one_repo_and_both_names(fleet, source_en
 def test_a_repo_off_the_registry_is_refused_before_any_write(fleet, raw):
     with pytest.raises(SystemExit, match = "not a distribution target"):
         das._select_repos(fleet, raw)
+
+
+@pytest.mark.parametrize("raw", [",", ", ,", " , "])
+def test_a_selection_that_names_no_repo_is_refused_before_the_mint(fleet, sample_registry, raw):
+    # an empty repositories list would mint a token over the App's whole installation (Codex's read of step 6)
+    with pytest.raises(SystemExit, match = "names no repo"):
+        das._select_repos(fleet, raw)
+    with pytest.raises(SystemExit, match = "names no repo"):
+        cmd_targets(sample_registry, raw)
+
+
+def test_a_failed_write_stops_its_repo_and_leaves_cicds_own_pair_unwritten(fleet, source_env, capsys, monkeypatch):
+    # cicd's own pair is the bootstrap's authority, so it is written only once every other write succeeded, and a
+    # rerun of the bootstrap still has it (Codex's read of step 6)
+    calls: list[tuple[str, str]] = []
+
+
+    def update(tok, repo, name, value):
+        calls.append((repo, name))
+        if repo == "Needless2Say/r1" and name == "KDF_APP_ID":
+            raise RuntimeError("boom")
+
+
+    monkeypatch.setattr(das, "update_github_repo_secret", update)
+    assert cmd_execute(fleet, "tok") == 1
+    assert ("Needless2Say/r1", "KDF_APP_PRIVATE_KEY") not in calls, "half a pair is never written past a failure"
+    assert ("Needless2Say/r2", "KDF_APP_ID") in calls and ("Needless2Say/r2", "KDF_APP_PRIVATE_KEY") in calls
+    assert not [call for call in calls if call[0] == CICD]
+    assert "cicd's own pair is left as it is" in capsys.readouterr().out
 
 
 def test_the_selector_names_every_target_when_it_is_all(fleet):
