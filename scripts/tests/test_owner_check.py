@@ -217,7 +217,6 @@ def _values(workflow: str, event: str, attempt: str, actor: str, triggering_acto
         "github.triggering_actor": triggering_actor,
         "github.repository_owner": OWNER,
         "github.repository": CICD,
-        "github.event.label.name": "new-repo",
     }
     for name, job in jobs.items():
         checked = job.get("uses") == CALL
@@ -241,9 +240,12 @@ def _events(workflow: str) -> list[str]:
 
 
 def _arm(values: dict[str, str], condition: str) -> dict[str, str]:
-    # every arm switch a schedule path reads is on, so the attempt alone decides
+    # every arm switch a schedule path reads is on, and the event is the one the job asks for, its action and its
+    # label, so the actors alone decide and a weakened actor test fails here
     for name in re.findall(r"vars\.\w+", condition):
         values[name] = "true"
+    for name, literal in re.findall(r"(github\.event\.[\w.]+) == '([^']*)'", condition):
+        values[name] = literal
     return values
 
 
@@ -273,6 +275,17 @@ def test_a_schedules_first_attempt_runs_unattended_and_the_owners_rerun_runs_too
         for actor in (OWNER, "the-last-to-change-the-schedule"):
             rerun = _arm(_values(workflow, "schedule", "2", actor, OWNER), condition)
             assert _evaluate(condition, rerun), f"{workflow} job {name} skips the owner's rerun, its actor {actor}"
+
+
+@pytest.mark.parametrize("workflow", _callers())
+def test_the_owner_reaches_every_job_on_each_event_but_the_schedule(workflow):
+    # the denials above prove something only when the same shape admits the owner
+    for event in _events(workflow):
+        if event == "schedule":
+            continue
+        for name, condition in _guarded_jobs(workflow):
+            values = _arm(_values(workflow, event, "1", OWNER, OWNER), condition)
+            assert _evaluate(condition, values), f"{workflow} job {name} skips the owner on {event}"
 
 
 def test_the_evaluator_reads_the_operators_as_github_does():
