@@ -82,4 +82,6 @@ jobs:
           # The staged new PAT (created in the GitHub UI) feeds the engine's paste mode.
           STAGED_SECRET_VALUE: ${{ secrets.GH_PACKAGES_PAT_NEW }}
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
+          # the packages token's six Vercel copies, written with the master token, read in ops
+          VERCEL_MASTER_TOKEN: ${{ secrets.VERCEL_MASTER_TOKEN }}
         run: python scripts/rotate_secret.py --mode paste --secrets GH_PACKAGES_PAT

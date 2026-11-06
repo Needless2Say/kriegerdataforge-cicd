@@ -12,11 +12,13 @@ cron copies live in cicd's `dev` and `prod`, never in a repository secret.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
 import shutil
 import subprocess
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -43,7 +45,15 @@ CICD       = "Needless2Say/kriegerdataforge-cicd"
 CONTEXT    = "Needless2Say/kriegerdataforge-context"
 BOOTSTRAP  = ("ops-distribute-app-secrets.yml", "run", "bootstrap-token")
 ARM        = "vars.ARM_OPS_SCHEDULE"
-PEM = "-----BEGIN RSA PRIVATE KEY-----\nMIIexample\n" + ("A" * 64 + "\n") * 25 + "-----END RSA PRIVATE KEY-----\n"
+# a key shaped as an RSA key is, one DER sequence whose declared length is the bytes that follow, and the same key with
+# interior lines removed
+DER  = b"\x30\x82\x04\xa6" + bytes(range(256)) * 4 + bytes(range(166))
+BODY = base64.b64encode(DER).decode()
+PEM = "-----BEGIN RSA PRIVATE KEY-----\n" + "\n".join(textwrap.wrap(BODY, 64)) + "\n-----END RSA PRIVATE KEY-----\n"
+TRUNCATED = "\n".join(PEM.splitlines()[:3] + PEM.splitlines()[9:]) + "\n"
+NOT_DER   = "-----BEGIN RSA PRIVATE KEY-----\n" + "\n".join(
+    textwrap.wrap("A" * 1600, 64),
+) + "\n-----END RSA PRIVATE KEY-----\n"
 
 
 def _load(path: Path) -> dict:
@@ -178,6 +188,9 @@ def _bash() -> str | None:
     ("123456", "-----BEGIN RSA PRIVATE KEY-----\n-----END RSA PRIVATE KEY-----\n", False),
     ("123456", "-----BEGIN RSA PRIVATE KEY-----\nMIIshort\n-----END RSA PRIVATE KEY-----\n", False),
     ("123456", "junk\n" + PEM, False),
+    # a key of 512 and more body characters with interior lines removed passed, Codex's fourth read of step 6
+    ("123456", TRUNCATED, False),
+    ("123456", NOT_DER, False),
 ])
 def test_the_e2e_setup_checks_the_readers_pair_before_anything_is_written(tmp_path, app_id, key, passes):
     # a malformed pair copied over a target's working one would break its lanes (Codex's second read of step 6)
@@ -201,7 +214,18 @@ def test_the_e2e_setup_checks_the_readers_pair_before_anything_is_written(tmp_pa
         text = True,
     )
     assert (run.returncode == 0) == passes, run.stdout + run.stderr
-    assert "123456" not in run.stdout and "MIIexample" not in run.stdout, "no value is printed"
+    assert "123456" not in run.stdout and BODY[8:48] not in run.stdout, "no value is printed"
+
+
+def test_a_paste_with_vercel_targets_hands_its_step_the_master_token():
+    # the packages token's paste writes six Vercel copies, which the engine skips with no master token, so a run that
+    # left them stale would report success (Codex's fourth read of step 6)
+    registry = {entry["name"]: entry for entry in json.loads(REGISTRY.read_text(encoding = "utf-8"))["secrets"]}
+    for workflow, name, job, _ in _jobs():
+        for step in _steps(job):
+            pasted = re.search(r"rotate_secret\.py --mode paste --secrets (\w+)", str(step.get("run", "")))
+            if pasted and registry[pasted.group(1)].get("vercel_env_vars"):
+                assert step.get("env", {}).get("VERCEL_MASTER_TOKEN") == "${{ secrets.VERCEL_MASTER_TOKEN }}", workflow
 
 
 def test_no_workflow_commits_or_pushes():

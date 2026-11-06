@@ -47,6 +47,7 @@ from __future__ import annotations
 
 # standard imports
 import argparse
+import base64
 import json
 import os
 import re
@@ -91,11 +92,40 @@ def _looks_valid(value: str, fmt: str) -> bool:
     if fmt == "numeric":
         return value.isdigit()
     if fmt == "pem":
-        # the whole value one PEM block, its BEGIN and END labels alike and a base64 body of a real key's length, so a
-        # header alone or a truncated key never replaces a working one
+        # the whole value one PEM block, its BEGIN and END labels alike, a base64 body of a real key's length, and that
+        # body one DER sequence whose declared length is the bytes present, so a header alone or a key with lines
+        # removed never replaces a working one
         block = PEM_BLOCK.fullmatch(value.strip())
-        return bool(block) and len(re.sub(r"\s", "", block.group("body"))) >= PEM_BODY_MIN
+        if not block:
+            return False
+        body = re.sub(r"\s", "", block.group("body"))
+        if len(body) < PEM_BODY_MIN:
+            return False
+        try:
+            return _der_whole(base64.b64decode(body, validate = True))
+        except ValueError:
+            return False
     return True
+
+
+def _der_whole(der: bytes) -> bool:
+    """
+    Whether the bytes are one whole DER sequence, its declared length the bytes that follow its header.
+
+    Args:
+        der: The decoded body of a PEM block
+
+    Returns:
+        True when the sequence's length field names exactly the bytes present
+    """
+    if len(der) < 2 or der[0] != 0x30:
+        return False
+    if der[1] < 0x80:
+        return 2 + der[1] == len(der)
+    width = der[1] & 0x7F
+    if not 1 <= width <= 4 or len(der) < 2 + width:
+        return False
+    return 2 + width + int.from_bytes(der[2:2 + width], "big") == len(der)
 
 # ======================================================================================================================
 # Registry + selection
@@ -298,8 +328,9 @@ def cmd_execute(entries: list[dict], gh_token: str, repos: list[str] | None = No
         values[entry["name"]] = value
 
     # each value cicd held before, where known, so cicd's own pair, written last and the bootstrap's authority, gets
-    # its old pair back when its later write fails. Only cicd's id is known, its repository KDF_APP_ID read by this run,
-    # and no other repo's, since a retry finds some repos already on the new pair, so none of theirs is put back
+    # its whole old pair back when a write fails, the workflow passing cicd's repository pair this run holds itself,
+    # and no other repo's is known, since a retry finds some repos already on the new pair, so none of theirs is
+    # put back
     previous: dict[str, str] = {}
     for entry in entries:
         before = os.environ.get(f"{entry['distribute_source_env']}{PREVIOUS_SUFFIX}", "")
@@ -340,9 +371,10 @@ def _write_repo(
     """
     Write each value one repo holds, in the entries' order, and stop at the first failure.
 
-    A failure on the first write leaves the repo's old pair whole. A failure after it puts each value already written
-    back to its previous value where one is known, the id, which is no secret, so the repo never mints from a new id
-    and an old key, and the put back uses the token already minted, never the damaged pair.
+    A failed write may still have been taken, its answer lost, so after any failure no repo is said to hold its old
+    pair unless it was put back whole. cicd's own pair, the bootstrap's authority, is put back whole from its previous
+    pair, the failed value included, with the token already minted, never the damaged pair. Another repo is said to
+    hold half a pair, which a rerun writes again.
 
     Args:
         owner_repo: The repo, owner/name
@@ -350,10 +382,8 @@ def _write_repo(
         values: Each entry's source value by its name
         gh_token: A token that writes the repo's secrets
         errors: The run's failures, added to
-        previous: Each entry's previous value by its name, where known
+        previous: Each entry's previous value by its name, where known, cicd's alone
     """
-    previous = previous or {}
-    written: list[tuple[dict, str]] = []
     for entry in entries:
         for target in entry.get("github_repo_secrets", []):
             if target["repo"] != owner_repo:
@@ -363,48 +393,56 @@ def _write_repo(
             try:
                 update_github_repo_secret(gh_token, owner_repo, target["secret_name"], values[entry["name"]])
                 print("OK")
-                written.append((entry, target["secret_name"]))
             except Exception as exc:  # noqa: BLE001
                 print(f"FAILED - {exc}")
                 errors.append(f"{label}: {exc}")
-                _put_back(owner_repo, written, previous, gh_token, errors)
+                if owner_repo == CICD:
+                    _restore_cicd(entries, previous or {}, gh_token, errors)
+                else:
+                    print(f"  {owner_repo} may hold half a pair, a write that failed may still have been taken. "
+                          "A rerun once the cause is fixed writes both values again.")
                 return
 
 
-def _put_back(
-    owner_repo: str,
-    written: list[tuple[dict, str]],
-    previous: dict[str, str],
-    gh_token: str,
-    errors: list[str],
-) -> None:
+def _restore_cicd(entries: list[dict], previous: dict[str, str], gh_token: str, errors: list[str]) -> None:
     """
-    Put each value a failed repo already took back to its previous value, so the repo holds its old pair whole.
+    Put cicd's whole previous pair back after a failed write, so a bootstrap rerun still mints from it.
+
+    Every value is written back, the one whose write failed included, since it may have been taken with its answer
+    lost. With either previous value unknown nothing is put back, since an old id beside a key that may be new mints
+    nothing, and the pair is said to be uncertain with the way to recover by hand.
 
     Args:
-        owner_repo: The repo, owner/name
-        written: The entries and secret names already written in this repo
-        previous: Each entry's previous value by its name, where known
-        gh_token: A token that writes the repo's secrets
+        entries: The distributable entries
+        previous: Each entry's previous value by its name, cicd's own
+        gh_token: A token that writes cicd's secrets
         errors: The run's failures, added to
     """
-    if not written:
-        print(f"  the rest of {owner_repo}'s values are not written, its pair stays as it was before")
+    targets = [
+        (entry, target["secret_name"])
+        for entry in entries
+        for target in entry.get("github_repo_secrets", [])
+        if target["repo"] == CICD
+    ]
+    recover = (
+        f"  {CICD}'s pair is uncertain, so a bootstrap rerun may not mint. Make a new key in the writing App's "
+        f"settings and set {CICD}'s KDF_APP_ID and KDF_APP_PRIVATE_KEY from a prompt, then rerun."
+    )
+    if any(entry["name"] not in previous for entry, _ in targets):
+        print(recover)
+        errors.append(f"{CICD}: its pair is uncertain, its previous pair not known whole")
         return
-    for entry, secret_name in reversed(written):
-        if entry["name"] not in previous:
-            print(f"  {owner_repo} holds half a pair, {secret_name} is new and its previous value is not known. "
-                  "A rerun once the cause is fixed writes both values again.")
-            errors.append(f"{owner_repo} [repo] {secret_name}: half a pair, put back by hand")
-            continue
+    for entry, secret_name in targets:
         print(f"  {secret_name} put back to its previous value", end = " ... ", flush = True)
         try:
-            update_github_repo_secret(gh_token, owner_repo, secret_name, previous[entry["name"]])
-            print("OK, the repo holds its old pair")
+            update_github_repo_secret(gh_token, CICD, secret_name, previous[entry["name"]])
+            print("OK")
         except Exception as exc:  # noqa: BLE001
             print(f"FAILED - {exc}")
-            print(f"  {owner_repo} holds half a pair. Set {secret_name} back by hand to the previous App's id.")
-            errors.append(f"{owner_repo} [repo] {secret_name}: the put back failed, {exc}")
+            print(recover)
+            errors.append(f"{CICD} [repo] {secret_name}: the put back failed, {exc}")
+            return
+    print(f"  {CICD} holds its previous pair again")
 
 # ======================================================================================================================
 # Mode: targets

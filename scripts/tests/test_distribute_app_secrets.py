@@ -8,7 +8,9 @@ missing/mis-wired source env aborts BEFORE any write.
 
 from __future__ import annotations
 
+import base64
 import json
+import textwrap
 from unittest.mock import MagicMock
 
 import distribute_app_secrets as das
@@ -25,6 +27,18 @@ from distribute_app_secrets import (
 )
 
 CICD = "Needless2Say/kriegerdataforge-cicd"
+
+# a key shaped as an RSA key is, one DER sequence whose declared length, 1190 bytes, is the bytes that follow, its body
+# a fake, so the shape check sees whole key material, and the same key with interior lines removed
+DER  = b"\x30\x82\x04\xa6" + bytes(range(256)) * 4 + bytes(range(166))
+BODY = base64.b64encode(DER).decode()
+PEM = "-----BEGIN RSA PRIVATE KEY-----\n" + "\n".join(textwrap.wrap(BODY, 64)) + "\n-----END RSA PRIVATE KEY-----\n"
+TRUNCATED = "\n".join(PEM.splitlines()[:3] + PEM.splitlines()[9:]) + "\n"
+NOT_DER   = "-----BEGIN RSA PRIVATE KEY-----\n" + "\n".join(
+    textwrap.wrap("A" * 1600, 64),
+) + "\n-----END RSA PRIVATE KEY-----\n"
+OLD_PEM   = PEM.replace(BODY[8:12], "AAAA", 1)
+MARK      = BODY[8:48]
 
 
 # ── fixtures ────────────────────────────────────────────────────────────────────
@@ -66,12 +80,6 @@ def sample_registry():
 @pytest.fixture
 def entries(sample_registry):
     return _distributable(sample_registry)
-
-
-# a key of an RSA key's length, its body a fake, so the shape check sees real key material
-PEM = "-----BEGIN RSA PRIVATE KEY-----\nMIIexampleexample\n" + (
-    "A" * 64 + "\n"
-) * 25 + "-----END RSA PRIVATE KEY-----\n"
 
 
 @pytest.fixture
@@ -131,10 +139,14 @@ def test_looks_valid_pem():
     "-----BEGIN RSA PRIVATE KEY-----\nMIIshort\n-----END RSA PRIVATE KEY-----\n",
     "-----BEGIN RSA PRIVATE KEY-----\n" + "A" * 1600 + "\n-----END PRIVATE KEY-----\n",
     "junk\n" + PEM,
-    PEM.replace("A" * 64, "A" * 60 + "!@#$", 1),
+    PEM.replace(BODY[8:12], "!@#$", 1),
+    # a key of 512 and more body characters with interior lines removed passed, Codex's fourth read
+    TRUNCATED,
+    NOT_DER,
 ])
 def test_looks_valid_pem_refuses_a_bare_header_or_a_truncated_key(value):
-    # a header alone passed and replaced a working key with unusable text, Codex's third read of step 6
+    # a header alone passed and replaced a working key with unusable text, Codex's third read of step 6, and a key with
+    # lines removed passed its fourth, so the DER sequence's declared length must be the bytes present
     assert not _looks_valid(value, "pem")
 
 
@@ -270,7 +282,7 @@ def test_cmd_execute_swapped_values_refused_and_value_never_leaks(entries, capsy
     message = str(exc.value)
     assert "does not look like an all-digits GitHub App id" in message
     assert PEM not in message
-    assert "MIIexampleexample" not in message
+    assert MARK not in message
     assert written == []
 
 
@@ -294,7 +306,7 @@ def test_cmd_execute_output_never_contains_a_value(entries, source_env, capsys, 
     cmd_execute(entries, "tok")
     out = capsys.readouterr().out
     assert "123456" not in out
-    assert "MIIexampleexample" not in out
+    assert MARK not in out
 
 
 def test_cmd_execute_requires_token(entries, source_env):
@@ -368,10 +380,40 @@ def test_a_selection_that_names_no_repo_is_refused_before_the_mint(fleet, sample
         cmd_targets(sample_registry, raw)
 
 
-def test_a_failed_key_write_on_cicd_puts_its_own_previous_id_back(fleet, source_env, monkeypatch):
-    # cicd's previous id is the one this run read itself, so after a failed key the run writes it back with the token
-    # it already holds, and cicd's own pair still mints for a rerun (Codex's second read of step 6)
+def test_a_failed_write_on_cicd_puts_its_whole_previous_pair_back(fleet, source_env, monkeypatch):
+    # cicd's previous pair is the one this run holds itself, so after a failed write, perhaps accepted with its answer
+    # lost, the run writes both previous values back with the token it already holds, the failed one included, and
+    # cicd's own pair still mints for a rerun (Codex's second and fourth reads of step 6)
     monkeypatch.setenv("KDF_APP_ID_PREVIOUS", "111")
+    monkeypatch.setenv("KDF_APP_PRIVATE_KEY_PREVIOUS", OLD_PEM)
+    calls: list[tuple[str, str, str]] = []
+
+
+    def update(tok, owner_repo, name, value):
+        calls.append((owner_repo, name, value))
+        if name == "KDF_APP_PRIVATE_KEY" and value == PEM:
+            raise RuntimeError("boom")
+
+
+    monkeypatch.setattr(das, "update_github_repo_secret", update)
+    assert cmd_execute(fleet, "tok", [CICD]) == 1
+    assert calls == [
+        (CICD, "KDF_APP_ID", "123456"),
+        (CICD, "KDF_APP_PRIVATE_KEY", PEM),
+        (CICD, "KDF_APP_ID", "111"),
+        (CICD, "KDF_APP_PRIVATE_KEY", OLD_PEM),
+    ]
+
+
+def test_cicd_with_half_its_previous_pair_known_puts_nothing_back_and_says_it_is_uncertain(
+    fleet,
+    source_env,
+    capsys,
+    monkeypatch,
+):
+    # an old id beside a key that may be new mints nothing, so no half is put back (Codex's fourth read of step 6)
+    monkeypatch.setenv("KDF_APP_ID_PREVIOUS", "111")
+    monkeypatch.delenv("KDF_APP_PRIVATE_KEY_PREVIOUS", raising = False)
     calls: list[tuple[str, str, str]] = []
 
 
@@ -383,7 +425,29 @@ def test_a_failed_key_write_on_cicd_puts_its_own_previous_id_back(fleet, source_
 
     monkeypatch.setattr(das, "update_github_repo_secret", update)
     assert cmd_execute(fleet, "tok", [CICD]) == 1
-    assert calls == [(CICD, "KDF_APP_ID", "123456"), (CICD, "KDF_APP_PRIVATE_KEY", PEM), (CICD, "KDF_APP_ID", "111")]
+    assert len(calls) == 2
+    assert "uncertain" in capsys.readouterr().out
+
+
+def test_a_failed_put_back_on_cicd_says_its_pair_is_uncertain_and_how_to_recover(
+    fleet,
+    source_env,
+    capsys,
+    monkeypatch,
+):
+    monkeypatch.setenv("KDF_APP_ID_PREVIOUS", "111")
+    monkeypatch.setenv("KDF_APP_PRIVATE_KEY_PREVIOUS", OLD_PEM)
+
+
+    def update(tok, owner_repo, name, value):
+        if name == "KDF_APP_PRIVATE_KEY":
+            raise RuntimeError("boom")
+
+
+    monkeypatch.setattr(das, "update_github_repo_secret", update)
+    assert cmd_execute(fleet, "tok", [CICD]) == 1
+    out = capsys.readouterr().out
+    assert "uncertain" in out and "new key" in out and MARK not in out
 
 
 def test_a_retry_never_puts_cicds_old_id_into_a_repo_already_on_the_new_pair(fleet, source_env, capsys, monkeypatch):
@@ -406,7 +470,7 @@ def test_a_retry_never_puts_cicds_old_id_into_a_repo_already_on_the_new_pair(fle
     calls.clear()
     assert cmd_execute(fleet, "tok") == 1
     assert not [call for call in calls if call[2] == "111"], "an old id was put back into a repo on the new pair"
-    assert "holds half a pair" in capsys.readouterr().out
+    assert "may hold half a pair" in capsys.readouterr().out
 
 
 def test_with_no_previous_id_a_split_pair_is_said_plainly(fleet, source_env, capsys, monkeypatch):
@@ -420,7 +484,7 @@ def test_with_no_previous_id_a_split_pair_is_said_plainly(fleet, source_env, cap
 
     monkeypatch.setattr(das, "update_github_repo_secret", update)
     assert cmd_execute(fleet, "tok", ["Needless2Say/r1"]) == 1
-    assert "holds half a pair" in capsys.readouterr().out
+    assert "may hold half a pair" in capsys.readouterr().out
 
 
 def test_the_writes_that_can_be_put_back_go_first(fleet, source_env, monkeypatch):

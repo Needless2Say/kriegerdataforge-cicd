@@ -107,7 +107,14 @@ jobs:
           if [[ "$KDF_APP_PRIVATE_KEY" =~ $pem ]] && [ "${BASH_REMATCH[1]}" = "${BASH_REMATCH[3]}" ]; then
             body="${BASH_REMATCH[2]//[[:space:]]/}"
           fi
-          if [ "${#body}" -lt 512 ]; then
+          # the body one DER sequence whose declared length is the bytes present, so a key with lines removed fails
+          der="$(printf '%s' "$body" | base64 -d 2>/dev/null | od -An -v -tx1 | tr -d ' \n')"
+          declared=-1
+          case "$der" in
+            3082*) declared=$(( 16#${der:4:4} + 4 )) ;;
+            3081*) declared=$(( 16#${der:4:2} + 3 )) ;;
+          esac
+          if [ "${#body}" -lt 512 ] || [ "$declared" -ne $(( ${#der} / 2 )) ]; then
             echo "::error::KDF_READER_APP_PRIVATE_KEY in ops is not a whole PEM private key, nothing was written."
             exit 1
           fi
