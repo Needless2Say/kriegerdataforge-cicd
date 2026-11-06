@@ -143,6 +143,18 @@ def test_the_bootstrap_is_the_one_mint_of_a_write_from_the_repository_pair_and_r
     assert "steps.fields.outputs.mode != 'bootstrap'" in writer["if"]
 
 
+def test_the_e2e_setup_copies_the_readers_pair_and_mints_exactly_secrets_and_variables_write():
+    # the pinned action has no declared permission-variables input, but reads every permission-* input it is given
+    # (lib/get-permissions-from-inputs.js at the pin), so the two inputs ask for those two grants and nothing more
+    job   = _load(WORKFLOWS / "ops-setup-e2e.yml")["jobs"]["setup"]
+    mint  = next(step for step in _steps(job) if str(step.get("uses", "")).startswith(MINT))
+    asked = {key: value for key, value in mint["with"].items() if key.startswith("permission-")}
+    assert asked == {"permission-secrets": "write", "permission-variables": "write"}
+    copy = next(step for step in _steps(job) if "gh secret set" in str(step.get("run", "")))
+    assert copy["env"]["KDF_APP_ID"] == "${{ secrets.KDF_READER_APP_ID }}"
+    assert copy["env"]["KDF_APP_PRIVATE_KEY"] == "${{ secrets.KDF_READER_APP_PRIVATE_KEY }}"
+
+
 def test_no_workflow_commits_or_pushes():
     for path in sorted(WORKFLOWS.glob("*.yml")):
         text = path.read_text(encoding = "utf-8")
