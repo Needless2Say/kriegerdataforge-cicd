@@ -88,21 +88,40 @@ def test_the_expiry_monitor_fails_closed_without_a_verdict() -> None:
     assert "gave no verdict" in check
 
 
-def test_the_watch_takes_the_app_secrets_by_name_and_never_inherits() -> None:
+def test_the_watch_takes_its_app_by_name_or_from_the_callers_environment_and_never_inherits() -> None:
+    # two contracts (the secrets fence). Today's caller passes the pair as named secrets. A caller that names an
+    # environment, held to main, binds it on the job that mints, which reads the watch App's pair from there
     code = _code(WATCH)
-    assert re.search(r"app_id:\n\s+description: .*\n\s+required: true", code)
-    assert re.search(r"app_private_key:\n\s+description: .*\n\s+required: true", code)
+    assert re.search(r"app_id:\n\s+description: .*\n\s+required: false", code)
+    assert re.search(r"app_private_key:\n\s+description: .*\n\s+required: false", code)
+    assert re.search(r"environment:\n\s+description: .*\n\s+required: false\n\s+default: \"\"\n\s+type: string", code)
+    assert "\n    environment: ${{ inputs.environment }}\n" in code
+    mint = _step(WATCH, "Mint a read only App token")
+    assert "client-id: ${{ secrets.app_id || secrets.KDF_WATCH_APP_ID }}" in mint
+    assert "private-key: ${{ secrets.app_private_key || secrets.KDF_WATCH_APP_PRIVATE_KEY }}" in mint
     assert "inherit" not in code
 
 
-def test_the_watch_token_is_read_only_and_only_the_collect_step_holds_it() -> None:
+def test_the_watch_token_is_read_only_and_only_the_collect_and_kit_check_steps_hold_it() -> None:
     mint  = _step(WATCH, "Mint a read only App token")
     asked = dict(re.findall(r"permission-([a-z-]+): (\w+)", mint))
     assert asked == {"contents": "read", "vulnerability-alerts": "read", "checks": "read", "actions": "read"}
     assert "owner: ${{ github.repository_owner }}" in mint
     assert "steps.app.outputs.token" in _step(WATCH, "Collect the snapshot")
+    assert "steps.app.outputs.token" in _step(WATCH, "Run the kit's check")
     holders = [m for m in re.finditer(r"steps\.app\.outputs\.token", _code(WATCH))]
-    assert len(holders) == 1
+    assert len(holders) == 2
+
+
+def test_the_kit_check_runs_in_the_watch_and_its_drift_reaches_the_issue() -> None:
+    # the weekly kit check moved here from distribute-kit.yml, whose mint is the writing App's in ops
+    kit = _step(WATCH, "Run the kit's check")
+    assert "python _kdf_cicd/scripts/distribute_kit.py check" in kit
+    assert 'kit-check.txt' in kit and '"$rc" = 0' in kit
+    assert '--kit-check "$RUNNER_TEMP/kit-check.txt"' in _step(WATCH, "Open, update or close the rolling issue")
+    assert "/kit/common/" in _step(WATCH, "Check out cicd's scripts")
+    distribute = (WORKFLOWS / "distribute-kit.yml").read_text(encoding = "utf-8")
+    assert "\n  schedule:" not in distribute, "the weekly kit check is the watch's alone"
 
 
 def test_the_issue_is_written_with_the_callers_own_token() -> None:

@@ -125,18 +125,19 @@ DEPRECATION_WORDS = (
 )
 DEPRECATION       = re.compile("|".join(re.escape(word) for word in DEPRECATION_WORDS), re.IGNORECASE)
 
-SEVERITIES    = ("critical", "high", "medium", "low")
-PAGE          = 100
-PAGES         = 10     # pages read at most of any one list, 1000 items, a longer list is a blind spot
-ALERTS_SHOWN  = 15     # alerts listed per repo in the issue, the counts are always whole
-NOTICES_SHOWN = 20
-NOTICE_DAYS   = 60     # a notice from an older run is listed, not counted, only a new run of its workflow clears it
-STAMP         = "%Y-%m-%dT%H:%M:%SZ"
-NEWS_SHOWN    = 100    # findings listed in one news comment
-BODY_LIMIT    = 60000  # an issue body over 65536 characters is refused
-KEYS_MARKER   = "kdf-watch-keys:"
-KEY_HEX       = 10     # each finding is remembered as the first 10 hex of its key's sha256
-KEYS_LIMIT    = 3000   # findings remembered at most, 30000 characters of the body
+SEVERITIES      = ("critical", "high", "medium", "low")
+PAGE            = 100
+PAGES           = 10     # pages read at most of any one list, 1000 items, a longer list is a blind spot
+ALERTS_SHOWN    = 15     # alerts listed per repo in the issue, the counts are always whole
+NOTICES_SHOWN   = 20
+NOTICE_DAYS     = 60     # a notice from an older run is listed, not counted, only a new run of its workflow clears it
+STAMP           = "%Y-%m-%dT%H:%M:%SZ"
+NEWS_SHOWN      = 100    # findings listed in one news comment
+BODY_LIMIT      = 60000  # an issue body over 65536 characters is refused
+KEYS_MARKER     = "kdf-watch-keys:"
+KEY_HEX         = 10     # each finding is remembered as the first 10 hex of its key's sha256
+KEYS_LIMIT      = 3000   # findings remembered at most, 30000 characters of the body
+KIT_CHECK_LINES = 80   # lines of the kit check's output kept in the body
 
 # ======================================================================================================================
 # Transports
@@ -1258,6 +1259,32 @@ def _drift_section(snapshot: dict[str, Any], findings: dict[str, str]) -> list[s
     return lines + ["", "A Distribute of the kit or the scripts brings them back."]
 
 
+def _kit_check_section(kit_check: str, findings: dict[str, str]) -> list[str]:
+    """
+    The kit's own check, `distribute_kit.py check`, run on the watch App's read token once it found drift or gaps.
+
+    The weekly kit check moved here from distribute-kit.yml with the secrets fence, since that workflow mints from the
+    writing App in ops. Its output is kept whole in a fence, so a line of it cannot become markdown, and one finding
+    stands for the whole of it, so a change in what drifted is news and the same drift twice is not.
+
+    Args:
+        kit_check: the check's output when it reported drift, gaps or an error, empty when every repo was in sync
+        findings: each finding's key and its news line, added to
+
+    Returns:
+        list[str]: the section's lines, none when the check was clean
+    """
+    text = kit_check.strip()
+    if not text:
+        return []
+    shown = [line.replace("`", "'") for line in text.splitlines()[:KIT_CHECK_LINES]]
+    if len(text.splitlines()) > KIT_CHECK_LINES:
+        shown.append(f"... and {len(text.splitlines()) - KIT_CHECK_LINES} more lines, see the run")
+    digest = hashlib.sha256("\n".join(shown).encode("utf-8")).hexdigest()[:16]
+    findings[f"kit-check:{digest}"] = "the kit check found drift or gaps, see its section"
+    return ["", "### The kit check", "", "```", *shown, "```"]
+
+
 def _notice_lines(seen: dict[str, list[str]]) -> list[str]:
     """
     Each notice once, with where it was seen, at most NOTICES_SHOWN of them.
@@ -1447,7 +1474,12 @@ def _errors_section(snapshot: dict[str, Any], findings: dict[str, str]) -> list[
     return lines
 
 
-def render(snapshot: dict[str, Any], previous_body: str = "", run_url: str = "") -> tuple[str, str, str]:
+def render(
+    snapshot: dict[str, Any],
+    previous_body: str = "",
+    run_url: str = "",
+    kit_check: str = "",
+) -> tuple[str, str, str]:
     """
     The issue's body, the news since the previous body, and the state.
 
@@ -1455,6 +1487,7 @@ def render(snapshot: dict[str, Any], previous_body: str = "", run_url: str = "")
         snapshot: the snapshot
         previous_body: the open issue's current body, empty when there is none
         run_url: the run's link for the footer
+        kit_check: the kit check's output when it found drift, gaps or an error, empty when it was clean
 
     Returns:
         tuple[str, str, str]: the body, the news (empty on a first body or when nothing is new), and `open` while
@@ -1478,6 +1511,7 @@ def render(snapshot: dict[str, Any], previous_body: str = "", run_url: str = "")
     lines += _alerts_section(snapshot["repos"], findings)
     lines += _pins_section(snapshot["repos"], findings)
     lines += _drift_section(snapshot, findings)
+    lines += _kit_check_section(kit_check, findings)
     lines += _notices_section(snapshot["repos"], findings, snapshot["generated_at"])
     lines += _images_section(snapshot, findings)
     lines += _errors_section(snapshot, findings)
@@ -1531,6 +1565,7 @@ def main(argv: list[str] | None = None) -> int:
     out.add_argument("--news", required = True)
     out.add_argument("--state", required = True)
     out.add_argument("--run-url", default = "")
+    out.add_argument("--kit-check", help = "the kit check's output when it found drift, gaps or an error")
 
     args = parser.parse_args(argv)
     if args.command == "collect":
@@ -1555,7 +1590,10 @@ def main(argv: list[str] | None = None) -> int:
     previous = ""
     if args.previous and Path(args.previous).exists():
         previous = Path(args.previous).read_text(encoding = "utf-8")
-    body, news, state = render(snapshot, previous, args.run_url)
+    kit_check = ""
+    if args.kit_check and Path(args.kit_check).exists():
+        kit_check = Path(args.kit_check).read_text(encoding = "utf-8")
+    body, news, state = render(snapshot, previous, args.run_url, kit_check)
     Path(args.body).write_text(body, encoding = "utf-8")
     Path(args.news).write_text(news, encoding = "utf-8")
     Path(args.state).write_text(state + "\n", encoding = "utf-8")

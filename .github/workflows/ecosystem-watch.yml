@@ -5,15 +5,20 @@ name: Ecosystem watch (reusable)
 # reads the open Dependabot alerts of private repos. Everything below runs in the caller, its log, its secrets and
 # its issue.
 #
-# It mints a read only token of the KDF GitHub App over the owner's repos, runs scripts/ecosystem_watch.py from
-# cicd's main, keeps the JSON snapshot as an artifact for a later admin dashboard, and keeps ONE rolling issue
-# labelled ops:ecosystem-watch in the caller, its body rewritten each run, a comment only when something is new, and
-# closed when everything is clear. The log carries counts alone.
+# It mints a read only token of the watch App over the owner's repos, runs scripts/ecosystem_watch.py from
+# cicd's main, runs the kit's own check (distribute_kit.py check), keeps the JSON snapshot as an artifact for a later
+# admin dashboard, and keeps ONE rolling issue labelled ops:ecosystem-watch in the caller, its body rewritten each
+# run, a comment only when something is new, and closed when everything is clear. The log carries counts alone.
 #
 # The App needs these repository permissions, read only and approved on its installation. Dependabot alerts, Checks,
-# Actions and Contents. A permission it lacks fails the token step, which names it.
+# Actions and Contents, on every repo. A permission it lacks fails the token step, which names it.
 #
-# Caller, a private repo:
+# Two contracts. The environment contract (the secrets fence): the caller names an environment of its own, held to
+# main, holding the watch App's pair as KDF_WATCH_APP_ID and KDF_WATCH_APP_PRIVATE_KEY, and the job that mints binds
+# it, so only a run from the caller's main reaches the key. The secrets contract, today's: the caller passes the pair
+# as the named secrets app_id and app_private_key, kept until the caller moves.
+#
+# Caller, a private repo, the environment contract:
 #   on:
 #     schedule:
 #       - cron: "0 10 * * 1"
@@ -24,19 +29,32 @@ name: Ecosystem watch (reusable)
 #   jobs:
 #     watch:
 #       uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ecosystem-watch.yml@main
-#       secrets:
-#         app_id: ${{ secrets.KDF_APP_ID }}
-#         app_private_key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
+#       with:
+#         environment: watch
 
 on:
   workflow_call:
+    inputs:
+      environment:
+        description: The caller's environment holding the watch App's pair, held to main. Empty for the secrets contract
+        required: false
+        default: ""
+        type: string
     secrets:
       app_id:
-        description: The KDF GitHub App's id, the caller's KDF_APP_ID
-        required: true
+        description: The watch App's id, for a caller that names no environment
+        required: false
       app_private_key:
-        description: The KDF GitHub App's private key, the caller's KDF_APP_PRIVATE_KEY
-        required: true
+        description: The watch App's private key, for a caller that names no environment
+        required: false
+      # the environment contract's names. The caller passes neither, the job that names its environment reads each
+      # from there, since a reusable workflow's job that names an environment uses that environment's secret
+      KDF_WATCH_APP_ID:
+        description: The watch App's id, read from the caller's named environment, never passed
+        required: false
+      KDF_WATCH_APP_PRIVATE_KEY:
+        description: The watch App's private key, read from the caller's named environment, never passed
+        required: false
 
 permissions:
   contents: read
@@ -52,6 +70,8 @@ jobs:
     name: Ecosystem watch
     runs-on: ubuntu-slim
     timeout-minutes: 15
+    # the caller's environment when it names one, whose secrets this job alone then reads. Empty names none
+    environment: ${{ inputs.environment }}
     env:
       LABEL: "ops:ecosystem-watch"
     steps:
@@ -78,6 +98,7 @@ jobs:
           sparse-checkout: |
             /scripts/
             /kit/KIT_VERSION
+            /kit/common/
           sparse-checkout-cone-mode: false
           path: _kdf_cicd
           persist-credentials: false
@@ -100,8 +121,8 @@ jobs:
         id: app
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          client-id: ${{ secrets.app_id }}
-          private-key: ${{ secrets.app_private_key }}
+          client-id: ${{ secrets.app_id || secrets.KDF_WATCH_APP_ID }}
+          private-key: ${{ secrets.app_private_key || secrets.KDF_WATCH_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ steps.targets.outputs.repositories }}
           permission-contents: read
@@ -113,6 +134,23 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
         run: python _kdf_cicd/scripts/ecosystem_watch.py collect --out "$RUNNER_TEMP/snapshot.json"
+
+      # the kit's own check, on the same read token, every kit file and each repo's own standard files. Its output
+      # reaches the issue only when it found drift, gaps or an error, and a clean check leaves the file empty
+      - name: Run the kit's check
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          set +e
+          python _kdf_cicd/scripts/distribute_kit.py check > "$RUNNER_TEMP/kit-check.out" 2>&1
+          rc=$?
+          set -e
+          if [ "$rc" = 0 ]; then
+            : > "$RUNNER_TEMP/kit-check.txt"
+          else
+            cp "$RUNNER_TEMP/kit-check.out" "$RUNNER_TEMP/kit-check.txt"
+          fi
+          echo "ecosystem-watch: the kit check exited $rc"
 
       - name: Keep the snapshot
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -147,7 +185,7 @@ jobs:
           fi
           python _kdf_cicd/scripts/ecosystem_watch.py render --snapshot "$RUNNER_TEMP/snapshot.json" \
             --previous "$previous" --body "$RUNNER_TEMP/body.md" --news "$RUNNER_TEMP/news.md" \
-            --state "$RUNNER_TEMP/state.txt" --run-url "$RUN_URL"
+            --state "$RUNNER_TEMP/state.txt" --run-url "$RUN_URL" --kit-check "$RUNNER_TEMP/kit-check.txt"
           state="$(cat "$RUNNER_TEMP/state.txt")"
           if [ "$state" = clear ]; then
             if [ -n "$existing" ]; then
