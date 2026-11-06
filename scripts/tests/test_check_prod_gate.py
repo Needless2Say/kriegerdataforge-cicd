@@ -498,6 +498,20 @@ class TestRulesetDates:
             assert "/" in repo and gate.parse_time(when) is not None
 
 
+    @pytest.mark.parametrize("repo", [
+        "kriegerdataforge",
+        "kriegerdataforge-auth-ui",
+        "fitness-app-backend",
+        "fitness-app-frontend",
+        "tiffanys-space",
+        "tiffanys-space-backend",
+    ])
+    def test_each_repo_that_runs_a_prod_gate_holds_its_date_from_the_settings_read_back(self, repo):
+        # the secrets fence's step 4 set both rulesets and read them back, 2026-11-06 from 14:15:40 UTC
+        when = gate.parse_time(gate.load_ruleset_dates()[f"Needless2Say/{repo}"])
+        assert when is not None and when >= gate.parse_time("2026-11-06T14:15:40+00:00")
+
+
     def test_a_repo_with_no_date_reads_none(self, tmp_path):
         path = tmp_path / "dates.json"
         path.write_text('{"dates": {"Needless2Say/other": "' + RULESET_DATE + '"}}', encoding = "utf-8")
