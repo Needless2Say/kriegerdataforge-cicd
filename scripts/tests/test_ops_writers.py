@@ -1,0 +1,227 @@
+"""
+The inventory of every credential that can write, held to cicd's `ops` environment (the secrets fence, step 6).
+
+A key that a pull request's job can read grants reads alone, and a key that can write sits in `ops`, an environment
+held to `main` that waits for the owner's approval. So every job that reads the writing App's pair, `CICD_PAT`, the
+Vercel master token, a staged value or the reader pair it distributes names `ops`, after the owner check, in a
+workflow no branch or pull request starts. The repository pair `KDF_APP_ID` and `KDF_APP_PRIVATE_KEY` becomes the
+read only App's, so every mint from it asks for reads alone, but for the one bootstrap the sitting runs while the old
+writer still holds those names. A scheduled `ops` job skips until the owner arms it. No workflow commits or pushes. The
+cron copies live in cicd's `dev` and `prod`, never in a repository secret.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+import pytest
+import yaml
+from tests.test_owner_check import expression_value
+
+ROOT       = Path(__file__).resolve().parents[2]
+WORKFLOWS  = ROOT / ".github" / "workflows"
+REGISTRY   = ROOT / "scripts" / "secret_registry.json"
+CHECK      = "./.github/workflows/_authorize-owner.yml"
+MINT       = "actions/create-github-app-token@"
+WRITERS    = {"KDF_WRITER_APP_ID", "KDF_WRITER_APP_PRIVATE_KEY", "CICD_PAT", "VERCEL_MASTER_TOKEN"}
+STAGING    = {"SECRET_VALUE_NEW", "GH_PACKAGES_PAT_NEW"}
+READER_OPS = {"KDF_READER_APP_ID", "KDF_READER_APP_PRIVATE_KEY"}
+HELD       = WRITERS | STAGING | READER_OPS
+CRON       = {
+    "KDF_HUB_URL_DEV": ("dev", "KDF_HUB_URL"),
+    "KDF_HUB_URL_PROD": ("prod", "KDF_HUB_URL"),
+    "KDF_HUB_CRON_SECRET_DEV": ("dev", "KDF_HUB_CRON_SECRET"),
+    "KDF_HUB_CRON_SECRET_PROD": ("prod", "KDF_HUB_CRON_SECRET"),
+}
+REPORTS    = ("REPORTS_CRON_SECRET_FITNESS_APP", "REPORTS_CRON_SECRET_TIFFANYS_SPACE")
+CICD       = "Needless2Say/kriegerdataforge-cicd"
+CONTEXT    = "Needless2Say/kriegerdataforge-context"
+BOOTSTRAP  = ("ops-distribute-app-secrets.yml", "bootstrap")
+ARM        = "vars.ARM_OPS_SCHEDULE"
+
+
+def _load(path: Path) -> dict:
+    return yaml.safe_load(path.read_bytes().decode("utf-8"))
+
+
+def _events(data: dict) -> list[str]:
+    # the YAML reader takes the key `on` for True
+    on = data.get("on", data.get(True)) or {}
+    return [on] if isinstance(on, str) else list(on)
+
+
+def _jobs() -> list[tuple[str, str, dict, dict]]:
+    found = []
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        data = _load(path)
+        for name, job in (data.get("jobs") or {}).items():
+            found.append((path.name, name, job, data))
+    return found
+
+
+def _job_params() -> list:
+    return [pytest.param(*found, id = f"{found[0]}:{found[1]}") for found in _jobs()]
+
+
+def _secrets(job: dict) -> set[str]:
+    return set(re.findall(r"secrets\.([A-Z0-9_]+)", json.dumps(job)))
+
+
+def _steps(job: dict) -> list[dict]:
+    return job.get("steps") or []
+
+
+def _needs(job: dict) -> list[str]:
+    needs = job.get("needs") or []
+    return [needs] if isinstance(needs, str) else list(needs)
+
+# ======================================================================================================================
+# The writers in `ops`
+# ======================================================================================================================
+
+@pytest.mark.parametrize(("workflow", "name", "job", "data"), _job_params())
+def test_every_job_holding_a_writer_or_a_staged_value_names_ops_after_the_owner_check(workflow, name, job, data):
+    held = _secrets(job) & HELD
+    if not held:
+        assert job.get("environment") != "ops", f"{workflow} job {name} names ops and reads nothing held there"
+        return
+    assert job.get("environment") == "ops", f"{workflow} job {name} reads {sorted(held)} outside ops"
+    checks = [other for other, value in data["jobs"].items() if value.get("uses") == CHECK]
+    assert checks and set(checks) <= set(_needs(job)), f"{workflow} job {name} runs in ops before the owner check"
+
+
+def test_no_workflow_with_an_ops_job_starts_from_a_branch():
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        data = _load(path)
+        if any(job.get("environment") == "ops" for job in (data.get("jobs") or {}).values()):
+            started = set(_events(data))
+            assert not started & {"push", "pull_request", "pull_request_target", "workflow_run"}, path.name
+
+
+def test_the_writers_key_and_id_reach_a_mint_alone():
+    # a value read anywhere else could be copied, printed or sent, so the writer's pair is a mint's input and nothing
+    for workflow, name, job, _ in _jobs():
+        for step in _steps(job):
+            text = json.dumps(step)
+            if "KDF_WRITER_APP_" not in text:
+                continue
+            assert str(step.get("uses", "")).startswith(MINT), f"{workflow} job {name} step {step.get('name')}"
+            with_ = step.get("with", {})
+            assert with_.get("private-key") == "${{ secrets.KDF_WRITER_APP_PRIVATE_KEY }}", f"{workflow} {name}"
+            assert with_.get("client-id", with_.get("app-id")) == "${{ secrets.KDF_WRITER_APP_ID }}", workflow
+
+
+def test_every_mint_from_the_repository_pair_asks_for_reads_alone():
+    for workflow, name, job, _ in _jobs():
+        for step in _steps(job):
+            with_ = step.get("with", {})
+            if not str(step.get("uses", "")).startswith(MINT) or "KDF_APP_PRIVATE_KEY }}" not in str(with_):
+                continue
+            if (workflow, name) == BOOTSTRAP:
+                continue
+            asked = {key: value for key, value in with_.items() if key.startswith("permission-")}
+            assert asked, f"{workflow} job {name} mints the App's whole set"
+            assert set(asked.values()) == {"read"}, f"{workflow} job {name} asks for {asked}"
+
+
+def test_the_bootstrap_is_the_one_job_that_mints_a_write_from_the_repository_pair_and_runs_in_ops():
+    workflow, name = BOOTSTRAP
+    job = _load(WORKFLOWS / workflow)["jobs"][name]
+    assert job.get("environment") == "ops"
+    mints = [step for step in _steps(job) if str(step.get("uses", "")).startswith(MINT)]
+    assert len(mints) == 1 and mints[0]["with"]["private-key"] == "${{ secrets.KDF_APP_PRIVATE_KEY }}"
+
+
+def test_no_workflow_commits_or_pushes():
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        text = path.read_text(encoding = "utf-8")
+        assert not re.search(r"git (commit|push)\b|gh pr create", text), path.name
+
+
+@pytest.mark.parametrize("workflow", ["check-oidc-rp-drift.yml", "check-secret-expiry.yml"])
+def test_the_monitors_hold_no_writer(workflow):
+    for name, job in _load(WORKFLOWS / workflow)["jobs"].items():
+        assert not _secrets(job) & HELD, f"{workflow} job {name}"
+        assert job.get("environment") != "ops", f"{workflow} job {name}"
+
+
+def _ops_scheduled() -> list[tuple[str, str, str]]:
+    found = []
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        data = _load(path)
+        if "schedule" not in _events(data):
+            continue
+        for name, job in data["jobs"].items():
+            if job.get("environment") == "ops":
+                found.append((path.name, name, str(job.get("if", "true"))))
+    return found
+
+
+def _schedule_values(armed: str) -> dict[str, str]:
+    return {
+        "github.event_name": "schedule",
+        "github.run_attempt": "1",
+        "github.repository": CICD,
+        "github.repository_owner": "Needless2Say",
+        "github.actor": "github-actions[bot]",
+        "github.triggering_actor": "github-actions[bot]",
+        ARM: armed,
+        "vars.USE_GITHUB_APP": "true",
+        "needs.authorize.result": "skipped",
+        "needs.due.result": "success",
+        "needs.due.outputs.due": "true",
+    }
+
+
+def test_a_scheduled_ops_job_exists_and_skips_until_the_owner_arms_it():
+    found = _ops_scheduled()
+    assert found, "the monthly rotation keeps a scheduled ops job"
+    for workflow, name, condition in found:
+        assert not expression_value(condition, _schedule_values("")), f"{workflow} job {name} runs unarmed"
+        assert expression_value(condition, _schedule_values("true")), f"{workflow} job {name} never runs armed"
+
+# ======================================================================================================================
+# The registry
+# ======================================================================================================================
+
+def _entries() -> dict[str, dict]:
+    return {entry["name"]: entry for entry in json.loads(REGISTRY.read_text(encoding = "utf-8"))["secrets"]}
+
+
+@pytest.mark.parametrize("name", sorted(CRON))
+def test_each_hub_cron_copy_lives_in_its_own_cicd_environment_alone(name):
+    entry = _entries()[name]
+    environment, under = CRON[name]
+    assert not entry.get("github_repo_secrets"), f"{name} keeps a repository target"
+    assert entry["github_env_secrets"] == [{"repo": CICD, "environment": environment, "secret_name": under}]
+
+
+@pytest.mark.parametrize("name", REPORTS)
+def test_each_reports_cron_copy_lives_in_cicds_dev_and_prod(name):
+    entry = _entries()[name]
+    assert not entry.get("github_repo_secrets"), f"{name} keeps a repository target"
+    assert sorted(entry["github_env_secrets"], key = lambda target: target["environment"]) == [
+        {"repo": CICD, "environment": "dev", "secret_name": name},
+        {"repo": CICD, "environment": "prod", "secret_name": name},
+    ]
+
+
+@pytest.mark.parametrize("name", ["KDF_APP_ID", "KDF_APP_PRIVATE_KEY"])
+def test_the_app_pair_goes_to_cicd_and_never_to_the_context_repo(name):
+    repos = [target["repo"] for target in _entries()[name]["github_repo_secrets"]]
+    assert CICD in repos
+    assert CONTEXT not in repos, "only the watch read the context copy, and it reads its own App now"
+    assert len(repos) == len(set(repos))
+
+
+def test_the_cron_workflows_read_each_copy_in_the_environment_that_holds_it():
+    names = {under for _, under in CRON.values()} | set(REPORTS)
+    for workflow, name, job, _ in _jobs():
+        read = _secrets(job) & (names | set(CRON))
+        if not read:
+            continue
+        assert not read & set(CRON), f"{workflow} job {name} reads a repository era name {sorted(read & set(CRON))}"
+        environment = str(job.get("environment", ""))
+        assert environment and environment != "ops", f"{workflow} job {name} reads {sorted(read)} outside dev or prod"
