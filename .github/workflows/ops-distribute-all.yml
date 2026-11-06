@@ -31,7 +31,9 @@ jobs:
     if: >-
       github.event.action == 'labeled' &&
       github.event.label.name == 'ops:distribute-all' &&
-      needs.authorize.outputs.authorized == 'true'
+      needs.authorize.outputs.authorized == 'true' &&
+      github.actor == github.repository_owner &&
+      github.triggering_actor == github.repository_owner
     runs-on: ubuntu-slim
     permissions:
       contents: read

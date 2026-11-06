@@ -14,7 +14,9 @@ name: Ops · Trigger reports triage (issue-triggered)
 #     interpretations. Response bodies (which can carry user-report content) and secret values
 #     never appear — that is what makes tee-ing the output into a public issue comment safe.
 #   * The untrusted issue body is read as awk DATA via an env var, never inlined into a shell
-#     string; mode/environment are allow-listed, apps is passed as one argv element.
+#     string; mode/environment are allow-listed, apps is passed as one argv element. It is
+#     parsed in a job with no secret and no token, and the cron copies are read in another
+#     job that names the environment the parse chose.
 #   * The cron secrets are exposed only to the engine step, only as env vars; the engine
 #     resolves them before the first POST and never prints them.
 #   * Firing prod deliberately requires Confirm = Yes: a prod run creates real GitHub issues
@@ -33,34 +35,25 @@ jobs:
     if: github.event.action == 'labeled' && github.event.label.name == 'ops:triage-reports'
     uses: ./.github/workflows/_authorize-owner.yml
 
-  run:
-    name: Trigger reports triage
+  # The untrusted issue body is parsed here, in a job that holds no secret and no token, and the job that holds the
+  # cron copies runs in the environment this one chose, so the copies can live in cicd's dev and prod.
+  parse:
+    name: Parse the issue form
     needs: authorize
+    # A rerun of failed jobs alone keeps the check's passed output, so both actors are tested here too.
     if: >-
       github.event.action == 'labeled' &&
       github.event.label.name == 'ops:triage-reports' &&
-      needs.authorize.outputs.authorized == 'true'
+      needs.authorize.outputs.authorized == 'true' &&
+      github.actor == github.repository_owner &&
+      github.triggering_actor == github.repository_owner
     runs-on: ubuntu-slim
-    permissions:
-      contents: read
-      issues: write
-    # Share the scheduled workflow's lock: overlapping fan-outs would race the apps'
-    # concurrency guards. Never cancel a live run — it may already have fired.
-    concurrency:
-      group: trigger-reports-triage
-      cancel-in-progress: false
+    permissions: {}
+    outputs:
+      apps: ${{ steps.fields.outputs.apps }}
+      environment: ${{ steps.fields.outputs.environment }}
+      mode: ${{ steps.fields.outputs.mode }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: "3.14"
-
-      - name: Install dependencies
-        run: pip install -r scripts/requirements.txt
-
       - name: Extract and validate fields
         id: fields
         env:
@@ -111,14 +104,45 @@ jobs:
             echo "mode=$MODE"
           } >> "$GITHUB_OUTPUT"
 
+  fire:
+    name: Trigger reports triage
+    needs: [authorize, parse]
+    if: >-
+      needs.parse.result == 'success' &&
+      needs.authorize.outputs.authorized == 'true' &&
+      github.actor == github.repository_owner &&
+      github.triggering_actor == github.repository_owner
+    runs-on: ubuntu-slim
+    # dev or prod alone, the parse job's allow list, so the cron copies are read from that environment's rules
+    environment: ${{ needs.parse.outputs.environment }}
+    permissions:
+      contents: read
+      issues: write
+    # Share the scheduled workflow's lock: overlapping fan-outs would race the apps'
+    # concurrency guards. Never cancel a live run — it may already have fired.
+    concurrency:
+      group: trigger-reports-triage
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
       - name: Fire triage
         id: fire
         env:
           REPORTS_CRON_SECRET_FITNESS_APP: ${{ secrets.REPORTS_CRON_SECRET_FITNESS_APP }}
           REPORTS_CRON_SECRET_TIFFANYS_SPACE: ${{ secrets.REPORTS_CRON_SECRET_TIFFANYS_SPACE }}
-          APPS: ${{ steps.fields.outputs.apps }}
-          ENVIRONMENT: ${{ steps.fields.outputs.environment }}
-          MODE: ${{ steps.fields.outputs.mode }}
+          APPS: ${{ needs.parse.outputs.apps }}
+          ENVIRONMENT: ${{ needs.parse.outputs.environment }}
+          MODE: ${{ needs.parse.outputs.mode }}
         run: |
           set +e
           args=(--apps "$APPS" --environment "$ENVIRONMENT")

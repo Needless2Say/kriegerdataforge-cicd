@@ -20,6 +20,11 @@ OTHER = "fedcba9876543210fedcba9876543210fedcba98"
 REPOSITORY = f"{API}/repos/{REPO}"
 WORKFLOW   = "prod-gate.yml"
 
+# a repo's tag ruleset date, and the start times of a gate run before and after it
+RULESET_DATE = "2026-11-10T12:00:00Z"
+BEFORE       = "2026-11-09T08:00:00Z"
+AFTER        = "2026-11-11T08:00:00Z"
+
 # a PROD Gate run's jobs, the lanes and the last job, which needs every lane and carries the release (D-027)
 RELEASE_JOBS = [
     {"name": "CI / unit-tests / Unit Tests", "conclusion": "success"},
@@ -388,3 +393,138 @@ class TestMain:
         monkeypatch.delenv("PROD_GATE_WORKFLOW", raising = False)
         monkeypatch.setattr(gate, "github_fetch", _fetch(_github(runs = [])))
         assert main(["--repo", REPO, "--version", "0.3.7", "--environment", "prod"]) == 1
+
+# ======================================================================================================================
+# The gate's evidence bound to the commit and the tag ruleset's date
+# ======================================================================================================================
+
+def _started(run: dict, when: str) -> dict:
+    return {**run, "run_started_at": when, "created_at": when}
+
+
+def _bound(answers: dict[str, object], expected: str | None, date: str | None, environment: str = "prod"):
+    return decide(
+        _fetch(answers),
+        api_url = API,
+        repo = REPO,
+        version = "0.3.7",
+        environment = environment,
+        workflow = WORKFLOW,
+        expected_commit = expected,
+        ruleset_date = date,
+    )
+
+
+class TestEvidence:
+    """
+    The expected commit and the ruleset date, each lookup held to a run begun after it.
+    """
+    def test_an_expected_commit_the_tag_names_keeps_todays_rule_until_the_repo_has_a_date(self):
+        ok, reason = _bound(_github(runs = [_started(_run(7), BEFORE)]), SHA, None)
+        assert ok, reason
+
+
+    def test_a_tag_that_moved_from_the_expected_commit_is_denied(self):
+        ok, reason = _bound(_github(tag_sha = OTHER, runs = [_run(7)]), SHA, None)
+        assert not ok
+        assert "moved" in reason
+
+
+    def test_a_tag_that_moved_is_only_noted_on_dev(self):
+        assert _bound(_github(tag_sha = OTHER, runs = [_run(7)]), SHA, None, environment = "dev")[0]
+
+
+    def test_codexs_counterexample_a_run_found_by_its_head_before_the_ruleset_is_refused(self):
+        """
+        A dispatch on main whose head was A while the tag named B tested B. Once the tag moved to A, a deploy expecting
+        A finds that run by its head A. It began before the tag ruleset was read back, so it proves nothing.
+        """
+        ok, reason = _bound(_github(runs = [_started(_run(7), BEFORE)]), SHA, RULESET_DATE)
+        assert not ok
+        assert RULESET_DATE in reason
+
+
+    def test_a_dispatched_run_on_main_before_the_ruleset_is_refused(self):
+        answers = _github(runs = [], dispatched = [_started(_run(9), BEFORE)])
+        assert not _bound(answers, SHA, RULESET_DATE)[0]
+
+
+    @pytest.mark.parametrize("lookup", ["head", "dispatched"])
+    def test_a_run_begun_after_the_ruleset_is_accepted_by_either_lookup(self, lookup):
+        run     = _started(_run(9), AFTER)
+        answers = _github(runs = [run]) if lookup == "head" else _github(runs = [], dispatched = [run])
+        ok, reason = _bound(answers, SHA, RULESET_DATE)
+        assert ok, reason
+
+
+    @pytest.mark.parametrize("lookup", ["head", "dispatched"])
+    def test_a_run_created_before_the_ruleset_and_rerun_after_it_is_refused(self, lookup):
+        """
+        Codex's second counterexample. A rerun of the verdict job alone after the date keeps the lanes' results from
+        the first attempt, which tested whatever the tag named then, so the latest attempt's start proves nothing.
+        """
+        run     = {**_run(7), "created_at": BEFORE, "run_started_at": AFTER, "run_attempt": 2}
+        answers = _github(runs = [run]) if lookup == "head" else _github(runs = [], dispatched = [run])
+        assert not _bound(answers, SHA, RULESET_DATE)[0]
+
+
+    def test_a_newer_run_is_found_past_an_older_one(self):
+        answers = _github(runs = [_started(_run(7), BEFORE), _started(_run(8), AFTER)])
+        ok, reason = _bound(answers, SHA, RULESET_DATE)
+        assert ok and "run #41" in reason
+
+
+    def test_a_run_with_no_start_time_is_refused_once_a_date_binds(self):
+        assert not _bound(_github(runs = [_run(7)]), SHA, RULESET_DATE)[0]
+
+
+    def test_without_an_expected_commit_a_date_binds_nothing(self):
+        assert _bound(_github(runs = [_started(_run(7), BEFORE)]), None, RULESET_DATE)[0]
+
+
+    @pytest.mark.parametrize("expected", ["abc", SHA.upper() + "0", "not-a-sha"])
+    def test_an_expected_commit_that_is_no_commit_is_denied(self, expected):
+        assert not _bound(_github(runs = [_run(7)]), expected, None)[0]
+
+
+class TestRulesetDates:
+    """
+    The dates file the fence fills, read by main for the repo it deploys.
+    """
+    def test_the_shipped_file_reads(self):
+        dates = gate.load_ruleset_dates()
+        assert isinstance(dates, dict)
+        for repo, when in dates.items():
+            assert "/" in repo and gate.parse_time(when) is not None
+
+
+    def test_a_repo_with_no_date_reads_none(self, tmp_path):
+        path = tmp_path / "dates.json"
+        path.write_text('{"dates": {"Needless2Say/other": "' + RULESET_DATE + '"}}', encoding = "utf-8")
+        assert gate.load_ruleset_dates(path).get(REPO) is None
+        assert gate.load_ruleset_dates(path)["Needless2Say/other"] == RULESET_DATE
+
+
+    def test_main_reads_the_expected_commit_and_the_repos_date(self, monkeypatch, tmp_path):
+        path = tmp_path / "dates.json"
+        path.write_text('{"dates": {"' + REPO + '": "' + RULESET_DATE + '"}}', encoding = "utf-8")
+        monkeypatch.setattr(gate, "RULESET_DATES_FILE", path)
+        monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising = False)
+        monkeypatch.delenv("PROD_GATE_WORKFLOW", raising = False)
+        monkeypatch.setenv("EXPECTED_COMMIT", SHA)
+        monkeypatch.setattr(gate, "github_fetch", _fetch(_github(runs = [_started(_run(7), BEFORE)])))
+        arguments = ["--repo", REPO, "--version", "0.3.7", "--environment", "prod"]
+        assert main(arguments) == 1
+        monkeypatch.setattr(gate, "github_fetch", _fetch(_github(runs = [_started(_run(7), AFTER)])))
+        assert main(arguments) == 0
+
+
+    def test_an_unreadable_dates_file_denies(self, monkeypatch, tmp_path, capsys):
+        path = tmp_path / "dates.json"
+        path.write_text("{not json", encoding = "utf-8")
+        monkeypatch.setattr(gate, "RULESET_DATES_FILE", path)
+        monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising = False)
+        monkeypatch.setenv("EXPECTED_COMMIT", SHA)
+        monkeypatch.setattr(gate, "github_fetch", _fetch(_github(runs = [_run(7)])))
+        assert main(["--repo", REPO, "--version", "0.3.7", "--environment", "prod"]) == 1
+        assert "ruleset dates" in capsys.readouterr().out

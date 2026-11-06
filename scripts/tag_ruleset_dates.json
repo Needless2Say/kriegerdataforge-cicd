@@ -1,0 +1,4 @@
+{
+  "about": "Each repo's time its tag ruleset, blocking a v* tag's update and deletion, was read back, an ISO 8601 time with its zone. With an expected commit, check_prod_gate.py counts a PROD Gate run only when it began after it. A repo with no time keeps the gate's older rule.",
+  "dates": {}
+}

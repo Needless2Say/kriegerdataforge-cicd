@@ -8,20 +8,25 @@ cd-python-vercel.yml, cd-terraform.yml — and arthurs-portfolio's self-containe
 cd.yml) runs this script BEFORE the deploy job and BEFORE the GitHub
 Environment approval gate is requested.
 
-The script looks up the dispatching user (github.triggering_actor) against the
-central allow-list in `deployer_registry.json`, keyed by repo and environment.
+The script looks up both of the run's users against the central allow-list in
+`deployer_registry.json`, keyed by repo and environment. A rerun keeps github.actor, who
+started the run and chose its inputs, and sets github.triggering_actor to whoever reran it,
+so both must be approved, and an approved deployer's rerun of a deploy another started stays
+denied. The one who started the run is read from the runner's own GITHUB_ACTOR, which every
+job holds, so every caller is checked without passing it.
 
 Decision:
-  - repo not in registry            -> DENY  (exit 1, fail closed)
-  - environment not in repo entry   -> DENY  (exit 1, fail closed)
-  - actor not in the approved list  -> DENY  (exit 1)
-  - actor in the approved list      -> ALLOW (exit 0)
+  - repo not in registry                    -> DENY  (exit 1, fail closed)
+  - environment not in repo entry           -> DENY  (exit 1, fail closed)
+  - either user not in the approved list    -> DENY  (exit 1)
+  - both users in the approved list         -> ALLOW (exit 0)
 
 Matching on usernames is case-insensitive (GitHub logins are case-insensitive).
 
 Inputs (CLI flags take precedence over environment variables):
   --repo         / DEPLOY_REPO        / GITHUB_REPOSITORY            e.g. "Needless2Say/fitness-app-frontend"
-  --actor        / DEPLOY_ACTOR       / GITHUB_TRIGGERING_ACTOR / GITHUB_ACTOR
+  --actor        / DEPLOY_ACTOR       / GITHUB_TRIGGERING_ACTOR / GITHUB_ACTOR, who triggered or reran the run
+  --started-by   / DEPLOY_STARTED_BY  / GITHUB_ACTOR                 who started the run
   --environment  / DEPLOY_ENVIRONMENT                                e.g. "dev", "prod", "github-pages"
 
 Usage:
@@ -125,12 +130,17 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description = "Verify the dispatching user is an approved deployer for this repo + environment.",
         formatter_class = argparse.RawDescriptionHelpFormatter,
-        epilog = (
-            "Values fall back to environment variables when flags are omitted:\n" "  --repo         <- DEPLOY_REPO / GITHUB_REPOSITORY\n" "  --actor        <- DEPLOY_ACTOR / GITHUB_TRIGGERING_ACTOR / GITHUB_ACTOR\n" "  --environment  <- DEPLOY_ENVIRONMENT"
-        ),
+        epilog = "\n".join((
+            "Values fall back to environment variables when flags are omitted:",
+            "  --repo         <- DEPLOY_REPO / GITHUB_REPOSITORY",
+            "  --actor        <- DEPLOY_ACTOR / GITHUB_TRIGGERING_ACTOR / GITHUB_ACTOR",
+            "  --started-by   <- DEPLOY_STARTED_BY / GITHUB_ACTOR",
+            "  --environment  <- DEPLOY_ENVIRONMENT",
+        )),
     )
     parser.add_argument("--repo", default = None, help = "owner/repo, e.g. Needless2Say/tiffanys-space")
-    parser.add_argument("--actor", default = None, help = "GitHub username that dispatched the deploy")
+    parser.add_argument("--actor", default = None, help = "GitHub username that triggered or reran the deploy")
+    parser.add_argument("--started-by", default = None, help = "GitHub username that started the deploy's run")
     parser.add_argument("--environment", default = None, help = "target environment, e.g. dev / prod / github-pages")
     return parser.parse_args(argv)
 
@@ -156,19 +166,24 @@ def main(argv: list[str] | None = None) -> int:
 
     repo        = _resolve(args.repo, "DEPLOY_REPO", "GITHUB_REPOSITORY")
     actor       = _resolve(args.actor, "DEPLOY_ACTOR", "GITHUB_TRIGGERING_ACTOR", "GITHUB_ACTOR")
+    started_by  = _resolve(args.started_by, "DEPLOY_STARTED_BY", "GITHUB_ACTOR")
     environment = _resolve(args.environment, "DEPLOY_ENVIRONMENT")
 
-    missing = [
-        name for name, val in (("repo", repo), ("actor", actor), ("environment", environment)) if not val.strip()
-    ]
+    inputs  = (("repo", repo), ("actor", actor), ("started_by", started_by), ("environment", environment))
+    missing = [name for name, val in inputs if not val.strip()]
     if missing:
         _emit(f"Cannot evaluate deployer authorization — missing input(s): {', '.join(missing)}.", ok = False)
         return 1
 
     registry = _load_registry()
-    authorized, reason = is_authorized(registry, repo, environment, actor)
-    _emit(reason, ok = authorized)
-    return 0 if authorized else 1
+    # the one who started the run chose its inputs, and a rerun keeps it, so it is judged first and must pass too
+    for user in (started_by, actor):
+        authorized, reason = is_authorized(registry, repo, environment, user)
+        if not authorized:
+            _emit(f"{reason} The run was started by {started_by!r} and triggered by {actor!r}.", ok = False)
+            return 1
+    _emit(reason, ok = True)
+    return 0
 
 
 if __name__ == "__main__":

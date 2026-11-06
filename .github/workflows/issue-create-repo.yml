@@ -51,44 +51,32 @@ jobs:
   # is case-insensitive (GitHub logins are case-insensitive) and is not hard-coded
   # to a username.
   #
-  # Actor source: github.triggering_actor (NOT github.event.sender.login) to match
-  # check_deployer.py and the CD workflows, and so a manual "Re-run jobs" is
-  # attributed to whoever re-ran it (the stored event payload's sender is frozen
-  # to the original labeler on a re-run). The `if:` also pins the event action to
-  # `labeled` so only a label-add — not some other issue event carrying the label —
-  # can reach the gate.
+  # The check is the shared `_authorize-owner.yml`, which requires both the run's
+  # actor, who labelled the issue and whom a rerun keeps, and its triggering actor,
+  # whoever reran it, to be the owner, so the owner's rerun of a run another
+  # started stays denied. The `if:` also pins the event action to `labeled` so
+  # only a label-add — not some other issue event carrying the label — can reach
+  # the gate.
   #
   # Owner follow-up (config, not code): scope CICD_PAT down to the minimum the
   # provisioning steps need — it currently carries org-wide Administration +
   # Secrets:write.
   authorize:
-    name: Authorize issue actor
-    runs-on: ubuntu-slim
     if: github.event.action == 'labeled' && github.event.label.name == 'new-repo'
-    permissions:
-      contents: read
-    steps:
-      - name: Verify the triggering actor is the repository owner
-        env:
-          ACTOR: ${{ github.triggering_actor }}
-          OWNER: ${{ github.repository_owner }}
-        run: |
-          actor_lc="$(echo "$ACTOR" | tr '[:upper:]' '[:lower:]')"
-          owner_lc="$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')"
-          if [[ -z "$actor_lc" || "$actor_lc" != "$owner_lc" ]]; then
-            echo "::error::DENIED: '${ACTOR}' is not the repository owner ('${OWNER}'). Only the owner may provision repositories (this workflow uses CICD_PAT with org Administration + Secrets:write). Failing closed."
-            exit 1
-          fi
-          echo "OK: '${ACTOR}' is the repository owner — authorized to provision repositories."
+    uses: ./.github/workflows/_authorize-owner.yml
 
   create-repo:
     name: Create repository from template
     runs-on: ubuntu-slim
     needs: authorize
 
-    # only run when the new repo label is added AND the actor is authorized (the
-    # `needs: authorize` failure on a non-owner short-circuits this job)
-    if: github.event.label.name == 'new-repo'
+    # only run when the new repo label is added AND the check passed, testing both
+    # actors here too since a rerun of failed jobs alone keeps the check's output
+    if: >-
+      github.event.label.name == 'new-repo' &&
+      needs.authorize.outputs.authorized == 'true' &&
+      github.actor == github.repository_owner &&
+      github.triggering_actor == github.repository_owner
 
     steps:
       - name: Parse issue form body
@@ -171,9 +159,8 @@ jobs:
           GH_TOKEN: ${{ secrets.CICD_PAT }}
           REPO_NAME: ${{ steps.fields.outputs.repo_name }}
         run: |
-          # Get owner user ID for required reviewer
-          OWNER_ID=$(gh api /users/Needless2Say --jq '.id')
-          # Create production environment with owner-only approval gate
+          # Create the production environment, its secrets held to main alone. No reviewer is asked,
+          # the branch rule and the deployer check are the gate
           gh api \
             --method PUT \
             -H "Accept: application/vnd.github+json" \
@@ -181,7 +168,6 @@ jobs:
             -F "wait_timer=0" \
             --input - <<EOF
           {
-            "reviewers": [{"type": "User", "id": ${OWNER_ID}}],
             "deployment_branch_policy": {
               "protected_branches": false,
               "custom_branch_policies": true
@@ -201,7 +187,7 @@ jobs:
           GH_TOKEN: ${{ secrets.CICD_PAT }}
           REPO_NAME: ${{ steps.fields.outputs.repo_name }}
         run: |
-          OWNER_ID=$(gh api /users/Needless2Say --jq '.id')
+          # the development environment, held to main alone like prod, no reviewer asked
           gh api \
             --method PUT \
             -H "Accept: application/vnd.github+json" \
@@ -209,7 +195,6 @@ jobs:
             -F "wait_timer=0" \
             --input - <<EOF
           {
-            "reviewers": [{"type": "User", "id": ${OWNER_ID}}],
             "deployment_branch_policy": {
               "protected_branches": false,
               "custom_branch_policies": true
@@ -267,29 +252,20 @@ jobs:
 
           ### Automated setup complete
           - [x] Repository created from \`kriegerdataforge-template-${REPO_TYPE}\`
-          - [x] \`prod\` environment created (owner-only approval gate, main branch only)
-          - [x] \`dev\` environment created (owner approval gate, main branch only)
+          - [x] \`prod\` and \`dev\` environments created, each held to the \`main\` branch alone
           - [~] Branch protection on \`main\` — skipped on free-tier private repos (enable manually after upgrading to GitHub Organization)
 
           ### Manual steps required
 
-          **Collaborator access** (after friend accepts the org invite):
-          - [ ] Settings → Collaborators → add friend with Write role
-          - [ ] Settings → Environments → \`dev\` → Required reviewers → add friend
+          **The registries, in one cicd pull request**, so no secret is pasted into the new repo by hand:
+          - [ ] \`scripts/deployer_registry.json\` — add the repo with its \`dev\` and \`prod\` deployers, before its first deploy
+          - [ ] \`scripts/secret_registry.json\` — add the repo to the \`VERCEL_DEPLOYMENT_TOKEN\` targets
+          - [ ] \`scripts/secret_registry.json\` — add the repo to the App pair's targets, \`KDF_APP_ID\` and \`KDF_APP_PRIVATE_KEY\`, if its CI installs a private package
+          - [ ] Once it merges, run **Rotate Vercel Deployment Token** and **ops:distribute-app-secrets**, which write those values to the repo
 
-          **Environment secrets** (Settings → Environments → [env] → Add secret):
-
-          \`prod\` environment:
-          - [ ] \`VERCEL_DEPLOYMENT_TOKEN\` — the shared Vercel deploy/management token
-          - [ ] \`VERCEL_ORG_ID\` — your Vercel team ID
-          - [ ] \`VERCEL_PROJECT_ID\` — Vercel project ID for the **prod** deployment
-          $([ "$REPO_TYPE" = "fastapi" ] && echo "- [ ] \`DB_DATABASE_URL\` — prod Neon connection string")
-
-          \`dev\` environment:
-          - [ ] \`VERCEL_DEPLOYMENT_TOKEN\` — the shared Vercel deploy/management token
-          - [ ] \`VERCEL_ORG_ID\` — your Vercel team ID
-          - [ ] \`VERCEL_PROJECT_ID\` — Vercel project ID for the **dev** deployment
-          $([ "$REPO_TYPE" = "fastapi" ] && echo "- [ ] \`DB_DATABASE_URL\` — dev Neon connection string")
+          **Environment secrets the registries do not hold** (Settings → Environments → [env] → Add secret):
+          - [ ] \`VERCEL_ORG_ID\` and \`VERCEL_PROJECT_ID\` in \`prod\` and in \`dev\`, each the project of that environment
+          $([ "$REPO_TYPE" = "fastapi" ] && echo "- [ ] \`DB_DATABASE_URL\` in \`prod\` and in \`dev\`, each that environment's Neon connection string")
 
           **CI status checks** (Settings → Branches → \`main\` protection → Edit → Required status checks):
           - [ ] Add the CI job names from \`.github/workflows/ci.yml\` once the first CI run completes

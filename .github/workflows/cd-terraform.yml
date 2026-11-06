@@ -138,6 +138,8 @@ jobs:
   apply:
     name: Terraform Apply (${{ inputs.environment }})
     needs: authorize
+    # a rerun of failed jobs alone keeps the deployer check's pass, so only the login that started the run reruns it
+    if: github.actor == github.triggering_actor
     runs-on: ubuntu-slim
 
     # Activates the environment gate (owner approval) and loads its scoped
@@ -204,7 +206,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: v${{ inputs.version }}
+          # the tag named whole, since an unqualified name checks out a branch of the same name before the tag
+          ref: refs/tags/v${{ inputs.version }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4

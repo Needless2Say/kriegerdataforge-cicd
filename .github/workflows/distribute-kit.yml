@@ -50,12 +50,16 @@ jobs:
     # Never run on forks (this repo is public). For a dispatch, require the owner gate to pass
     # (PL-076 parity, fail-closed); the read-only weekly schedule has no authorize job (skipped),
     # so allow it through. always() lets this job evaluate even though authorize is skipped on
-    # schedule; the explicit success() check below preserves fail-closed on dispatch.
+    # schedule; the explicit success() check below preserves fail-closed on dispatch. A rerun keeps the
+    # event's name, so any attempt after the first, a scheduled run's too, is the owner's alone.
     if: >-
       always() &&
       github.repository == 'Needless2Say/kriegerdataforge-cicd' &&
       (github.event_name != 'workflow_dispatch' ||
-        (needs.authorize.result == 'success' && needs.authorize.outputs.authorized == 'true'))
+        (needs.authorize.result == 'success' && needs.authorize.outputs.authorized == 'true' &&
+          github.actor == github.repository_owner &&
+          github.triggering_actor == github.repository_owner)) &&
+      (github.run_attempt == '1' || github.triggering_actor == github.repository_owner)
     runs-on: ubuntu-slim
 
     steps:

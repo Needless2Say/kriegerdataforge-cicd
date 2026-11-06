@@ -31,7 +31,11 @@ jobs:
     needs: authorize
     # Fail-closed owner gate (PL-076 parity): the reusable gate exit 1s on a non-owner (so the
     # implicit needs-success requirement skips this job) AND we re-assert its explicit output.
-    if: needs.authorize.outputs.authorized == 'true'
+    # A rerun of failed jobs alone keeps the check's passed output, so both actors are tested here too.
+    if: >-
+      needs.authorize.outputs.authorized == 'true' &&
+      github.actor == github.repository_owner &&
+      github.triggering_actor == github.repository_owner
     runs-on: ubuntu-slim
 
     # No GitHub Environment — uses repo-level secrets only.

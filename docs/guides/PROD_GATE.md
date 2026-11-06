@@ -12,11 +12,13 @@ how the deploy reads it, and what to do when it is red (D-027).
 ## Releasing, in order
 
 1. Merge the pull request that carries the version bump. `release.yml` cuts the tag `v<version>`.
-2. **Actions, PROD Gate, Run workflow**, on the default branch, with **version** set to the release,
-   `0.3.7` and not `v0.3.7`.
+2. **Actions, PROD Gate, Run workflow**, from `main`, with **version** set to the release, `0.3.7` and
+   not `v0.3.7`. A repo's `dev` and `prod` are held to `main`, so a gate or a deploy dispatched from a
+   tag or another branch is refused at its first job that names an environment.
 3. Wait for the run to end green. Its last job is named `PROD Gate v0.3.7`.
-4. Dispatch the deploy to `prod`. Its `verify-prod-gate` job finds that job by name and lets the
-   deploy through. Without it the deploy stops before it reads a secret.
+4. Dispatch the deploy to `prod`, from `main`. Its `release` job checks that `v0.3.7` names a commit on
+   `main`, and its `verify-prod-gate` job finds the gate's job by name for that commit and lets the
+   deploy through. Without them the deploy stops before it reads a secret.
 
 A `dev` deploy is never refused. The same lookup runs and its result is reported, so DEV can be
 soaked first and the gate dispatched once the release is what will go to PROD.
@@ -58,13 +60,20 @@ gate builds the image for every release from then on. Nothing else changes.
 
 ## How the deploy reads the gate
 
-`cd-nextjs-vercel.yml` and `cd-python-vercel.yml` run `scripts/check_prod_gate.py` between the deployer
-check and the deploy. A run counts when all of these hold.
+`cd-nextjs-vercel.yml` and `cd-python-vercel.yml` first run `scripts/check_release_commit.py`, which
+resolves `v<version>` to a commit and refuses one that is not on `main`. Then they run
+`scripts/check_prod_gate.py` with that commit, and the deploy checks out that commit by its SHA, never
+the tag. A run counts when all of these hold.
 
 - It is a run of `prod-gate.yml`. A run of the E2E workflow alone opens nothing, whatever its job is named.
 - GitHub reports it `success`, and its job named `PROD Gate v<version>` passed.
 - Its head is the tag's commit, or it was dispatched on the default branch. A dispatch on another branch
   does not count, that branch's copy of the workflow may have dropped a lane and kept the job's name.
+- The tag still names the commit the release job resolved, else the tag moved and the deploy stops.
+- Once the repo's tag ruleset was read back, its time in `scripts/tag_ruleset_dates.json`, the run was
+  created after that time. A run from before proves nothing about the commit, since a moved tag could have
+  sent it elsewhere, and a rerun of it does not help, since a rerun of its verdict job alone keeps the lanes'
+  first results. So each repo's next PROD release dispatches its gate again.
 
 ## When the gate is red
 

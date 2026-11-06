@@ -5,10 +5,11 @@
 #   1. Loads its secrets. A job with `environment:` reads repository AND environment
 #      secrets together, so the two singular tokens live at REPOSITORY level (one value
 #      everywhere) while the genuinely per-env values stay environment-scoped.
-#   2. Pauses for approval only where the calling repository's environment configures
-#      a required reviewer. None does today (measured 2026-09-17, no environment
-#      carries a reviewer or a branch policy), so the deployer authorization gate
-#      below is what stands in front of the token.
+#   2. Holds those secrets to the branch rule of the calling repository's environment,
+#      `main` alone, with no reviewer. The rule binds the run's ref, never the code the
+#      run checks out, so the `release` job resolves the tag to a commit on main and the
+#      deploy checks out that commit by its SHA. The deployer authorization gate below
+#      decides who deploys.
 #
 # Deploy steps (hub register row 83, the owner's order of 2026-09-25):
 #   1. Compact api/ into vercel_api/app/ via vercel_compactor.py
@@ -112,7 +113,9 @@ jobs:
   # runs listing needs actions: read, which the calling cd.yml grants on its deploy job.
   verify-prod-gate:
     name: Verify the PROD Gate passed for v${{ inputs.version }}
-    needs: authorize
+    needs: [authorize, release]
+    # a rerun of failed jobs alone keeps the deployer check's pass, so only the login that started the run reruns it
+    if: github.actor == github.triggering_actor
     runs-on: ubuntu-slim
     permissions:
       contents: read
@@ -133,17 +136,59 @@ jobs:
           DEPLOY_REPO: ${{ github.repository }}
           DEPLOY_VERSION: ${{ inputs.version }}
           DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+          EXPECTED_COMMIT: ${{ needs.release.outputs.sha }}
           GH_TOKEN: ${{ github.token }}
+
+  # ── Release check ──────────────────────────────────────────────────────────
+  # The environment's branch rule binds the run's ref, never the code the run checks out. So
+  # before any job that names an environment, the release's tag is resolved to a commit and
+  # refused unless that commit is on main, whose every commit the owner merged, and every
+  # later job checks out that commit by its SHA and compares its checkout with it, never the
+  # tag (scripts/check_release_commit.py).
+  release:
+    name: Check v${{ inputs.version }} is on main
+    needs: authorize
+    # a rerun of failed jobs alone keeps the deployer check's pass, so only the login that started the run reruns it
+    if: github.actor == github.triggering_actor
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.check.outputs.sha }}
+    steps:
+      - name: Check out the caller with its history and tags
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Check out the release check (kriegerdataforge-cicd)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Needless2Say/kriegerdataforge-cicd
+          ref: main
+          sparse-checkout: scripts
+          path: _kdf_cicd
+          token: ${{ github.token }}
+          persist-credentials: false
+
+      - name: Resolve the tag and refuse a commit off main
+        id: check
+        run: python3 _kdf_cicd/scripts/check_release_commit.py
+        env:
+          DEPLOY_VERSION: ${{ inputs.version }}
 
   deploy:
     name: Deploy (${{ inputs.environment }})
-    needs: [authorize, verify-prod-gate]
+    needs: [authorize, release, verify-prod-gate]
+    # a rerun of failed jobs alone keeps the deployer check's pass, so only the login that started the run reruns it
+    if: github.actor == github.triggering_actor
     runs-on: ubuntu-slim
 
-    # Names the caller repo's GitHub Environment. The job reads its secrets, and pauses for
-    # approval only where that environment configures a required reviewer. None does today
-    # (measured 2026-09-17), so the deployer authorization gate above is the control. No
-    # id-token permission: the pinned Vercel CLI never requests a GitHub OIDC token.
+    # Names the caller repo's GitHub Environment, held to main, and the job reads its secrets.
+    # It deploys the commit the release job resolved, never the tag. No id-token permission:
+    # the pinned Vercel CLI never requests a GitHub OIDC token.
     environment: ${{ inputs.environment }}
 
     permissions:
@@ -153,7 +198,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: v${{ inputs.version }}
+          ref: ${{ needs.release.outputs.sha }}
+
+      - name: Compare the checkout with the release commit
+        env:
+          RELEASE_SHA: ${{ needs.release.outputs.sha }}
+        run: |
+          head="$(git rev-parse HEAD)"
+          if [ -z "${RELEASE_SHA}" ] || [ "${head}" != "${RELEASE_SHA}" ]; then
+            echo "::error::the checkout is ${head}, not the commit '${RELEASE_SHA}' the release check resolved"
+            exit 1
+          fi
+          echo "deploying ${head}, the commit the release check resolved"
 
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
@@ -161,12 +217,14 @@ jobs:
           python-version: "3.14"
           cache: "pip"
 
+      # The packages token reaches git through this step's environment, as fetch-private-packages.yml
+      # gives it, never through a command's arguments or a global config file a later step reads.
       - name: Install Python dependencies
-        run: |
-          git config --global url."https://__token__:${GH_PACKAGES_PAT}@github.com/".insteadOf "https://github.com/"
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
         env:
-          GH_PACKAGES_PAT: ${{ secrets.GH_PACKAGES_PAT }}
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: ${{ format('url.https://__token__:{0}@github.com/.insteadOf', secrets.GH_PACKAGES_PAT) }}
+          GIT_CONFIG_VALUE_0: https://github.com/
 
       - name: Compact API for Vercel
         run: python scripts/vercel_compactor.py
@@ -285,12 +343,18 @@ jobs:
           set +e
           URL="${DEPLOY_URL}/healthz"
           HEADERS="${RUNNER_TEMP}/healthz.headers"
+          # the bypass value reaches curl as a header file, never as an argument a process listing reads
+          BYPASS_HEADER="${RUNNER_TEMP}/bypass.header"
+          trap 'rm -f "$BYPASS_HEADER"' EXIT
+          if [ -n "$BYPASS" ]; then
+            (umask 077 && printf 'x-vercel-protection-bypass: %s\n' "$BYPASS" > "$BYPASS_HEADER")
+          fi
           code=""
           protected=""
           platform=""
           for attempt in 1 2 3 4 5 6; do
             if [ -n "$BYPASS" ]; then
-              answer="$(curl -s -o /dev/null -D "$HEADERS" -w '%{http_code} %{redirect_url}' -H "x-vercel-protection-bypass: $BYPASS" "$URL")"
+              answer="$(curl -s -o /dev/null -D "$HEADERS" -w '%{http_code} %{redirect_url}' -H "@$BYPASS_HEADER" "$URL")"
             else
               answer="$(curl -s -o /dev/null -D "$HEADERS" -w '%{http_code} %{redirect_url}' "$URL")"
             fi
