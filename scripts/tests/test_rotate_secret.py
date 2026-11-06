@@ -45,6 +45,9 @@ ALL = frozenset()
 # a fake token the live expiry tests hand around, which no output may ever carry (D-049)
 TOKEN = "github_pat_FAKE_LIVE_TOKEN_VALUE_0123456789"
 
+# the time the recorded expiry tests stamp, the secrets fence's step 6
+NOW = datetime(2026, 11, 6, 12, 0, tzinfo = timezone.utc)
+
 
 # ── fixtures ────────────────────────────────────────────────────────────────────
 @pytest.fixture
@@ -468,7 +471,7 @@ class TestRealRegistry:
         assert not vercel.get("github_env_secrets")
         assert len(vercel["github_repo_secrets"]) == 7  # one repo secret per repo (6 apps + terraform)
         assert len(vercel["retired_github_env_secrets"]) == 14  # old prod/dev env copies, reaped on rotation
-        assert vercel.get("check", {}).get("expiry")  # auto-maintained expiry is tracked (record-expiry bot)
+        assert vercel.get("check", {}).get("recorded")  # its expiry is the fact the ops run records, read live
         # the manual tokens carry a check block (monitored) and no engine targets
         for name in ("CICD_PAT", "VERCEL_MASTER_TOKEN", "KDF_APP_PRIVATE_KEY"):
             e = next(x for x in entries if x["name"] == name)
@@ -477,65 +480,129 @@ class TestRealRegistry:
         assert cmd_check(entries) in (0, 1)
 
 
-# ── record-expiry ───────────────────────────────────────────────────────────────
-class TestRecordExpiry:
-    def test_set_registry_expiry_is_scoped(self):
-        # Two secrets share the SAME expiry; updating one must not bleed into the other.
-        text = (
-            '{ "secrets": [\n'
-            '  { "name": "A", "check": { "expiry": "2026-07-30" } },\n'
-            '  { "name": "B", "check": { "expiry": "2026-07-30" } }\n'
-            "] }"
-        )
-        new, old = rs.set_registry_expiry(text, "B", "2026-09-15")
-        assert old == "2026-07-30"
-        got = {s["name"]: s["check"]["expiry"] for s in json.loads(new)["secrets"]}
-        assert got == {"A": "2026-07-30", "B": "2026-09-15"}
+# ── the recorded expiry facts (the secrets fence) ────────────────────────────────
+class TestRecordedExpiry:
+    """
+    Once CICD_PAT and the master token live in ops, the weekly monitor holds neither, so the ops run reads each one
+    live and records its expiry as a cicd repository variable, nothing secret, and the monitor reads that fact alone,
+    never the registry's hand kept date.
+    """
+    def _entries(self):
+        return [
+            {
+                "name": "CICD_PAT",
+                "kind": "manual",
+                "check": {"expiry": "2026-07-30", "live": "github", "recorded": True},
+            },
+            {
+                "name": "VERCEL_MASTER_TOKEN",
+                "kind": "manual",
+                "check": {"expiry": "2026-07-30", "live": "vercel-current", "recorded": True},
+            },
+            {"name": "GH_PACKAGES_PAT", "kind": "paste", "check": {"expiry": "2026-07-30", "live": "github"}},
+        ]
 
 
-    def test_set_registry_expiry_absent_secret_is_noop(self):
-        text = '{ "secrets": [ { "name": "A", "check": { "expiry": "2026-07-30" } } ] }'
-        new, old = rs.set_registry_expiry(text, "ZZZ", "2026-09-15")
-        assert old is None and new == text
-
-
-    def _write_reg(self, tmp_path, monkeypatch):
-        # All three share 2026-07-30, but only the vercel_token-with-check entry may be touched.
-        text = (
-            "{\n"
-            '  "secrets": [\n'
-            '    { "name": "GH_PACKAGES_PAT", "kind": "paste", "check": { "expiry": "2026-07-30", "warn_days_before_expiry": 7 } },\n'
-            '    { "name": "VERCEL_DEPLOYMENT_TOKEN", "kind": "generate", "generator": "vercel_token", "shared": true, "check": { "expiry": "2026-07-30", "warn_days_before_expiry": 10 } },\n'
-            '    { "name": "CICD_PAT", "kind": "manual", "check": { "expiry": "2026-07-30", "warn_days_before_expiry": 14 } }\n'
-            "  ]\n}"
-        )
-        f    = tmp_path / "reg.json"
-        f.write_text(text, encoding = "utf-8")
-        monkeypatch.setattr(rs, "REGISTRY_FILE", f)
-        return f
-
-
-    def test_stamps_only_vercel_token_with_check(self, tmp_path, monkeypatch, capsys):
-        f       = self._write_reg(tmp_path, monkeypatch)
-        entries = json.loads(f.read_text())["secrets"]
-        rc      = rs.cmd_record_expiry(entries, today = datetime(2026, 6, 30, tzinfo = timezone.utc))
+    def test_record_writes_each_recorded_tokens_date_status_and_time(self, capsys):
+        answers = {"CICD_PAT": ("2026-12-01", "ok"), "VERCEL_MASTER_TOKEN": (None, "rejected")}
+        with patch.object(rs, "live_expiry", side_effect = lambda entry, environ = None: answers[entry["name"]]), \
+             patch.object(rs, "set_repo_variable") as setter:
+            rc = rs.cmd_record_expiry(self._entries(), "gh", "Needless2Say/kriegerdataforge-cicd", now = NOW)
         assert rc == 0
-        assert "REGISTRY_UPDATED: true" in capsys.readouterr().out
-        got = {s["name"]: s["check"]["expiry"] for s in json.loads(f.read_text())["secrets"]}
-        assert got["VERCEL_DEPLOYMENT_TOKEN"] == "2026-08-14"  # 2026-06-30 + 45d
-        assert got["GH_PACKAGES_PAT"] == "2026-07-30"  # paste (no generator) -> skipped
-        assert got["CICD_PAT"] == "2026-07-30"  # manual -> skipped
+        assert setter.call_args_list == [
+            (("gh", "Needless2Say/kriegerdataforge-cicd", "EXPIRY_CICD_PAT",
+              "expires=2026-12-01 status=ok recorded=2026-11-06T12:00:00Z"),),
+            (("gh", "Needless2Say/kriegerdataforge-cicd", "EXPIRY_VERCEL_MASTER_TOKEN",
+              "expires=none status=rejected recorded=2026-11-06T12:00:00Z"),),
+        ]
+        assert "GH_PACKAGES_PAT" not in capsys.readouterr().out.split("Recording")[1].split("\n")[0]
 
 
-    def test_noop_when_expiry_already_current(self, tmp_path, monkeypatch, capsys):
-        f       = self._write_reg(tmp_path, monkeypatch)
-        entries = json.loads(f.read_text())["secrets"]
-        before  = f.read_text()
-        # 2026-06-15 + 45d == 2026-07-30, the value already in the registry → no write.
-        rc = rs.cmd_record_expiry(entries, today = datetime(2026, 6, 15, tzinfo = timezone.utc))
-        assert rc == 0
-        assert "REGISTRY_UPDATED: false" in capsys.readouterr().out
-        assert f.read_text() == before
+    def test_a_failed_write_fails_the_run(self):
+        with patch.object(rs, "live_expiry", return_value = ("2026-12-01", "ok")), \
+             patch.object(rs, "set_repo_variable", side_effect = RuntimeError("403")):
+            assert rs.cmd_record_expiry(self._entries(), "gh", "Needless2Say/kriegerdataforge-cicd", now = NOW) == 1
+
+
+    @pytest.mark.parametrize(("token", "repo"), [("", "Needless2Say/kriegerdataforge-cicd"), ("gh", "")])
+    def test_record_needs_a_token_and_the_repo(self, token, repo):
+        with pytest.raises(SystemExit):
+            rs.cmd_record_expiry(self._entries(), token, repo, now = NOW)
+
+
+    def _recorded(self, monkeypatch, value):
+        entry = self._entries()[0]
+        if value is None:
+            monkeypatch.delenv("EXPIRY_CICD_PAT", raising = False)
+        else:
+            monkeypatch.setenv("EXPIRY_CICD_PAT", value)
+        with patch.object(rs, "live_expiry", side_effect = AssertionError("a recorded token is never read live")):
+            return rs._check_one(entry, live = True)
+
+
+    def test_a_recorded_token_reads_its_fact_and_never_the_registrys_date(self, monkeypatch, capsys):
+        outcome, drift = self._recorded(monkeypatch, f"expires={_future(60)} status=ok recorded=2026-11-06T12:00:00Z")
+        assert outcome == 0 and drift is None
+        assert "recorded 2026-11-06T12:00:00Z" in capsys.readouterr().out
+
+
+    def test_a_missing_fact_is_said_plainly_and_needs_a_look(self, monkeypatch, capsys):
+        assert self._recorded(monkeypatch, None)[0] == 1
+        out = capsys.readouterr().out
+        assert "no recorded expiry" in out and "2026-07-30" not in out
+
+
+    @pytest.mark.parametrize(("value", "said"), [
+        ("expires=none status=rejected recorded=2026-11-06T12:00:00Z", "REJECTED"),
+        (f"expires={_past(3)} status=ok recorded=2026-11-06T12:00:00Z", "EXPIRED"),
+        (f"expires={_future(5)} status=ok recorded=2026-11-06T12:00:00Z", "WARNING"),
+        ("garbage", "cannot read"),
+    ])
+    def test_a_recorded_fact_that_is_not_healthy_needs_a_look(self, monkeypatch, capsys, value, said):
+        assert self._recorded(monkeypatch, value)[0] == 1
+        assert said in capsys.readouterr().out
+
+
+    def test_set_repo_variable_updates_then_creates(self, monkeypatch):
+        calls   = []
+        session = MagicMock()
+
+
+        def answer(status):
+            resp             = MagicMock()
+            resp.status_code = status
+            resp.ok          = status < 400
+            return resp
+
+
+        session.patch.side_effect = lambda url, **kw: calls.append(("PATCH", url, kw["json"])) or answer(404)
+        session.post.side_effect  = lambda url, **kw: calls.append(("POST", url, kw["json"])) or answer(201)
+        monkeypatch.setattr(rs, "_SESSION", session)
+        rs.set_repo_variable("gh", "Needless2Say/kriegerdataforge-cicd", "EXPIRY_X", "expires=none")
+        assert [call[0] for call in calls] == ["PATCH", "POST"]
+        assert calls[1][2] == {"name": "EXPIRY_X", "value": "expires=none"}
+
+
+    def test_prove_master_mints_a_throwaway_token_and_deletes_it(self, capsys):
+        with patch.object(rs, "create_vercel_token", return_value = ("tok_1", "the-secret-value")) as mint, \
+             patch.object(rs, "delete_vercel_token") as delete:
+            assert rs.cmd_prove_master("master", "team_x") == 0
+        assert mint.call_args[0][0] == "master" and mint.call_args[0][2] == "team_x"
+        delete.assert_called_once_with("master", "tok_1")
+        assert "the-secret-value" not in capsys.readouterr().out
+
+
+    def test_prove_master_fails_when_the_master_cannot_mint(self):
+        with patch.object(rs, "create_vercel_token", side_effect = RuntimeError("403")), \
+             patch.object(rs, "delete_vercel_token") as delete:
+            assert rs.cmd_prove_master("master", "team_x") == 1
+        delete.assert_not_called()
+
+
+    def test_the_real_registry_records_the_three_tokens_the_monitor_cannot_read(self):
+        entries  = json.loads(rs.REGISTRY_FILE.read_text(encoding = "utf-8"))["secrets"]
+        recorded = sorted(entry["name"] for entry in entries if (entry.get("check") or {}).get("recorded"))
+        assert recorded == ["CICD_PAT", "VERCEL_DEPLOYMENT_TOKEN", "VERCEL_MASTER_TOKEN"]
 
 
 # ── generate: vercel_token ──────────────────────────────────────────────────────
@@ -1063,10 +1130,23 @@ class TestMain:
 
     def test_record_expiry_dispatch(self, monkeypatch, mock_registry_file):
         monkeypatch.setattr(sys, "argv", ["x", "--mode", "record-expiry", "--secrets", "VERCEL_TOKEN"])
+        monkeypatch.setenv("GH_TOKEN", "gh")
+        monkeypatch.setenv("GITHUB_REPOSITORY", "Needless2Say/kriegerdataforge-cicd")
         with patch.object(rs, "cmd_record_expiry", return_value = 0) as r:
             with pytest.raises(SystemExit) as e:
                 rs.main()
         assert e.value.code == 0 and r.called
+        assert r.call_args[0][1:3] == ("gh", "Needless2Say/kriegerdataforge-cicd")
+
+
+    def test_prove_master_dispatch(self, monkeypatch, mock_registry_file):
+        monkeypatch.setattr(sys, "argv", ["x", "--mode", "prove-master"])
+        monkeypatch.setenv("VERCEL_MASTER_TOKEN", "m")
+        monkeypatch.setenv("VERCEL_TEAM_ID", "team_x")
+        with patch.object(rs, "cmd_prove_master", return_value = 0) as p:
+            with pytest.raises(SystemExit) as e:
+                rs.main()
+        assert e.value.code == 0 and p.call_args[0] == ("m", "team_x")
 
 
     def test_generate_dispatch(self, monkeypatch, mock_registry_file):
