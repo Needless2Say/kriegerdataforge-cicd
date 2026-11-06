@@ -125,7 +125,7 @@ def test_the_deploy_verifies_the_releases_prod_gate_run_before_deploying(text):
     assert "\n  verify-prod-gate:\n" in text
     assert "verify-e2e" not in text and "check_e2e" not in text, "the journey alone opens nothing"
     gate = text[text.index("\n  verify-prod-gate:\n"):text.index("\n  deploy:\n")]
-    assert "needs: authorize" in gate
+    assert "\n    needs: [authorize, release]\n" in gate, "the gate reads the commit the release job resolved"
     assert "actions: read" in gate, "the runs listing needs it, the calling cd.yml grants it"
     assert "python3 _kdf_cicd/scripts/check_prod_gate.py" in gate
     assert (SCRIPTS / "check_prod_gate.py").is_file() and not (SCRIPTS / "check_e2e.py").exists()
@@ -138,7 +138,7 @@ def test_the_deploy_verifies_the_releases_prod_gate_run_before_deploying(text):
     ):
         assert line in gate
     deploy = text[text.index("\n  deploy:\n"):]
-    assert "needs: [authorize, verify-prod-gate]" in deploy
+    assert "needs: [authorize, release, verify-prod-gate]" in deploy
     assert "actions: read" in text[:text.index("name: CD")], "the usage header tells the caller to grant it"
 
 
