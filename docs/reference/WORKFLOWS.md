@@ -790,7 +790,8 @@ match, so the owner's rerun of a run another started stays denied. A rerun of fa
 keeps its passed output, so every job that `needs:` it tests both actors in its own `if:` too
 (`scripts/tests/test_owner_check.py`). A caller with a schedule runs the scheduler's own first
 attempt unattended, and a rerun keeps the event's name, so every attempt after the first, a scheduled
-run's too, runs only when both actors are the owner. The leading `_` + local path usage signal it is
+run's too, runs only when the owner reran it. A scheduled run's `github.actor` is whoever last changed
+the schedule, so the rerunner alone is tested there, and a manual dispatch still needs both. The leading `_` + local path usage signal it is
 **internal**. Tenants do not call it.
 
 - **Inputs.** None. **Secrets.** None.

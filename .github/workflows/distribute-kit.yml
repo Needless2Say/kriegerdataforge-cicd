@@ -59,8 +59,7 @@ jobs:
         (needs.authorize.result == 'success' && needs.authorize.outputs.authorized == 'true' &&
           github.actor == github.repository_owner &&
           github.triggering_actor == github.repository_owner)) &&
-      (github.run_attempt == '1' ||
-        (github.actor == github.repository_owner && github.triggering_actor == github.repository_owner))
+      (github.run_attempt == '1' || github.triggering_actor == github.repository_owner)
     runs-on: ubuntu-slim
 
     steps:

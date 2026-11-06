@@ -250,11 +250,12 @@ def _arm(values: dict[str, str], condition: str) -> dict[str, str]:
 @pytest.mark.parametrize("workflow", _callers())
 def test_no_job_runs_when_another_login_reruns_or_triggers_a_run(workflow):
     for event in _events(workflow):
-        for actor, triggering_actor in (
-            (OWNER, "github-actions[bot]"),
-            ("github-actions[bot]", OWNER),
-            ("a-stranger", "a-stranger"),
-        ):
+        pairs = [(OWNER, "github-actions[bot]"), ("a-stranger", "a-stranger")]
+        if event != "schedule":
+            # a scheduled run's actor is whoever last changed the schedule, so the owner's rerun of it runs, the next
+            # test's case, while any other run another started stays denied to the owner's rerun
+            pairs.append(("github-actions[bot]", OWNER))
+        for actor, triggering_actor in pairs:
             # the scheduler's own first attempt has no human actor and runs unattended, the next test's case
             for attempt in ("2", "3") if event == "schedule" else ("1", "2", "3"):
                 for name, condition in _guarded_jobs(workflow):
@@ -269,8 +270,9 @@ def test_a_schedules_first_attempt_runs_unattended_and_the_owners_rerun_runs_too
     for name, condition in _guarded_jobs(workflow):
         first = _arm(_values(workflow, "schedule", "1", "github-actions[bot]", "github-actions[bot]"), condition)
         assert _evaluate(condition, first), f"{workflow} job {name} skips its own schedule"
-        rerun = _arm(_values(workflow, "schedule", "2", OWNER, OWNER), condition)
-        assert _evaluate(condition, rerun), f"{workflow} job {name} skips the owner's rerun"
+        for actor in (OWNER, "the-last-to-change-the-schedule"):
+            rerun = _arm(_values(workflow, "schedule", "2", actor, OWNER), condition)
+            assert _evaluate(condition, rerun), f"{workflow} job {name} skips the owner's rerun, its actor {actor}"
 
 
 def test_the_evaluator_reads_the_operators_as_github_does():
