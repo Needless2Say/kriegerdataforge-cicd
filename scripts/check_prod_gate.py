@@ -288,8 +288,8 @@ def successful_run(
 
     A run counts when its passed job is named after the release, ``PROD Gate v<version>``, the job that needs
     every lane of the suite (D-027). The workflow it ran must be one to trust, the release's own, its head the
-    tag's commit, or the default branch's. With ``since``, a run counts by either lookup only when it began after
-    it, the date the repo's tag ruleset was read back.
+    tag's commit, or the default branch's. With ``since``, a run counts by either lookup only when it was created
+    after it, the date the repo's tag ruleset was read back, whatever attempt it is on.
 
     Args:
         fetch: The API reader
@@ -321,7 +321,9 @@ def successful_run(
             True when the job ran and passed, and the run began after ``since`` when there is one
         """
         if since is not None:
-            began = parse_time(run.get("run_started_at") or run.get("created_at"))
+            # the run's own creation, never its latest attempt's start, since a rerun of the verdict job alone keeps
+            # the lanes' results from its first attempt
+            began = parse_time(run.get("created_at"))
             if began is None or began <= since:
                 return False
         return any(job.get("name") == wanted for job in _passed_jobs(fetch, api_url, repo, run))

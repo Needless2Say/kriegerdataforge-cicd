@@ -118,8 +118,8 @@ workflow runs a **deployer authorization gate** as its first job.
    [`scripts/deployer_registry.json`](../../scripts/deployer_registry.json), keyed by
    `github.repository` and the target `environment`. Both must be listed, so an approved deployer's
    rerun of a deploy another started stays denied. Matching is case-insensitive. A rerun of failed
-   jobs alone keeps the gate's pass, so every later job of the two Vercel deploys runs only when
-   `github.actor == github.triggering_actor`.
+   jobs alone keeps the gate's pass, so every later job of the two Vercel deploys, and terraform's
+   `apply`, runs only when `github.actor == github.triggering_actor`.
 4. **Not authorized → the job fails → the deploy job never runs.** Because `authorize` has **no
    `environment:`**, it runs *before* the approval is even requested. An unauthorized dispatch fails
    fast, no approval notification, no secrets loaded (fail closed).
@@ -788,7 +788,9 @@ the local path `./.github/workflows/_authorize-owner.yml` and `needs:`. It compa
 triggered or reran it, to `github.repository_owner` (case insensitive) and fails closed unless both
 match, so the owner's rerun of a run another started stays denied. A rerun of failed jobs alone
 keeps its passed output, so every job that `needs:` it tests both actors in its own `if:` too
-(`scripts/tests/test_owner_check.py`). The leading `_` + local path usage signal it is
+(`scripts/tests/test_owner_check.py`). A caller with a schedule runs the scheduler's own first
+attempt unattended, and a rerun keeps the event's name, so every attempt after the first, a scheduled
+run's too, runs only when both actors are the owner. The leading `_` + local path usage signal it is
 **internal**. Tenants do not call it.
 
 - **Inputs.** None. **Secrets.** None.

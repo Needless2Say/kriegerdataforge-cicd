@@ -57,14 +57,17 @@ jobs:
     name: Prune ${{ matrix.environment }}
     needs: authorize
     # schedule obeys the RUN_HUB_PRUNE arm switch. A manual dispatch runs only once the owner check passed, and tests
-    # both actors here too, since a rerun of failed jobs alone keeps the check's passed output
+    # both actors here too, since a rerun of failed jobs alone keeps the check's passed output. A rerun keeps the
+    # event's name, so any attempt after the first, a scheduled run's too, is the owner's alone
     if: >-
       always() &&
       ((github.event_name == 'schedule' && vars.RUN_HUB_PRUNE == 'true') ||
         (github.event_name == 'workflow_dispatch' &&
           needs.authorize.result == 'success' && needs.authorize.outputs.authorized == 'true' &&
           github.actor == github.repository_owner &&
-          github.triggering_actor == github.repository_owner))
+          github.triggering_actor == github.repository_owner)) &&
+      (github.run_attempt == '1' ||
+        (github.actor == github.repository_owner && github.triggering_actor == github.repository_owner))
     runs-on: ubuntu-slim
     timeout-minutes: 5
     strategy:
@@ -73,10 +76,12 @@ jobs:
         environment: ${{ github.event_name == 'schedule' && fromJSON('["dev", "prod"]') || fromJSON(format('["{0}"]', inputs.environment)) }}
     steps:
       - name: POST the prune route
+        # the name is chosen first and then read, since `a && x || y` gives y whenever x is empty, so an absent PROD
+        # value stays empty and fails below rather than becoming DEV's
         env:
           ENVIRONMENT: ${{ matrix.environment }}
-          HUB_URL: ${{ matrix.environment == 'prod' && secrets.KDF_HUB_URL_PROD || secrets.KDF_HUB_URL_DEV }}
-          CRON_SECRET: ${{ matrix.environment == 'prod' && secrets.KDF_HUB_CRON_SECRET_PROD || secrets.KDF_HUB_CRON_SECRET_DEV }}
+          HUB_URL: ${{ secrets[matrix.environment == 'prod' && 'KDF_HUB_URL_PROD' || 'KDF_HUB_URL_DEV'] }}
+          CRON_SECRET: ${{ secrets[matrix.environment == 'prod' && 'KDF_HUB_CRON_SECRET_PROD' || 'KDF_HUB_CRON_SECRET_DEV'] }}
         run: |
           set -euo pipefail
           if [ -z "${HUB_URL}" ] || [ -z "${CRON_SECRET}" ]; then

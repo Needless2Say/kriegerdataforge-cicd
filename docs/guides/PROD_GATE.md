@@ -70,9 +70,10 @@ the tag. A run counts when all of these hold.
 - Its head is the tag's commit, or it was dispatched on the default branch. A dispatch on another branch
   does not count, that branch's copy of the workflow may have dropped a lane and kept the job's name.
 - The tag still names the commit the release job resolved, else the tag moved and the deploy stops.
-- Once the repo's tag ruleset was read back, its time in `scripts/tag_ruleset_dates.json`, the run began
-  after that time. A run from before proves nothing about the commit, since a moved tag could have sent
-  it elsewhere, so each repo's next PROD release runs its gate again.
+- Once the repo's tag ruleset was read back, its time in `scripts/tag_ruleset_dates.json`, the run was
+  created after that time. A run from before proves nothing about the commit, since a moved tag could have
+  sent it elsewhere, and a rerun of it does not help, since a rerun of its verdict job alone keeps the lanes'
+  first results. So each repo's next PROD release dispatches its gate again.
 
 ## When the gate is red
 

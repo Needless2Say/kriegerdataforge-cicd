@@ -61,15 +61,26 @@ def _registry() -> list[dict]:
 
 
 def test_every_secret_the_hub_prune_reads_has_a_registry_entry_of_its_own():
-    text  = (WORKFLOWS / "hub-prune-tokens.yml").read_text(encoding = "utf-8")
-    names = sorted(set(re.findall(r"secrets\.([A-Z0-9_]+)", text)))
-    assert names == ["KDF_HUB_CRON_SECRET_DEV", "KDF_HUB_CRON_SECRET_PROD", "KDF_HUB_URL_DEV", "KDF_HUB_URL_PROD"]
+    text    = (WORKFLOWS / "hub-prune-tokens.yml").read_text(encoding = "utf-8")
+    indexed = [
+        name for index in re.findall(r"secrets\[([^\]]+)\]", text) for name in re.findall(r"'([A-Z0-9_]+)'", index)
+    ]
+    names   = sorted(set(re.findall(r"secrets\.([A-Z0-9_]+)", text)) | set(indexed))
+    assert names ==["KDF_HUB_CRON_SECRET_DEV", "KDF_HUB_CRON_SECRET_PROD", "KDF_HUB_URL_DEV", "KDF_HUB_URL_PROD"]
     entries = {entry["name"]: entry for entry in _registry()}
     for name in names:
         # one entry per value, so a paste writes one environment's value and never the other's
         targets = entries[name]["github_repo_secrets"]
         assert targets == [{"repo": "Needless2Say/kriegerdataforge-cicd", "secret_name": name}]
         assert entries[name]["kind"] == "paste"
+
+
+def test_no_workflow_picks_a_secret_that_falls_through_to_another_when_empty():
+    # `a && secrets.X || secrets.Y` gives Y whenever X is empty, so an absent PROD value would become DEV's. A name
+    # chosen first and then read, `secrets[a && 'X' || 'Y']`, or a fall through to '', keeps an absent value empty
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        text = path.read_text(encoding = "utf-8")
+        assert not re.search(r"&&\s*secrets\.\w+\s*\|\|\s*secrets\.", text), path.name
 
 
 def test_the_npm_token_is_recorded_as_a_read_alone():

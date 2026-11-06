@@ -457,6 +457,17 @@ class TestEvidence:
         assert ok, reason
 
 
+    @pytest.mark.parametrize("lookup", ["head", "dispatched"])
+    def test_a_run_created_before_the_ruleset_and_rerun_after_it_is_refused(self, lookup):
+        """
+        Codex's second counterexample. A rerun of the verdict job alone after the date keeps the lanes' results from
+        the first attempt, which tested whatever the tag named then, so the latest attempt's start proves nothing.
+        """
+        run     = {**_run(7), "created_at": BEFORE, "run_started_at": AFTER, "run_attempt": 2}
+        answers = _github(runs = [run]) if lookup == "head" else _github(runs = [], dispatched = [run])
+        assert not _bound(answers, SHA, RULESET_DATE)[0]
+
+
     def test_a_newer_run_is_found_past_an_older_one(self):
         answers = _github(runs = [_started(_run(7), BEFORE), _started(_run(8), AFTER)])
         ok, reason = _bound(answers, SHA, RULESET_DATE)

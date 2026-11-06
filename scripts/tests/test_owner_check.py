@@ -29,6 +29,12 @@ BOTH        = (
     "github.triggering_actor == github.repository_owner",
 )
 NEWLY_GATED = ("hub-prune-tokens.yml", "trigger-reports-triage.yml", "check-secret-expiry.yml")
+CICD        = "Needless2Say/kriegerdataforge-cicd"
+TOKEN       = re.compile(
+    r"\s*(?:(?P<text>'(?:[^']|'')*')|(?P<op>&&|\|\||==|!=|!|\(|\))|(?P<call>[a-z]+\(\))|(?P<name>[A-Za-z_][\w.\-]*))",
+)
+OPERATORS   = {"&&": " and ", "||": " or ", "==": " == ", "!=": " != ", "(": "(", ")": ")"}
+STATUS      = {"always()": "True", "success()": "True", "failure()": "False", "cancelled()": "False"}
 
 
 def _load(name: str) -> dict:
@@ -147,3 +153,121 @@ def test_every_job_after_the_check_tests_both_actors_itself(workflow):
         condition = str(job.get("if", ""))
         for comparison in BOTH:
             assert comparison in condition, f"{workflow} job {name} must test {comparison} in its own if"
+
+# ======================================================================================================================
+# Each job's condition evaluated, as GitHub evaluates it, for every way a run starts or is rerun
+# ======================================================================================================================
+
+class Text(str):
+    """
+    A string compared as GitHub's expressions compare two strings, case blind.
+    """
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, str) and self.lower() == other.lower()
+
+
+    def __ne__(self, other: object) -> bool:
+        return not self.__eq__(other)
+
+
+    def __hash__(self) -> int:
+        return hash(self.lower())
+
+
+def _evaluate(condition: str, values: dict[str, str]) -> bool:
+    """
+    Evaluate a job's `if` built from the operators these workflows use, a name GitHub would leave empty read as ''.
+    """
+    text   = condition.strip()
+    text   = text[3:-2] if text.startswith("${{") and text.endswith("}}") else text
+    source = []
+    at     = 0
+    while text[at:].strip():
+        token = TOKEN.match(text, at)
+        assert token is not None, f"cannot read {text[at:]!r}"
+        at = token.end()
+        if token["text"] is not None:
+            source.append(f"Text({token['text'][1:-1].replace(chr(39) * 2, chr(39))!r})")
+        elif token["op"] is not None:
+            # a `not` binds looser than `==` in Python, unlike GitHub's `!`, so a condition holding one is refused here
+            assert token["op"] != "!", f"the evaluator does not read ! in {condition!r}"
+            source.append(OPERATORS[token["op"]])
+        elif token["call"] is not None:
+            source.append(STATUS[token["call"]])
+        else:
+            source.append(f"value({token['name']!r})")
+    names = {"value": lambda name: Text(values.get(name, ""))}
+    return bool(eval("".join(source), {"__builtins__": {}, "Text": Text}, names))
+
+
+def _values(workflow: str, event: str, attempt: str, actor: str, triggering_actor: str) -> dict[str, str]:
+    jobs   = _load(workflow)["jobs"]
+    values = {
+        "github.event_name": event,
+        "github.run_attempt": attempt,
+        "github.actor": actor,
+        "github.triggering_actor": triggering_actor,
+        "github.repository_owner": OWNER,
+        "github.repository": CICD,
+        "github.event.label.name": "new-repo",
+    }
+    for name, job in jobs.items():
+        checked = job.get("uses") == CALL
+        skipped = checked and event == "schedule"
+        values[f"needs.{name}.result"] = "skipped" if skipped else "success"
+        if checked and not skipped:
+            # the check passed on an earlier attempt, and a rerun of failed jobs alone keeps its output
+            values[f"needs.{name}.outputs.authorized"] = "true"
+    return values
+
+
+def _guarded_jobs(workflow: str) -> list[tuple[str, str]]:
+    data = _load(workflow)
+    return [(name, str(job.get("if", "true"))) for name, job in data["jobs"].items() if job.get("uses") != CALL]
+
+
+def _events(workflow: str) -> list[str]:
+    # the YAML reader takes the key `on` for True
+    data = _load(workflow)
+    return list((data.get("on") or data.get(True) or {}).keys())
+
+
+def _arm(values: dict[str, str], condition: str) -> dict[str, str]:
+    # every arm switch a schedule path reads is on, so the attempt alone decides
+    for name in re.findall(r"vars\.\w+", condition):
+        values[name] = "true"
+    return values
+
+
+@pytest.mark.parametrize("workflow", _callers())
+def test_no_job_runs_when_another_login_reruns_or_triggers_a_run(workflow):
+    for event in _events(workflow):
+        for actor, triggering_actor in (
+            (OWNER, "github-actions[bot]"),
+            ("github-actions[bot]", OWNER),
+            ("a-stranger", "a-stranger"),
+        ):
+            # the scheduler's own first attempt has no human actor and runs unattended, the next test's case
+            for attempt in ("2", "3") if event == "schedule" else ("1", "2", "3"):
+                for name, condition in _guarded_jobs(workflow):
+                    values = _arm(_values(workflow, event, attempt, actor, triggering_actor), condition)
+                    assert not _evaluate(condition, values), (
+                        f"{workflow} job {name} runs on {event} attempt {attempt} by {actor} and {triggering_actor}"
+                    )
+
+
+@pytest.mark.parametrize("workflow", [name for name in _callers() if "schedule" in _events(name)])
+def test_a_schedules_first_attempt_runs_unattended_and_the_owners_rerun_runs_too(workflow):
+    for name, condition in _guarded_jobs(workflow):
+        first = _arm(_values(workflow, "schedule", "1", "github-actions[bot]", "github-actions[bot]"), condition)
+        assert _evaluate(condition, first), f"{workflow} job {name} skips its own schedule"
+        rerun = _arm(_values(workflow, "schedule", "2", OWNER, OWNER), condition)
+        assert _evaluate(condition, rerun), f"{workflow} job {name} skips the owner's rerun"
+
+
+def test_the_evaluator_reads_the_operators_as_github_does():
+    values = {"github.actor": "Needless2Say", "github.repository_owner": "needless2say"}
+    assert _evaluate("github.actor == github.repository_owner", values), "a comparison is case blind"
+    assert not _evaluate("github.actor != github.repository_owner", values)
+    assert _evaluate("${{ always() && (false_name == '' || x == 'y') }}", values)
+    assert not _evaluate("github.missing == 'a' && always()", values)

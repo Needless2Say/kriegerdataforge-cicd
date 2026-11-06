@@ -138,6 +138,8 @@ jobs:
   apply:
     name: Terraform Apply (${{ inputs.environment }})
     needs: authorize
+    # a rerun of failed jobs alone keeps the deployer check's pass, so only the login that started the run reruns it
+    if: github.actor == github.triggering_actor
     runs-on: ubuntu-slim
 
     # Activates the environment gate (owner approval) and loads its scoped

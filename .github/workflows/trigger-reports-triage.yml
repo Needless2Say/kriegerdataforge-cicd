@@ -72,14 +72,17 @@ jobs:
     name: Fire triage cron endpoints
     needs: authorize
     # Schedule obeys the RUN_REPORTS_TRIAGE arm switch. A manual dispatch runs only once the owner check passed, and
-    # tests both actors here too, since a rerun of failed jobs alone keeps the check's passed output.
+    # tests both actors here too, since a rerun of failed jobs alone keeps the check's passed output. A rerun keeps the
+    # event's name, so any attempt after the first, a scheduled run's too, is the owner's alone.
     if: >-
       always() &&
       ((github.event_name == 'schedule' && vars.RUN_REPORTS_TRIAGE == 'true') ||
         (github.event_name == 'workflow_dispatch' &&
           needs.authorize.result == 'success' && needs.authorize.outputs.authorized == 'true' &&
           github.actor == github.repository_owner &&
-          github.triggering_actor == github.repository_owner))
+          github.triggering_actor == github.repository_owner)) &&
+      (github.run_attempt == '1' ||
+        (github.actor == github.repository_owner && github.triggering_actor == github.repository_owner))
     runs-on: ubuntu-slim
     steps:
       - name: Checkout
