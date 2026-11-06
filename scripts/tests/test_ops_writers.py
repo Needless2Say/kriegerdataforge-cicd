@@ -38,7 +38,7 @@ CRON       = {
 REPORTS    = ("REPORTS_CRON_SECRET_FITNESS_APP", "REPORTS_CRON_SECRET_TIFFANYS_SPACE")
 CICD       = "Needless2Say/kriegerdataforge-cicd"
 CONTEXT    = "Needless2Say/kriegerdataforge-context"
-BOOTSTRAP  = ("ops-distribute-app-secrets.yml", "bootstrap")
+BOOTSTRAP  = ("ops-distribute-app-secrets.yml", "run", "bootstrap-token")
 ARM        = "vars.ARM_OPS_SCHEDULE"
 
 
@@ -119,19 +119,28 @@ def test_every_mint_from_the_repository_pair_asks_for_reads_alone():
             with_ = step.get("with", {})
             if not str(step.get("uses", "")).startswith(MINT) or "KDF_APP_PRIVATE_KEY }}" not in str(with_):
                 continue
-            if (workflow, name) == BOOTSTRAP:
+            if (workflow, name, step.get("id")) == BOOTSTRAP:
                 continue
             asked = {key: value for key, value in with_.items() if key.startswith("permission-")}
             assert asked, f"{workflow} job {name} mints the App's whole set"
             assert set(asked.values()) == {"read"}, f"{workflow} job {name} asks for {asked}"
 
 
-def test_the_bootstrap_is_the_one_job_that_mints_a_write_from_the_repository_pair_and_runs_in_ops():
-    workflow, name = BOOTSTRAP
+def test_the_bootstrap_is_the_one_mint_of_a_write_from_the_repository_pair_and_runs_in_ops_for_its_mode_alone():
+    # the sitting's bootstrap mints from the old writer under the repository names, and once the read only App's pair
+    # holds those names its secrets write is refused, so the mode fails closed by itself
+    workflow, name, step_id = BOOTSTRAP
     job = _load(WORKFLOWS / workflow)["jobs"][name]
     assert job.get("environment") == "ops"
-    mints = [step for step in _steps(job) if str(step.get("uses", "")).startswith(MINT)]
-    assert len(mints) == 1 and mints[0]["with"]["private-key"] == "${{ secrets.KDF_APP_PRIVATE_KEY }}"
+    step = next(step for step in _steps(job) if step.get("id") == step_id)
+    assert str(step["uses"]).startswith(MINT)
+    assert step["with"]["private-key"] == "${{ secrets.KDF_APP_PRIVATE_KEY }}"
+    assert step["with"]["client-id"] == "${{ secrets.KDF_APP_ID }}"
+    assert step["if"] == "steps.fields.outputs.mode == 'bootstrap'"
+    asked = {key: value for key, value in step["with"].items() if key.startswith("permission-")}
+    assert asked == {"permission-secrets": "write"}
+    writer = next(step for step in _steps(job) if step.get("id") == "app-token")
+    assert "steps.fields.outputs.mode != 'bootstrap'" in writer["if"]
 
 
 def test_no_workflow_commits_or_pushes():

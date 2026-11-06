@@ -24,6 +24,8 @@ from distribute_app_secrets import (
     list_repo_secret_meta,
 )
 
+CICD = "Needless2Say/kriegerdataforge-cicd"
+
 
 # ── fixtures ────────────────────────────────────────────────────────────────────
 @pytest.fixture
@@ -283,6 +285,94 @@ def test_cmd_execute_requires_token(entries, source_env):
     with pytest.raises(SystemExit) as exc:
         cmd_execute(entries, "")
     assert "GH_TOKEN" in str(exc.value)
+
+
+# ── the selector and the order of writes (the secrets fence) ────────────────────
+@pytest.fixture
+def fleet():
+    """
+    Both distributable entries over the same three repos, cicd among them, as the real registry holds them.
+    """
+    repos = [CICD, "Needless2Say/r1", "Needless2Say/r2"]
+    return [
+        {
+            "name": "KDF_APP_ID",
+            "distribute_source_env": "KDF_APP_ID",
+            "value_format": "numeric",
+            "github_repo_secrets": [{"repo": repo, "secret_name": "KDF_APP_ID"} for repo in repos],
+        },
+        {
+            "name": "KDF_APP_PRIVATE_KEY",
+            "distribute_source_env": "KDF_APP_PRIVATE_KEY",
+            "value_format": "pem",
+            "github_repo_secrets": [{"repo": repo, "secret_name": "KDF_APP_PRIVATE_KEY"} for repo in repos],
+        },
+    ]
+
+
+def _recording(monkeypatch) -> list[tuple[str, str]]:
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(das, "update_github_repo_secret", lambda tok, repo, name, value: calls.append((repo, name)))
+    return calls
+
+
+def test_every_repo_gets_both_values_before_the_next_and_cicds_own_pair_comes_last(fleet, source_env, monkeypatch):
+    # writing cicd's own pair ends the bootstrap's authority, so it is written once every other repo holds both
+    calls = _recording(monkeypatch)
+    assert cmd_execute(fleet, "tok") == 0
+    assert calls == [
+        ("Needless2Say/r1", "KDF_APP_ID"),
+        ("Needless2Say/r1", "KDF_APP_PRIVATE_KEY"),
+        ("Needless2Say/r2", "KDF_APP_ID"),
+        ("Needless2Say/r2", "KDF_APP_PRIVATE_KEY"),
+        (CICD, "KDF_APP_ID"),
+        (CICD, "KDF_APP_PRIVATE_KEY"),
+    ]
+
+
+@pytest.mark.parametrize("raw", ["r2", "Needless2Say/r2", " R2 "])
+def test_a_selected_run_touches_exactly_one_repo_and_both_names(fleet, source_env, monkeypatch, raw):
+    calls = _recording(monkeypatch)
+    assert cmd_execute(fleet, "tok", das._select_repos(fleet, raw)) == 0
+    assert calls == [("Needless2Say/r2", "KDF_APP_ID"), ("Needless2Say/r2", "KDF_APP_PRIVATE_KEY")]
+
+
+@pytest.mark.parametrize("raw", ["r3", "Needless2Say/r1,someone-else/r1", "r1,,../r2"])
+def test_a_repo_off_the_registry_is_refused_before_any_write(fleet, raw):
+    with pytest.raises(SystemExit, match = "not a distribution target"):
+        das._select_repos(fleet, raw)
+
+
+def test_the_selector_names_every_target_when_it_is_all(fleet):
+    assert das._select_repos(fleet, "all") == ["Needless2Say/r1", "Needless2Say/r2", CICD]
+    assert das._select_repos(fleet, "") == das._select_repos(fleet, "ALL")
+
+
+def test_the_mint_is_scoped_to_the_selected_repos(sample_registry, capsys):
+    assert cmd_targets(sample_registry, "r2") == 0
+    assert capsys.readouterr().out.strip() == "r2"
+    with pytest.raises(SystemExit, match = "not a distribution target"):
+        cmd_targets(sample_registry, "kriegerdataforge-context")
+
+
+def test_check_audits_the_selected_repo_alone(fleet, capsys, monkeypatch):
+    monkeypatch.setattr(
+        das,
+        "_SESSION",
+        _session_returning({"Needless2Say/r1": [{"name": "KDF_APP_ID", "updated_at": "t"}]}),
+    )
+    assert cmd_check(fleet, "tok", ["Needless2Say/r1"]) == 0
+    out = capsys.readouterr().out
+    assert "Needless2Say/r1:" in out and "Needless2Say/r2" not in out and CICD not in out
+
+
+def test_the_cli_passes_the_selector_to_execute(source_env, monkeypatch):
+    seen = {}
+    monkeypatch.setenv("GH_TOKEN", "tok")
+    monkeypatch.setattr(das, "cmd_execute", lambda entries, token, repos: seen.update(repos = repos) or 0)
+    with pytest.raises(SystemExit):
+        das.main(["execute", "--repos", "kriegerdataforge"])
+    assert seen["repos"] == ["Needless2Say/kriegerdataforge"]
 
 
 # ── the real registry (drift guards binding data <-> engine expectations) ────────
