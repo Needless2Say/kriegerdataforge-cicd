@@ -13,7 +13,10 @@ cron copies live in cicd's `dev` and `prod`, never in a repository secret.
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -40,6 +43,7 @@ CICD       = "Needless2Say/kriegerdataforge-cicd"
 CONTEXT    = "Needless2Say/kriegerdataforge-context"
 BOOTSTRAP  = ("ops-distribute-app-secrets.yml", "run", "bootstrap-token")
 ARM        = "vars.ARM_OPS_SCHEDULE"
+PEM        = "-----BEGIN RSA PRIVATE KEY-----\nMIIexample\n-----END RSA PRIVATE KEY-----\n"
 
 
 def _load(path: Path) -> dict:
@@ -153,6 +157,46 @@ def test_the_e2e_setup_copies_the_readers_pair_and_mints_exactly_secrets_and_var
     copy = next(step for step in _steps(job) if "gh secret set" in str(step.get("run", "")))
     assert copy["env"]["KDF_APP_ID"] == "${{ secrets.KDF_READER_APP_ID }}"
     assert copy["env"]["KDF_APP_PRIVATE_KEY"] == "${{ secrets.KDF_READER_APP_PRIVATE_KEY }}"
+
+
+def _bash() -> str | None:
+    git_bash = Path("C:/Program Files/Git/bin/bash.exe")
+    if git_bash.exists():
+        return str(git_bash)
+    return None if os.name == "nt" else shutil.which("bash")
+
+
+@pytest.mark.parametrize(("app_id", "key", "passes"), [
+    ("123456", PEM, True),
+    ("not-an-id", PEM, False),
+    ("", PEM, False),
+    ("123456", "", False),
+    ("123456", "a key that is no pem", False),
+    (PEM, "123456", False),
+])
+def test_the_e2e_setup_checks_the_readers_pair_before_anything_is_written(tmp_path, app_id, key, passes):
+    # a malformed pair copied over a target's working one would break its lanes (Codex's second read of step 6)
+    bash = _bash()
+    if bash is None:
+        pytest.skip("no bash to run the step's shell")
+    steps       = _steps(_load(WORKFLOWS / "ops-setup-e2e.yml")["jobs"]["setup"])
+    names       = [step.get("name") for step in steps]
+    check       = next(
+        step for step in steps if step.get("name") == "Check the read only App's pair before anything is written"
+    )
+    first_write = next(index for index, step in enumerate(steps) if "gh variable set" in str(step.get("run", "")))
+    assert names.index(check["name"]) < first_write
+    assert check["env"]["KDF_APP_ID"] == "${{ secrets.KDF_READER_APP_ID }}"
+    script = tmp_path / "check.sh"
+    script.write_text(check["run"], encoding = "utf-8", newline = "\n")
+    run = subprocess.run(
+        [bash, script.as_posix()],
+        env = {**os.environ, "KDF_APP_ID": app_id, "KDF_APP_PRIVATE_KEY": key},
+        capture_output = True,
+        text = True,
+    )
+    assert (run.returncode == 0) == passes, run.stdout + run.stderr
+    assert "123456" not in run.stdout and "MIIexample" not in run.stdout, "no value is printed"
 
 
 def test_no_workflow_commits_or_pushes():

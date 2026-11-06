@@ -89,6 +89,23 @@ jobs:
 
           echo "repo=$REPO" >> "$GITHUB_OUTPUT"
 
+      # The pair copied below is the read only App's, staged in ops apart from the writing App's, so it is checked
+      # before anything is written, an all digits id and a PEM private key, and a malformed pair never replaces the
+      # target's working one. Neither value is printed.
+      - name: Check the read only App's pair before anything is written
+        env:
+          KDF_APP_ID: ${{ secrets.KDF_READER_APP_ID }}
+          KDF_APP_PRIVATE_KEY: ${{ secrets.KDF_READER_APP_PRIVATE_KEY }}
+        run: |
+          case "$KDF_APP_ID" in
+            ''|*[!0-9]*) echo "::error::KDF_READER_APP_ID in ops is not an all digits App id, nothing was written."; exit 1 ;;
+          esac
+          case "$KDF_APP_PRIVATE_KEY" in
+            *"-----BEGIN"*"PRIVATE KEY-----"*) ;;
+            *) echo "::error::KDF_READER_APP_PRIVATE_KEY in ops is not a PEM private key, nothing was written."; exit 1 ;;
+          esac
+          echo "The read only App's pair is an App id and a PEM private key."
+
       # App token from the writing App, scoped to JUST the target repo, asking for exactly the two
       # grants the steps below use, that repo's Actions secrets AND variables write, never the App's
       # whole set. create-github-app-token@v3.2.0 declares no `permission-variables` input, but its

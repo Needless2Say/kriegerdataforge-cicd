@@ -61,6 +61,8 @@ from rotate_secret import GITHUB_API, _github_headers, update_github_repo_secret
 
 REGISTRY_FILE = Path(__file__).parent / "secret_registry.json"
 CICD          = "Needless2Say/kriegerdataforge-cicd"
+# the environment variable beside a source that holds the value the targets held before the run, where it is known
+PREVIOUS_SUFFIX = "_PREVIOUS"
 
 _SESSION = build_session()
 
@@ -284,6 +286,17 @@ def cmd_execute(entries: list[dict], gh_token: str, repos: list[str] | None = No
             )
         values[entry["name"]] = value
 
+    # each value a repo held before, where known, so a repo whose later write fails gets its old pair back. Only the
+    # id is known, cicd's repository KDF_APP_ID at the run's start, since every repo holds the one pair before a run
+    previous: dict[str, str] = {}
+    for entry in entries:
+        before = os.environ.get(f"{entry['distribute_source_env']}{PREVIOUS_SUFFIX}", "")
+        fmt    = entry.get("value_format", "")
+        if before and (not fmt or _looks_valid(before, fmt)):
+            previous[entry["name"]] = before
+    # the writes that can be put back go first
+    entries = sorted(entries, key = lambda entry: entry["name"] not in previous)
+
     errors: list[str] = []
     print(f"Distributing {', '.join(entry['name'] for entry in entries)} to {len(repos)} repo(s):")
     for owner_repo in repos:
@@ -293,7 +306,7 @@ def cmd_execute(entries: list[dict], gh_token: str, repos: list[str] | None = No
             print(f"{owner_repo}: skipped, another write failed, so cicd's own pair is left as it is for a rerun")
             continue
         print(f"{owner_repo}:")
-        _write_repo(owner_repo, entries, values, gh_token, errors)
+        _write_repo(owner_repo, entries, values, gh_token, errors, previous)
     print()
     if errors:
         print(f"{len(errors)} target(s) failed (PUT is idempotent — fix and re-run to converge):")
@@ -304,19 +317,31 @@ def cmd_execute(entries: list[dict], gh_token: str, repos: list[str] | None = No
     return 0
 
 
-def _write_repo(owner_repo: str, entries: list[dict], values: dict[str, str], gh_token: str, errors: list[str]) -> None:
+def _write_repo(
+    owner_repo: str,
+    entries: list[dict],
+    values: dict[str, str],
+    gh_token: str,
+    errors: list[str],
+    previous: dict[str, str] | None = None,
+) -> None:
     """
     Write each value one repo holds, in the entries' order, and stop at the first failure.
 
-    A failure before the key keeps the repo's old pair whole, so the repo never mints from a new id and an old key.
+    A failure on the first write leaves the repo's old pair whole. A failure after it puts each value already written
+    back to its previous value where one is known, the id, which is no secret, so the repo never mints from a new id
+    and an old key, and the put back uses the token already minted, never the damaged pair.
 
     Args:
         owner_repo: The repo, owner/name
-        entries: The distributable entries
+        entries: The distributable entries, those whose previous value is known first
         values: Each entry's source value by its name
         gh_token: A token that writes the repo's secrets
         errors: The run's failures, added to
+        previous: Each entry's previous value by its name, where known
     """
+    previous = previous or {}
+    written: list[tuple[dict, str]] = []
     for entry in entries:
         for target in entry.get("github_repo_secrets", []):
             if target["repo"] != owner_repo:
@@ -326,11 +351,48 @@ def _write_repo(owner_repo: str, entries: list[dict], values: dict[str, str], gh
             try:
                 update_github_repo_secret(gh_token, owner_repo, target["secret_name"], values[entry["name"]])
                 print("OK")
+                written.append((entry, target["secret_name"]))
             except Exception as exc:  # noqa: BLE001
                 print(f"FAILED - {exc}")
                 errors.append(f"{label}: {exc}")
-                print(f"  the rest of {owner_repo}'s values are not written, its pair stays as it was before")
+                _put_back(owner_repo, written, previous, gh_token, errors)
                 return
+
+
+def _put_back(
+    owner_repo: str,
+    written: list[tuple[dict, str]],
+    previous: dict[str, str],
+    gh_token: str,
+    errors: list[str],
+) -> None:
+    """
+    Put each value a failed repo already took back to its previous value, so the repo holds its old pair whole.
+
+    Args:
+        owner_repo: The repo, owner/name
+        written: The entries and secret names already written in this repo
+        previous: Each entry's previous value by its name, where known
+        gh_token: A token that writes the repo's secrets
+        errors: The run's failures, added to
+    """
+    if not written:
+        print(f"  the rest of {owner_repo}'s values are not written, its pair stays as it was before")
+        return
+    for entry, secret_name in reversed(written):
+        if entry["name"] not in previous:
+            print(f"  {owner_repo} holds half a pair, {secret_name} is new and has no previous value to put back. "
+                  f"Set {secret_name} back by hand, or rerun once the cause is fixed.")
+            errors.append(f"{owner_repo} [repo] {secret_name}: half a pair, put back by hand")
+            continue
+        print(f"  {secret_name} put back to its previous value", end = " ... ", flush = True)
+        try:
+            update_github_repo_secret(gh_token, owner_repo, secret_name, previous[entry["name"]])
+            print("OK, the repo holds its old pair")
+        except Exception as exc:  # noqa: BLE001
+            print(f"FAILED - {exc}")
+            print(f"  {owner_repo} holds half a pair. Set {secret_name} back by hand to the previous App's id.")
+            errors.append(f"{owner_repo} [repo] {secret_name}: the put back failed, {exc}")
 
 # ======================================================================================================================
 # Mode: targets

@@ -352,6 +352,51 @@ def test_a_selection_that_names_no_repo_is_refused_before_the_mint(fleet, sample
         cmd_targets(sample_registry, raw)
 
 
+@pytest.mark.parametrize("repo", ["Needless2Say/r1", CICD])
+def test_a_failed_key_write_puts_the_previous_id_back_so_the_repo_keeps_a_whole_pair(
+    fleet,
+    source_env,
+    monkeypatch,
+    repo,
+):
+    # the id is written first and is no secret, so after a failed key the run writes the previous id back with the
+    # token it already holds, and cicd's own pair still mints for a rerun (Codex's second read of step 6)
+    monkeypatch.setenv("KDF_APP_ID_PREVIOUS", "111")
+    calls: list[tuple[str, str, str]] = []
+
+
+    def update(tok, owner_repo, name, value):
+        calls.append((owner_repo, name, value))
+        if name == "KDF_APP_PRIVATE_KEY" and owner_repo == repo:
+            raise RuntimeError("boom")
+
+
+    monkeypatch.setattr(das, "update_github_repo_secret", update)
+    assert cmd_execute(fleet, "tok", [repo]) == 1
+    assert calls == [(repo, "KDF_APP_ID", "123456"), (repo, "KDF_APP_PRIVATE_KEY", PEM), (repo, "KDF_APP_ID", "111")]
+
+
+def test_with_no_previous_id_a_split_pair_is_said_plainly(fleet, source_env, capsys, monkeypatch):
+    monkeypatch.delenv("KDF_APP_ID_PREVIOUS", raising = False)
+
+
+    def update(tok, owner_repo, name, value):
+        if name == "KDF_APP_PRIVATE_KEY":
+            raise RuntimeError("boom")
+
+
+    monkeypatch.setattr(das, "update_github_repo_secret", update)
+    assert cmd_execute(fleet, "tok", ["Needless2Say/r1"]) == 1
+    assert "holds half a pair" in capsys.readouterr().out
+
+
+def test_the_writes_that_can_be_put_back_go_first(fleet, source_env, monkeypatch):
+    monkeypatch.setenv("KDF_APP_ID_PREVIOUS", "111")
+    calls = _recording(monkeypatch)
+    assert cmd_execute(list(reversed(fleet)), "tok", ["Needless2Say/r1"]) == 0
+    assert [name for _, name in calls] == ["KDF_APP_ID", "KDF_APP_PRIVATE_KEY"]
+
+
 def test_a_failed_write_stops_its_repo_and_leaves_cicds_own_pair_unwritten(fleet, source_env, capsys, monkeypatch):
     # cicd's own pair is the bootstrap's authority, so it is written only once every other write succeeded, and a
     # rerun of the bootstrap still has it (Codex's read of step 6)
