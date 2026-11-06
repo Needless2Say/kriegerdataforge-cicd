@@ -829,16 +829,66 @@ class TestPaste:
         return next(e for e in sample_registry["secrets"] if e["name"] == "GH_PACKAGES_PAT")
 
 
-    def test_fans_to_gh_and_real_vercel_skips_todo(self, sample_registry):
+    def test_fans_to_the_named_environments_gh_and_real_vercel(self, sample_registry):
         with patch.object(rs, "update_github_env_secret") as gh, \
              patch.object(rs, "upsert_vercel_env_var") as vc:
-            rc = cmd_paste(self._entry(sample_registry), ALL, "gh", "master", "the-value")
+            rc = cmd_paste(self._entry(sample_registry), frozenset({"prod"}), "gh", "master", "the-value")
         assert rc == 0
-        assert gh.call_count == 2
-        # only the real Vercel project (prj_real_1) is written; TODO_x skipped
+        assert gh.call_count == 1
         vc.assert_called_once()
         assert vc.call_args[0][1] == "prj_real_1"
         assert vc.call_args[0][3] == "the-value"
+
+
+    def test_a_todo_vercel_project_is_skipped(self, sample_registry):
+        with patch.object(rs, "update_github_env_secret") as gh, \
+             patch.object(rs, "upsert_vercel_env_var") as vc:
+            rc = cmd_paste(self._entry(sample_registry), frozenset({"dev"}), "gh", "master", "the-value")
+        assert rc == 0 and gh.call_count == 1
+        vc.assert_not_called()
+
+
+    @pytest.mark.parametrize("envs", [ALL, frozenset({"dev", "prod"})])
+    def test_an_entry_with_environment_targets_is_pasted_to_one_named_environment_never_both(
+        self,
+        sample_registry,
+        envs,
+    ):
+        # a value meant for one environment written to both would put DEV's value in PROD (the secrets fence)
+        with patch.object(rs, "update_github_env_secret") as gh, \
+             patch.object(rs, "update_github_repo_secret") as repo, \
+             patch.object(rs, "upsert_vercel_env_var") as vc, \
+             pytest.raises(SystemExit, match = "exactly one"):
+            cmd_paste(self._entry(sample_registry), envs, "gh", "master", "the-value")
+        gh.assert_not_called()
+        repo.assert_not_called()
+        vc.assert_not_called()
+
+
+    def test_an_environment_with_no_target_there_is_refused(self, sample_registry):
+        with patch.object(rs, "update_github_env_secret") as gh, \
+             pytest.raises(SystemExit, match = "no target in environment 'staging'"):
+            cmd_paste(self._entry(sample_registry), frozenset({"staging"}), "gh", "master", "the-value")
+        gh.assert_not_called()
+
+
+    @pytest.mark.parametrize(("name", "environment", "secret_name"), [
+        ("KDF_HUB_URL_DEV", "dev", "KDF_HUB_URL"),
+        ("KDF_HUB_URL_PROD", "prod", "KDF_HUB_URL"),
+        ("KDF_HUB_CRON_SECRET_DEV", "dev", "KDF_HUB_CRON_SECRET"),
+        ("KDF_HUB_CRON_SECRET_PROD", "prod", "KDF_HUB_CRON_SECRET"),
+        ("REPORTS_CRON_SECRET_FITNESS_APP", "dev", "REPORTS_CRON_SECRET_FITNESS_APP"),
+        ("REPORTS_CRON_SECRET_FITNESS_APP", "prod", "REPORTS_CRON_SECRET_FITNESS_APP"),
+    ])
+    def test_each_real_cron_copy_is_pasted_to_its_one_cicd_environment(self, name, environment, secret_name):
+        entry = next(
+            e for e in json.loads(rs.REGISTRY_FILE.read_text(encoding = "utf-8"))["secrets"] if e["name"] == name
+        )
+        with patch.object(rs, "update_github_env_secret") as gh, \
+             patch.object(rs, "update_github_repo_secret") as repo:
+            assert cmd_paste(entry, frozenset({environment}), "gh", "", "the-value") == 0
+        gh.assert_called_once_with("gh", "Needless2Say/kriegerdataforge-cicd", environment, secret_name, "the-value")
+        repo.assert_not_called()
 
 
     def test_env_filter_narrows_gh_targets(self, sample_registry):
@@ -870,9 +920,9 @@ class TestPaste:
         with patch.object(rs, "update_github_env_secret") as env, \
              patch.object(rs, "update_github_repo_secret") as repo, \
              patch.object(rs, "upsert_vercel_env_var"):
-            rc = cmd_paste(self._entry_with_repo_secrets(), ALL, "gh", "", "the-value")
+            rc = cmd_paste(self._entry_with_repo_secrets(), frozenset({"dev"}), "gh", "", "the-value")
         assert rc == 0
-        assert env.call_count == 2  # both environment secrets (deploy) still written
+        assert env.call_count == 1  # the named environment's secret (deploy) written
         assert repo.call_count == 2  # BOTH repository-level CI secrets written
         # signature: update_github_repo_secret(gh_token, owner_repo, secret_name, value)
         assert {c[0][1] for c in repo.call_args_list} == {"Needless2Say/a", "Needless2Say/b"}
@@ -903,7 +953,7 @@ class TestPaste:
         with patch.object(rs, "update_github_env_secret"), \
              patch.object(rs, "update_github_repo_secret", side_effect = flaky) as repo, \
              patch.object(rs, "upsert_vercel_env_var"):
-            rc = cmd_paste(self._entry_with_repo_secrets(), ALL, "gh", "", "v")
+            rc = cmd_paste(self._entry_with_repo_secrets(), frozenset({"prod"}), "gh", "", "v")
         assert rc == 1  # a failed repo-secret write is a hard error, not swallowed
         assert repo.call_count == 2  # both attempted despite the first failing
 
@@ -945,18 +995,18 @@ class TestPaste:
 
     def test_missing_value_exits(self, sample_registry):
         with pytest.raises(SystemExit, match = "STAGED_SECRET_VALUE"):
-            cmd_paste(self._entry(sample_registry), ALL, "gh", "m", "")
+            cmd_paste(self._entry(sample_registry), frozenset({"prod"}), "gh", "m", "")
 
 
     def test_missing_gh_token_exits(self, sample_registry):
         with pytest.raises(SystemExit, match = "GH_TOKEN"):
-            cmd_paste(self._entry(sample_registry), ALL, "", "m", "v")
+            cmd_paste(self._entry(sample_registry), frozenset({"prod"}), "", "m", "v")
 
 
     def test_vercel_skipped_without_master(self, sample_registry):
         with patch.object(rs, "update_github_env_secret"), \
              patch.object(rs, "upsert_vercel_env_var") as vc:
-            cmd_paste(self._entry(sample_registry), ALL, "gh", "", "v")
+            cmd_paste(self._entry(sample_registry), frozenset({"prod"}), "gh", "", "v")
         vc.assert_not_called()
 
 
@@ -970,9 +1020,17 @@ class TestPaste:
                 raise Exception("fail one")
 
 
+        entry = {
+            "name": "TWO_REPOS",
+            "kind": "paste",
+            "github_env_secrets": [
+                {"repo": "Needless2Say/a", "environment": "prod", "secret_name": "TWO_REPOS"},
+                {"repo": "Needless2Say/b", "environment": "prod", "secret_name": "TWO_REPOS"},
+            ],
+        }
         with patch.object(rs, "update_github_env_secret", side_effect = flaky), \
              patch.object(rs, "upsert_vercel_env_var"):
-            rc = cmd_paste(self._entry(sample_registry), ALL, "gh", "", "v")
+            rc = cmd_paste(entry, frozenset({"prod"}), "gh", "", "v")
         assert rc == 1 and n[0] == 2
 
 

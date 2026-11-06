@@ -920,8 +920,33 @@ def _actionable_vercel(targets: list[dict]) -> list[dict]:
     return actionable
 
 
+def _refuse_unless_one_environment(entry: dict, envs: frozenset[str]) -> None:
+    """
+    Refuse a paste of a secret that lives in environments unless exactly one environment holding it is named.
+
+    A value meant for one environment written to both would put DEV's value in PROD (the secrets fence), so the paste
+    of such a secret writes the one environment named, and a copy kept in each is pasted once for each.
+
+    Args:
+        entry: The registry entry being pasted
+        envs: The environments the paste names, empty for none
+    """
+    held = sorted({str(target.get("environment", "")).lower() for target in entry.get("github_env_secrets", [])})
+    if not held:
+        return
+    if len(envs) != 1:
+        sys.exit(
+            f"Error: {entry['name']} lives in environments ({', '.join(held)}), so its paste names exactly one "
+            "environment, never both and never none."
+        )
+    (environment,) = envs
+    if environment not in held:
+        sys.exit(f"Error: {entry['name']} has no target in environment '{environment}', it lives in {', '.join(held)}.")
+
+
 def cmd_paste(entry: dict, envs: frozenset[str], gh_token: str, master_token: str, value: str) -> int:
     _refuse_if_terraform_managed(entry)
+    _refuse_unless_one_environment(entry, envs)
     if not gh_token:
         sys.exit("Error: GH_TOKEN not set.")
     if not value:

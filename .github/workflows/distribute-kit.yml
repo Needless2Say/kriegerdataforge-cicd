@@ -5,10 +5,11 @@ name: Distribute Agentic-Workflow Kit
 #
 #   • workflow_dispatch — run on demand. 'check' (read-only drift report) or
 #     'distribute' (open one sync PR per drifted repo; never auto-merges).
-#   • schedule — weekly read-only drift alarm: a failed run = some repo drifted
-#     from the canonical kit, or its own files lack part of the standard (the
-#     AGENTS.md role pointer, .env.kdf.example, .env.kdf ignored), which that
-#     repo fixes in its own PR, distribute opens none for it.
+#
+# The weekly read-only drift alarm runs in the ecosystem watch, on the watch App's read token, since this job mints
+# from the writing App in ops, which waits for the owner's approval (the secrets fence). A drift there means some repo
+# drifted from the canonical kit, or its own files lack part of the standard (the AGENTS.md role pointer,
+# .env.kdf.example, .env.kdf ignored), which that repo fixes in its own PR, distribute opens none for it.
 #
 # Before the first 'distribute', each consumer repo's version-check must exempt the
 # kit paths (ADR D-001 option B — shipped in scripts/common/check_version.py).
@@ -31,36 +32,27 @@ on:
         description: "Optional: comma-separated EXACT repo names to target (e.g. 'kriegerdataforge-sdk, fitness-app-backend'). Blank = all repos in the registry. Run 'check' first to preview the list."
         type: string
         default: ""
-  schedule:
-    - cron: "0 12 * * 1" # Mondays 12:00 UTC — weekly drift alarm (check only)
 
 permissions:
   contents: read
 
 jobs:
   authorize:
-    # Only dispatched runs are actor-attributable; the weekly schedule has no human actor to
-    # match against the owner, so gate dispatches only (fail-closed for the privileged path).
-    if: github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/_authorize-owner.yml
 
   distribute-kit:
     name: Distribute kit
     needs: authorize
-    # Never run on forks (this repo is public). For a dispatch, require the owner gate to pass
-    # (PL-076 parity, fail-closed); the read-only weekly schedule has no authorize job (skipped),
-    # so allow it through. always() lets this job evaluate even though authorize is skipped on
-    # schedule; the explicit success() check below preserves fail-closed on dispatch. A rerun keeps the
-    # event's name, so any attempt after the first, a scheduled run's too, is the owner's alone.
+    # Never run on forks (this repo is public). The owner gate passes first (PL-076 parity, fail-closed), and both
+    # actors are tested here too, since a rerun of failed jobs alone keeps the gate's passed output.
     if: >-
-      always() &&
       github.repository == 'Needless2Say/kriegerdataforge-cicd' &&
-      (github.event_name != 'workflow_dispatch' ||
-        (needs.authorize.result == 'success' && needs.authorize.outputs.authorized == 'true' &&
-          github.actor == github.repository_owner &&
-          github.triggering_actor == github.repository_owner)) &&
-      (github.run_attempt == '1' || github.triggering_actor == github.repository_owner)
+      needs.authorize.outputs.authorized == 'true' &&
+      github.actor == github.repository_owner &&
+      github.triggering_actor == github.repository_owner
     runs-on: ubuntu-slim
+    # the writing App's pair and CICD_PAT live in ops alone, held to main and waiting for the owner's approval
+    environment: ops
 
     steps:
       - name: Checkout
@@ -90,8 +82,8 @@ jobs:
         if: vars.USE_GITHUB_APP == 'true'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          client-id: ${{ secrets.KDF_APP_ID }}
-          private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
+          client-id: ${{ secrets.KDF_WRITER_APP_ID }}
+          private-key: ${{ secrets.KDF_WRITER_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ steps.targets.outputs.repositories }}
           permission-contents: write
@@ -102,7 +94,7 @@ jobs:
           # The token needs contents:read (check) + contents & pull-requests:write (distribute)
           # on the target repos.
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
-          MODE: ${{ github.event.inputs.mode || 'check' }}
+          MODE: ${{ github.event.inputs.mode }}
           ONLY: ${{ github.event.inputs.only }}
           REPOS: ${{ github.event.inputs.repos }}
         run: |

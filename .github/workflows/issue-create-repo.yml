@@ -5,7 +5,8 @@
 # the appropriate template, configures GitHub Environments, enables branch
 # protection, and comments with the remaining manual checklist.
 #
-# Required repo-level secret (not environment-scoped):
+# Required secret, in cicd's ops environment alone, held to main and waiting for the owner's approval (the secrets
+# fence), never a repository secret every branch could read:
 #   CICD_PAT — fine-grained GitHub PAT with the following permissions:
 #     Repository: Administration (R/W), Contents (R/W), Environments (R/W),
 #                 Secrets (R/W), Variables (R/W), Actions (R/W)
@@ -69,6 +70,8 @@ jobs:
     name: Create repository from template
     runs-on: ubuntu-slim
     needs: authorize
+    # CICD_PAT lives in ops alone, held to main and waiting for the owner's approval
+    environment: ops
 
     # only run when the new repo label is added AND the check passed, testing both
     # actors here too since a rerun of failed jobs alone keeps the check's output
