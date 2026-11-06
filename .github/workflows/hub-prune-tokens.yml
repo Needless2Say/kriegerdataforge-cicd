@@ -76,12 +76,17 @@ jobs:
         environment: ${{ github.event_name == 'schedule' && fromJSON('["dev", "prod"]') || fromJSON(format('["{0}"]', inputs.environment)) }}
     steps:
       - name: POST the prune route
-        # the name is chosen first and then read, since `a && x || y` gives y whenever x is empty, so an absent PROD
-        # value stays empty and fails below rather than becoming DEV's
+        # `a && x || y` gives y whenever x is empty, so each value is read under its own environment's test and the
+        # last fall through is '', an absent PROD value staying empty and failing below rather than becoming DEV's.
+        # Each secret is named whole, since a computed `secrets[...]` would hand the job every secret the repo holds
         env:
           ENVIRONMENT: ${{ matrix.environment }}
-          HUB_URL: ${{ secrets[matrix.environment == 'prod' && 'KDF_HUB_URL_PROD' || 'KDF_HUB_URL_DEV'] }}
-          CRON_SECRET: ${{ secrets[matrix.environment == 'prod' && 'KDF_HUB_CRON_SECRET_PROD' || 'KDF_HUB_CRON_SECRET_DEV'] }}
+          HUB_URL: >-
+            ${{ matrix.environment == 'prod' && secrets.KDF_HUB_URL_PROD ||
+            matrix.environment == 'dev' && secrets.KDF_HUB_URL_DEV || '' }}
+          CRON_SECRET: >-
+            ${{ matrix.environment == 'prod' && secrets.KDF_HUB_CRON_SECRET_PROD ||
+            matrix.environment == 'dev' && secrets.KDF_HUB_CRON_SECRET_DEV || '' }}
         run: |
           set -euo pipefail
           if [ -z "${HUB_URL}" ] || [ -z "${CRON_SECRET}" ]; then

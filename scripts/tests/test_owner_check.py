@@ -176,7 +176,15 @@ class Text(str):
 
 def _evaluate(condition: str, values: dict[str, str]) -> bool:
     """
-    Evaluate a job's `if` built from the operators these workflows use, a name GitHub would leave empty read as ''.
+    Whether a job's `if` holds, as GitHub reads its value.
+    """
+    return bool(expression_value(condition, values))
+
+
+def expression_value(condition: str, values: dict[str, str]) -> str | bool:
+    """
+    The value of an expression built from the operators these workflows use, a name GitHub would leave empty read as
+    '', and `&&` and `||` giving an operand as GitHub's do.
     """
     text   = condition.strip()
     text   = text[3:-2] if text.startswith("${{") and text.endswith("}}") else text
@@ -197,7 +205,7 @@ def _evaluate(condition: str, values: dict[str, str]) -> bool:
         else:
             source.append(f"value({token['name']!r})")
     names = {"value": lambda name: Text(values.get(name, ""))}
-    return bool(eval("".join(source), {"__builtins__": {}, "Text": Text}, names))
+    return eval("".join(source), {"__builtins__": {}, "Text": Text}, names)
 
 
 def _values(workflow: str, event: str, attempt: str, actor: str, triggering_actor: str) -> dict[str, str]:
