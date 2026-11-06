@@ -68,7 +68,10 @@ def entries(sample_registry):
     return _distributable(sample_registry)
 
 
-PEM = "-----BEGIN RSA PRIVATE KEY-----\nMIIexampleexample\n-----END RSA PRIVATE KEY-----\n"
+# a key of an RSA key's length, its body a fake, so the shape check sees real key material
+PEM = "-----BEGIN RSA PRIVATE KEY-----\nMIIexampleexample\n" + (
+    "A" * 64 + "\n"
+) * 25 + "-----END RSA PRIVATE KEY-----\n"
 
 
 @pytest.fixture
@@ -120,6 +123,19 @@ def test_looks_valid_numeric():
 def test_looks_valid_pem():
     assert _looks_valid(PEM, "pem")
     assert not _looks_valid("123456", "pem")
+
+
+@pytest.mark.parametrize("value", [
+    "-----BEGIN RSA PRIVATE KEY-----",
+    "-----BEGIN RSA PRIVATE KEY-----\n-----END RSA PRIVATE KEY-----\n",
+    "-----BEGIN RSA PRIVATE KEY-----\nMIIshort\n-----END RSA PRIVATE KEY-----\n",
+    "-----BEGIN RSA PRIVATE KEY-----\n" + "A" * 1600 + "\n-----END PRIVATE KEY-----\n",
+    "junk\n" + PEM,
+    PEM.replace("A" * 64, "A" * 60 + "!@#$", 1),
+])
+def test_looks_valid_pem_refuses_a_bare_header_or_a_truncated_key(value):
+    # a header alone passed and replaced a working key with unusable text, Codex's third read of step 6
+    assert not _looks_valid(value, "pem")
 
 
 def test_looks_valid_unknown_format_is_a_no_op():
@@ -352,28 +368,45 @@ def test_a_selection_that_names_no_repo_is_refused_before_the_mint(fleet, sample
         cmd_targets(sample_registry, raw)
 
 
-@pytest.mark.parametrize("repo", ["Needless2Say/r1", CICD])
-def test_a_failed_key_write_puts_the_previous_id_back_so_the_repo_keeps_a_whole_pair(
-    fleet,
-    source_env,
-    monkeypatch,
-    repo,
-):
-    # the id is written first and is no secret, so after a failed key the run writes the previous id back with the
-    # token it already holds, and cicd's own pair still mints for a rerun (Codex's second read of step 6)
+def test_a_failed_key_write_on_cicd_puts_its_own_previous_id_back(fleet, source_env, monkeypatch):
+    # cicd's previous id is the one this run read itself, so after a failed key the run writes it back with the token
+    # it already holds, and cicd's own pair still mints for a rerun (Codex's second read of step 6)
     monkeypatch.setenv("KDF_APP_ID_PREVIOUS", "111")
     calls: list[tuple[str, str, str]] = []
 
 
     def update(tok, owner_repo, name, value):
         calls.append((owner_repo, name, value))
-        if name == "KDF_APP_PRIVATE_KEY" and owner_repo == repo:
+        if name == "KDF_APP_PRIVATE_KEY":
             raise RuntimeError("boom")
 
 
     monkeypatch.setattr(das, "update_github_repo_secret", update)
-    assert cmd_execute(fleet, "tok", [repo]) == 1
-    assert calls == [(repo, "KDF_APP_ID", "123456"), (repo, "KDF_APP_PRIVATE_KEY", PEM), (repo, "KDF_APP_ID", "111")]
+    assert cmd_execute(fleet, "tok", [CICD]) == 1
+    assert calls == [(CICD, "KDF_APP_ID", "123456"), (CICD, "KDF_APP_PRIVATE_KEY", PEM), (CICD, "KDF_APP_ID", "111")]
+
+
+def test_a_retry_never_puts_cicds_old_id_into_a_repo_already_on_the_new_pair(fleet, source_env, capsys, monkeypatch):
+    # run one moves r1 to the new pair and fails on r2. On the retry r1's key write fails, and r1's previous id is the
+    # new one by then, not cicd's old one, so no other repo gets an id put back (Codex's third read of step 6)
+    monkeypatch.setenv("KDF_APP_ID_PREVIOUS", "111")
+    calls: list[tuple[str, str, str]] = []
+    failing = {("Needless2Say/r2", "KDF_APP_PRIVATE_KEY")}
+
+
+    def update(tok, owner_repo, name, value):
+        calls.append((owner_repo, name, value))
+        if (owner_repo, name) in failing:
+            raise RuntimeError("boom")
+
+
+    monkeypatch.setattr(das, "update_github_repo_secret", update)
+    assert cmd_execute(fleet, "tok") == 1
+    failing = {("Needless2Say/r1", "KDF_APP_PRIVATE_KEY")}
+    calls.clear()
+    assert cmd_execute(fleet, "tok") == 1
+    assert not [call for call in calls if call[2] == "111"], "an old id was put back into a repo on the new pair"
+    assert "holds half a pair" in capsys.readouterr().out
 
 
 def test_with_no_previous_id_a_split_pair_is_said_plainly(fleet, source_env, capsys, monkeypatch):

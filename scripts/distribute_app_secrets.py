@@ -49,6 +49,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -61,8 +62,15 @@ from rotate_secret import GITHUB_API, _github_headers, update_github_repo_secret
 
 REGISTRY_FILE = Path(__file__).parent / "secret_registry.json"
 CICD          = "Needless2Say/kriegerdataforge-cicd"
-# the environment variable beside a source that holds the value the targets held before the run, where it is known
+# the environment variable beside a source that holds the value cicd held before the run, where it is known
 PREVIOUS_SUFFIX = "_PREVIOUS"
+# one PEM private key block, and the shortest body a GitHub App's RSA key has, 2048 bits being about 1600 characters
+PEM_BLOCK    = re.compile(
+    r"-----BEGIN (?P<label>[A-Z ]*)PRIVATE KEY-----\s+"
+    r"(?P<body>[A-Za-z0-9+/=\s]+?)\s*"
+    r"-----END (?P=label)PRIVATE KEY-----"
+)
+PEM_BODY_MIN = 512
 
 _SESSION = build_session()
 
@@ -83,7 +91,10 @@ def _looks_valid(value: str, fmt: str) -> bool:
     if fmt == "numeric":
         return value.isdigit()
     if fmt == "pem":
-        return "-----BEGIN" in value and "PRIVATE KEY-----" in value
+        # the whole value one PEM block, its BEGIN and END labels alike and a base64 body of a real key's length, so a
+        # header alone or a truncated key never replaces a working one
+        block = PEM_BLOCK.fullmatch(value.strip())
+        return bool(block) and len(re.sub(r"\s", "", block.group("body"))) >= PEM_BODY_MIN
     return True
 
 # ======================================================================================================================
@@ -286,8 +297,9 @@ def cmd_execute(entries: list[dict], gh_token: str, repos: list[str] | None = No
             )
         values[entry["name"]] = value
 
-    # each value a repo held before, where known, so a repo whose later write fails gets its old pair back. Only the
-    # id is known, cicd's repository KDF_APP_ID at the run's start, since every repo holds the one pair before a run
+    # each value cicd held before, where known, so cicd's own pair, written last and the bootstrap's authority, gets
+    # its old pair back when its later write fails. Only cicd's id is known, its repository KDF_APP_ID read by this run,
+    # and no other repo's, since a retry finds some repos already on the new pair, so none of theirs is put back
     previous: dict[str, str] = {}
     for entry in entries:
         before = os.environ.get(f"{entry['distribute_source_env']}{PREVIOUS_SUFFIX}", "")
@@ -306,7 +318,7 @@ def cmd_execute(entries: list[dict], gh_token: str, repos: list[str] | None = No
             print(f"{owner_repo}: skipped, another write failed, so cicd's own pair is left as it is for a rerun")
             continue
         print(f"{owner_repo}:")
-        _write_repo(owner_repo, entries, values, gh_token, errors, previous)
+        _write_repo(owner_repo, entries, values, gh_token, errors, previous if owner_repo == CICD else {})
     print()
     if errors:
         print(f"{len(errors)} target(s) failed (PUT is idempotent — fix and re-run to converge):")
@@ -381,8 +393,8 @@ def _put_back(
         return
     for entry, secret_name in reversed(written):
         if entry["name"] not in previous:
-            print(f"  {owner_repo} holds half a pair, {secret_name} is new and has no previous value to put back. "
-                  f"Set {secret_name} back by hand, or rerun once the cause is fixed.")
+            print(f"  {owner_repo} holds half a pair, {secret_name} is new and its previous value is not known. "
+                  "A rerun once the cause is fixed writes both values again.")
             errors.append(f"{owner_repo} [repo] {secret_name}: half a pair, put back by hand")
             continue
         print(f"  {secret_name} put back to its previous value", end = " ... ", flush = True)

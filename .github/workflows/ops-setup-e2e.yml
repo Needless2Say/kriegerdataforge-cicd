@@ -100,11 +100,18 @@ jobs:
           case "$KDF_APP_ID" in
             ''|*[!0-9]*) echo "::error::KDF_READER_APP_ID in ops is not an all digits App id, nothing was written."; exit 1 ;;
           esac
-          case "$KDF_APP_PRIVATE_KEY" in
-            *"-----BEGIN"*"PRIVATE KEY-----"*) ;;
-            *) echo "::error::KDF_READER_APP_PRIVATE_KEY in ops is not a PEM private key, nothing was written."; exit 1 ;;
-          esac
-          echo "The read only App's pair is an App id and a PEM private key."
+          # the whole value one PEM block, its labels alike and a base64 body of a real RSA key's length, so a header
+          # alone or a truncated key is refused
+          pem='^[[:space:]]*-----BEGIN ([A-Z ]*)PRIVATE KEY-----[[:space:]]+([A-Za-z0-9+/=[:space:]]+)-----END ([A-Z ]*)PRIVATE KEY-----[[:space:]]*$'
+          body=""
+          if [[ "$KDF_APP_PRIVATE_KEY" =~ $pem ]] && [ "${BASH_REMATCH[1]}" = "${BASH_REMATCH[3]}" ]; then
+            body="${BASH_REMATCH[2]//[[:space:]]/}"
+          fi
+          if [ "${#body}" -lt 512 ]; then
+            echo "::error::KDF_READER_APP_PRIVATE_KEY in ops is not a whole PEM private key, nothing was written."
+            exit 1
+          fi
+          echo "The read only App's pair is an App id and a whole PEM private key."
 
       # App token from the writing App, scoped to JUST the target repo, asking for exactly the two
       # grants the steps below use, that repo's Actions secrets AND variables write, never the App's

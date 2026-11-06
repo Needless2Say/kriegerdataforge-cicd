@@ -43,7 +43,7 @@ CICD       = "Needless2Say/kriegerdataforge-cicd"
 CONTEXT    = "Needless2Say/kriegerdataforge-context"
 BOOTSTRAP  = ("ops-distribute-app-secrets.yml", "run", "bootstrap-token")
 ARM        = "vars.ARM_OPS_SCHEDULE"
-PEM        = "-----BEGIN RSA PRIVATE KEY-----\nMIIexample\n-----END RSA PRIVATE KEY-----\n"
+PEM = "-----BEGIN RSA PRIVATE KEY-----\nMIIexample\n" + ("A" * 64 + "\n") * 25 + "-----END RSA PRIVATE KEY-----\n"
 
 
 def _load(path: Path) -> dict:
@@ -173,6 +173,11 @@ def _bash() -> str | None:
     ("123456", "", False),
     ("123456", "a key that is no pem", False),
     (PEM, "123456", False),
+    # a header alone or a truncated key passed, Codex's third read of step 6
+    ("123456", "-----BEGIN RSA PRIVATE KEY-----", False),
+    ("123456", "-----BEGIN RSA PRIVATE KEY-----\n-----END RSA PRIVATE KEY-----\n", False),
+    ("123456", "-----BEGIN RSA PRIVATE KEY-----\nMIIshort\n-----END RSA PRIVATE KEY-----\n", False),
+    ("123456", "junk\n" + PEM, False),
 ])
 def test_the_e2e_setup_checks_the_readers_pair_before_anything_is_written(tmp_path, app_id, key, passes):
     # a malformed pair copied over a target's working one would break its lanes (Codex's second read of step 6)
