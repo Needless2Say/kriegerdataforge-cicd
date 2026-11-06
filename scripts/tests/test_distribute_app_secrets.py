@@ -299,8 +299,8 @@ def test_real_registry_carries_both_app_secret_entries():
     id_targets  = {t["repo"] for t in by_name["KDF_APP_ID"]["github_repo_secrets"]}
     key_targets = {t["repo"] for t in by_name["KDF_APP_PRIVATE_KEY"]["github_repo_secrets"]}
     assert id_targets == key_targets
-    # the source repo must never be a target (it holds the originals)
-    assert "Needless2Say/kriegerdataforge-cicd" not in id_targets
+    # the source is the reader's pair in cicd's ops environment, so cicd's own repository pair is a target too
+    assert "Needless2Say/kriegerdataforge-cicd" in id_targets
     # every target writes the same-named secret (consumers read KDF_APP_ID/KDF_APP_PRIVATE_KEY)
     for entry in by_name.values():
         assert all(t["secret_name"] == entry["name"] for t in entry["github_repo_secrets"])
@@ -311,7 +311,8 @@ def test_real_registry_covers_the_epic_consumers():
     Wave 2.5 contract: the six E2E-journey repos + both package repos + the four
     templates hold App-credential copies (superset of ops-setup-e2e's allow-list). The SDK
     joined on 2026-09-30, its Merge Gate's consumer canary reads the hub and both tenant backends.
-    kriegerdataforge-context joined on 2026-10-04, its weekly ecosystem watch reads every repo (D-049).
+    kriegerdataforge-context joined on 2026-10-04 for its weekly ecosystem watch and left with the secrets fence, the
+    watch reading every repo on an App of its own, and cicd joined then, its own pair written from ops.
     """
     targets  = {t["repo"] for e in _distributable(_real_registry()) for t in e["github_repo_secrets"]}
     expected = {
@@ -328,7 +329,7 @@ def test_real_registry_covers_the_epic_consumers():
         "Needless2Say/kriegerdataforge-template-npm-package",
         "Needless2Say/kriegerdataforge-template-python-package",
         "Needless2Say/kriegerdataforge-sdk",
-        "Needless2Say/kriegerdataforge-context",
+        "Needless2Say/kriegerdataforge-cicd",
     }
     assert targets == expected
 

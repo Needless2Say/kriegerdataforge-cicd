@@ -11,12 +11,11 @@ name: Hub Prune Tokens
 # so scheduled runs show as skipped until the owner sets it. Arm it in the same release that deploys the hub
 # whose prune route answers POST, the route answered GET before that release and a POST to it is a 405.
 #
-# Per environment secrets, each a cicd side COPY. The authoritative CRON_SECRET is the terraform value on the
-# hub's Vercel project, see the hub's docs/reference/CONFIGURATION.md.
-#   KDF_HUB_URL_DEV,  KDF_HUB_CRON_SECRET_DEV
-#   KDF_HUB_URL_PROD, KDF_HUB_CRON_SECRET_PROD
-# An environment whose two secrets are not both set fails its run, so a prune that never ran is never green. The
-# schedule runs both environments, so arm RUN_HUB_PRUNE once both are set.
+# Environment secrets, each a cicd side COPY in cicd's dev and prod environments, held to main alone. The job names
+# the environment it prunes, so it reads that environment's KDF_HUB_URL and KDF_HUB_CRON_SECRET and never the other's.
+# The authoritative CRON_SECRET is the terraform value on the hub's Vercel project, see the hub's
+# docs/reference/CONFIGURATION.md. An environment whose two secrets are not both set fails its run, so a prune that
+# never ran is never green. The schedule runs both environments, so arm RUN_HUB_PRUNE once both are set.
 #
 # FAILURE SEMANTICS. The prune is idempotent garbage collection, a failed run leaves rows for the next night and
 # corrupts nothing. A red run means look, not retry in a loop.
@@ -73,19 +72,15 @@ jobs:
       fail-fast: false
       matrix:
         environment: ${{ github.event_name == 'schedule' && fromJSON('["dev", "prod"]') || fromJSON(format('["{0}"]', inputs.environment)) }}
+    # each leg runs in the environment it prunes, so its secrets are that environment's alone, an absent PROD value
+    # staying empty and failing below rather than becoming DEV's
+    environment: ${{ matrix.environment }}
     steps:
       - name: POST the prune route
-        # `a && x || y` gives y whenever x is empty, so each value is read under its own environment's test and the
-        # last fall through is '', an absent PROD value staying empty and failing below rather than becoming DEV's.
-        # Each secret is named whole, since a computed `secrets[...]` would hand the job every secret the repo holds
         env:
           ENVIRONMENT: ${{ matrix.environment }}
-          HUB_URL: >-
-            ${{ matrix.environment == 'prod' && secrets.KDF_HUB_URL_PROD ||
-            matrix.environment == 'dev' && secrets.KDF_HUB_URL_DEV || '' }}
-          CRON_SECRET: >-
-            ${{ matrix.environment == 'prod' && secrets.KDF_HUB_CRON_SECRET_PROD ||
-            matrix.environment == 'dev' && secrets.KDF_HUB_CRON_SECRET_DEV || '' }}
+          HUB_URL: ${{ secrets.KDF_HUB_URL }}
+          CRON_SECRET: ${{ secrets.KDF_HUB_CRON_SECRET }}
         run: |
           set -euo pipefail
           if [ -z "${HUB_URL}" ] || [ -z "${CRON_SECRET}" ]; then

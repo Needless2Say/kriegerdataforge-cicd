@@ -26,8 +26,9 @@ name: Trigger Reports Triage
 #
 # SECURITY: the engine's output is METADATA-ONLY (unit-tested) — batch counters and fixed
 # status interpretations; response bodies (which can carry report content) and secret values
-# never reach the log or the step summary. The cron secrets are cicd-side COPIES; the
-# authoritative values are Terraform app-side (SECRET_ROTATION.md §8.13a).
+# never reach the log or the step summary. The cron secrets are cicd-side COPIES in cicd's dev and
+# prod environments, held to main alone; the authoritative values are Terraform app-side
+# (SECRET_ROTATION.md §8.13a).
 
 on:
   schedule:
@@ -83,6 +84,9 @@ jobs:
           github.triggering_actor == github.repository_owner)) &&
       (github.run_attempt == '1' || github.triggering_actor == github.repository_owner)
     runs-on: ubuntu-slim
+    # the job runs in the environment it fires against, so it reads that environment's cron copies alone. The
+    # schedule always fires prod, a dispatch its chosen dev or prod
+    environment: ${{ github.event_name == 'schedule' && 'prod' || inputs.environment }}
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -97,8 +101,8 @@ jobs:
 
       - name: Fire triage
         env:
-          # cicd-side copies of each app's REPORTS_CRON_SECRET (registry cron_secret_env).
-          # The engine resolves ALL selected apps' secrets before the first POST and never
+          # cicd-side copies of each app's REPORTS_CRON_SECRET (registry cron_secret_env), from the job's
+          # environment. The engine resolves ALL selected apps' secrets before the first POST and never
           # prints a value.
           REPORTS_CRON_SECRET_FITNESS_APP: ${{ secrets.REPORTS_CRON_SECRET_FITNESS_APP }}
           REPORTS_CRON_SECRET_TIFFANYS_SPACE: ${{ secrets.REPORTS_CRON_SECRET_TIFFANYS_SPACE }}
