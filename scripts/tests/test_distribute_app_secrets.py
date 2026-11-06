@@ -8,7 +8,9 @@ missing/mis-wired source env aborts BEFORE any write.
 
 from __future__ import annotations
 
+import base64
 import json
+import textwrap
 from unittest.mock import MagicMock
 
 import distribute_app_secrets as das
@@ -23,6 +25,21 @@ from distribute_app_secrets import (
     cmd_targets,
     list_repo_secret_meta,
 )
+
+CICD = "Needless2Say/kriegerdataforge-cicd"
+
+# a key shaped as an RSA key is, one DER sequence whose declared length, 1190 bytes, is the bytes that follow, its body
+# a fake, so the shape check sees whole key material, and the same key with interior lines removed
+# the PEM markers are built from two parts, so no line of this file is ever a whole key block to a secret scanner
+BEGIN     = "-----BEGIN RSA " + "PRIVATE KEY-----"
+END       = "-----END RSA " + "PRIVATE KEY-----"
+DER       = b"\x30\x82\x04\xa6" + bytes(range(256)) * 4 + bytes(range(166))
+BODY      = base64.b64encode(DER).decode()
+PEM       = f"{BEGIN}\n" + "\n".join(textwrap.wrap(BODY, 64)) + f"\n{END}\n"
+TRUNCATED = "\n".join(PEM.splitlines()[:3] + PEM.splitlines()[9:]) + "\n"
+NOT_DER   = f"{BEGIN}\n" + "\n".join(textwrap.wrap("A" * 1600, 64)) + f"\n{END}\n"
+OLD_PEM   = PEM.replace(BODY[8:12], "AAAA", 1)
+MARK      = BODY[8:48]
 
 
 # ── fixtures ────────────────────────────────────────────────────────────────────
@@ -64,9 +81,6 @@ def sample_registry():
 @pytest.fixture
 def entries(sample_registry):
     return _distributable(sample_registry)
-
-
-PEM = "-----BEGIN RSA PRIVATE KEY-----\nMIIexampleexample\n-----END RSA PRIVATE KEY-----\n"
 
 
 @pytest.fixture
@@ -118,6 +132,23 @@ def test_looks_valid_numeric():
 def test_looks_valid_pem():
     assert _looks_valid(PEM, "pem")
     assert not _looks_valid("123456", "pem")
+
+
+@pytest.mark.parametrize("value", [
+    BEGIN,
+    f"{BEGIN}\n{END}\n",
+    f"{BEGIN}\nMIIshort\n{END}\n",
+    f"{BEGIN}\n" + "A" * 1600 + "\n" + END.replace("RSA ", "") + "\n",
+    "junk\n" + PEM,
+    PEM.replace(BODY[8:12], "!@#$", 1),
+    # a key of 512 and more body characters with interior lines removed passed, Codex's fourth read
+    TRUNCATED,
+    NOT_DER,
+])
+def test_looks_valid_pem_refuses_a_bare_header_or_a_truncated_key(value):
+    # a header alone passed and replaced a working key with unusable text, Codex's third read of step 6, and a key with
+    # lines removed passed its fourth, so the DER sequence's declared length must be the bytes present
+    assert not _looks_valid(value, "pem")
 
 
 def test_looks_valid_unknown_format_is_a_no_op():
@@ -252,7 +283,7 @@ def test_cmd_execute_swapped_values_refused_and_value_never_leaks(entries, capsy
     message = str(exc.value)
     assert "does not look like an all-digits GitHub App id" in message
     assert PEM not in message
-    assert "MIIexampleexample" not in message
+    assert MARK not in message
     assert written == []
 
 
@@ -266,8 +297,8 @@ def test_cmd_execute_partial_failure_aggregates_and_continues(entries, source_en
     assert cmd_execute(entries, "tok") == 1
     out = capsys.readouterr().out
     assert "FAILED - boom" in out
-    # the failure did not stop the rest of the fan-out
-    assert out.count("OK") == 2
+    # the failure stopped r1's other half and did not stop the other repos
+    assert out.count("OK") == 1
     assert "1 target(s) failed" in out
 
 
@@ -276,13 +307,244 @@ def test_cmd_execute_output_never_contains_a_value(entries, source_env, capsys, 
     cmd_execute(entries, "tok")
     out = capsys.readouterr().out
     assert "123456" not in out
-    assert "MIIexampleexample" not in out
+    assert MARK not in out
 
 
 def test_cmd_execute_requires_token(entries, source_env):
     with pytest.raises(SystemExit) as exc:
         cmd_execute(entries, "")
     assert "GH_TOKEN" in str(exc.value)
+
+
+# ── the selector and the order of writes (the secrets fence) ────────────────────
+@pytest.fixture
+def fleet():
+    """
+    Both distributable entries over the same three repos, cicd among them, as the real registry holds them.
+    """
+    repos = [CICD, "Needless2Say/r1", "Needless2Say/r2"]
+    return [
+        {
+            "name": "KDF_APP_ID",
+            "distribute_source_env": "KDF_APP_ID",
+            "value_format": "numeric",
+            "github_repo_secrets": [{"repo": repo, "secret_name": "KDF_APP_ID"} for repo in repos],
+        },
+        {
+            "name": "KDF_APP_PRIVATE_KEY",
+            "distribute_source_env": "KDF_APP_PRIVATE_KEY",
+            "value_format": "pem",
+            "github_repo_secrets": [{"repo": repo, "secret_name": "KDF_APP_PRIVATE_KEY"} for repo in repos],
+        },
+    ]
+
+
+def _recording(monkeypatch) -> list[tuple[str, str]]:
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(das, "update_github_repo_secret", lambda tok, repo, name, value: calls.append((repo, name)))
+    return calls
+
+
+def test_every_repo_gets_both_values_before_the_next_and_cicds_own_pair_comes_last(fleet, source_env, monkeypatch):
+    # writing cicd's own pair ends the bootstrap's authority, so it is written once every other repo holds both
+    calls = _recording(monkeypatch)
+    assert cmd_execute(fleet, "tok") == 0
+    assert calls == [
+        ("Needless2Say/r1", "KDF_APP_ID"),
+        ("Needless2Say/r1", "KDF_APP_PRIVATE_KEY"),
+        ("Needless2Say/r2", "KDF_APP_ID"),
+        ("Needless2Say/r2", "KDF_APP_PRIVATE_KEY"),
+        (CICD, "KDF_APP_ID"),
+        (CICD, "KDF_APP_PRIVATE_KEY"),
+    ]
+
+
+@pytest.mark.parametrize("raw", ["r2", "Needless2Say/r2", " R2 "])
+def test_a_selected_run_touches_exactly_one_repo_and_both_names(fleet, source_env, monkeypatch, raw):
+    calls = _recording(monkeypatch)
+    assert cmd_execute(fleet, "tok", das._select_repos(fleet, raw)) == 0
+    assert calls == [("Needless2Say/r2", "KDF_APP_ID"), ("Needless2Say/r2", "KDF_APP_PRIVATE_KEY")]
+
+
+@pytest.mark.parametrize("raw", ["r3", "Needless2Say/r1,someone-else/r1", "r1,,../r2"])
+def test_a_repo_off_the_registry_is_refused_before_any_write(fleet, raw):
+    with pytest.raises(SystemExit, match = "not a distribution target"):
+        das._select_repos(fleet, raw)
+
+
+@pytest.mark.parametrize("raw", [",", ", ,", " , "])
+def test_a_selection_that_names_no_repo_is_refused_before_the_mint(fleet, sample_registry, raw):
+    # an empty repositories list would mint a token over the App's whole installation (Codex's read of step 6)
+    with pytest.raises(SystemExit, match = "names no repo"):
+        das._select_repos(fleet, raw)
+    with pytest.raises(SystemExit, match = "names no repo"):
+        cmd_targets(sample_registry, raw)
+
+
+def test_a_failed_write_on_cicd_puts_its_whole_previous_pair_back(fleet, source_env, monkeypatch):
+    # cicd's previous pair is the one this run holds itself, so after a failed write, perhaps accepted with its answer
+    # lost, the run writes both previous values back with the token it already holds, the failed one included, and
+    # cicd's own pair still mints for a rerun (Codex's second and fourth reads of step 6)
+    monkeypatch.setenv("KDF_APP_ID_PREVIOUS", "111")
+    monkeypatch.setenv("KDF_APP_PRIVATE_KEY_PREVIOUS", OLD_PEM)
+    calls: list[tuple[str, str, str]] = []
+
+
+    def update(tok, owner_repo, name, value):
+        calls.append((owner_repo, name, value))
+        if name == "KDF_APP_PRIVATE_KEY" and value == PEM:
+            raise RuntimeError("boom")
+
+
+    monkeypatch.setattr(das, "update_github_repo_secret", update)
+    assert cmd_execute(fleet, "tok", [CICD]) == 1
+    assert calls == [
+        (CICD, "KDF_APP_ID", "123456"),
+        (CICD, "KDF_APP_PRIVATE_KEY", PEM),
+        (CICD, "KDF_APP_ID", "111"),
+        (CICD, "KDF_APP_PRIVATE_KEY", OLD_PEM),
+    ]
+
+
+def test_cicd_with_half_its_previous_pair_known_puts_nothing_back_and_says_it_is_uncertain(
+    fleet,
+    source_env,
+    capsys,
+    monkeypatch,
+):
+    # an old id beside a key that may be new mints nothing, so no half is put back (Codex's fourth read of step 6)
+    monkeypatch.setenv("KDF_APP_ID_PREVIOUS", "111")
+    monkeypatch.delenv("KDF_APP_PRIVATE_KEY_PREVIOUS", raising = False)
+    calls: list[tuple[str, str, str]] = []
+
+
+    def update(tok, owner_repo, name, value):
+        calls.append((owner_repo, name, value))
+        if name == "KDF_APP_PRIVATE_KEY":
+            raise RuntimeError("boom")
+
+
+    monkeypatch.setattr(das, "update_github_repo_secret", update)
+    assert cmd_execute(fleet, "tok", [CICD]) == 1
+    assert len(calls) == 2
+    assert "uncertain" in capsys.readouterr().out
+
+
+def test_a_failed_put_back_on_cicd_says_its_pair_is_uncertain_and_how_to_recover(
+    fleet,
+    source_env,
+    capsys,
+    monkeypatch,
+):
+    monkeypatch.setenv("KDF_APP_ID_PREVIOUS", "111")
+    monkeypatch.setenv("KDF_APP_PRIVATE_KEY_PREVIOUS", OLD_PEM)
+
+
+    def update(tok, owner_repo, name, value):
+        if name == "KDF_APP_PRIVATE_KEY":
+            raise RuntimeError("boom")
+
+
+    monkeypatch.setattr(das, "update_github_repo_secret", update)
+    assert cmd_execute(fleet, "tok", [CICD]) == 1
+    out = capsys.readouterr().out
+    assert "uncertain" in out and "new key" in out and MARK not in out
+
+
+def test_a_retry_never_puts_cicds_old_id_into_a_repo_already_on_the_new_pair(fleet, source_env, capsys, monkeypatch):
+    # run one moves r1 to the new pair and fails on r2. On the retry r1's key write fails, and r1's previous id is the
+    # new one by then, not cicd's old one, so no other repo gets an id put back (Codex's third read of step 6)
+    monkeypatch.setenv("KDF_APP_ID_PREVIOUS", "111")
+    calls: list[tuple[str, str, str]] = []
+    failing = {("Needless2Say/r2", "KDF_APP_PRIVATE_KEY")}
+
+
+    def update(tok, owner_repo, name, value):
+        calls.append((owner_repo, name, value))
+        if (owner_repo, name) in failing:
+            raise RuntimeError("boom")
+
+
+    monkeypatch.setattr(das, "update_github_repo_secret", update)
+    assert cmd_execute(fleet, "tok") == 1
+    failing = {("Needless2Say/r1", "KDF_APP_PRIVATE_KEY")}
+    calls.clear()
+    assert cmd_execute(fleet, "tok") == 1
+    assert not [call for call in calls if call[2] == "111"], "an old id was put back into a repo on the new pair"
+    assert "may hold half a pair" in capsys.readouterr().out
+
+
+def test_with_no_previous_id_a_split_pair_is_said_plainly(fleet, source_env, capsys, monkeypatch):
+    monkeypatch.delenv("KDF_APP_ID_PREVIOUS", raising = False)
+
+
+    def update(tok, owner_repo, name, value):
+        if name == "KDF_APP_PRIVATE_KEY":
+            raise RuntimeError("boom")
+
+
+    monkeypatch.setattr(das, "update_github_repo_secret", update)
+    assert cmd_execute(fleet, "tok", ["Needless2Say/r1"]) == 1
+    assert "may hold half a pair" in capsys.readouterr().out
+
+
+def test_the_writes_that_can_be_put_back_go_first(fleet, source_env, monkeypatch):
+    monkeypatch.setenv("KDF_APP_ID_PREVIOUS", "111")
+    calls = _recording(monkeypatch)
+    assert cmd_execute(list(reversed(fleet)), "tok", ["Needless2Say/r1"]) == 0
+    assert [name for _, name in calls] == ["KDF_APP_ID", "KDF_APP_PRIVATE_KEY"]
+
+
+def test_a_failed_write_stops_its_repo_and_leaves_cicds_own_pair_unwritten(fleet, source_env, capsys, monkeypatch):
+    # cicd's own pair is the bootstrap's authority, so it is written only once every other write succeeded, and a
+    # rerun of the bootstrap still has it (Codex's read of step 6)
+    calls: list[tuple[str, str]] = []
+
+
+    def update(tok, repo, name, value):
+        calls.append((repo, name))
+        if repo == "Needless2Say/r1" and name == "KDF_APP_ID":
+            raise RuntimeError("boom")
+
+
+    monkeypatch.setattr(das, "update_github_repo_secret", update)
+    assert cmd_execute(fleet, "tok") == 1
+    assert ("Needless2Say/r1", "KDF_APP_PRIVATE_KEY") not in calls, "half a pair is never written past a failure"
+    assert ("Needless2Say/r2", "KDF_APP_ID") in calls and ("Needless2Say/r2", "KDF_APP_PRIVATE_KEY") in calls
+    assert not [call for call in calls if call[0] == CICD]
+    assert "cicd's own pair is left as it is" in capsys.readouterr().out
+
+
+def test_the_selector_names_every_target_when_it_is_all(fleet):
+    assert das._select_repos(fleet, "all") == ["Needless2Say/r1", "Needless2Say/r2", CICD]
+    assert das._select_repos(fleet, "") == das._select_repos(fleet, "ALL")
+
+
+def test_the_mint_is_scoped_to_the_selected_repos(sample_registry, capsys):
+    assert cmd_targets(sample_registry, "r2") == 0
+    assert capsys.readouterr().out.strip() == "r2"
+    with pytest.raises(SystemExit, match = "not a distribution target"):
+        cmd_targets(sample_registry, "kriegerdataforge-context")
+
+
+def test_check_audits_the_selected_repo_alone(fleet, capsys, monkeypatch):
+    monkeypatch.setattr(
+        das,
+        "_SESSION",
+        _session_returning({"Needless2Say/r1": [{"name": "KDF_APP_ID", "updated_at": "t"}]}),
+    )
+    assert cmd_check(fleet, "tok", ["Needless2Say/r1"]) == 0
+    out = capsys.readouterr().out
+    assert "Needless2Say/r1:" in out and "Needless2Say/r2" not in out and CICD not in out
+
+
+def test_the_cli_passes_the_selector_to_execute(source_env, monkeypatch):
+    seen = {}
+    monkeypatch.setenv("GH_TOKEN", "tok")
+    monkeypatch.setattr(das, "cmd_execute", lambda entries, token, repos: seen.update(repos = repos) or 0)
+    with pytest.raises(SystemExit):
+        das.main(["execute", "--repos", "kriegerdataforge"])
+    assert seen["repos"] == ["Needless2Say/kriegerdataforge"]
 
 
 # ── the real registry (drift guards binding data <-> engine expectations) ────────
@@ -299,8 +561,8 @@ def test_real_registry_carries_both_app_secret_entries():
     id_targets  = {t["repo"] for t in by_name["KDF_APP_ID"]["github_repo_secrets"]}
     key_targets = {t["repo"] for t in by_name["KDF_APP_PRIVATE_KEY"]["github_repo_secrets"]}
     assert id_targets == key_targets
-    # the source repo must never be a target (it holds the originals)
-    assert "Needless2Say/kriegerdataforge-cicd" not in id_targets
+    # the source is the reader's pair in cicd's ops environment, so cicd's own repository pair is a target too
+    assert "Needless2Say/kriegerdataforge-cicd" in id_targets
     # every target writes the same-named secret (consumers read KDF_APP_ID/KDF_APP_PRIVATE_KEY)
     for entry in by_name.values():
         assert all(t["secret_name"] == entry["name"] for t in entry["github_repo_secrets"])
@@ -311,7 +573,8 @@ def test_real_registry_covers_the_epic_consumers():
     Wave 2.5 contract: the six E2E-journey repos + both package repos + the four
     templates hold App-credential copies (superset of ops-setup-e2e's allow-list). The SDK
     joined on 2026-09-30, its Merge Gate's consumer canary reads the hub and both tenant backends.
-    kriegerdataforge-context joined on 2026-10-04, its weekly ecosystem watch reads every repo (D-049).
+    kriegerdataforge-context joined on 2026-10-04 for its weekly ecosystem watch and left with the secrets fence, the
+    watch reading every repo on an App of its own, and cicd joined then, its own pair written from ops.
     """
     targets  = {t["repo"] for e in _distributable(_real_registry()) for t in e["github_repo_secrets"]}
     expected = {
@@ -328,7 +591,7 @@ def test_real_registry_covers_the_epic_consumers():
         "Needless2Say/kriegerdataforge-template-npm-package",
         "Needless2Say/kriegerdataforge-template-python-package",
         "Needless2Say/kriegerdataforge-sdk",
-        "Needless2Say/kriegerdataforge-context",
+        "Needless2Say/kriegerdataforge-cicd",
     }
     assert targets == expected
 

@@ -9,8 +9,10 @@ name: Ops · Set up E2E gate for a repo (issue-triggered)
 # What it writes to the TARGET repo:
 #   * variable RUN_E2E_GATE   = false  — the dormant on/off switch; flip to true when ready
 #   * variable USE_GITHUB_APP = true   — kept for parity with other App-token workflows
-#   * secret   KDF_APP_ID           ) copied from THIS repo — the e2e.yml job passes these to
-#   * secret   KDF_APP_PRIVATE_KEY  ) the run-e2e composite action, which mints its App token
+#   * secret   KDF_APP_ID           ) the read only App's pair, copied from KDF_READER_APP_ID and
+#   * secret   KDF_APP_PRIVATE_KEY  ) KDF_READER_APP_PRIVATE_KEY in cicd's ops environment, never the
+#                                     writing App's — the e2e.yml job passes these to the run-e2e
+#                                     composite action, which mints its read token
 #
 # PRE-ORG-MOVE STOPGAP: after an org move, KDF_APP_* become ORG secrets (visible to every repo
 # with no copy) and the secret-copy here is obsolete — remove the per-repo copies then.
@@ -23,8 +25,9 @@ name: Ops · Set up E2E gate for a repo (issue-triggered)
 #     (public) Actions log; the completion comment is metadata-only.
 #   * The untrusted issue body is read as awk DATA via an env var, never inlined into a shell string.
 #
-# PREREQUISITE (config, one-time): the KDF App must be granted repository **Secrets: write** and
-# **Variables: write** (App settings → Permissions), and be installed on the target repos.
+# PREREQUISITE (config, one-time): the writing App must be granted repository **Secrets: write** and
+# **Variables: write** (App settings → Permissions), and be installed on the target repos. Its pair, the
+# reader's pair and CICD_PAT live in ops alone, and every run waits for the owner's approval of ops.
 
 on:
   issues:
@@ -49,6 +52,7 @@ jobs:
       github.actor == github.repository_owner &&
       github.triggering_actor == github.repository_owner
     runs-on: ubuntu-slim
+    environment: ops
     permissions:
       contents: read
       issues: write
@@ -85,22 +89,54 @@ jobs:
 
           echo "repo=$REPO" >> "$GITHUB_OUTPUT"
 
-      # App token scoped to JUST the target repo. It needs to write that repo's
-      # Actions secrets AND variables — but create-github-app-token@v3.2.0 STILL has no
-      # `permission-variables` input (only `permission-secrets`), so a per-permission
-      # filter can't cover variables. We therefore omit the filter: the token
-      # inherits the App's GRANTED permissions (Secrets + Variables write — the
-      # one-time prerequisite), limited to the single target repo via `repositories:`.
-      # Auto-revoked at job end. Gated on USE_GITHUB_APP; falls back to CICD_PAT.
+      # The pair copied below is the read only App's, staged in ops apart from the writing App's, so it is checked
+      # before anything is written, an all digits id and a PEM private key, and a malformed pair never replaces the
+      # target's working one. Neither value is printed.
+      - name: Check the read only App's pair before anything is written
+        env:
+          KDF_APP_ID: ${{ secrets.KDF_READER_APP_ID }}
+          KDF_APP_PRIVATE_KEY: ${{ secrets.KDF_READER_APP_PRIVATE_KEY }}
+        run: |
+          case "$KDF_APP_ID" in
+            ''|*[!0-9]*) echo "::error::KDF_READER_APP_ID in ops is not an all digits App id, nothing was written."; exit 1 ;;
+          esac
+          # the whole value one PEM block, its labels alike and a base64 body of a real RSA key's length, so a header
+          # alone or a truncated key is refused
+          pem='^[[:space:]]*-----BEGIN ([A-Z ]*)PRIVATE KEY-----[[:space:]]+([A-Za-z0-9+/=[:space:]]+)-----END ([A-Z ]*)PRIVATE KEY-----[[:space:]]*$'
+          body=""
+          if [[ "$KDF_APP_PRIVATE_KEY" =~ $pem ]] && [ "${BASH_REMATCH[1]}" = "${BASH_REMATCH[3]}" ]; then
+            body="${BASH_REMATCH[2]//[[:space:]]/}"
+          fi
+          # the body one DER sequence whose declared length is the bytes present, so a key with lines removed fails
+          der="$(printf '%s' "$body" | base64 -d 2>/dev/null | od -An -v -tx1 | tr -d ' \n')"
+          declared=-1
+          case "$der" in
+            3082*) declared=$(( 16#${der:4:4} + 4 )) ;;
+            3081*) declared=$(( 16#${der:4:2} + 3 )) ;;
+          esac
+          if [ "${#body}" -lt 512 ] || [ "$declared" -ne $(( ${#der} / 2 )) ]; then
+            echo "::error::KDF_READER_APP_PRIVATE_KEY in ops is not a whole PEM private key, nothing was written."
+            exit 1
+          fi
+          echo "The read only App's pair is an App id and a whole PEM private key."
+
+      # App token from the writing App, scoped to JUST the target repo, asking for exactly the two
+      # grants the steps below use, that repo's Actions secrets AND variables write, never the App's
+      # whole set. create-github-app-token@v3.2.0 declares no `permission-variables` input, but its
+      # lib/get-permissions-from-inputs.js reads every `permission-*` input it is given, and the runner
+      # passes an undeclared `with:` key on as one (with a warning). Auto-revoked at job end. Gated on
+      # USE_GITHUB_APP; falls back to CICD_PAT.
       - name: Mint GitHub App token (secrets + variables write on the target)
         id: app-token
         if: vars.USE_GITHUB_APP == 'true'
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0  # zizmor: ignore[github-app] the action has no input for repository variables
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          client-id: ${{ secrets.KDF_APP_ID }}
-          private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
+          client-id: ${{ secrets.KDF_WRITER_APP_ID }}
+          private-key: ${{ secrets.KDF_WRITER_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ steps.fields.outputs.repo }}
+          permission-secrets: write
+          permission-variables: write
 
       - name: Set repo variables (gate OFF; App path armed)
         env:
@@ -114,10 +150,10 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
           TARGET: Needless2Say/${{ steps.fields.outputs.repo }}
-          # Read from THIS repo's secrets (masked in logs); `gh` encrypts them against the target's
+          # The read only App's pair, from ops (masked in logs); `gh` encrypts them against the target's
           # public key. Passed via stdin so the multi-line PEM is preserved and never argv-visible.
-          KDF_APP_ID: ${{ secrets.KDF_APP_ID }}
-          KDF_APP_PRIVATE_KEY: ${{ secrets.KDF_APP_PRIVATE_KEY }}
+          KDF_APP_ID: ${{ secrets.KDF_READER_APP_ID }}
+          KDF_APP_PRIVATE_KEY: ${{ secrets.KDF_READER_APP_PRIVATE_KEY }}
         run: |
           printf '%s' "$KDF_APP_ID"          | gh secret set KDF_APP_ID          --repo "$TARGET"
           printf '%s' "$KDF_APP_PRIVATE_KEY" | gh secret set KDF_APP_PRIVATE_KEY --repo "$TARGET"

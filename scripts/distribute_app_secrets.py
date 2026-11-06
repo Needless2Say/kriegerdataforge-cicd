@@ -1,9 +1,11 @@
 """
 GitHub App credential distribution engine (`ops:distribute-app-secrets`).
 
-Copies the cicd-held KDF GitHub App credentials — the repository secrets KDF_APP_ID and
-KDF_APP_PRIVATE_KEY — to every consumer repo listed in scripts/secret_registry.json
-(the entries carrying `distribute_source_env`). Consumer repos need their own copies
+Copies the read only GitHub App's credentials, held in cicd's ops environment as KDF_READER_APP_ID and
+KDF_READER_APP_PRIVATE_KEY, to the repository secrets KDF_APP_ID and KDF_APP_PRIVATE_KEY of every consumer repo
+listed in scripts/secret_registry.json (the entries carrying `distribute_source_env`), cicd's own among them and
+written last. A run may select repos (--repos), each checked against the registry, and the ops workflow scopes its
+mint to the same selection. Each repo gets both values before the next. Consumer repos need their own copies
 because personal-account repos cannot share secrets (no org secrets until the org move):
 the copies power the E2E gate's App-token mint (run-e2e composite action) and the
 ci-python-* (and, from epic Wave 3, ci-nextjs-*) private-package install tokens.
@@ -32,8 +34,8 @@ Modes
 Environment variables
   GH_TOKEN               token with secrets:read (check) / secrets:write (execute) on
                          every target — the App installation token, or CICD_PAT fallback
-  KDF_APP_ID             source value [execute] — from this repo's same-named secret
-  KDF_APP_PRIVATE_KEY    source value [execute] — from this repo's same-named secret
+  KDF_APP_ID             source value [execute] — from KDF_READER_APP_ID in cicd's ops environment
+  KDF_APP_PRIVATE_KEY    source value [execute] — from KDF_READER_APP_PRIVATE_KEY in cicd's ops environment
 
 SECURITY: source values arrive only via env, flow only into the libsodium sealed box
 (rotate_secret.update_github_repo_secret), and are never printed — output is secret
@@ -45,8 +47,10 @@ from __future__ import annotations
 
 # standard imports
 import argparse
+import base64
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -58,6 +62,16 @@ from common.http import build_session
 from rotate_secret import GITHUB_API, _github_headers, update_github_repo_secret
 
 REGISTRY_FILE = Path(__file__).parent / "secret_registry.json"
+CICD          = "Needless2Say/kriegerdataforge-cicd"
+# the environment variable beside a source that holds the value cicd held before the run, where it is known
+PREVIOUS_SUFFIX = "_PREVIOUS"
+# one PEM private key block, and the shortest body a GitHub App's RSA key has, 2048 bits being about 1600 characters
+PEM_BLOCK    = re.compile(
+    r"-----BEGIN (?P<label>[A-Z ]*)PRIVATE KEY-----\s+"
+    r"(?P<body>[A-Za-z0-9+/=\s]+?)\s*"
+    r"-----END (?P=label)PRIVATE KEY-----"
+)
+PEM_BODY_MIN = 512
 
 _SESSION = build_session()
 
@@ -78,8 +92,40 @@ def _looks_valid(value: str, fmt: str) -> bool:
     if fmt == "numeric":
         return value.isdigit()
     if fmt == "pem":
-        return "-----BEGIN" in value and "PRIVATE KEY-----" in value
+        # the whole value one PEM block, its BEGIN and END labels alike, a base64 body of a real key's length, and that
+        # body one DER sequence whose declared length is the bytes present, so a header alone or a key with lines
+        # removed never replaces a working one
+        block = PEM_BLOCK.fullmatch(value.strip())
+        if not block:
+            return False
+        body = re.sub(r"\s", "", block.group("body"))
+        if len(body) < PEM_BODY_MIN:
+            return False
+        try:
+            return _der_whole(base64.b64decode(body, validate = True))
+        except ValueError:
+            return False
     return True
+
+
+def _der_whole(der: bytes) -> bool:
+    """
+    Whether the bytes are one whole DER sequence, its declared length the bytes that follow its header.
+
+    Args:
+        der: The decoded body of a PEM block
+
+    Returns:
+        True when the sequence's length field names exactly the bytes present
+    """
+    if len(der) < 2 or der[0] != 0x30:
+        return False
+    if der[1] < 0x80:
+        return 2 + der[1] == len(der)
+    width = der[1] & 0x7F
+    if not 1 <= width <= 4 or len(der) < 2 + width:
+        return False
+    return 2 + width + int.from_bytes(der[2:2 + width], "big") == len(der)
 
 # ======================================================================================================================
 # Registry + selection
@@ -128,6 +174,42 @@ def _target_repos(entries: list[dict]) -> list[str]:
     """
     return sorted({t["repo"] for e in entries for t in e.get("github_repo_secrets", [])})
 
+
+def _select_repos(entries: list[dict], raw: str) -> list[str]:
+    """
+    The repos a run writes, checked against the registry, in the order they are written.
+
+    Empty or 'all' names every target. Otherwise each comma separated name, short or `owner/repo`, must be a target
+    of the entries, else the run stops before any mint or write. cicd's own pair comes last, since writing it ends the
+    bootstrap's authority (the secrets fence).
+
+    Args:
+        entries: The distributable entries
+        raw: The selector as the issue form or the command line gave it
+
+    Returns:
+        The selected `owner/repo` names, every other repo sorted and cicd last
+    """
+    targets  = _target_repos(entries)
+    by_name  = {repo.lower(): repo for repo in targets}
+    by_short = {repo.split("/", 1)[1].lower(): repo for repo in targets}
+    stripped = (raw or "").strip().lower()
+    if stripped in ("", "all"):
+        chosen = targets
+    else:
+        chosen = []
+        for part in (piece.strip() for piece in stripped.split(",")):
+            if not part:
+                continue
+            repo = by_name.get(part) or by_short.get(part)
+            if repo is None:
+                sys.exit(f"Error: '{part}' is not a distribution target in the registry. Nothing was written.")
+            chosen.append(repo)
+        if not chosen:
+            # an empty repositories list would mint a token over the App's whole installation
+            sys.exit("Error: the selection names no repo. Name the repos, or ALL. Nothing was minted or written.")
+    return sorted(set(chosen), key = lambda repo: (repo.lower() == CICD.lower(), repo))
+
 # ======================================================================================================================
 # GitHub read helper (check mode)
 # ======================================================================================================================
@@ -153,15 +235,23 @@ def list_repo_secret_meta(gh_token: str, owner_repo: str) -> dict[str, str]:
 # Mode: check
 # ======================================================================================================================
 
-def cmd_check(entries: list[dict], gh_token: str) -> int:
+def cmd_check(entries: list[dict], gh_token: str, repos: list[str] | None = None) -> int:
     """
     Audit which targets hold / lack each distributable secret. Read-only.
 
     Prints a machine-greppable `MISSING: <n>` line for the ops workflow's summary.
+
+    Args:
+        entries: The distributable entries to audit
+        gh_token: A token that reads the targets' secret names
+        repos: The selected targets, every target when None
+
+    Returns:
+        0 when the audit completed, 1 when a repo could not be audited
     """
     if not gh_token:
         sys.exit("Error: GH_TOKEN not set.")
-    repos = _target_repos(entries)
+    repos = repos if repos is not None else _select_repos(entries, "all")
     names = [e["name"] for e in entries]
     print(f"Auditing {len(repos)} target repo(s) for {len(names)} distributable " f"secret(s): {', '.join(names)}\n")
     errors: list[str] = []
@@ -200,9 +290,24 @@ def cmd_check(entries: list[dict], gh_token: str) -> int:
 # Mode: execute
 # ======================================================================================================================
 
-def cmd_execute(entries: list[dict], gh_token: str) -> int:
+def cmd_execute(entries: list[dict], gh_token: str, repos: list[str] | None = None) -> int:
+    """
+    Write every source value to the selected repos, both values to a repo before the next and cicd's own pair last.
+
+    A repo left with one half of the pair would mint from a mismatched id and key, so each repo is written whole
+    before the run moves on, and a failure leaves at most the one repo it struck half written.
+
+    Args:
+        entries: The distributable entries to write
+        gh_token: A token that writes the targets' secrets
+        repos: The selected targets in the order to write them, every target with cicd last when None
+
+    Returns:
+        0 when every write succeeded, else 1
+    """
     if not gh_token:
         sys.exit("Error: GH_TOKEN not set.")
+    repos = repos if repos is not None else _select_repos(entries, "all")
     # Resolve + sanity-check EVERY source value before the first write, so a missing or
     # mis-wired env var can never half-distribute the pair.
     values: dict[str, str] = {}
@@ -211,8 +316,8 @@ def cmd_execute(entries: list[dict], gh_token: str) -> int:
         value    = os.environ.get(env_name, "")
         if not value:
             sys.exit(
-                f"Error: {env_name} is not set — the ops workflow passes it from this "
-                "repo's same-named secret (execute mode only). Nothing was written."
+                f"Error: {env_name} is not set — the ops workflow passes it from the reader's pair in "
+                "cicd's ops environment (execute mode only). Nothing was written."
             )
         fmt = entry.get("value_format", "")
         if fmt and not _looks_valid(value, fmt):
@@ -222,19 +327,29 @@ def cmd_execute(entries: list[dict], gh_token: str) -> int:
             )
         values[entry["name"]] = value
 
-    errors: list[str] = []
+    # each value cicd held before, where known, so cicd's own pair, written last and the bootstrap's authority, gets
+    # its whole old pair back when a write fails, the workflow passing cicd's repository pair this run holds itself,
+    # and no other repo's is known, since a retry finds some repos already on the new pair, so none of theirs is
+    # put back
+    previous: dict[str, str] = {}
     for entry in entries:
-        targets = entry.get("github_repo_secrets", [])
-        print(f"Distributing {entry['name']} to {len(targets)} repo(s):")
-        for t in targets:
-            label = f"{t['repo']} [repo] {t['secret_name']}"
-            print(f"  {label}", end = " ... ", flush = True)
-            try:
-                update_github_repo_secret(gh_token, t["repo"], t["secret_name"], values[entry["name"]])
-                print("OK")
-            except Exception as exc:  # noqa: BLE001
-                print(f"FAILED - {exc}")
-                errors.append(f"{label}: {exc}")
+        before = os.environ.get(f"{entry['distribute_source_env']}{PREVIOUS_SUFFIX}", "")
+        fmt    = entry.get("value_format", "")
+        if before and (not fmt or _looks_valid(before, fmt)):
+            previous[entry["name"]] = before
+    # the writes that can be put back go first
+    entries = sorted(entries, key = lambda entry: entry["name"] not in previous)
+
+    errors: list[str] = []
+    print(f"Distributing {', '.join(entry['name'] for entry in entries)} to {len(repos)} repo(s):")
+    for owner_repo in repos:
+        if owner_repo == CICD and errors:
+            # cicd's own pair is what a rerun mints from, the bootstrap's authority, so it is replaced only once every
+            # other write succeeded
+            print(f"{owner_repo}: skipped, another write failed, so cicd's own pair is left as it is for a rerun")
+            continue
+        print(f"{owner_repo}:")
+        _write_repo(owner_repo, entries, values, gh_token, errors, previous if owner_repo == CICD else {})
     print()
     if errors:
         print(f"{len(errors)} target(s) failed (PUT is idempotent — fix and re-run to converge):")
@@ -244,20 +359,111 @@ def cmd_execute(entries: list[dict], gh_token: str) -> int:
     print("All targets updated successfully.")
     return 0
 
+
+def _write_repo(
+    owner_repo: str,
+    entries: list[dict],
+    values: dict[str, str],
+    gh_token: str,
+    errors: list[str],
+    previous: dict[str, str] | None = None,
+) -> None:
+    """
+    Write each value one repo holds, in the entries' order, and stop at the first failure.
+
+    A failed write may still have been taken, its answer lost, so after any failure no repo is said to hold its old
+    pair unless it was put back whole. cicd's own pair, the bootstrap's authority, is put back whole from its previous
+    pair, the failed value included, with the token already minted, never the damaged pair. Another repo is said to
+    hold half a pair, which a rerun writes again.
+
+    Args:
+        owner_repo: The repo, owner/name
+        entries: The distributable entries, those whose previous value is known first
+        values: Each entry's source value by its name
+        gh_token: A token that writes the repo's secrets
+        errors: The run's failures, added to
+        previous: Each entry's previous value by its name, where known, cicd's alone
+    """
+    for entry in entries:
+        for target in entry.get("github_repo_secrets", []):
+            if target["repo"] != owner_repo:
+                continue
+            label = f"{owner_repo} [repo] {target['secret_name']}"
+            print(f"  {target['secret_name']}", end = " ... ", flush = True)
+            try:
+                update_github_repo_secret(gh_token, owner_repo, target["secret_name"], values[entry["name"]])
+                print("OK")
+            except Exception as exc:  # noqa: BLE001
+                print(f"FAILED - {exc}")
+                errors.append(f"{label}: {exc}")
+                if owner_repo == CICD:
+                    _restore_cicd(entries, previous or {}, gh_token, errors)
+                else:
+                    print(f"  {owner_repo} may hold half a pair, a write that failed may still have been taken. "
+                          "A rerun once the cause is fixed writes both values again.")
+                return
+
+
+def _restore_cicd(entries: list[dict], previous: dict[str, str], gh_token: str, errors: list[str]) -> None:
+    """
+    Put cicd's whole previous pair back after a failed write, so a bootstrap rerun still mints from it.
+
+    Every value is written back, the one whose write failed included, since it may have been taken with its answer
+    lost. With either previous value unknown nothing is put back, since an old id beside a key that may be new mints
+    nothing, and the pair is said to be uncertain with the way to recover by hand.
+
+    Args:
+        entries: The distributable entries
+        previous: Each entry's previous value by its name, cicd's own
+        gh_token: A token that writes cicd's secrets
+        errors: The run's failures, added to
+    """
+    targets = [
+        (entry, target["secret_name"])
+        for entry in entries
+        for target in entry.get("github_repo_secrets", [])
+        if target["repo"] == CICD
+    ]
+    recover = (
+        f"  {CICD}'s pair is uncertain, so a bootstrap rerun may not mint. Make a new key in the writing App's "
+        f"settings and set {CICD}'s KDF_APP_ID and KDF_APP_PRIVATE_KEY from a prompt, then rerun."
+    )
+    if any(entry["name"] not in previous for entry, _ in targets):
+        print(recover)
+        errors.append(f"{CICD}: its pair is uncertain, its previous pair not known whole")
+        return
+    for entry, secret_name in targets:
+        print(f"  {secret_name} put back to its previous value", end = " ... ", flush = True)
+        try:
+            update_github_repo_secret(gh_token, CICD, secret_name, previous[entry["name"]])
+            print("OK")
+        except Exception as exc:  # noqa: BLE001
+            print(f"FAILED - {exc}")
+            print(recover)
+            errors.append(f"{CICD} [repo] {secret_name}: the put back failed, {exc}")
+            return
+    print(f"  {CICD} holds its previous pair again")
+
 # ======================================================================================================================
 # Mode: targets
 # ======================================================================================================================
 
-def cmd_targets(registry: dict) -> int:
+def cmd_targets(registry: dict, raw: str = "all") -> int:
     """
-    Print the comma-separated SHORT names of every distribution target.
+    Print the comma-separated SHORT names of the selected distribution targets.
 
-    Always the union over ALL distributable entries (ignores --secrets): the ops
-    workflow scopes its App token once, before knowing which secrets a run touches.
-    `actions/create-github-app-token`'s `repositories:` input takes bare repo names —
-    every target shares the one account owner.
+    The union over ALL distributable entries (ignores --secrets), narrowed by the --repos selector, so the ops
+    workflow scopes its App token to exactly the repos the run writes. `actions/create-github-app-token`'s
+    `repositories:` input takes bare repo names — every target shares the one account owner.
+
+    Args:
+        registry: The loaded registry
+        raw: The --repos selector
+
+    Returns:
+        0, once the names are printed
     """
-    repos = _target_repos(_distributable(registry))
+    repos = _select_repos(_distributable(registry), raw)
     print(",".join(r.split("/", 1)[1] for r in repos))
     return 0
 
@@ -278,6 +484,11 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         default = "all",
         help = 'Comma-separated distributable secret names, or "all" (targets mode ignores this).',
     )
+    parser.add_argument(
+        "--repos",
+        default = "all",
+        help = 'Comma-separated target repos, short or owner/repo, each checked against the registry, or "all".',
+    )
     return parser.parse_args(argv)
 
 
@@ -285,12 +496,13 @@ def main(argv: list[str] | None = None) -> None:
     args     = parse_cli_args(argv)
     registry = _load_registry()
     if args.mode == "targets":
-        sys.exit(cmd_targets(registry))
+        sys.exit(cmd_targets(registry, args.repos))
     entries  = _select_entries(registry, args.secrets)
+    repos    = _select_repos(_distributable(registry), args.repos)
     gh_token = os.environ.get("GH_TOKEN", "").strip()
     if args.mode == "check":
-        sys.exit(cmd_check(entries, gh_token))
-    sys.exit(cmd_execute(entries, gh_token))
+        sys.exit(cmd_check(entries, gh_token, repos))
+    sys.exit(cmd_execute(entries, gh_token, repos))
 
 
 if __name__ == "__main__":

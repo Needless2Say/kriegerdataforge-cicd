@@ -39,12 +39,11 @@ jobs:
       - name: Install dependencies
         run: pip install -r scripts/requirements.txt
 
-      # Short-lived App installation token (contents:read on the two private
-      # frontend repos — the account-wide install covers them). Gated on
-      # USE_GITHUB_APP, falls back to CICD_PAT (same posture as distribute-kit).
+      # Short-lived token from the read only App (contents:read on the two private frontend repos, both
+      # among the repos it is installed on). It has no fallback, since CICD_PAT can write and lives in
+      # ops alone (the secrets fence), so a run with no App token fails rather than reaching a writer.
       - name: Mint GitHub App token
         id: app-token
-        if: vars.USE_GITHUB_APP == 'true'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           client-id: ${{ secrets.KDF_APP_ID }}
@@ -57,7 +56,7 @@ jobs:
       - name: Compare pairs
         id: drift
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set +e
           python scripts/check_oidc_drift.py | tee drift.out

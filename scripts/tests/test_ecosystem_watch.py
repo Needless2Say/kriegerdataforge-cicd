@@ -614,6 +614,33 @@ def test_a_clean_snapshot_is_clear_and_an_unreadable_one_is_not(registries: None
     assert state == "open"
 
 
+def test_the_kit_checks_drift_opens_the_issue_and_is_news_when_it_changes(registries: None) -> None:
+    # the weekly kit check moved into the watch with the secrets fence, on the watch App's read token
+    snapshot = ew.collect(FakeTransport(base_table()), workers = 1)
+    drift    = "  repo-a: DRIFT (1): skills.md\n\nDrift detected. Run 'distribute' to open sync PRs.\n"
+    body, news, state = ew.render(snapshot, "previous body", kit_check = drift)
+    assert state == "open"
+    assert "### The kit check" in body and "repo-a: DRIFT (1): skills.md" in body
+    assert news.startswith("New since the last run:") and "kit check" in news
+    _, again, _ = ew.render(snapshot, body, kit_check = drift)
+    assert again == "", "the same drift twice is no news"
+    _, changed, _ = ew.render(snapshot, body, kit_check = drift.replace("skills.md", "WORKFLOW.md"))
+    assert "kit check" in changed
+
+
+def test_a_clean_kit_check_leaves_a_clean_snapshot_clear(registries: None) -> None:
+    snapshot = ew.collect(FakeTransport(base_table()), workers = 1)
+    body, _, state = ew.render(snapshot, "previous body", kit_check = "")
+    assert state == "clear" and "### The kit check" not in body
+
+
+def test_the_kit_check_cannot_break_out_of_its_block(registries: None) -> None:
+    snapshot = ew.collect(FakeTransport(base_table()), workers = 1)
+    body, _, _ = ew.render(snapshot, kit_check = "  repo-a: DRIFT (1): ```\n## injected\n")
+    block = body.split("### The kit check", 1)[1].split("```", 2)[1]
+    assert "## injected" in block, "the output stays inside its fence"
+
+
 def test_render_caps_the_alert_list_and_the_body_size(registries: None) -> None:
     table = base_table()
     table[f"/repos/{A}/dependabot/alerts"] = ok([alert(n, "low", f"pkg{n}") for n in range(1, 41)])

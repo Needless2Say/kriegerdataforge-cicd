@@ -1,4 +1,19 @@
 {
-  "about": "Each repo's time its tag ruleset, blocking a v* tag's update and deletion, was read back, an ISO 8601 time with its zone. With an expected commit, check_prod_gate.py counts a PROD Gate run only when it began after it. A repo with no time keeps the gate's older rule.",
-  "dates": {}
+  "about": "Each repo's time its tag ruleset, blocking a v* tag's update and deletion, and its branch ruleset, refusing a branch named v and a digit, were read back, an ISO 8601 time with its zone. With an expected commit, check_prod_gate.py counts a PROD Gate run only when it was created after it. A repo with no time keeps the gate's older rule. Set and read back by the secrets fence's step 4, 2026-11-06.",
+  "dates": {
+    "Needless2Say/fitness-app-backend": "2026-11-06T14:15:40+00:00",
+    "Needless2Say/fitness-app-frontend": "2026-11-06T14:15:44+00:00",
+    "Needless2Say/kriegerdataforge": "2026-11-06T14:15:47+00:00",
+    "Needless2Say/kriegerdataforge-auth-ui": "2026-11-06T14:15:50+00:00",
+    "Needless2Say/kriegerdataforge-terraform": "2026-11-06T14:15:54+00:00",
+    "Needless2Say/tiffanys-space": "2026-11-06T14:15:57+00:00",
+    "Needless2Say/tiffanys-space-backend": "2026-11-06T14:15:59+00:00",
+    "Needless2Say/kriegerdataforge-fmt": "2026-11-06T14:16:02+00:00",
+    "Needless2Say/kriegerdataforge-report-form": "2026-11-06T14:16:06+00:00",
+    "Needless2Say/kriegerdataforge-reports-sdk": "2026-11-06T14:16:10+00:00",
+    "Needless2Say/kriegerdataforge-sdk": "2026-11-06T14:16:14+00:00",
+    "Needless2Say/kriegerdataforge-template-npm-package": "2026-11-06T14:16:17+00:00",
+    "Needless2Say/kriegerdataforge-template-fastapi": "2026-11-06T14:16:19+00:00",
+    "Needless2Say/kriegerdataforge-cicd": "2026-11-06T14:16:24+00:00"
+  }
 }

@@ -43,7 +43,6 @@ import argparse
 import base64
 import json
 import os
-import re
 import secrets as _secrets
 import sys
 from datetime import datetime, timedelta, timezone
@@ -68,6 +67,14 @@ TOKEN_EXPIRY_DAYS = 45
 
 # a registry entry's `check.live` names where its real expiry is read, with the secret itself (D-049)
 LIVE_SOURCES = {"github": "GitHub", "vercel-current": "Vercel", "vercel-named": "Vercel"}
+
+# a token marked `check.recorded` lives in ops, so the ops run keeps its expiry as the cicd repository variable
+# EXPIRY_<NAME> and the weekly monitor reads that fact (the secrets fence)
+RECORDED_PREFIX = "EXPIRY_"
+FACT_STATUSES   = ("ok", "rejected", "no-expiry", "no-token", "error")
+
+# the throwaway token the prove-master mode mints with the master token and deletes at once
+PROVE_MASTER_TOKEN_NAME = "kdf-prove-master-throwaway"
 
 # Shared HTTP session with retry/backoff so a transient GitHub/Vercel 5xx / 429 / DNS blip doesn't
 # strand a secret half-written across the fan-out. Config + rationale live in common/http.py (the
@@ -554,6 +561,8 @@ def _check_one(entry: dict, live: bool = False) -> tuple[int, str | None]:
     if not chk:
         print(f"  {name}: no expiry tracked (nothing to check).")
         return 0, None
+    if chk.get("recorded"):
+        return _check_recorded(entry), None
     expiry_raw = chk.get("expiry", "")
     warn_days  = chk.get("warn_days_before_expiry", 14)
     drift      = None
@@ -615,69 +624,156 @@ def cmd_check(entries: list[dict], live: bool = False) -> int:
 # Mode: record-expiry
 # ======================================================================================================================
 
-def set_registry_expiry(text: str, secret_name: str, new_expiry: str) -> tuple[str, str | None]:
+def set_repo_variable(gh_token: str, owner_repo: str, name: str, value: str) -> None:
     """
-    Replace one secret's ``check.expiry`` value in the raw registry JSON *text*.
+    Update a repository Actions variable, or create it when it does not exist yet.
 
-    The edit is SCOPED to ``secret_name``'s entry (bounded by the next entry's ``"name":`` key) so
-    a string replacement can't bleed into another secret that happens to share the same expiry date.
-    The raw text is edited in place — rather than ``json.dump`` of the parsed dict — to preserve the
-    registry's hand-aligned formatting, keeping the auto-generated PR's diff to a single line.
+    Args:
+        gh_token: A token that writes the repo's variables
+        owner_repo: The repo, owner/name
+        name: The variable's name
+        value: Its value, never a secret
 
-    Returns ``(new_text, old_expiry)``; ``old_expiry`` is ``None`` (text unchanged) when the secret
-    or its ``expiry`` field isn't found.
+    Raises:
+        RuntimeError: When GitHub refuses the write
     """
-    marker = f'"name": "{secret_name}"'
-    start  = text.find(marker)
-    if start == -1:
-        return text, None
-    nxt     = text.find('"name":', start + len(marker))
-    end     = nxt if nxt != -1 else len(text)
-    segment = text[start:end]
-    m       = re.search(r'("expiry":\s*")([^"]*)(")', segment)
-    if not m:
-        return text, None
-    old         = m.group(2)
-    new_segment = segment[: m.start()] + m.group(1) + new_expiry + m.group(3) + segment[m.end():]
-    return text[:start] + new_segment + text[end:], old
+    base = f"{GITHUB_API}/repos/{owner_repo}/actions/variables"
+    body = {"name": name, "value": value}
+    resp = _SESSION.patch(f"{base}/{name}", headers = _github_headers(gh_token), json = body, timeout = 30)
+    if resp.status_code == 404:
+        resp = _SESSION.post(base, headers = _github_headers(gh_token), json = body, timeout = 30)
+    if not resp.ok:
+        raise RuntimeError(f"GitHub answered HTTP {resp.status_code} to the write of {name}")
 
 
-def cmd_record_expiry(entries: list[dict], days: int = TOKEN_EXPIRY_DAYS, today: datetime | None = None) -> int:
+def _status_word(status: str) -> str:
     """
-    Write ``check.expiry = today + days`` into the registry for the given auto-minted Vercel
-    token entries. Run by the rotation workflow right after a successful mint so the expiry the
-    monitor sees matches the freshly issued token. Prints ``REGISTRY_UPDATED: true|false`` for the
-    workflow to decide whether to open a PR.
+    The one word a recorded fact keeps of a live read's status, `ok`, `rejected`, `no-expiry`, `no-token` or `error`.
+
+    Args:
+        status: The status `live_expiry` returned
     """
-    today      = today or datetime.now(timezone.utc)
-    new_expiry = (today + timedelta(days = days)).strftime("%Y-%m-%d")
-    text       = REGISTRY_FILE.read_text(encoding = "utf-8")
-    print(f"Recording expiry {new_expiry} (today + {days}d) for {len(entries)} selected secret(s):")
-    changed = False
-    for entry in entries:
-        name = entry["name"]
-        # Only auto-minted Vercel tokens have the 45-day lifetime this computes; PATs / manual
-        # tokens carry their own hand-set expiry and must never be stamped with today+45.
-        if entry.get("generator") != "vercel_token":
-            print(f"  {name}: not an auto-minted Vercel token — skipped.")
-            continue
-        if not entry.get("check"):
-            print(f"  {name}: no check block in the registry — skipped (nothing to update).")
-            continue
-        new_text, old = set_registry_expiry(text, name, new_expiry)
-        if old is None:
-            print(f"  {name}: WARNING — could not locate an expiry field to update.")
-            continue
-        if old == new_expiry:
-            print(f"  {name}: expiry already {new_expiry} — no change.")
-            continue
-        text    = new_text
-        changed = True
-        print(f"  {name}: expiry {old} -> {new_expiry}")
-    if changed:
-        REGISTRY_FILE.write_text(text, encoding = "utf-8")
-    print()
-    print(f"REGISTRY_UPDATED: {'true' if changed else 'false'}")
+    for prefix, word in (("ok", "ok"), ("rejected", "rejected"), ("no expiry", "no-expiry"), ("no token", "no-token")):
+        if status.startswith(prefix):
+            return word
+    return "error"
+
+
+def cmd_record_expiry(
+    entries: list[dict],
+    gh_token: str,
+    repo: str,
+    environ: dict[str, str] | None = None,
+    now: datetime | None = None,
+) -> int:
+    """
+    Read each recorded token's expiry live and keep it as a cicd repository variable, nothing secret.
+
+    The ops run holds CICD_PAT, the master token and the master's view of the deployment token, which the weekly
+    monitor outside ops does not, so it records each one's expiry as `EXPIRY_<NAME>`, `expires=<date or none>
+    status=<word> recorded=<UTC time>`, for the monitor to read (the secrets fence, design 5.5 item 9).
+
+    Args:
+        entries: The selected registry entries, those marked `check.recorded` recorded and the rest skipped
+        gh_token: A token that writes cicd's variables
+        repo: The repo holding the variables, owner/name
+        environ: Where each token is read, this process's environment when None
+        now: The time recorded, the clock's when None
+
+    Returns:
+        0 when every fact was written, else 1
+    """
+    if not gh_token or not repo:
+        sys.exit("Error: GH_TOKEN and GITHUB_REPOSITORY are needed to record the expiry facts.")
+    stamp    = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    recorded = [entry for entry in entries if (entry.get("check") or {}).get("recorded")]
+    print(f"Recording the expiry of {len(recorded)} token(s): {', '.join(entry['name'] for entry in recorded)}")
+    failed = 0
+    for entry in recorded:
+        date, status = live_expiry(entry, environ)
+        value = f"expires={date or 'none'} status={_status_word(status)} recorded={stamp}"
+        try:
+            set_repo_variable(gh_token, repo, f"{RECORDED_PREFIX}{entry['name']}", value)
+            print(f"  {RECORDED_PREFIX}{entry['name']}: {value}")
+        except Exception as exc:  # noqa: BLE001, the type alone, an exception's text could carry a request's details
+            print(f"  {RECORDED_PREFIX}{entry['name']}: FAILED, {type(exc).__name__}")
+            failed += 1
+    return 1 if failed else 0
+
+
+def _read_fact(raw: str) -> dict[str, str] | None:
+    """
+    A recorded expiry fact read whole, or None when any part of it is not as `cmd_record_expiry` writes it.
+
+    Exactly `expires`, `status` and `recorded`, each once, a known status, the recording time a UTC time, and a date
+    when the status is `ok` or `none` otherwise, so no malformed, repeated or inconsistent fact reads as healthy.
+
+    Args:
+        raw: The variable's value
+
+    Returns:
+        The three fields, or None
+    """
+    fact: dict[str, str] = {}
+    for part in raw.split():
+        key, sep, value = part.partition("=")
+        if not sep or not value or key in fact or key not in ("expires", "status", "recorded"):
+            return None
+        fact[key] = value
+    if len(fact) != 3 or fact["status"] not in FACT_STATUSES:
+        return None
+    try:
+        datetime.strptime(fact["recorded"], "%Y-%m-%dT%H:%M:%SZ")
+        if fact["status"] == "ok":
+            datetime.strptime(fact["expires"], "%Y-%m-%d")
+        elif fact["expires"] != "none":
+            return None
+    except ValueError:
+        return None
+    return fact
+
+
+def _check_recorded(entry: dict, environ: dict[str, str] | None = None) -> int:
+    """
+    The weekly check of a token whose expiry the ops run records, read from that fact and never the registry's date.
+
+    Args:
+        entry: The secret's registry entry, marked `check.recorded`
+        environ: Where the fact is read, this process's environment when None
+
+    Returns:
+        0 when the fact is healthy, 1 when it is missing, unreadable, rejected or near its expiry
+    """
+    env  = os.environ if environ is None else environ
+    name = entry["name"]
+    raw  = env.get(f"{RECORDED_PREFIX}{name}", "").strip()
+    if not raw:
+        print(f"  {name}: no recorded expiry yet. Dispatch Rotate Vercel Deployment Token with mode record-expiry.")
+        return 1
+    fact = _read_fact(raw)
+    if fact is None:
+        print(f"  {name}: ERROR — the recorded fact {RECORDED_PREFIX}{name} is one the check cannot read.")
+        return 1
+    when = f"recorded {fact['recorded']}"
+    if fact["status"] == "rejected":
+        print(f"  {name}: REJECTED by its provider when {when}, it is expired or revoked. Rotate now.")
+        return 1
+    if fact["status"] == "no-expiry":
+        print(f"  {name}: OK — its provider reported no expiry ({when}).")
+        return 0
+    if fact["status"] != "ok":
+        print(f"  {name}: ERROR — no date was read when {when}, the read said {fact['status']}.")
+        return 1
+    expiry    = datetime.strptime(fact["expires"], "%Y-%m-%d").replace(tzinfo = timezone.utc)
+    warn_days = (entry.get("check") or {}).get("warn_days_before_expiry", 14)
+    days      = (expiry - datetime.now(timezone.utc)).days
+    if days < 0:
+        print(f"  {name}: EXPIRED {(-days)} day(s) ago ({fact['expires']}, {when}). Rotate now.")
+        return 1
+    if days <= warn_days:
+        print(f"  {name}: WARNING — expires in {days} day(s) ({fact['expires']}, {when}, threshold {warn_days}).")
+        return 1
+    print(f"  {name}: OK — valid for {days} more day(s) (expires {fact['expires']}, {when}).")
     return 0
 
 # ======================================================================================================================
@@ -920,8 +1016,33 @@ def _actionable_vercel(targets: list[dict]) -> list[dict]:
     return actionable
 
 
+def _refuse_unless_one_environment(entry: dict, envs: frozenset[str]) -> None:
+    """
+    Refuse a paste of a secret that lives in environments unless exactly one environment holding it is named.
+
+    A value meant for one environment written to both would put DEV's value in PROD (the secrets fence), so the paste
+    of such a secret writes the one environment named, and a copy kept in each is pasted once for each.
+
+    Args:
+        entry: The registry entry being pasted
+        envs: The environments the paste names, empty for none
+    """
+    held = sorted({str(target.get("environment", "")).lower() for target in entry.get("github_env_secrets", [])})
+    if not held:
+        return
+    if len(envs) != 1:
+        sys.exit(
+            f"Error: {entry['name']} lives in environments ({', '.join(held)}), so its paste names exactly one "
+            "environment, never both and never none."
+        )
+    (environment,) = envs
+    if environment not in held:
+        sys.exit(f"Error: {entry['name']} has no target in environment '{environment}', it lives in {', '.join(held)}.")
+
+
 def cmd_paste(entry: dict, envs: frozenset[str], gh_token: str, master_token: str, value: str) -> int:
     _refuse_if_terraform_managed(entry)
+    _refuse_unless_one_environment(entry, envs)
     if not gh_token:
         sys.exit("Error: GH_TOKEN not set.")
     if not value:
@@ -988,6 +1109,40 @@ def cmd_paste(entry: dict, envs: frozenset[str], gh_token: str, master_token: st
     return _summary(errors)
 
 # ======================================================================================================================
+# Mode: prove-master
+# ======================================================================================================================
+
+def cmd_prove_master(master_token: str, team_id: str) -> int:
+    """
+    Prove the master token can mint, by minting a throwaway token and deleting it at once.
+
+    The sitting makes a fresh master token straight into ops, and this run is what shows it works before anything
+    depends on it. The throwaway's value is never printed.
+
+    Args:
+        master_token: The Vercel master token
+        team_id: The team the throwaway is scoped to, as the rotation scopes its token
+
+    Returns:
+        0 when the mint and the delete both succeeded, else 1
+    """
+    if not master_token:
+        sys.exit("Error: VERCEL_MASTER_TOKEN not set.")
+    try:
+        token_id, _value = create_vercel_token(master_token, PROVE_MASTER_TOKEN_NAME, team_id)
+    except Exception as exc:  # noqa: BLE001, the type alone, an exception's text could carry a request's details
+        print(f"The master token could not mint a throwaway token, {type(exc).__name__}.")
+        return 1
+    print(f"Minted the throwaway token {PROVE_MASTER_TOKEN_NAME}, id {token_id}.")
+    try:
+        delete_vercel_token(master_token, token_id)
+    except Exception as exc:  # noqa: BLE001
+        print(f"The throwaway token {token_id} was not deleted, {type(exc).__name__}. Delete it in Vercel by hand.")
+        return 1
+    print(f"Deleted it. PROVED, the master token mints and deletes.")
+    return 0
+
+# ======================================================================================================================
 # Shared summary
 # ======================================================================================================================
 
@@ -1010,7 +1165,11 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         description = "Rotate CI-plane secrets across GitHub env secrets + Vercel projects.",
         formatter_class = argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--mode", required = True, choices = ["generate", "paste", "check", "record-expiry"])
+    parser.add_argument(
+        "--mode",
+        required = True,
+        choices = ["generate", "paste", "check", "record-expiry", "prove-master"],
+    )
     parser.add_argument(
         "--secrets",
         default = "all",
@@ -1044,9 +1203,11 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(cmd_check(entries, live = args.live))
 
     if args.mode == "record-expiry":
-        # Stamp the registry with the just-minted Vercel token's expiry (today + 45d). No live
-        # credentials touched — it only edits scripts/secret_registry.json for the follow-on PR.
-        sys.exit(cmd_record_expiry(entries))
+        # Read each recorded token live in ops and keep its expiry as a cicd repository variable.
+        sys.exit(cmd_record_expiry(entries, gh_token, os.environ.get("GITHUB_REPOSITORY", "").strip()))
+
+    if args.mode == "prove-master":
+        sys.exit(cmd_prove_master(master_token, team_id))
 
     if args.mode == "generate":
         # A Vercel token minted without a team is personal-account-scoped, and Vercel rejects it

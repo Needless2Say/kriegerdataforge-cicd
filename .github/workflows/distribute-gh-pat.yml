@@ -2,7 +2,8 @@ name: Distribute GH_PACKAGES_PAT
 
 on:
   # Manual only — triggered after you create a new fine-grained PAT and store it
-  # as GH_PACKAGES_PAT_NEW in kriegerdataforge-cicd repo-level secrets.
+  # as GH_PACKAGES_PAT_NEW in kriegerdataforge-cicd's ops environment, never a repository secret,
+  # which every branch's workflow could read.
   #
   # Full rotation flow:
   #   1. Create a new fine-grained PAT at github.com/settings/tokens
@@ -10,12 +11,12 @@ on:
   #      Expiration: 1 year
   #      Repository access: kriegerdataforge-python-sdk only
   #      Permission: Contents → Read-only
-  #   2. Go to kriegerdataforge-cicd → Settings → Secrets and variables → Actions
-  #      Add (or update) a secret named GH_PACKAGES_PAT_NEW with the new token value.
-  #   3. Run this workflow (Actions → Distribute GH_PACKAGES_PAT → Run workflow).
+  #   2. Stage it in ops from a prompt, never the command line:
+  #      gh secret set GH_PACKAGES_PAT_NEW --env ops --repo Needless2Say/kriegerdataforge-cicd
+  #   3. Run this workflow (Actions → Distribute GH_PACKAGES_PAT → Run workflow), and approve ops.
   #   4. After it succeeds, update the GH_PACKAGES_PAT check.expiry in scripts/secret_registry.json
   #      to the new expiry date (YYYY-MM-DD) and commit the change.
-  #   5. Delete the GH_PACKAGES_PAT_NEW secret (it is no longer needed).
+  #   5. Delete the GH_PACKAGES_PAT_NEW secret from ops (it is no longer needed).
   #   6. Optionally revoke the old PAT: github.com/settings/tokens → find old token → Revoke.
   workflow_dispatch:
 
@@ -38,9 +39,9 @@ jobs:
       github.triggering_actor == github.repository_owner
     runs-on: ubuntu-slim
 
-    # No GitHub Environment — uses repo-level secrets only.
-    # GH_PACKAGES_PAT_NEW and CICD_PAT must be set as repo-level secrets on
-    # kriegerdataforge-cicd before triggering this workflow.
+    # The staged GH_PACKAGES_PAT_NEW, the writing App's pair and CICD_PAT live in ops alone, held to main and waiting
+    # for the owner's approval.
+    environment: ops
 
     steps:
       - name: Checkout
@@ -70,8 +71,8 @@ jobs:
         if: vars.USE_GITHUB_APP == 'true'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          client-id: ${{ secrets.KDF_APP_ID }}
-          private-key: ${{ secrets.KDF_APP_PRIVATE_KEY }}
+          client-id: ${{ secrets.KDF_WRITER_APP_ID }}
+          private-key: ${{ secrets.KDF_WRITER_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ steps.targets.outputs.repositories }}
           permission-secrets: write
@@ -81,5 +82,6 @@ jobs:
           # The staged new PAT (created in the GitHub UI) feeds the engine's paste mode.
           STAGED_SECRET_VALUE: ${{ secrets.GH_PACKAGES_PAT_NEW }}
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
+          # the packages token's six Vercel copies, written with the master token, read in ops
           VERCEL_MASTER_TOKEN: ${{ secrets.VERCEL_MASTER_TOKEN }}
         run: python scripts/rotate_secret.py --mode paste --secrets GH_PACKAGES_PAT
