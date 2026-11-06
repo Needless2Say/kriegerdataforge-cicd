@@ -214,6 +214,16 @@ def test_every_job_after_the_deployer_check_runs_only_for_the_login_that_started
         assert "github.actor == github.triggering_actor" in str(job.get("if", "")), f"{workflow} job {name}"
 
 
+def test_no_workflow_checks_out_a_release_by_a_name_a_branch_could_take():
+    # an unqualified `v1.2.3` checks out a branch of that name before the tag, and a tag ruleset guards no branch
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        for name, job in (yaml.safe_load(path.read_bytes().decode("utf-8")).get("jobs") or {}).items():
+            for step in job.get("steps", []):
+                ref = str(step.get("with", {}).get("ref", ""))
+                if str(step.get("uses", "")).startswith("actions/checkout@") and ref.startswith("v"):
+                    raise AssertionError(f"{path.name} job {name} checks out {ref}, name it refs/tags/{ref}")
+
+
 def _bash() -> str | None:
     git_bash = Path("C:/Program Files/Git/bin/bash.exe")
     if git_bash.exists():
