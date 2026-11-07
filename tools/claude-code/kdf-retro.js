@@ -12,8 +12,8 @@
  *        decided, a reminder that changes no count
  *
  * An escape is an agreed finding that was in the step 2 pin's tree and that a later source found, a Sol round, a final
- * review, a second read, or the orchestrator after step 2. The escape rate is the first number a retrospective reads,
- * since it counts the defects the step 2 reviews had in front of them and missed.
+ * review, a second read, the orchestrator after step 2, or a note outside a read. The escape rate is the first number
+ * a retrospective reads, since it counts the defects the step 2 reviews had in front of them and missed.
  *
  * The answer key's findings table must carry the columns of templates/review-answer-key.template.md, in its order. A
  * key with other columns is refused rather than guessed at. A report the launcher started has Claude Code's own count
@@ -100,6 +100,9 @@ for (let i = header + 1; i < lines.length && lines[i].trim().startsWith('|'); i+
 // the tool does not know can never hide one.
 function rank(source) {
   const s = source.toLowerCase();
+  // a finding that reached the orchestrator outside a read, a note the owner relayed or the owner's own observation,
+  // whatever step it names, read first so a note "after the final reads" is not taken for the final reads' own
+  if (/^note\b|outside a read/.test(s)) return 8;
   if (/second read/.test(s)) return 6;
   if (/final|step 5/.test(s)) return 5;
   if (/\bsol\b|round|dispatch/.test(s)) return 4;
@@ -111,7 +114,8 @@ function rank(source) {
 }
 
 const READ_AS = {
-  1: 'step 1', 2: 'step 2', 3: 'after step 2', 4: 'Sol', 5: 'final', 6: 'second read', 7: 'pull request', 9: 'unplaced'
+  1: 'step 1', 2: 'step 2', 3: 'after step 2', 4: 'Sol', 5: 'final', 6: 'second read', 7: 'pull request',
+  8: 'outside a read', 9: 'unplaced'
 };
 
 function kind(verdict) {

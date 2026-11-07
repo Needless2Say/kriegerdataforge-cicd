@@ -1322,7 +1322,7 @@ def test_the_first_retrospective_s_changes_are_in_the_kit() -> None:
     assert "runs the consumer's own parser on the check's inputs beside the check's" in report
     assert "since v1.13.0" in process
     assert "standing questions close every list, word for word from the template, the paths a tool acts on" in process
-    assert "A Blocks fix of the last Sol round does not. The final brief names it first" in process
+    assert "A Blocks fix of the last Sol round does not get one. The final brief names it first" in process
     assert "for a fix of the last Sol round the first place in the final brief, section 4 step 5." in process
     assert "The table's Destroys column marks every tool in it that deletes, resets, cleans or overwrites" in process
     assert "**Time and tokens are counted, not reported.**" in process
@@ -1359,13 +1359,13 @@ def test_the_second_retrospective_s_changes_are_in_the_kit() -> None:
     )
     for line in standing:
         assert line in brief, f"the brief template lost {line!r}"
-    assert "Keep the fifteen standing bullets after the areas, word for word" in brief
+    assert "Keep the sixteen standing bullets after the areas, word for word" in brief
     assert "a loopback peer a probe needs, started inside a test" in brief
     assert brief.index("**Two parsers of one string.**") < brief.index("**What pins a constant.**")
     assert brief.index("**What pins a constant.**") < brief.index("**Whose text a message carries.**")
     assert brief.index("**Whose text a message carries.**") < brief.index("**The new tests.**")
     for words in (
-        "Fifteen standing questions close every list, word for word from the template",
+        "Sixteen standing questions close every list, word for word from the template",
         "two parsers of one string, what pins a constant, whose text a message carries,",
         "with a pair for every number a rule reads, its value moved up and down by the smallest step its unit takes.",
         "Every number a rule reads, a bound, a limit or a default, gets the pair of step 0,",
@@ -1429,7 +1429,7 @@ def test_the_third_retrospective_s_changes_are_in_the_kit() -> None:
         outcome,
         hop,
         secret,
-        "Keep the fifteen standing bullets after the areas, word for word",
+        "Keep the sixteen standing bullets after the areas, word for word",
         "a server a consumer runs, already installed in an environment the orchestrator names by its path, started",
         "inside a test on loopback, never the running stack",
         "a probe that needs what no environment holds goes under Could not settle.",
@@ -1447,7 +1447,7 @@ def test_the_third_retrospective_s_changes_are_in_the_kit() -> None:
     )
     assert [brief.index(lead) for lead in order] == sorted(brief.index(lead) for lead in order)
     for words in (
-        "Fifteen standing questions close every list",
+        "Sixteen standing questions close every list",
         "what a success test reads of its outcome, a hop to another thread or loop, what a stored secret holds,",
         "and its second retrospective added the next two, its third the next three,",
         "**Step 3b. The fix check**, when step 3 landed a fix of code.",
@@ -1554,7 +1554,7 @@ def test_the_fourth_retrospective_s_changes_are_in_the_kit() -> None:
         "the format's grammar permits, read from the grammar and not from its examples, since a conversion can write",
         "a character after the filter ran.",
     ))
-    for line in (value, setting, shape, boundary, "Keep the fifteen standing bullets after the areas, word for word"):
+    for line in (value, setting, shape, boundary, "Keep the sixteen standing bullets after the areas, word for word"):
         assert line in brief, f"the brief template lost {line!r}"
     order = (
         "**What a stored secret holds.**",
@@ -1652,7 +1652,7 @@ def test_the_fifth_retrospective_s_changes_are_in_the_kit() -> None:
         authority,
         "Where an area's rule names a closed set, name its authority and its version, with a citation or an excerpt",
         "the reviewer can read, since a reviewer fetches nothing.",
-        "Keep the fifteen standing bullets after the areas, word for word",
+        "Keep the sixteen standing bullets after the areas, word for word",
     ):
         assert line in brief, f"the brief template lost {line!r}"
     order = (
@@ -1705,8 +1705,8 @@ def test_the_fifth_retrospective_s_changes_are_in_the_kit() -> None:
         "`<PFX>_REVIEW_<slice>_RETRO.md`, from the supporting session's draft where there is one, from",
         "a commit hash in the commit paragraph that resolves to no commit, in the repo or a clone beside it,",
         "and warns of an unresolved hash elsewhere, where a digest or a sibling not yet pulled can stand.",
-        "every path to the same consumer, a builtin's subclass, and a closed set and its authority.",
-        "its fourth the next four, and its fifth the last three.",
+        "every path to the same consumer, a builtin's subclass, a closed set and its authority,",
+        "its fourth the next four, its fifth the next three,",
         "since v1.27.0 the fifth retrospective's changes",
         "**The fifth retrospective**, the kdf-sdk's S5",
         "They are kit v1.27.0, cicd ADR D-086.",
@@ -1723,6 +1723,78 @@ def test_the_fifth_retrospective_s_changes_are_in_the_kit() -> None:
     ):
         assert words in roles, f"the roles page lost {words!r}"
     assert "in addition write and pin review briefs" not in roles
+
+
+def test_phase_b_s_retrospective_changes_are_in_the_kit() -> None:
+    """
+    The owner approved the kdf-sdk's Phase B retrospective (D-098). Once a read names a class, a worker lists every
+    door of it over the whole package before the next pin. A build that closes a read's findings ends with the
+    orchestrator's own read of its diff, and every build that writes a test runs the variant per assertion. A Blocks
+    fix's second read reads the whole build, the fix first, and the brief template holds that form. A finding outside a
+    read gets an id and a source the retro tool places. The playbook keeps a catch to its read, and a sixteenth
+    standing question asks for one wider than that, after the closed set and before the new tests.
+    """
+    agent     = KIT / "docs" / "agent"
+    process   = " ".join((agent / "CODE_REVIEW_PROCESS.md").read_text(encoding = "utf-8").split())
+    templates = agent / "templates"
+    brief     = " ".join((templates / "review-brief.template.md").read_text(encoding = "utf-8").split())
+    key       = " ".join((templates / "review-answer-key.template.md").read_text(encoding = "utf-8").split())
+    skills    = " ".join((KIT / "skills.md").read_text(encoding = "utf-8").split())
+    for words in (
+        "**Every door of a named class.** Once a read names a class of defect,",
+        "a worker lists every door of that class over the whole package or repo the review reads, never only the slice",
+        "every `isinstance`, every comparison and every method of its own read on an argument, by `grep` and by the",
+        "syntax tree, before the next pin. The build closes the list, and the list and its count are written",
+        "**A build reads its own diff.** A build that closes a read's findings ends, before its commit, with the",
+        "orchestrator's own read of its diff hunk by hunk,",
+        "and a guard that covers the read it names and never the transform after it, `skills.md`'s first directive.",
+        "**The variant per assertion.** Every build that writes or changes a test runs it.",
+        "The build's section of the log gives the count killed,",
+        "gets a second read, by both families, in a `step-5-second-read-<n>` folder of its own, of the build that",
+        "fixed it, its fix first and then the rest of that build.",
+        "Only yes is fixed first and earns a second read of its fix and the build around it,",
+        "A second read reads its Blocks fix first and then the rest of the build that holds it, section 4 step 5.",
+        "a second read is `<PFX>-S1-SR1-3` for Claude and `<PFX>-S1-SR1-C3` for Codex",
+        "gets a log row and an id of its own, `<PFX>-S1-N1`,",
+        "under the source `Note, outside a read`.",
+        "Sixteen standing questions close every list",
+        "a closed set and its authority, and a catch wider than its read.",
+        "its fifth the next three, and its Phase B the last one.",
+        "since v1.29.0 Phase B's retrospective's changes",
+        "**Phase B's retrospective**, the kdf-sdk's, the owner's yeses of 2026-11-06.",
+        "They are kit v1.29.0, cicd ADR D-098.",
+    ):
+        assert words in process, f"the process lost {words!r}"
+    for old in ("a narrow second read of its fix alone", "earns a narrow second read of its fix,", "the last three."):
+        assert old not in process, f"the process kept {old!r}"
+
+    catch = " ".join((
+        "- **A catch wider than its read.** Every `try`, `except`, `catch` or fallback around a read of what a caller,",
+        "a peer or a setting gave, and whether it covers that read and its walk alone or also the escaping, the check",
+        "or the conversion after it. Probe a failure in each step the catch covers past the read, and whether the code",
+        "then passes the value on unescaped or unchecked as if the read had failed, a fail open where `skills.md` says",
+        "fail closed.",
+    ))
+    for line in (
+        catch,
+        "Keep the sixteen standing bullets after the areas, word for word",
+        "**For a second read**, section 4 step 5, the same text becomes `{PFX}_REVIEW_{slice}_SECOND_PROMPT.md`",
+        "review\" opens with the Blocks fix's two questions,",
+        "names the branches `review/{pfx}-{slice}-second` and `review/{pfx}-{slice}-second-codex`.",
+        "the SECOND files and the ids `{PFX}-{slice}-SR{n}-n` and",
+        "Only yes gets fixed first and earns a second read of its fix and the build around it.",
+    ):
+        assert line in brief, f"the brief template lost {line!r}"
+    order = ("**A closed set and its authority.**", "**A catch wider than its read.**", "**The new tests.**")
+    assert [brief.index(lead) for lead in order] == sorted(brief.index(lead) for lead in order)
+    assert "Keep the fifteen standing bullets" not in brief
+
+    assert "`Final Codex` and `Note, outside a read`, the last for a finding with an `<PFX>-<slice>-N<n>` id," in key
+    for words in (
+        "A `try` around an untrusted read covers that read and its walk alone, never the transform that follows,",
+        "so a failure in the escaping, check or conversion after it fails closed",
+    ):
+        assert words in skills, f"skills.md lost {words!r}"
 
 
 def test_a_worker_keeps_its_session_s_role_and_never_reads_as_a_reviewer() -> None:
@@ -3528,6 +3600,37 @@ def test_the_retro_tool_places_a_late_orchestrator_finding_and_shows_how_it_read
     assert lines.index(late_row) < lines.index(sol_row)
     assert lines[lines.index(odd_row) + 1].startswith("| All |"), "an unplaced source sorts last"
     assert any(line.startswith("Escapes, agreed findings in the step 2 tree that a later source found, 4 of 5 (80%)")
+               for line in lines)
+
+
+def test_the_retro_tool_places_a_note_outside_a_read_after_the_reads_and_counts_it(tmp_path: Path) -> None:
+    """
+    A finding that reached the orchestrator outside a read, a note the owner relayed, has an id of its own and the
+    source `Note, outside a read` (D-098). The tool reads it as outside a read whatever step its source also names, so
+    a note found after the final reads is not credited to them, sorts it after the reads and before an unplaced source,
+    and counts it as an escape when it was in the step 2 tree.
+    """
+    slice_ = tmp_path / "s1-example"
+    shutil.copytree(RETRO_SLICE, slice_)
+    key   = slice_ / "EX_REVIEW_S1_ANSWER_KEY.md"
+    text  = key.read_text(encoding = "utf-8")
+    note  = (
+        "| EX-S1-N1 | Note, outside a read, after the final reads | owner | L | no | Agreed | `src/n.py:2` "
+        "| before the review | `nnnnnnn` | yes | read the file at the pin | the repo alone | A guard too wide. | 4.6 |"
+    )
+    first = next(row for row in text.splitlines() if row.startswith("| EX-S1-D1-R1-1 |"))
+    key.write_text(text.replace(first, note + "\n" + first), encoding = "utf-8")
+    done = _retro_tool(slice_)
+    assert done.returncode == 0, done.stderr
+    lines    = done.stdout.splitlines()
+    note_row = "| Note, outside a read, after the final reads | outside a read | 1 | 1 | 0 | 0 | 1 | 1 |"
+    sol_row  = "| Sol R1, dispatch 1 | Sol | 1 | 1 | 0 | 0 | 1 | 1 |"
+    for row in (note_row, sol_row, "| All | | 8 | 7 | 1 | 0 | 4 | 3 |"):
+        assert row in lines, f"missing {row!r} in\n{done.stdout}"
+    assert lines.index(sol_row) < lines.index(note_row)
+    assert lines[lines.index(note_row) + 1].startswith("| All |"), "a note sorts after every read"
+    assert not any("| final |" in line for line in lines if line.startswith("| Note"))
+    assert any(line.startswith("Escapes, agreed findings in the step 2 tree that a later source found, 3 of 4 (75%)")
                for line in lines)
 
 

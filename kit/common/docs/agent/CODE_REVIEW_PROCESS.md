@@ -18,7 +18,11 @@
 > block of the open step and the one before it, and every commit of a fix running the floors and extras lanes where a
 > repo has them, and since v1.27.0 the fifth retrospective's changes, three more standing look for questions, the
 > answer key's pin column settled by a probe, a brief's hashes resolved and the supporting session drafting each
-> slice's write ups. Kept byte identical across every KDF repo by the kit sync engine,
+> slice's write ups, and since v1.29.0 Phase B's retrospective's changes, a build closed by its own read of its diff,
+> every door of a named class listed before the next pin, the variant per assertion at every build that writes a
+> test, a second read of the whole build with its Blocks fix first, an id for a finding that reaches the orchestrator
+> outside a read, and a sixteenth standing look for question. Kept byte identical across every KDF repo by the kit
+> sync engine,
 > canonical source `kriegerdataforge-cicd/kit/common/docs/agent/CODE_REVIEW_PROCESS.md`. Never edit a synced copy,
 > change the canonical one. The tooling that keeps the process safe, the guard, the reviewer
 > launcher and the installer, is not synced. It lives in `kriegerdataforge-cicd/tools/claude-code/` and is installed on
@@ -177,7 +181,7 @@ docs/reviews/
         SDK_REVIEW_S1_FINAL_PROMPT.md
         SDK_REVIEW_S1_FINAL_REPORT.md
         SDK_REVIEW_S1_FINAL_CODEX_REPORT.md
-      step-5-second-read-1/                        only when a Blocks fix earns a narrow second read
+      step-5-second-read-1/                        only when a Blocks fix earns a second read
     s2-token-verification/
     phase-b/
   2026-11-02-sdk-jwks-cache/                       a spot review, no plan and no slice folder
@@ -233,8 +237,12 @@ README whenever a step closes.
 
 A finding id names its source, so an adjudication row can always be traced. The orchestrator's own findings are
 `S1-3`. A fresh Claude review is `<PFX>-S1-3`, Codex is `<PFX>-S1-C3`, a fix check is `<PFX>-S1-FC-3` for Claude and
-`<PFX>-S1-FC-C3` for Codex, a Sol finding is `<PFX>-S1-D2-R1-3` for dispatch 2 round 1, and a final review is
-`<PFX>-S1-FIN-3` for Claude and `<PFX>-S1-FIN-C3` for Codex.
+`<PFX>-S1-FC-C3` for Codex, a Sol finding is `<PFX>-S1-D2-R1-3` for dispatch 2 round 1, a final review is
+`<PFX>-S1-FIN-3` for Claude and `<PFX>-S1-FIN-C3` for Codex, and a second read is `<PFX>-S1-SR1-3` for Claude and
+`<PFX>-S1-SR1-C3` for Codex, the read's number in the id. A finding that reaches the orchestrator outside a read, a
+note the owner relays or the owner's own observation, is reproduced like any other and gets a log row and an id of
+its own, `<PFX>-S1-N1`, so the answer key counts its source as it counts a read's, under the source
+`Note, outside a read`.
 
 **At spot scale** there is no plan and no slice. `<PFX>` names the scope, `SDK_JWKS` for a module or `HUB_PR412` for a
 pull request, and the files are `<PFX>_REVIEW_PROMPT.md`, `_REPORT.md`, `_CODEX_REPORT.md`, `_ADJUDICATION.md`,
@@ -339,6 +347,25 @@ report, and every scratch note or probe that reviewer left in the brief's folder
 where only the orchestrator opens them, reads the report, reproduces its findings and plans. The rows are written and the fixes start once both reports of the pin are in, or when rule 15 goes on without
 the other family.
 
+**Every door of a named class.** Once a read names a class of defect, a gate deciding by what an object says of
+itself, a conversion before its input is measured, or any class the adjudication names, a worker lists every door of
+that class over the whole package or repo the review reads, never only the slice or the area the read was pointed
+at, every `isinstance`, every comparison and every method of its own read on an argument, by `grep` and by the
+syntax tree, before the next pin. The build closes the list, and the list and its count are written in the build's
+section of the log. The kdf-sdk's Phase B found 54 of its 67 escapes in one class two gates had named, closed area
+by area over four later reads.
+
+**A build reads its own diff.** A build that closes a read's findings ends, before its commit, with the
+orchestrator's own read of its diff hunk by hunk, against the rules its fixes keep, the real type and the plain value
+at a gate where the review has named them, and a guard that covers the read it names and never the transform after
+it, `skills.md`'s first directive. What that read found, or that it found nothing, is written in the build's section
+of the log. Three of Phase B's six builds left a slip of their own that the next read or a note found.
+
+**The variant per assertion.** Every build that writes or changes a test runs it. A worker writes one variant per
+assertion of those tests, each breaking the code that assertion reads, as a temporary table the mutation runner
+applies in its own worktree, and deletes the table after, the tree read unchanged. The build's section of the log
+gives the count killed, each survivor a test made to state its rule or a reason written beside it.
+
 **Step 3b. The fix check**, when step 3 landed a fix of code. Once step 3's fixes are pushed, a fresh Claude reviewer
 and Codex each read one brief at one pin of the fixed tree and ask two questions of every step 3 fix. Is every other
 door of its class in the slice's scope closed, at any severity, and does the fix change the rule, an allowlist or a
@@ -372,11 +399,15 @@ step 3's when no fix check ran.
 
 **Step 5. The final reviews.** A read only brief over the slice as it stands, in the slice's `step-5-final` folder,
 pinned the same way, with the whole cycle's settled list, run by a fresh Claude session and by Codex, each writing its
-own final report beside it. A Blocks finding of the final reviews gets a narrow second read of its fix alone, in a
-`step-5-second-read-<n>` folder of its own. A Blocks fix of the last Sol round does not. The final brief names it
-first in its look for list, with its finding id, and the final reviews read it there, so it costs no Codex turn of its
-own. The kdf-sdk's first slice read its `SDK-S1-D3-R1-2` fix that way, and the final reviews found four more defects
-in it.
+own final report beside it. A Blocks finding of the final reviews gets a second read, by both families, in a
+`step-5-second-read-<n>` folder of its own, of the build that fixed it, its fix first and then the rest of that
+build. The brief opens with the fix's two questions, whether it closes its class and whether it changes the rule or
+refuses the inputs found, then puts the build's fixes in a table and asks of each whether it is whole and what it
+opened, the shape of the kdf-sdk's Phase B second read, whose widened read found fourteen doors of its build beside
+the fix that a read of the fix alone would have left. A Blocks fix of the last Sol round does not get one. The final
+brief names it first in its look for list, with its finding id, and the final reviews read it there, so it costs no
+Codex turn of its own. The kdf-sdk's first slice read its `SDK-S1-D3-R1-2` fix that way, and the final reviews found
+four more defects in it.
 
 **Step 6. Close the slice.** Every gate green, the mutation table all killed, the consumer check green, the docs
 current, the ADRs, register rows and adjudication log complete, every handoff of the slice listed in the log by its
@@ -430,7 +461,8 @@ longer needs, and proves it through its own release gates, in the order the plan
     nothing else `.gitignore` covers, `AGENT_ROLES.md` rules 5 and 6. It reviews what git tracks.
 13. **Docs move with the code**, and the stale ones the plan names are corrected in the slice that owns them.
 14. **House style.** The repo's own linters, its docstring voice, prose in commas and periods.
-15. **Both families, always**, at step 2, the final reviews and the second reads. When one model family cannot run
+15. **Both families, always**, at step 2, the final reviews and the second reads. A second read reads its Blocks fix
+    first and then the rest of the build that holds it, section 4 step 5. When one model family cannot run
     for a while, the other goes ahead on the owner's own word, never on a wait running out or another session's
     message, and the missing review reads a later pin when it can run. It is never skipped,
     and the slice does not close without it. That later pin carries the first family's report and its adjudication
@@ -453,8 +485,8 @@ Owner operated tooling with no attacker reachable path is never P unless it dest
 where it can travel, or hands a token to someone other than the owner.
 
 **Blocks.** Every finding carries Blocks, yes or no. Yes is a P, or an M that reaches an account, a token, a
-credential, a privilege or someone else's data. Only yes is fixed first and earns a narrow second read of its fix, or
-for a fix of the last Sol round the first place in the final brief, section 4 step 5.
+credential, a privilege or someone else's data. Only yes is fixed first and earns a second read of its fix and the
+build around it, or for a fix of the last Sol round the first place in the final brief, section 4 step 5.
 Nothing marked no reopens a closed slice, it is fixed if small or becomes a register row, or a backlog item when
 another repo owns it, section 2. Mark Blocks honestly in
 both directions, a reviewer that inflates it wastes the slice and one that deflates it hides a defect.
@@ -490,15 +522,15 @@ One brief serves both reviewers. Its shape, in this order, is the template's.
    reviewer never starts, stops or resets it. It reads the stack with the tests, a script, `docker ps`, `docker logs`
    and `curl` to this machine, `AGENT_ROLES.md` section 5. It reads no secret file, rule 5 there, and prints no value.
 8. **Settled.** Numbered, with the reasons, so a reviewer does not re-derive a decision.
-9. **Look for.** A starting list, by area. A question becomes a finding only when a probe proves it. Fifteen standing
+9. **Look for.** A starting list, by area. A question becomes a finding only when a probe proves it. Sixteen standing
    questions close every list, word for word from the template, the paths a tool acts on, the environment a child is
    handed, two parsers of one string, what pins a constant, whose text a message carries, what a success test reads
    of its outcome, a hop to another thread or loop, what a stored secret holds, what a value of the right type can
    hold, a setting applied once, a callable read for its shape, every boundary a line's consumer honours, every path
-   to the same consumer, a builtin's subclass, and a closed set and its authority. The kdf-sdk's first retrospective
-   found 26 of its 43 escapes in the first three classes, each one read past by a step 2 brief that did not ask, and
-   its second retrospective added the next two, its third the next three, its fourth the next four, and its fifth the
-   last three.
+   to the same consumer, a builtin's subclass, a closed set and its authority, and a catch wider than its read. The
+   kdf-sdk's first retrospective found 26 of its 43 escapes in the first three classes, each one read past by a step 2
+   brief that did not ask, and its second retrospective added the next two, its third the next three, its fourth the
+   next four, its fifth the next three, and its Phase B the last one.
 10. **Rules of evidence.** Probe, quote the line, reproduce, and put what cannot be settled under "Could not settle".
 11. **The report.** Section 8.
 
@@ -893,3 +925,9 @@ every path to the same consumer, a builtin's subclass and a closed set and its a
 pin column settled by a probe at the pin with the retrospective tool's reminder, section 14, a brief's commit hashes
 resolved by the brief tool, sections 10 and 11, and the supporting session drafting each slice's write ups for
 the orchestrator to place and commit, section 2. They are kit v1.27.0, cicd ADR D-086.
+
+**Phase B's retrospective**, the kdf-sdk's, the owner's yeses of 2026-11-06. Every door of a named class listed by a
+worker before the next pin, a build closed by its own read of its diff, and the variant per assertion at every build
+that writes a test, section 4 step 3, a second read of the whole build with its Blocks fix first, section 4 step 5
+and rule 15, an id for a finding that reaches the orchestrator outside a read, section 3, and a standing look for
+question, a catch wider than its read, section 7, with its line in `skills.md`. They are kit v1.29.0, cicd ADR D-098.

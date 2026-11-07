@@ -51,9 +51,10 @@ half that was, and names the commit that brought the other.
 **Needs** says what a reviewer had to have to find it, the repo alone, the sibling repos, or a running stack.
 **Source** uses the words `kdf-retro.js` places in the cycle, `Orchestrator, step 1`, `Orchestrator, after step 2`,
 `Step 2 Claude`, `Step 2 Codex`, `Fix check Claude, after step 3`, `Fix check Codex, after step 3`, `Sol R<n> D<m>`,
-`Second read <n>`, `Final Claude` and `Final Codex`, so a finding the orchestrator or the fix check made after the pin
-counts as an escape. The tool prints how it read each source, and one it cannot place
-prints as unplaced.
+`Second read <n>`, `Final Claude`, `Final Codex` and `Note, outside a read`, the last for a finding with an
+`<PFX>-<slice>-N<n>` id, a note the owner relayed or the owner's own observation, so a finding the orchestrator or the
+fix check made after the pin, or a note found, counts as an escape. The tool prints how it read each source, and one
+it cannot place prints as unplaced.
 
 Sorted by At the step 2 pin (yes, unsure, no, declined) and within each by severity, most severe first.
 

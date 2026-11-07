@@ -16,6 +16,8 @@ security audit (`PL-###` findings). The canonical audit lives in the `kriegerdat
 
 1. **Fail closed, not open.** A check that cannot run must **deny**, not allow. Auth, JWKS fetch,
    rate limit store, missing config. Fail open is only acceptable when explicitly chosen and documented.
+   A `try` around an untrusted read covers that read and its walk alone, never the transform that follows, so a
+   failure in the escaping, check or conversion after it fails closed and never passes as the read's own fallback.
 2. **Never trust client supplied input for a security decision.** IPs, hostnames, `request.url`, `Origin`,
    totals/prices, roles/status, ownership, redirect targets.
 3. **The server is authoritative.** Recompute security- or money relevant values server-side. Never trust

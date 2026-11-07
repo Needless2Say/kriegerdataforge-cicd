@@ -5239,3 +5239,58 @@ the three markers moved together and no kit text changed, since the page merged 
 kdf-sdk's Phase B review found its synced copy behind the kit by that paragraph alone, and the owner asked for the
 version before that phase's pull request. Every other repo takes it at the next Distribute, which is the owner's.
 
+## D-098. Phase B's retrospective, every door of a class listed, a build's own read, a whole second read, notes counted
+
+- **Date.** 2026-11-06
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Follows.** D-039, D-061, D-076, D-083 and D-086, the retrospectives' changes before these.
+- **Tier / scope:** Standard · `kit/common/docs/agent/CODE_REVIEW_PROCESS.md`, the brief and answer key templates,
+  `kit/common/skills.md` and their copies in `docs/agent/` and at the root, `tools/claude-code/kdf-retro.js`, the
+  tests · kit v1.29.0, synced by the Distribute
+
+**Context.** The kdf-sdk's Phase B, the whole package read as one, closed on 2026-11-06 at 0.20.0, and its
+retrospective measured 67 escapes of 81 agreed findings in the step 2 tree. Fifty four were one class, a gate that
+decides by what an object says of itself, which step 2's Codex read named at two gates, and the fix check, one Sol
+round, the final reads and the second read then found area by area at some seventy more doors, since each read was
+pointed at an area and found the doors in it. Three of six builds left a slip of their own that the next read or a
+note found, the final reads' one Blocks finding among them, a fix of the Sol round converting a padded string where it
+counted the digits. The second read the process gives a Blocks fix, of the fix alone, was widened on the owner's word
+to the whole build, and found fourteen doors beside the fix. The variant per assertion of S8's retrospective ran at one
+build of six, and a test of a later build proved less than its name. A guard built to catch a read's failure caught
+the escaping after it too, a fail open a note the owner relayed found after the last read, and that finding had no id
+the answer key could count. The owner said yes to all eight of the retrospective's proposals on 2026-11-06, six of them
+the kit's.
+
+**Decision.**
+
+- **Every door of a named class is listed.** Once a read names a class of defect, a worker lists every door of it over
+  the whole package or repo, every `isinstance`, comparison and method of its own read on an argument, by `grep` and
+  the syntax tree, before the next pin, and the build closes the list, its count in the log. S8's first proposal,
+  made an enumeration rather than a question.
+- **A build reads its own diff.** Before its commit, a build that closes a read's findings is read hunk by hunk by the
+  orchestrator against the rules its fixes keep and a guard's reach, and what the read found is logged.
+- **The variant per assertion runs at every build that writes or changes a test**, a worker's temporary table in the
+  runner's worktree, its count logged, S8's second proposal made a rule.
+- **A Blocks fix's second read reads the whole build that holds it, the fix first**, by both families, the brief
+  opening with the fix's two questions and putting the build's fixes in a table after them, the template's second
+  read form. Its ids are `<PFX>-<slice>-SR<n>-m` and `-SR<n>-Cm`, S1's precedent.
+- **A finding outside a read gets an id**, `<PFX>-<slice>-N<n>`, and the answer key's source `Note, outside a read`,
+  which `kdf-retro.js` places after the reads and before an unplaced source, read before any step word the source
+  also names, and counts as an escape.
+- **A catch is kept to its read.** `skills.md`'s first directive gains a line, a `try` around an untrusted read covers
+  that read and its walk alone, never the transform after it, and a sixteenth standing look for question asks for a
+  catch wider than its read.
+
+**Alternatives considered.**
+
+- *The second read of the fix alone, as before.* Declined, the widened read found fourteen doors of the build a fix
+  alone leaves unread, for 52 minutes against the final read's 31.
+- *The class sweep by question in each brief, as S8's proposal ran.* Declined, each read answered for its area alone.
+- *The note's source read as the step it names.* Declined, a note found after the final reads would count as theirs.
+
+**Consequences.** A slice's builds cost a diff read each, a worker's variant table where a build writes tests, and a
+worker's enumeration once a class is named. A second read runs longer. Every brief asks sixteen standing questions,
+four lines more. The numbers each change should move are in the review bench's ledger. No workflow changes, and one
+tool places one more source. Kit and cicd's own copies at v1.29.0. Phase B's seventh proposal, the version anchors of
+the kdf-sdk's whole package lane, is that repo's, and its sixth is already the context repo's traps page.
+
