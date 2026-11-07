@@ -760,8 +760,10 @@ counts. Its first step refuses a caller the API does not report private.
   section of the rolling issue and one finding, so a change in what drifted is news.
 - **Two contracts.** With `inputs.environment`, the environment contract of the secrets fence, the job binds the
   caller's environment, held to `main`, and reads the watch App's pair there as `KDF_WATCH_APP_ID` and
-  `KDF_WATCH_APP_PRIVATE_KEY`, never passed. With none, today's contract, `app_id` and `app_private_key` passed by
-  name. Never `inherit`.
+  `KDF_WATCH_APP_PRIVATE_KEY`. The caller passes both by name, which GitHub requires even for a secret that exists
+  only in the environment, or it reads as an empty string. The caller's job names no environment, so the value
+  reaches this job alone, once the environment admits the run. With none, today's contract, `app_id` and
+  `app_private_key` passed by name. Never `inherit`.
 - **Permissions.** `contents: read`, `issues: write`. The App needs Dependabot alerts, Checks, Actions and Contents,
   read only, on every repo.
 
@@ -779,6 +781,9 @@ jobs:
     uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ecosystem-watch.yml@main
     with:
       environment: watch
+    secrets:
+      KDF_WATCH_APP_ID: ${{ secrets.KDF_WATCH_APP_ID }}
+      KDF_WATCH_APP_PRIVATE_KEY: ${{ secrets.KDF_WATCH_APP_PRIVATE_KEY }}
 ```
 
 ---
