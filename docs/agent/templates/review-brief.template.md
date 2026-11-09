@@ -23,6 +23,21 @@
 > report names the FIXCHECK files and the ids `{PFX}-{slice}-FC-n` and `{PFX}-{slice}-FC-Cn`, and each finding names
 > the fix it checks by its number, or says it is a regression or outside the table.
 >
+> **For a second read**, section 4 step 5, the same text becomes `{PFX}_REVIEW_{slice}_SECOND_PROMPT.md` in the
+> slice's `step-5-second-read-{n}` folder, read by both families, with these changes. In "Your role" the words
+> "Never open another reviewer's report of this scope" read "Never open the other second reader's report", and no
+> other word of that paragraph changes, so the final reports stay closed to a second reader as every report of the
+> scope does. "This review" opens with the Blocks fix's two questions, whether it closes its class and whether it
+> changes the rule or refuses the inputs found, then says the rest of the build that holds it is read too, whether
+> each fix is whole and what it opened. "The commit" confirms `HEAD~{n}` for as many commits as the pin sits above the
+> state, sizes the Blocks fix's delta, the build's, and everything the final pin did not see, and names the branches
+> `review/{pfx}-{slice}-second-{n}` and `review/{pfx}-{slice}-second-{n}-codex`. A table of the build's fixes stands
+> before the look for list, the Blocks fix first, each fix's findings quoted with their ids, its class in one line,
+> where it landed and what pins it, and an evidence section holds the orchestrator's own checks, so the findings
+> reach the reader there and never through a report. The look for list opens with the Blocks fix, then the build's
+> other fixes, then what the build changed that the log does not name. The report names the SECOND files and the
+> ids `{PFX}-{slice}-SR{n}-n` and `{PFX}-{slice}-SR{n}-Cn`.
+>
 > The process is [`../CODE_REVIEW_PROCESS.md`](../CODE_REVIEW_PROCESS.md),
 > sections 6, 7 and 8 define what this brief must hold. The reviewer starts from one line, `Read <this file> and run
 > the review, write your report to <report>, edit nothing else.` A brief that needs more than that line to start a
@@ -70,8 +85,9 @@ first, its report and its rows are in the tree and in history. Skip the log's se
 that report.}
 
 **The stopping rule.** Every finding carries Blocks yes or no. Yes is a P, or an M that reaches an account, a token,
-a credential, a privilege or someone else's data. Only yes gets fixed first and earns a narrow second read of its
-fix. Nothing marked no reopens the slice, it is fixed if small or becomes a register row. Mark Blocks honestly in
+a credential, a privilege or someone else's data. Only yes gets fixed first and earns a second read of its fix and
+the build around it. Nothing marked no reopens the slice, it is fixed if small or becomes a register row. Mark
+Blocks honestly in
 both directions.
 
 **Severity.** P is exploitable by someone other than the account's own holder, data corrupting, or a 500 a caller can
@@ -143,7 +159,7 @@ implementation does not do what the decision says, and then the finding names wh
 added, is where a finding is likeliest. One bullet per area, each naming the specific question, not the topic. In a
 final brief, every Blocks fix of the last Sol round comes first, with its finding id. Where an area's rule names a
 closed set, name its authority and its version, with a citation or an excerpt the reviewer can read, since a reviewer
-fetches nothing. Keep the fifteen standing bullets after the areas, word for word, and delete a stack's readers only
+fetches nothing. Keep the sixteen standing bullets after the areas, word for word, and delete a stack's readers only
 when the slice holds none of that stack.}
 
 - **{Area}.** {Whether X could ever Y, whether Z holds when W, what happens to V when U.}
@@ -217,6 +233,10 @@ when the slice holds none of that stack.}
   category, and whether a test reads the set against that authority where the authority is data. Read the set
   against its authority and the exceptions the brief settles, never against the cases the code was written for,
   and name what the authority holds that the set lacks.
+- **A catch wider than its read.** Every `try`, `except`, `catch` or fallback around a read of what a caller, a peer
+  or a setting gave, and whether it covers that read and its walk alone or also the escaping, the check or the
+  conversion after it. Probe a failure in each step the catch covers past the read, and whether the code then passes
+  the value on unescaped or unchecked as if the read had failed, a fail open where `skills.md` says fail closed.
 - **The new tests.** Whether each pins what its name claims. A test that would pass against a broken implementation
   is a finding.
 - **The docs.** Every `file:line` cite into this slice against the code, and every claim in the adjudication log's
