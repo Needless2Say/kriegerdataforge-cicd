@@ -1734,10 +1734,10 @@ def test_phase_b_s_retrospective_changes_are_in_the_kit() -> None:
     read gets an id and a source the retro tool places. The playbook keeps a catch to its read, and a sixteenth
     standing question asks for one wider than that, after the closed set and before the new tests.
     """
+    # the How to use box is a block quote, so the brief's lines are read without their quote markers
     agent     = KIT / "docs" / "agent"
     process   = " ".join((agent / "CODE_REVIEW_PROCESS.md").read_text(encoding = "utf-8").split())
     templates = agent / "templates"
-    # the How to use box is a block quote, so its lines are read without their quote markers
     lines     = (templates / "review-brief.template.md").read_text(encoding = "utf-8").splitlines()
     brief     = " ".join(" ".join(line.removeprefix(">") for line in lines).split())
     key       = " ".join((templates / "review-answer-key.template.md").read_text(encoding = "utf-8").split())
