@@ -1737,7 +1737,9 @@ def test_phase_b_s_retrospective_changes_are_in_the_kit() -> None:
     agent     = KIT / "docs" / "agent"
     process   = " ".join((agent / "CODE_REVIEW_PROCESS.md").read_text(encoding = "utf-8").split())
     templates = agent / "templates"
-    brief     = " ".join((templates / "review-brief.template.md").read_text(encoding = "utf-8").split())
+    # the How to use box is a block quote, so its lines are read without their quote markers
+    lines     = (templates / "review-brief.template.md").read_text(encoding = "utf-8").splitlines()
+    brief     = " ".join(" ".join(line.removeprefix(">") for line in lines).split())
     key       = " ".join((templates / "review-answer-key.template.md").read_text(encoding = "utf-8").split())
     skills    = " ".join((KIT / "skills.md").read_text(encoding = "utf-8").split())
     for words in (
@@ -1780,14 +1782,18 @@ def test_phase_b_s_retrospective_changes_are_in_the_kit() -> None:
         "Keep the sixteen standing bullets after the areas, word for word",
         "**For a second read**, section 4 step 5, the same text becomes `{PFX}_REVIEW_{slice}_SECOND_PROMPT.md`",
         "review\" opens with the Blocks fix's two questions,",
-        "names the branches `review/{pfx}-{slice}-second` and `review/{pfx}-{slice}-second-codex`.",
+        "`review/{pfx}-{slice}-second-{n}` and `review/{pfx}-{slice}-second-{n}-codex`.",
         "the SECOND files and the ids `{PFX}-{slice}-SR{n}-n` and",
+        "\"Never open another reviewer's report of this scope\" read \"Never open the other second reader's report\",",
+        "so the final reports stay closed to a second reader as every report of the scope does.",
+        "so the findings reach the reader there and never through a report.",
         "Only yes gets fixed first and earns a second read of its fix and the build around it.",
     ):
         assert line in brief, f"the brief template lost {line!r}"
     order = ("**A closed set and its authority.**", "**A catch wider than its read.**", "**The new tests.**")
     assert [brief.index(lead) for lead in order] == sorted(brief.index(lead) for lead in order)
     assert "Keep the fifteen standing bullets" not in brief
+    assert "with the fix check's changes and these" not in brief, "a second read inherits no fix check exception"
 
     assert "`Final Codex` and `Note, outside a read`, the last for a finding with an `<PFX>-<slice>-N<n>` id," in key
     for words in (
@@ -3632,6 +3638,37 @@ def test_the_retro_tool_places_a_note_outside_a_read_after_the_reads_and_counts_
     assert not any("| final |" in line for line in lines if line.startswith("| Note"))
     assert any(line.startswith("Escapes, agreed findings in the step 2 tree that a later source found, 3 of 4 (75%)")
                for line in lines)
+
+
+@pytest.mark.parametrize(
+    ("source", "read_as"),
+    [
+        ("Step 2 Codex, note on code outside a reader", "step 2"),
+        ("Step 2 Codex, note on a guard", "step 2"),
+        ("Final Claude, outside a read of the relay", "final"),
+        ("Notes, outside a read", "unplaced"),
+    ],
+)
+def test_the_retro_tool_takes_a_note_by_its_label_alone(tmp_path: Path, source: str, read_as: str) -> None:
+    """
+    Only a source that starts with the declared label `Note, outside a read` is a note (D-098). A read's source that
+    holds the words further on, or a partial word such as reader, stays where its own words place it, so no step 2
+    finding is moved past the pin and counted as an escape.
+    """
+    slice_ = tmp_path / "s1-example"
+    shutil.copytree(RETRO_SLICE, slice_)
+    key   = slice_ / "EX_REVIEW_S1_ANSWER_KEY.md"
+    text  = key.read_text(encoding = "utf-8")
+    row   = (
+        f"| EX-S1-Z1 | {source} | model | L | no | Agreed | `src/z.py:1` | before the review | `zzzzzzz` | yes "
+        "| read the file at the pin | the repo alone | A labelled find. | section 8 |"
+    )
+    first = next(line for line in text.splitlines() if line.startswith("| EX-S1-D1-R1-1 |"))
+    key.write_text(text.replace(first, row + "\n" + first), encoding = "utf-8")
+    done = _retro_tool(slice_)
+    assert done.returncode == 0, done.stderr
+    line = next(line for line in done.stdout.splitlines() if line.startswith("| " + source + " |"))
+    assert line.split("|")[2].strip() == read_as, line
 
 
 def test_the_retro_tool_places_both_fix_check_readers_after_step_2(tmp_path: Path) -> None:

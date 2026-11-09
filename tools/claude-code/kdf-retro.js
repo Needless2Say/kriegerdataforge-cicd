@@ -101,8 +101,9 @@ for (let i = header + 1; i < lines.length && lines[i].trim().startsWith('|'); i+
 function rank(source) {
   const s = source.toLowerCase();
   // a finding that reached the orchestrator outside a read, a note the owner relayed or the owner's own observation,
-  // whatever step it names, read first so a note "after the final reads" is not taken for the final reads' own
-  if (/^note\b|outside a read/.test(s)) return 8;
+  // by its declared label at the start, whatever step it names after, so a note "after the final reads" is not taken
+  // for the final reads' own, and a read's source that merely holds the words is not taken for a note
+  if (/^note, outside a read\b/.test(s)) return 8;
   if (/second read/.test(s)) return 6;
   if (/final|step 5/.test(s)) return 5;
   if (/\bsol\b|round|dispatch/.test(s)) return 4;
