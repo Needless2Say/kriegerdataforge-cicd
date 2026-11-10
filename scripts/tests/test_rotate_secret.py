@@ -1676,6 +1676,31 @@ class TestLiveExpiry:
             ) == (None, "no expiry")
 
 
+    def test_vercel_named_takes_the_current_generations_token_when_one_is_named(self):
+        """
+        Once the newest generation is complete and every repository copy retired, no target reads an older token, so
+        the newest one's expiry is the fact, and the monthly issue closes at the sitting (D-100's follow-up).
+        """
+        entry = {"name": "VERCEL_DEPLOYMENT_TOKEN", "check": {"live": "vercel-named"}}
+        body  = {"tokens": [
+            {"id": "old", "name": "VERCEL_DEPLOYMENT_TOKEN", "expiresAt": _ms("2026-12-03")},
+            {"id": "new", "name": "VERCEL_DEPLOYMENT_TOKEN", "expiresAt": _ms("2027-01-03")},
+        ]}
+        env   = {"VERCEL_MASTER_TOKEN": TOKEN, "VERCEL_TOKEN_CURRENT_ID": "new"}
+        with patch.object(rs._SESSION, "get", return_value = _resp(body = body)):
+            assert rs.live_expiry(entry, env) == ("2027-01-03", "ok, the current generation's token")
+        # an id no token of the name carries falls back to the earliest, so a fact is never taken from a stranger
+        with patch.object(rs._SESSION, "get", return_value = _resp(body = body)):
+            got = rs.live_expiry(entry, {**env, "VERCEL_TOKEN_CURRENT_ID": "gone"})
+        assert got == (
+            "2026-12-03",
+            "ok, 2 Vercel tokens are named VERCEL_DEPLOYMENT_TOKEN, the earliest expiry is used",
+        )
+        # no id named keeps the earliest rule
+        with patch.object(rs._SESSION, "get", return_value = _resp(body = body)):
+            assert rs.live_expiry(entry, {"VERCEL_MASTER_TOKEN": TOKEN})[0] == "2026-12-03"
+
+
     def test_vercel_named_takes_the_earliest_of_its_name_through_the_master_token(self):
         """
         After a rotation that kept the old token, a repo may still hold the one that expires first.

@@ -194,16 +194,28 @@ jobs:
           VERIFIED: ${{ inputs.verified }}
         run: python scripts/token_generations.py "$MODE" --generation="$GENERATION" --verified="$VERIFIED"
 
+      # The record as this run left it, read fresh since the vars context holds it as the job began. Its newest
+      # generation's token id, not secret, is named only when that generation is complete and every repository copy
+      # retired, so no target holds an older token. The step never fails, an unreadable record naming none.
+      - name: Name the current generation's token
+        id: current
+        if: ${{ !cancelled() && env.MODE != 'prove-master' }}
+        env:
+          FACTS_GH_TOKEN: ${{ steps.facts-token.outputs.token || secrets.CICD_PAT }}
+        run: python scripts/token_generations.py current >> "$GITHUB_OUTPUT"
+
       # The expiry facts (the secrets fence, design 5.5 item 9). The weekly monitor runs outside ops and holds
       # neither CICD_PAT nor the master token, so this run reads each recorded token live and keeps its expiry as a
-      # cicd repository variable, nothing secret, the deployment token's the earliest among the live tokens of its
-      # name, so a predecessor still serving a target stays seen.
+      # cicd repository variable, nothing secret. The deployment token's is the current generation's token's when
+      # one is named, else the earliest among the live tokens of its name, so a predecessor still serving a target
+      # stays seen while one can, and the monthly issue closes at the sitting once none can.
       - name: Record the expiry facts
         # after a failed generation's step too, so the facts follow what the run left
         if: ${{ !cancelled() && env.MODE != 'prove-master' }}
         env:
           CICD_PAT: ${{ secrets.CICD_PAT }}
           VERCEL_MASTER_TOKEN: ${{ secrets.VERCEL_MASTER_TOKEN }}
+          VERCEL_TOKEN_CURRENT_ID: ${{ steps.current.outputs.token_id }}
           GH_TOKEN: ${{ steps.facts-token.outputs.token || secrets.CICD_PAT }}
         # The packages and npm tokens' facts are the staged distribution's alone, written from the token it sends
         # (D-099), so this run never records them and no copy read before a distribution overwrites a newer fact.

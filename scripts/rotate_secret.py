@@ -611,6 +611,13 @@ def live_expiry(entry: dict, environ: dict[str, str] | None = None) -> tuple[str
         ]
         if not dates:
             return None, "no expiry"
+        # Once the newest generation is complete and every repository copy retired, token_generations.py names its
+        # token, which no target holds an older one beside, so its expiry is the fact (D-100). An id no token of the
+        # name carries falls back to the earliest.
+        current = env.get("VERCEL_TOKEN_CURRENT_ID", "").strip()
+        chosen = [meta for meta in named if current and meta.get("id") == current and meta.get("expiresAt") is not None]
+        if chosen and (day := _ms_date(chosen[0]["expiresAt"])):
+            return day, "ok, the current generation's token"
         # after a rotation that kept the old token, a repo may still hold the one that expires first
         if len(named) > 1:
             return min(dates), f"ok, {len(named)} Vercel tokens are named {name}, the earliest expiry is used"

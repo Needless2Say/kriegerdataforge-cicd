@@ -17,6 +17,8 @@ trimmed token, nothing secret, which each deploy compares with its own token and
                        of every target verified equal to the generation's targets and to the registry's.
 - due                  outside `ops` and holding no secret, reads the public facts and prints whether a rotation or a
                        reap is due, so the daily schedule asks no approval on a day with nothing to do.
+- current              prints the newest generation's token id once it is complete and every repository copy retired,
+                       for the expiry fact, and never fails, naming none otherwise.
 
 The record is the cicd `ops` environment variable VERCEL_TOKEN_RECORD and the public facts the cicd repository
 variable VERCEL_TOKEN_FACTS. Every entry point loads the record when it starts, after the workflow's one concurrency
@@ -480,6 +482,27 @@ def settled_at(record: dict, repo_copies: list[str]) -> datetime | None:
     retired = record.get("retired_repo_copies", {})
     times   = [_parse_time(retired[repo].get("at")) for repo in repo_copies if repo in retired]
     return max([completed] + [moment for moment in times if moment is not None])
+
+
+def current_token(record: dict, repo_copies: list[str]) -> str:
+    """
+    The newest generation's token id, when it is complete and every repository copy is retired, so no target holds an
+    older token and its expiry alone is the deployment token's fact. Empty otherwise, the earliest of every live token
+    of the name then kept (D-100's follow-up).
+
+    Args:
+        record: the record
+        repo_copies: each repository copy's repo
+
+    Returns:
+        str: the token id, or empty
+    """
+    if not record["generations"]:
+        return ""
+    gen = record["generations"][-1]
+    if not gen["completed_at"] or not copies_retired(record, repo_copies):
+        return ""
+    return gen["token_id"]
 
 
 def facts_text(record: dict, repo_copies: list[str]) -> str:
@@ -982,7 +1005,7 @@ def main(argv: list[str] | None = None) -> int:
         SystemExit: when a needed variable is not set or a generation is not named
     """
     parser = argparse.ArgumentParser(description = "The shared Vercel deployment token's generations (D-100).")
-    parser.add_argument("mode", choices = ("rotate", "reap", "revoke-now", "retire-repo-copies", "due"))
+    parser.add_argument("mode", choices = ("rotate", "reap", "revoke-now", "retire-repo-copies", "due", "current"))
     parser.add_argument("--generation", default = "")
     parser.add_argument("--verified", default = "")
     parser.add_argument("--facts", default = "")
@@ -993,6 +1016,24 @@ def main(argv: list[str] | None = None) -> int:
     if args.mode in ("revoke-now", "retire-repo-copies") and not GENERATION_ID.fullmatch(args.generation):
         raise SystemExit("token_generations: --generation must name a generation, such as G1")
     targets, copies = registry_targets(_registry_entry())
+    if args.mode == "current":
+        # never fails, a missing token or an unreadable record naming no token, so the expiry keeps the earliest rule
+        record = None
+        facts  = os.environ.get("FACTS_GH_TOKEN", "")
+        try:
+            if facts:
+                record = Engine(
+                    LiveGitHub("", facts),
+                    LiveVercel("", ""),
+                    targets,
+                    copies,
+                    ENTRY_NAME,
+                    ENTRY_NAME,
+                ).load()
+        except RecordError as exc:
+            print(f"the record could not be read, so no token is named, {exc}", file = sys.stderr)
+        print(f"token_id={current_token(record, copies) if record else ''}")
+        return 0
     github = LiveGitHub(os.environ.get("GH_TOKEN", ""), _need("FACTS_GH_TOKEN"))
     vercel = LiveVercel(os.environ.get("VERCEL_MASTER_TOKEN", ""), os.environ.get("VERCEL_TEAM_ID", ""))
     engine = Engine(github, vercel, targets, copies, ENTRY_NAME, ENTRY_NAME)

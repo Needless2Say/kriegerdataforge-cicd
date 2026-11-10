@@ -5415,3 +5415,29 @@ second approval a day after each rotation. After the
 first generation a revert of this change would bring back the deletion of environment copies, so the way back is
 forward, a fault fixed by a new change.
 
+## D-101. The deployment token's expiry from its current generation
+
+- **Date.** 2026-11-10
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Follows.** D-100, and D-049's recorded expiry facts.
+- **Tier / scope:** Standard · `scripts/token_generations.py`, `scripts/rotate_secret.py`,
+  `.github/workflows/rotate-vercel-tokens.yml`, the tests and the docs
+
+**Context.** The deployment token's fact, `EXPIRY_VERCEL_DEPLOYMENT_TOKEN`, is the earliest expiry among the live
+tokens of its name, so a predecessor still serving a target stays seen. Since D-100 a predecessor stays live until the
+reap, a day after the rotation at the earliest, and last month's token expires within the monthly warning window, so
+the owner's check at the end of the sitting on the 1st would still warn, a false alarm every month.
+
+**Decision.** A new `current` mode of `token_generations.py` reads the record as the run left it and names the newest
+generation's token id, not secret, only when that generation is complete and every repository copy retired, when no
+target holds an older token. The rotation's expiry step passes it as `VERCEL_TOKEN_CURRENT_ID`, and the named token's
+expiry becomes the fact. With no id, an unreadable record, or an id no token of the name carries, the earliest rule
+stays. The mode never fails.
+
+**Alternatives considered.** *The workflow's `vars` context.* Declined, it holds the record as the job began, so a
+rotation's own run would see last month's generation. *Moving the sitting's check to the next day.* Declined, the
+owner chose the code fix.
+
+**Consequences.** After a normal sitting the monthly issue closes. While a rotation is incomplete or a repository
+copy is kept, the fact still shows the earliest token, as before.
+

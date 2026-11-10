@@ -568,6 +568,49 @@ class TestRetireRepoCopies:
             engine(github, vercel, clock).retire_repo_copies("G1", self.verified() + ",app-z:dev")
 
 # ======================================================================================================================
+# The current generation's token, for the expiry fact
+# ======================================================================================================================
+
+class TestCurrentToken:
+    """
+    The token whose expiry alone is the fact, named only when no target can hold an older one.
+    """
+    def test_no_token_is_named_before_the_first_generation_or_while_one_is_incomplete(self, world: tuple) -> None:
+        github, vercel, clock = world
+        assert tg.current_token(engine(github, vercel, clock).load(), COPIES) == ""
+        github.fail_write = {TARGETS[0]}
+        engine(github, vercel, clock).rotate()
+        assert tg.current_token(record(github), []) == ""
+
+
+    def test_no_token_is_named_while_a_repository_copy_is_kept(self, world: tuple) -> None:
+        github, vercel, clock = world
+        engine(github, vercel, clock).rotate()
+        assert tg.current_token(record(github), COPIES) == ""
+
+
+    def test_the_newest_token_is_named_once_complete_and_every_copy_retired(self, world: tuple) -> None:
+        github, vercel, clock = world
+        engine(github, vercel, clock).rotate()
+        verified = ",".join(target.split("/", 1)[1] for target in TARGETS)
+        engine(github, vercel, clock).retire_repo_copies("G1", verified)
+        assert tg.current_token(record(github), COPIES) == record(github)["generations"][-1]["token_id"]
+        clock.advance(days = 31)
+        github.fail_write = {TARGETS[0]}
+        engine(github, vercel, clock).rotate()
+        assert tg.current_token(record(github), COPIES) == "", "an incomplete newer generation names none"
+
+
+    def test_the_current_mode_never_fails_and_names_none_without_a_token(
+        self,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.delenv("FACTS_GH_TOKEN", raising = False)
+        assert tg.main(["current"]) == 0
+        assert capsys.readouterr().out.strip() == "token_id="
+
+# ======================================================================================================================
 # The daily due job
 # ======================================================================================================================
 
