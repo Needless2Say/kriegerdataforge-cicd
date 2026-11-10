@@ -420,6 +420,27 @@ class TestReap:
         assert era not in vercel.valid()
 
 
+    def test_the_six_hours_count_from_the_last_of_staggered_retirements(self, world: tuple) -> None:
+        github, vercel, clock = world
+        era, _ = vercel.mint(NAME)
+        engine(github, vercel, clock).rotate()
+        verified = ",".join(target.split("/", 1)[1] for target in TARGETS)
+        clock.advance(hours = 7)
+        github.fail_delete = {COPIES[1]}
+        engine(github, vercel, clock).retire_repo_copies("G1", verified)
+        clock.advance(hours = 5)
+        github.fail_delete = set()
+        engine(github, vercel, clock).retire_repo_copies("G1", verified)
+        last = clock.now
+        clock.advance(hours = 2)
+        with pytest.raises(tg.Refused, match = "six hours"):
+            engine(github, vercel, clock).reap()
+        assert tg.parse_facts(github.facts)["settled"] == last.isoformat()
+        clock.now = last + timedelta(hours = 6)
+        engine(github, vercel, clock).reap()
+        assert era not in vercel.valid()
+
+
     def test_revoke_now_waits_for_no_retirement(self, world: tuple) -> None:
         github, vercel, clock = world
         era, _ = vercel.mint(NAME)
