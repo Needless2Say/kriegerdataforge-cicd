@@ -146,10 +146,11 @@ GitHub secrets come in two scopes and rotate differently:
   [`scripts/secret_registry.json`](scripts/secret_registry.json) (`VERCEL_DEPLOYMENT_TOKEN`,
   `GH_PACKAGES_PAT`) live here, as **repository level** Actions secrets in the consumer repos, *not*
   per environment (a same named env secret would shadow the repo value). They are rotated by the
-  **engine** ([`scripts/rotate_secret.py`](scripts/rotate_secret.py)), `generate` (auto mint the Vercel
-  token) or `paste` (distribute the owner staged PAT), and the engine reaps any retired per environment
-  copies as it goes. Drive it from the **`Ops · Rotate a secret`** issue form (add the
-  `ops:rotate-secrets` label) or the CLI. The cicd ops/control-plane secrets that authenticate the engine
+  **engine** ([`scripts/rotate_secret.py`](scripts/rotate_secret.py)), the Vercel token minted by
+  **Rotate Vercel Deployment Token** on the 1st of each month, and each PAT the owner makes staged in its own
+  slot in cicd's `ops` and distributed by **Ops · Distribute staged secrets** (D-099), the engine reaping any
+  retired per environment copies as it goes. Every token lasts 33 days. The cicd ops/control-plane secrets that
+  authenticate the engine
   itself (`CICD_PAT`, `VERCEL_MASTER_TOKEN`, the writing App's key) live in cicd's `ops` environment and are
   rotated **by hand**, straight into `ops`. Their expiry is recorded by the rotation's `ops` run as cicd
   repository variables, `EXPIRY_<NAME>`, which the weekly monitor reads.

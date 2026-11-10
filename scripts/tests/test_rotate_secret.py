@@ -1320,14 +1320,27 @@ class TestPasteStaged:
         assert "written, the slot NOT deleted, RuntimeError, delete it by hand" in capsys.readouterr().out
 
 
-    @pytest.mark.parametrize(("facts", "rc_expected"), [("facts", 0), ("", 1)])
-    def test_a_recorded_tokens_expiry_is_kept_from_the_value_itself(self, sample_registry, capsys, facts, rc_expected):
+    @pytest.mark.parametrize(
+        ("facts", "record_rc", "rc_expected"),
+        [("facts", 0, 0), ("", 0, 1), ("facts", 1, 1)],
+        ids = ["recorded", "no facts token", "the record failed"],
+    )
+    def test_a_recorded_tokens_expiry_is_kept_from_the_value_itself_and_its_slot_kept_until_it_is(
+        self,
+        sample_registry,
+        capsys,
+        facts,
+        record_rc,
+        rc_expected,
+    ):
+        # the slot holds the one copy the run can read again, the npm token's above all, so a slot whose expiry was not
+        # recorded is kept (Codex's read of D-099, M1)
         sample_registry["secrets"][0]["check"] = {"live": "github", "recorded": True}
         with patch.object(rs, "github_env_secret_updated_at", return_value = self.FRESH), \
              patch.object(rs, "update_github_env_secret"), \
              patch.object(rs, "upsert_vercel_env_var"), \
-             patch.object(rs, "delete_github_env_secret"), \
-             patch.object(rs, "cmd_record_expiry", return_value = 0) as record:
+             patch.object(rs, "delete_github_env_secret") as dele, \
+             patch.object(rs, "cmd_record_expiry", return_value = record_rc) as record:
             rc = rs.cmd_paste_staged(
                 sample_registry,
                 ["GH_PACKAGES_PAT_PROD_NEW"],
@@ -1345,7 +1358,36 @@ class TestPasteStaged:
             assert (token, repo, environ, when) == ("facts", self.CICD, {"GH_PACKAGES_PAT": self.VALUE}, NOW)
         else:
             record.assert_not_called()
-            assert "its expiry NOT recorded" in capsys.readouterr().out
+        if rc_expected == 0:
+            dele.assert_called_once()
+        else:
+            dele.assert_not_called()
+            assert "its expiry NOT recorded, the slot is kept" in capsys.readouterr().out
+
+
+    @pytest.mark.parametrize(
+        "project_id",
+        ["", "   ", None, 7, "TODO_x"],
+        ids = ["empty", "blank", "null", "a number", "TODO"],
+    )
+    def test_a_target_with_no_real_project_id_stops_the_run_before_anything_is_written(
+        self,
+        sample_registry,
+        project_id,
+    ):
+        # Codex's read of D-099, M2, an empty or null id once got past the preflight that caught TODO alone
+        target = sample_registry["secrets"][0]["vercel_env_vars"][1]
+        target.pop("inactive")
+        target["project_id"] = project_id
+        rc, _age, gh, vc, dele = self._run(
+            sample_registry,
+            ["GH_PACKAGES_PAT_DEV_NEW"],
+            {"GH_PACKAGES_PAT_DEV_NEW": self.VALUE},
+        )
+        assert rc == 1
+        gh.assert_not_called()
+        vc.assert_not_called()
+        dele.assert_not_called()
 
 
     def test_no_value_is_ever_printed(self, sample_registry, capsys):

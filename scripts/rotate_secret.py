@@ -1098,6 +1098,19 @@ def _actionable_vercel(targets: list[dict]) -> list[dict]:
     return actionable
 
 
+def _is_project_id(value: object) -> bool:
+    """
+    Whether a registry value is a real Vercel project id, a string, not blank and no `TODO` placeholder.
+
+    Args:
+        value: The target's `project_id`
+
+    Returns:
+        True for a real id
+    """
+    return isinstance(value, str) and bool(value.strip()) and not value.startswith("TODO")
+
+
 def _resolve_vercel(entry: dict, envs: frozenset[str], master_token: str) -> tuple[list[dict], list[dict]]:
     """
     The Vercel targets a paste writes and those the registry marks inactive, refusing before any write a target it
@@ -1118,7 +1131,7 @@ def _resolve_vercel(entry: dict, envs: frozenset[str], master_token: str) -> tup
     targets    = _vercel_targets(entry, envs)
     active     = [target for target in targets if not target.get("inactive")]
     inactive   = [target for target in targets if target.get("inactive")]
-    unresolved = [target["project_name"] for target in active if str(target["project_id"]).startswith("TODO")]
+    unresolved = [str(target.get("project_name")) for target in active if not _is_project_id(target.get("project_id"))]
     if unresolved:
         sys.exit(
             f"Error: {entry['name']}'s Vercel target(s) {', '.join(unresolved)} have no project id. Fill each "
@@ -1326,8 +1339,9 @@ def cmd_paste_staged(
     Every selected slot is checked first, a `paste` entry's, set in this run and in ops, set within
     STAGED_MAX_AGE_DAYS, and every target resolved, and one not ready stops the run before anything is written. Then
     each is pasted, a recorded token's expiry kept as its fact from the value itself, and the slot deleted from ops
-    once its targets are written, so a set slot always means a value not yet distributed. A slot whose paste failed is
-    kept for a retry, and the others go on.
+    once its targets are written, so a set slot always means a value not yet distributed. A slot whose paste failed, or
+    whose expiry could not be recorded, is kept for a retry, since it holds the one copy the run can read again, and
+    the others go on.
 
     Args:
         registry: The parsed registry
@@ -1384,13 +1398,16 @@ def cmd_paste_staged(
                 {entry["name"]: env[slot]},
                 when,
             ) == 0
+        if not recorded:
+            # the slot holds the one copy of the value the run can read again, the npm token's above all, so it stays
+            # until its expiry is recorded
+            results[slot] = "written, its expiry NOT recorded, the slot is kept, dispatch it again to record it"
+            continue
         try:
             delete_github_env_secret(gh_token, repo, OPS_ENVIRONMENT, slot)
             results[slot] = "written, the slot deleted"
         except Exception as exc:  # noqa: BLE001, the type alone, an exception's text could carry a request's details
             results[slot] = f"written, the slot NOT deleted, {type(exc).__name__}, delete it by hand"
-        if not recorded:
-            results[slot] += f", its expiry NOT recorded, dispatch record-expiry for {entry['name']}"
 
     print("\nThe staged slots:")
     for slot in selected:

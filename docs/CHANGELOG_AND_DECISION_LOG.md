@@ -5321,12 +5321,14 @@ cron where a script can mint it and by the owner where none can.
 - **A slot per manual secret.** Each `paste` entry lists its slots in `staging`, one for an entry held in repository
   secrets alone and one per environment for an entry held in environments, named `<NAME>_NEW` or
   `<NAME>_<ENV>_NEW`, so a slot's name alone decides where its value goes. The projects flow's classic token is
-  `PROVISION_PROJECTS_PAT`, a name no distribution reads. `SECRET_VALUE_NEW` and `GH_PACKAGES_PAT_NEW` retire.
+  `PROVISION_PROJECTS_PAT`, a name no distribution reads. The shared `SECRET_VALUE_NEW` retires, and
+  `GH_PACKAGES_PAT_NEW` stays, now the packages token's slot under the same naming rule, its own workflow retired.
 - **One run.** `distribute-staged.yml`, **Ops · Distribute staged secrets**, dispatched with the slots to distribute,
   in `ops` after the owner check and the owner's approval, its own concurrency group. `rotate_secret.py --mode
   paste-staged` checks every selected slot first, a `paste` entry's, set in the run and in `ops`, set within 7 days,
-  every target resolved, and writes nothing when one is not ready. Then it pastes each, records a recorded token's
-  expiry from the token itself, and deletes the slot once its targets are written, a failed slot kept for a retry.
+  every target with a real project id, and writes nothing when one is not ready. Then it pastes each, records a
+  recorded token's expiry from the token itself, and deletes the slot once its targets are written and its expiry
+  recorded, a slot that failed either kept for a retry, since it holds the one copy the run can read again.
   Each slot reaches the step only when named, the selection reaching the engine as data.
 - **The paste's guards.** Only a `paste` entry takes a pasted value. An entry held in no environment refuses an
   environment. An active Vercel target with no project id, or Vercel targets with no master token, stop the paste
