@@ -5378,8 +5378,10 @@ held to `main`. A deploy that succeeds proves nothing about which copy it read, 
   generation pending in cicd's `ops` variable `VERCEL_TOKEN_RECORD` before any target is written, every older token
   its predecessor, the repository era's and a crashed mint's among them. Each target's secret and its variable are
   saved as they land, and a failed save stops the run. Every target written makes it complete.
-- **The reap.** It revokes the newest generation's predecessors only once it is complete and its last write six hours
-  old, GitHub's limit on a hosted job, and refuses an incomplete or replaced one, recording each revocation.
+- **The reap.** It revokes the newest generation's predecessors only once it is complete, its last write six hours
+  old, GitHub's limit on a hosted job, and every repository copy retired, since a job with no environment, a pull
+  request's among them, reads a repository copy until it is deleted. It refuses an incomplete or replaced
+  generation, recording each revocation.
   `revoke-now` is the emergency, revoking at once despite failed targets and naming them to repair.
   `retire-repo-copies` deletes the repository copies, for the newest complete generation alone, once the owner's list
   of verified targets equals its targets and the registry's.
@@ -5407,7 +5409,8 @@ held to `main`. A deploy that succeeds proves nothing about which copy it read, 
   is still being written.
 
 **Consequences.** The token's move is the owner's dispatch of a first generation, then redeploys on `dev` and `prod`
-printing it and yes, then `retire-repo-copies`. The reap is a second approval a day after each rotation. After the
+printing it and yes, then `retire-repo-copies`, and only then the reap of the repository era's tokens. The reap is a
+second approval a day after each rotation. After the
 first generation a revert of this change would bring back the deletion of environment copies, so the way back is
 forward, a fault fixed by a new change.
 

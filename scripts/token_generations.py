@@ -444,12 +444,28 @@ def _outstanding(record: dict, generation: str) -> list[str]:
     )
 
 
-def facts_text(record: dict) -> str:
+def copies_retired(record: dict, repo_copies: list[str]) -> bool:
+    """
+    Whether every repository copy is retired, so no job with no environment still reads a predecessor.
+
+    Args:
+        record: the record
+        repo_copies: each repository copy's repo
+
+    Returns:
+        bool: True when every one is recorded as deleted
+    """
+    retired = record.get("retired_repo_copies", {})
+    return all(repo in retired for repo in repo_copies)
+
+
+def facts_text(record: dict, repo_copies: list[str]) -> str:
     """
     The public facts of the newest generation, nothing secret, as the due job reads them.
 
     Args:
         record: the record
+        repo_copies: each repository copy's repo
 
     Returns:
         str: the facts, one line of key=value words
@@ -463,6 +479,7 @@ def facts_text(record: dict) -> str:
         f"minted={gen['minted_at']}",
         f"completed={gen['completed_at'] or 'none'}",
         f"outstanding={len(_outstanding(record, gen['id']))}",
+        f"copies={'retired' if copies_retired(record, repo_copies) else 'kept'}",
     ])
 
 
@@ -487,7 +504,7 @@ def due(text: str, now: datetime) -> str:
     step 11), so the armed schedule never moves the token on its own. Once one exists, a rotation is due when the
     newest is incomplete, a failed run tried again the next day, when it was minted before this month, the owner's
     rotation on the 1st, or when the facts cannot be read. A reap is due when the newest is complete, still retires a
-    token, and its last write is six hours old.
+    token, every repository copy is retired, and its last write is six hours old.
 
     Args:
         text: the facts
@@ -507,7 +524,7 @@ def due(text: str, now: datetime) -> str:
     completed = _parse_time(facts.get("completed"))
     if completed is None:
         return "rotate"
-    if facts.get("outstanding", "0") != "0" and now - completed >= REAP_DELAY:
+    if facts.get("outstanding", "0") != "0" and facts.get("copies") == "retired" and now - completed >= REAP_DELAY:
         return "reap"
     return "none"
 
@@ -621,7 +638,7 @@ class Engine:
             errors: the run's errors, added to in place
         """
         try:
-            self.github.write_facts(facts_text(record))
+            self.github.write_facts(facts_text(record, self.repo_copies))
         except Exception as exc:  # noqa: BLE001
             errors.append(f"the public facts could not be written, {exc}")
 
@@ -689,7 +706,7 @@ class Engine:
         # The facts say pending before any write, so a run that stops part way is seen by the next day's due job and
         # tried again, never hidden behind an older complete generation's facts (Codex's review read, M).
         try:
-            self.github.write_facts(facts_text(record))
+            self.github.write_facts(facts_text(record, self.repo_copies))
         except Exception as exc:  # noqa: BLE001
             self._withdraw(record, gen)
             raise RecordError(
@@ -769,13 +786,15 @@ class Engine:
 
     def reap(self) -> list[str]:
         """
-        Revoke the newest complete generation's predecessors, six hours after its last write.
+        Revoke the newest complete generation's predecessors, six hours after its last write and once every repository
+        copy is retired, since a job with no environment, a pull request's among them, still reads a repository copy
+        until it is deleted. `revoke-now` is the emergency that waits for neither.
 
         Returns:
             list[str]: each failed revocation, kept for the next reap
 
         Raises:
-            Refused: when the newest generation is incomplete or its last write is too recent
+            Refused: when the newest generation is incomplete, its last write too recent, or a repository copy kept
         """
         record = self.load()
         gen    = self.newest(record)
@@ -784,6 +803,8 @@ class Engine:
         completed = _parse_time(gen["completed_at"])
         if completed is None or self.clock() - completed < REAP_DELAY:
             raise Refused(f"{gen['id']}'s last write is not yet six hours old, so no token is revoked")
+        if not copies_retired(record, self.repo_copies):
+            raise Refused("a repository copy is not yet retired, so no token is revoked, run retire-repo-copies first")
         errors: list[str] = []
         self._revoke(record, gen, errors)
         self.publish(record, errors)

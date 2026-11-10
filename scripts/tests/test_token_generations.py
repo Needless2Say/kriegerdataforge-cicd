@@ -152,6 +152,13 @@ def engine(github: FakeGitHub, vercel: FakeVercel, clock: Clock, targets: list[s
     return tg.Engine(github, vercel, targets or TARGETS, COPIES, NAME, NAME, clock)
 
 
+def reaper(github: FakeGitHub, vercel: FakeVercel, clock: Clock) -> tg.Engine:
+    """
+    An engine with no repository copy, as after their retirement, so a reap tests its other rules alone.
+    """
+    return tg.Engine(github, vercel, TARGETS, [], NAME, NAME, clock)
+
+
 def record(github: FakeGitHub) -> dict:
     return json.loads(github.record)
 
@@ -280,7 +287,7 @@ class TestRotate:
         vercel.fail_revoke = set()
         engine(github, vercel, clock).rotate()
         clock.advance(hours = 6)
-        engine(github, vercel, clock).reap()
+        reaper(github, vercel, clock).reap()
         assert "tok1" not in vercel.valid()
 
 
@@ -340,13 +347,13 @@ class TestReap:
         b_token = record(github)["generations"][-1]["token_id"]
         clock.advance(hours = 7)
         with pytest.raises(tg.Refused, match = "incomplete"):
-            engine(github, vercel, clock).reap()
+            reaper(github, vercel, clock).reap()
         assert vercel.valid() == {a_token, b_token} and holders_valid(github, vercel)
         github.fail_write = set()
         engine(github, vercel, clock).rotate()
         c_token = record(github)["generations"][-1]["token_id"]
         clock.advance(hours = 6)
-        assert engine(github, vercel, clock).reap() == []
+        assert reaper(github, vercel, clock).reap() == []
         assert vercel.valid() == {c_token} and holders_valid(github, vercel)
 
 
@@ -356,10 +363,10 @@ class TestReap:
         engine(github, vercel, clock).rotate()
         clock.advance(hours = 6, seconds = -1)
         with pytest.raises(tg.Refused, match = "six hours"):
-            engine(github, vercel, clock).reap()
+            reaper(github, vercel, clock).reap()
         assert era in vercel.valid()
         clock.advance(seconds = 1)
-        engine(github, vercel, clock).reap()
+        reaper(github, vercel, clock).reap()
         assert era not in vercel.valid()
         assert record(github)["tokens"][era]["revoked"] == clock.now.isoformat()
 
@@ -371,7 +378,7 @@ class TestReap:
         engine(github, vercel, clock).rotate()
         clock.advance(days = 2)
         with pytest.raises(tg.Refused, match = "incomplete"):
-            engine(github, vercel, clock).reap()
+            reaper(github, vercel, clock).reap()
         assert len(vercel.valid()) == 2
 
 
@@ -381,16 +388,42 @@ class TestReap:
         engine(github, vercel, clock).rotate()
         clock.advance(hours = 6)
         vercel.fail_revoke = {era}
-        assert engine(github, vercel, clock).reap()
+        assert reaper(github, vercel, clock).reap()
         assert record(github)["tokens"][era]["revoked"] is None
         vercel.fail_revoke = set()
-        assert engine(github, vercel, clock).reap() == []
+        assert reaper(github, vercel, clock).reap() == []
+        assert era not in vercel.valid()
+
+
+    def test_the_routine_reap_waits_until_every_repository_copy_is_retired(self, world: tuple) -> None:
+        github, vercel, clock = world
+        era, _ = vercel.mint(NAME)
+        engine(github, vercel, clock).rotate()
+        clock.advance(hours = 7)
+        assert tg.parse_facts(github.facts)["copies"] == "kept"
+        assert tg.due(github.facts, clock.now) == "none"
+        with pytest.raises(tg.Refused, match = "retire-repo-copies"):
+            engine(github, vercel, clock).reap()
+        assert era in vercel.valid()
+        verified = ",".join(target.split("/", 1)[1] for target in TARGETS)
+        engine(github, vercel, clock).retire_repo_copies("G1", verified)
+        assert tg.parse_facts(github.facts)["copies"] == "retired"
+        assert tg.due(github.facts, clock.now) == "reap"
+        engine(github, vercel, clock).reap()
+        assert era not in vercel.valid()
+
+
+    def test_revoke_now_waits_for_no_retirement(self, world: tuple) -> None:
+        github, vercel, clock = world
+        era, _ = vercel.mint(NAME)
+        engine(github, vercel, clock).rotate()
+        engine(github, vercel, clock).revoke_now("G1")
         assert era not in vercel.valid()
 
 
     def test_a_reap_reloads_the_record_another_entry_point_changed(self, world: tuple) -> None:
         github, vercel, clock = world
-        first = engine(github, vercel, clock)
+        first = reaper(github, vercel, clock)
         first.rotate()
         g1 = record(github)["generations"][-1]["token_id"]
         clock.advance(days = 1)
@@ -408,7 +441,7 @@ class TestReap:
         clock.advance(days = 1)
         engine(github, vercel, clock).rotate()
         clock.advance(hours = 6)
-        engine(github, vercel, clock).reap()
+        reaper(github, vercel, clock).reap()
         assert orphan not in vercel.valid()
 
 # ======================================================================================================================
@@ -521,6 +554,7 @@ class TestDue:
             "minted": START.isoformat(),
             "completed": START.isoformat(),
             "outstanding": "0",
+            "copies": "retired",
         }
         base.update(fields)
         return " ".join(f"{key}={value}" for key, value in base.items())
@@ -543,6 +577,11 @@ class TestDue:
         facts = self.facts(outstanding = "1")
         assert tg.due(facts, START + timedelta(hours = 5, minutes = 59)) == "none"
         assert tg.due(facts, START + timedelta(hours = 6)) == "reap"
+
+
+    def test_no_reap_is_asked_while_a_repository_copy_is_kept(self) -> None:
+        assert tg.due(self.facts(outstanding = "1", copies = "kept"), START + timedelta(hours = 7)) == "none"
+        assert tg.due(self.facts(outstanding = "1", copies = ""), START + timedelta(hours = 7)) == "none"
 
 
     def test_a_month_with_its_generation_complete_and_reaped_asks_nothing(self) -> None:
