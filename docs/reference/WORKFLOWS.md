@@ -967,7 +967,8 @@ rotation, where a secret with no GitHub target lists none and no App token is mi
 `--names="$REPOS"`, so `--` is a name matching nothing. The OIDC
 drift check names its manifest's two repos and the expiry facts' token cicd alone. `ops-setup-e2e.yml`'s token names
 its one target. These two write variables, and GitHub's token API has no key for the Variables permission, so each
-asks for no permission filter and is held to its one repository instead, in `ops`. No single value input is expanded in a shell, `bandit_version`, `pip_audit_version`, `bandit_paths` and the
+asks for no permission filter and is held to its one repository instead, in `ops`.
+No single value input is expanded in a shell, `bandit_version`, `pip_audit_version`, `bandit_paths` and the
 Vercel check's environment read from the step's `env`, `bandit_paths` split into its paths with no evaluation, and
 each command input, `install_command` and its kind, is the caller's own command by design, accepted on its `run:`
 line. `issue-create-repo.yml` holds `contents: read` alone, its issue writes going through `CICD_PAT` in `ops`, and Dependabot
