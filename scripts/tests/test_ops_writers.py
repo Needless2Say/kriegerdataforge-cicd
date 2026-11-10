@@ -199,19 +199,15 @@ def test_the_staged_run_reads_exactly_the_registrys_slots_each_only_when_selecte
     assert data["concurrency"] == {"group": "ops-distribute-staged", "cancel-in-progress": False}
 
 
-def test_the_rotation_records_the_packages_fact_only_while_none_exists():
-    # the staged distribution owns the packages token's fact, so a rotation that read cicd's copy before a distribution
-    # never overwrites the newer token's fact (Codex's third read of D-099), the token read only when it records
+def test_the_rotation_never_records_a_staged_tokens_fact():
+    # the staged distribution alone writes the packages and npm tokens' facts, from the token it sends, so no second
+    # writer can overwrite a newer fact or leave a failed read in its way (Codex's third and fourth reads of D-099)
+    text = (WORKFLOWS / "rotate-vercel-tokens.yml").read_text(encoding = "utf-8")
     job  = _load(WORKFLOWS / "rotate-vercel-tokens.yml")["jobs"]["rotate"]
     step = next(step for step in _steps(job) if step.get("name") == "Record the expiry facts")
-    env  = {key: " ".join(str(value).split()) for key, value in step["env"].items()}
-    assert env["GH_PACKAGES_PAT"] == "${{ vars.EXPIRY_GH_PACKAGES_PAT == '' && secrets.GH_PACKAGES_PAT || '' }}"
-    assert env["RECORDED"] == (
-        "${{ vars.EXPIRY_GH_PACKAGES_PAT == '' && "
-        "'CICD_PAT,VERCEL_MASTER_TOKEN,VERCEL_DEPLOYMENT_TOKEN,GH_PACKAGES_PAT' || "
-        "'CICD_PAT,VERCEL_MASTER_TOKEN,VERCEL_DEPLOYMENT_TOKEN' }}"
-    )
-    assert step["run"].strip() == 'python scripts/rotate_secret.py --mode record-expiry --secrets "$RECORDED"'
+    assert " ".join(step["run"].split()).endswith("--secrets CICD_PAT,VERCEL_MASTER_TOKEN,VERCEL_DEPLOYMENT_TOKEN")
+    assert "GH_PACKAGES_PAT" not in step.get("env", {})
+    assert "secrets.GH_PACKAGES_PAT" not in text and "secrets.GH_NPM_TOKEN" not in text
 
 
 def test_no_workflow_reads_the_retired_shared_slot():

@@ -5338,8 +5338,8 @@ cron where a script can mint it and by the owner where none can.
   alone, so its job names no environment and mints no token. `distribute-gh-pat.yml` is removed, its job the new
   run's.
 - **33 days.** The deployment token is minted for 33 days, `TOKEN_EXPIRY_DAYS`, and the monthly tokens warn at 3 days.
-  The packages and npm tokens' expiry is recorded, by the new run and, for cicd's copy of the packages token, by the
-  rotation's `record-expiry`, so the weekly monitor holds no token at all.
+  The packages and npm tokens' expiry is recorded by the new run alone, from the token it sends, its one writer, so
+  no copy read earlier overwrites a newer fact, and the weekly monitor holds no token at all.
 
 **Alternatives considered.**
 
@@ -5350,8 +5350,8 @@ cron where a script can mint it and by the owner where none can.
 - *Keep each manual value in `ops` as a lasting source.* Declined, one more live copy of each token to rotate.
 
 **Consequences.** One dispatch and one approval a month for every manual secret, a slot set at a prompt for each. The
-issue form no longer writes. The first `record-expiry` after the merge records the packages token's fact, and the npm
-token's comes with its first distribution, the monitor saying plainly that a fact is missing until then. A new manual
+issue form no longer writes. The packages and npm tokens' facts come with their first distribution, the monitor saying
+plainly that a fact is missing until then. A new manual
 secret is a registry entry with its `staging`, its slot named in `distribute-staged.yml`, a test holding the two
 equal.
 

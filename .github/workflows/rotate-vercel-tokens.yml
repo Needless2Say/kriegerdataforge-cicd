@@ -140,16 +140,13 @@ jobs:
         env:
           CICD_PAT: ${{ secrets.CICD_PAT }}
           VERCEL_MASTER_TOKEN: ${{ secrets.VERCEL_MASTER_TOKEN }}
-          # The packages token's fact is the staged distribution's, which writes it from the token it sends (D-099).
-          # This run reads cicd's own copy and records it only while no fact exists yet, the first time alone, so a
-          # copy read before a distribution never overwrites the newer token's fact.
-          GH_PACKAGES_PAT: ${{ vars.EXPIRY_GH_PACKAGES_PAT == '' && secrets.GH_PACKAGES_PAT || '' }}
-          RECORDED: >-
-            ${{ vars.EXPIRY_GH_PACKAGES_PAT == '' &&
-            'CICD_PAT,VERCEL_MASTER_TOKEN,VERCEL_DEPLOYMENT_TOKEN,GH_PACKAGES_PAT' ||
-            'CICD_PAT,VERCEL_MASTER_TOKEN,VERCEL_DEPLOYMENT_TOKEN' }}
           GH_TOKEN: ${{ steps.facts-token.outputs.token || secrets.CICD_PAT }}
-        run: python scripts/rotate_secret.py --mode record-expiry --secrets "$RECORDED"
+        # The packages and npm tokens' facts are the staged distribution's alone, written from the token it sends
+        # (D-099), so this run never records them and no copy read before a distribution overwrites a newer fact.
+        run: |
+          python scripts/rotate_secret.py \
+            --mode record-expiry \
+            --secrets CICD_PAT,VERCEL_MASTER_TOKEN,VERCEL_DEPLOYMENT_TOKEN
 
       # The sitting makes a fresh master token straight into ops, and this proves it mints before anything
       # depends on it. The throwaway token is deleted at once and its value never printed.
