@@ -1017,12 +1017,13 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("token_generations: --generation must name a generation, such as G1")
     targets, copies = registry_targets(_registry_entry())
     if args.mode == "current":
-        # never fails, a missing token or an unreadable record naming no token, so the expiry keeps the earliest rule
-        record = None
-        facts  = os.environ.get("FACTS_GH_TOKEN", "")
+        # never fails, a missing token or a record that cannot be read or holds an unexpected shape naming no token, so
+        # the expiry keeps the earliest rule (Codex's read of D-101, M)
+        token_id = ""
+        facts    = os.environ.get("FACTS_GH_TOKEN", "")
         try:
             if facts:
-                record = Engine(
+                record   = Engine(
                     LiveGitHub("", facts),
                     LiveVercel("", ""),
                     targets,
@@ -1030,9 +1031,13 @@ def main(argv: list[str] | None = None) -> int:
                     ENTRY_NAME,
                     ENTRY_NAME,
                 ).load()
-        except RecordError as exc:
-            print(f"the record could not be read, so no token is named, {exc}", file = sys.stderr)
-        print(f"token_id={current_token(record, copies) if record else ''}")
+                token_id = current_token(record, copies)
+        except Exception as exc:  # noqa: BLE001, the type alone, an exception's text could carry a request's details
+            print(f"the record could not be read, so no token is named, {type(exc).__name__}", file = sys.stderr)
+            token_id = ""
+        if not isinstance(token_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", token_id):
+            token_id = ""
+        print(f"token_id={token_id}")
         return 0
     github = LiveGitHub(os.environ.get("GH_TOKEN", ""), _need("FACTS_GH_TOKEN"))
     vercel = LiveVercel(os.environ.get("VERCEL_MASTER_TOKEN", ""), os.environ.get("VERCEL_TEAM_ID", ""))

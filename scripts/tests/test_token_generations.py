@@ -610,6 +610,40 @@ class TestCurrentToken:
         assert tg.main(["current"]) == 0
         assert capsys.readouterr().out.strip() == "token_id="
 
+
+    def test_the_current_mode_reads_the_record_and_names_its_token(
+        self,
+        world: tuple,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        github, vercel, clock = world
+        targets, copies = tg.registry_targets(
+            next( entry for entry in rs._load_registry()["secrets"] if entry["name"] == NAME ),
+        )
+        live = tg.Engine(github, vercel, targets, copies, NAME, NAME, clock)
+        live.rotate()
+        verified = ",".join(target.split("/", 1)[1] for target in targets)
+        live.retire_repo_copies("G1", verified)
+        monkeypatch.setenv("FACTS_GH_TOKEN", "facts")
+        monkeypatch.setattr(tg.LiveGitHub, "read_record", lambda self: github.record)
+        capsys.readouterr()  # the rotation's own lines, so the mode's line is read alone
+        assert tg.main(["current"]) == 0
+        assert capsys.readouterr().out.strip() == f"token_id={record(github)['generations'][-1]['token_id']}"
+
+
+    @pytest.mark.parametrize("text", ['{"version":1}', '{"version":1,"generations":[{}],"tokens":{}}', "[]", "{not"])
+    def test_the_current_mode_names_none_for_a_record_of_an_unexpected_shape(
+        self,
+        text: str,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("FACTS_GH_TOKEN", "facts")
+        monkeypatch.setattr(tg.LiveGitHub, "read_record", lambda self: text)
+        assert tg.main(["current"]) == 0
+        assert capsys.readouterr().out.strip() == "token_id="
+
 # ======================================================================================================================
 # The daily due job
 # ======================================================================================================================
