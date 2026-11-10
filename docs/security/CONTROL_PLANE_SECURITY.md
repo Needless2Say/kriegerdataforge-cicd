@@ -174,13 +174,16 @@ revoking the old token only after every shadow is gone (`secret_registry.json:2,
 
 **Rotation engine + guardrails.** `rotate_secret.py` + `secret_registry.json` are the single source
 of truth. App plane (Terraform owned) secrets are **refused** by a `terraform_managed` guard so a
-direct write can't drift infra state (`ops-rotate-secrets.yml:15`, `secret_registry.json:2`).
-Paste mode requires the value be staged in the `SECRET_VALUE_NEW` repo secret first. The issue only
-*names* the secret (`ops-rotate-secrets.yml:11-13, 134-138`).
+direct write can't drift infra state (`secret_registry.json:2`). Every secret a person makes is
+staged in a slot of its own in cicd's `ops`, one per environment for an entry held in two, so a slot's
+name alone decides where its value goes, and only a `paste` entry takes a pasted value. The staged run
+writes nothing until every selected slot is set, recent and resolved, and deletes each slot once its
+targets are written (D-099, `distribute-staged.yml`, `rotate_secret.py --mode paste-staged`).
 
 **Expiry watchdog.** A weekly cron (`Mon 09:00 UTC`) runs `rotate_secret.py --mode check`, which
-reads **only** the registry's expiry metadata, no secret values, and maintains one deduplicated
-tracking issue, auto closing it when everything is healthy (`check-secret-expiry.yml:1-16, 41-96`).
+reads **only** the recorded expiry facts and the registry, no secret values and no token, and
+maintains one deduplicated tracking issue, auto closing it when everything is healthy
+(`check-secret-expiry.yml`).
 Auto mintable Vercel tokens self-heal. The PATs and the Vercel master token are flagged as
 hand rotated because no API can mint them (`secret_registry.json:84-96`).
 

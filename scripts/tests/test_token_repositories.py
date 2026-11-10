@@ -26,12 +26,11 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 SCRIPTS   = ROOT / "scripts"
 # each workflow whose token reads a computed list, and the list's kind
 COMPUTED = {
-    "distribute-gh-pat.yml": "secrets --names=GH_PACKAGES_PAT",
+    "distribute-staged.yml": 'staged --names="$SLOTS"',
     "distribute-kit.yml": 'kit --names="$REPOS"',
     "ops-distribute-all.yml": 'all --names="$REPOS"',
     "ops-distribute-kit.yml": 'kit --names="$REPOS"',
     "ops-distribute-scripts.yml": 'scripts --names="$REPOS"',
-    "ops-rotate-secrets.yml": 'secrets --allow-empty --names="$SECRETS"',
     "rotate-vercel-tokens.yml": "secrets --names=VERCEL_DEPLOYMENT_TOKEN",
     "ecosystem-watch.yml": "watch",
 }
@@ -83,10 +82,25 @@ def test_an_empty_list_prints_nothing_only_when_the_workflow_mints_no_token(caps
     assert capsys.readouterr().out.strip() == "repositories="
 
 
-def test_the_rotation_mints_no_token_when_its_list_is_empty():
-    # a check of CICD_PAT or VERCEL_MASTER_TOKEN lists no repo, and the action would read none as every repo
+def test_the_issue_forms_check_mints_no_token_and_names_no_environment():
+    # its paste and generate retired (D-099), a check reads the registry and the recorded facts alone
     text = (WORKFLOWS / "ops-rotate-secrets.yml").read_text(encoding = "utf-8")
-    assert "        if: vars.USE_GITHUB_APP == 'true' && steps.targets.outputs.repositories != ''\n" in text
+    assert "create-github-app-token" not in text
+    assert "environment:" not in text
+    assert "secrets.CICD_PAT" not in text and "secrets.VERCEL_MASTER_TOKEN" not in text
+
+
+def test_a_staged_list_holds_each_slots_entrys_writes_and_cicd(capsys):
+    # cicd holds the slots, read and deleted there, and each slot's entry's targets are its writes (D-099)
+    entries  = {entry["name"]: entry for entry in registry("secret_registry.json")["secrets"]}
+    expected = {"kriegerdataforge-cicd"}
+    for target in entries["GH_NPM_TOKEN"]["github_repo_secrets"]:
+        expected |= names([target["repo"]])
+    assert listed(capsys, "staged", "--names=gh_npm_token_new") == expected
+    with pytest.raises(SystemExit):
+        tr.main(["staged", "--names=SECRET_VALUE_NEW"])
+    with pytest.raises(SystemExit):
+        tr.main(["staged", "--names="])
 
 
 @pytest.mark.parametrize("entry", registry("secret_registry.json")["secrets"], ids = lambda entry: entry["name"])
@@ -140,7 +154,7 @@ def test_each_workflow_lists_its_repos_before_its_mint_and_hands_them_to_the_tok
 
 @pytest.mark.parametrize(
     "workflow",
-    ["ops-distribute-all.yml", "ops-distribute-kit.yml", "ops-distribute-scripts.yml", "ops-rotate-secrets.yml"],
+    ["ops-distribute-all.yml", "ops-distribute-kit.yml", "ops-distribute-scripts.yml"],
 )
 def test_an_issue_driven_workflow_mints_only_after_it_reads_the_issues_fields(workflow):
     text = (WORKFLOWS / workflow).read_text(encoding = "utf-8")

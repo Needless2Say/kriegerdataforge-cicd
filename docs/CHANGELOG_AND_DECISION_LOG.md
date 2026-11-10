@@ -5294,3 +5294,65 @@ four lines more. The numbers each change should move are in the review bench's l
 tool places one more source. Kit and cicd's own copies at v1.29.0. Phase B's seventh proposal, the version anchors of
 the kdf-sdk's whole package lane, is that repo's, and its sixth is already the context repo's traps page.
 
+## D-099. A staging slot for every secret a person makes, distributed in one run, every token for 33 days
+
+- **Date.** 2026-11-10
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Follows.** D-049, the recorded expiry facts, and the secrets fence, its staging in `ops`.
+- **Tier / scope:** Standard · `scripts/rotate_secret.py`, `scripts/secret_registry.json`,
+  `scripts/token_repositories.py`, `scripts/provision_projects.py`, `.github/workflows/distribute-staged.yml` (new),
+  `ops-rotate-secrets.yml`, `ops-provision-projects.yml`, `rotate-vercel-tokens.yml`, `check-secret-expiry.yml`,
+  `distribute-gh-pat.yml` (removed), the issue forms, the tests and the docs
+
+**Context.** A value a person makes, a PAT GitHub has no API to mint or a copy of a value another system owns, was
+staged in one shared slot, `SECRET_VALUE_NEW`, and pasted one secret a run through the issue form, its destination
+chosen by the form's fields, the packages token alone with a slot of its own and a workflow of its own. The owner asked
+for a slot per secret, so they know where each goes and can keep track of the manual rotations, all distributed
+together. A review of the proposal by two models adopted it, with twelve material findings and none against it. A
+slot of the one shared name could carry a classic token staged for the
+projects flow into repository secrets every branch reads. The paste wrote any entry, a generated token or an App key
+included. A paste of a global PAT naming an environment wrote every repository copy and part of its Vercel copies. A
+target left unwritten, a TODO project id or no master token, was reported as success. The npm token's expiry was
+watched by nothing. The owner also set every token to last 33 days and be rotated on the 1st of the month, by the
+cron where a script can mint it and by the owner where none can.
+
+**Decision.**
+
+- **A slot per manual secret.** Each `paste` entry lists its slots in `staging`, one for an entry held in repository
+  secrets alone and one per environment for an entry held in environments, named `<NAME>_NEW` or
+  `<NAME>_<ENV>_NEW`, so a slot's name alone decides where its value goes. The projects flow's classic token is
+  `PROVISION_PROJECTS_PAT`, a name no distribution reads. The shared `SECRET_VALUE_NEW` retires, and
+  `GH_PACKAGES_PAT_NEW` stays, now the packages token's slot under the same naming rule, its own workflow retired.
+- **One run.** `distribute-staged.yml`, **Ops · Distribute staged secrets**, dispatched with the slots to distribute,
+  in `ops` after the owner check and the owner's approval, its own concurrency group. `rotate_secret.py --mode
+  paste-staged` checks every selected slot first, a `paste` entry's, set in the run and in `ops`, set within 7 days,
+  every target with a real project id, and writes nothing when one is not ready. Then it pastes each, records a
+  recorded token's expiry from the token itself, and deletes the slot once its targets are written and its expiry
+  recorded, a slot that failed either kept for a retry, since it holds the one copy the run can read again.
+  Each slot reaches the step only when named, the selection reaching the engine as data.
+- **The paste's guards.** Only a `paste` entry takes a pasted value. An entry held in no environment refuses an
+  environment. An active Vercel target with no project id, or Vercel targets with no master token, stop the paste
+  before any write, and a target the registry marks `inactive` is named as left unwritten, never as written. The
+  npm token's four Vercel targets are marked inactive until their ids are known.
+- **The issue form checks alone.** Its `paste` and `generate` retire, the deployment token minted by its rotation
+  alone, so its job names no environment and mints no token. `distribute-gh-pat.yml` is removed, its job the new
+  run's.
+- **33 days.** The deployment token is minted for 33 days, `TOKEN_EXPIRY_DAYS`, and the monthly tokens warn at 7 days,
+  a weekly interval, so the Monday monitor always warns before one expires, in a normal month just before the 1st.
+  The packages and npm tokens' expiry is recorded by the new run alone, from the token it sends, its one writer, so
+  no copy read earlier overwrites a newer fact, and the weekly monitor holds no token at all.
+
+**Alternatives considered.**
+
+- *Today's two slots, the runbook listing every manual secret.* Declined, the shared slot's destination is chosen in
+  a form beside the value, which nothing can check, and it can carry the projects flow's classic token.
+- *Distribute every slot that is set.* Declined, a value left from an earlier rotation would be pasted again. The run
+  takes the slots named and refuses a stale one.
+- *Keep each manual value in `ops` as a lasting source.* Declined, one more live copy of each token to rotate.
+
+**Consequences.** One dispatch and one approval a month for every manual secret, a slot set at a prompt for each. The
+issue form no longer writes. The packages and npm tokens' facts come with their first distribution, the monitor saying
+plainly that a fact is missing until then. A new manual
+secret is a registry entry with its `staging`, its slot named in `distribute-staged.yml`, a test holding the two
+equal.
+

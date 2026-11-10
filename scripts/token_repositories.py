@@ -8,6 +8,7 @@ Usage:
     python scripts/token_repositories.py scripts --names=REPOS   # distribute_scripts.py's targets
     python scripts/token_repositories.py all --names=REPOS       # distribute_all.py's targets, both registries merged
     python scripts/token_repositories.py secrets --names=NAMES   # rotate_secret.py's writes for the named secrets
+    python scripts/token_repositories.py staged --names=SLOTS    # the staged slots' entries' writes, and cicd
     python scripts/token_repositories.py watch                   # ecosystem_watch.py's repos, cicd among them
 
 A value is bound to --names with `=`, so `--` or a name opening with a dash is a name, matching none and failing, and
@@ -115,6 +116,32 @@ def secret_targets(names: str) -> list[str]:
     return repos
 
 
+def staged_targets(names: str) -> list[str]:
+    """
+    Every repo the staged slots' run reaches, each named slot's entry's writes and cicd, where the slots are read and
+    deleted (D-099).
+
+    Args:
+        names: the slots, comma or space separated, case as the run ignores it
+
+    Returns:
+        list[str]: owner and name of each
+
+    Raises:
+        SystemExit: when a name is no slot of the registry, or none is named
+    """
+    wanted  = {name.strip().upper() for name in names.replace(",", " ").split() if name.strip()}
+    slots   = {
+        slot["slot"]: entry["name"]
+        for entry in registry("secret_registry.json")["secrets"]
+        for slot in entry.get("staging", [])
+    }
+    unknown = sorted(wanted - set(slots))
+    if not wanted or unknown:
+        raise SystemExit(f"token_repositories: no staging slot named {', '.join(unknown) or 'at all'}")
+    return [CICD_REPO] + secret_targets(",".join(sorted({slots[slot] for slot in wanted})))
+
+
 def watch_targets() -> list[str]:
     """
     The repos the ecosystem watch reads, cicd and every kit target, as ecosystem_watch.read_registries lists them.
@@ -140,7 +167,7 @@ def main(argv: list[str] | None = None) -> int:
             every repo the App reaches
     """
     parser = argparse.ArgumentParser(description = "The repositories a workflow's App token may reach (D-085).")
-    parser.add_argument("kind", choices = ("kit", "scripts", "all", "secrets", "watch"))
+    parser.add_argument("kind", choices = ("kit", "scripts", "all", "secrets", "staged", "watch"))
     parser.add_argument("--names", default = "", help = "--repos for a Distribute, the secrets for secrets, with =")
     parser.add_argument(
         "--allow-empty",
@@ -150,6 +177,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.kind == "secrets":
         repos = secret_targets(args.names)
+    elif args.kind == "staged":
+        repos = staged_targets(args.names)
     elif args.kind == "watch":
         repos = watch_targets()
     else:

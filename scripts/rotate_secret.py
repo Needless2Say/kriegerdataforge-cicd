@@ -19,21 +19,29 @@ Modes
                                              write to the GitHub env secret, delete the old token)
                generator "random_urlsafe" -> a high-entropy random value (per-environment when
                                              per_env, else one shared value)
-  paste      Write an owner-supplied value (staged out-of-band in the STAGED_SECRET_VALUE env,
-             never in the public issue body) to every registry target. Single secret only.
+  paste      Write an owner-supplied value (from the STAGED_SECRET_VALUE env, never an issue body) to one `paste`
+             entry's registry targets. Single secret only.
+  paste-staged
+             The staging slots' run (D-099). Each slot a registry `paste` entry names in `staging`, one per
+             environment for an entry held in two, is read from the env var of its own name. Every selected slot is
+             checked before anything is written, set, recent and with every target resolved, then each is pasted to
+             its entry's targets and deleted from cicd's ops once they are written, a failed one kept for a retry.
   check      Report time-to-expiry for secrets that carry a "check" block (advisory rotation).
 
 Environment variables
-  GH_TOKEN              GitHub PAT with secrets:write on all target repos (use CICD_PAT).   [generate/paste]
+  GH_TOKEN              Writes the targets' secrets, and reads and deletes cicd's ops slots.   [generate/paste/staged]
+  FACTS_GH_TOKEN        Writes cicd's variables, the expiry facts.                             [paste-staged]
   VERCEL_MASTER_TOKEN   Vercel API token that can create/delete tokens + set project env.   [vercel_token generate / paste-to-vercel]
   STAGED_SECRET_VALUE   The value to distribute.                                            [paste]
+  <SLOT>                Each selected staging slot's value, under the slot's own name.     [paste-staged]
 
 Usage
   python rotate_secret.py --mode check    --secrets all
   python rotate_secret.py --mode check    --secrets all --live   # each check.live token's real expiry (D-049)
   python rotate_secret.py --mode generate --secrets VERCEL_DEPLOYMENT_TOKEN
   python rotate_secret.py --mode paste    --secrets GH_PACKAGES_PAT          # value from STAGED_SECRET_VALUE
-  python rotate_secret.py --mode record-expiry --secrets VERCEL_DEPLOYMENT_TOKEN  # stamp today+45d into the registry
+  python rotate_secret.py --mode paste-staged --slots GH_PACKAGES_PAT_NEW,GH_NPM_TOKEN_NEW
+  python rotate_secret.py --mode record-expiry --secrets VERCEL_DEPLOYMENT_TOKEN
 """
 
 from __future__ import annotations
@@ -61,9 +69,16 @@ REGISTRY_FILE = Path(__file__).parent / "secret_registry.json"
 VERCEL_API    = "https://api.vercel.com"
 GITHUB_API    = "https://api.github.com"
 
-# New Vercel tokens expire after 45 days. The monthly cron rotates ~every 30 (worst-case 31-day gap),
-# leaving ~2 weeks of slack so a single missed run never expires the one shared deploy token.
-TOKEN_EXPIRY_DAYS = 45
+# New Vercel tokens expire after 33 days, the owner's rule of 2026-11-10 for every token. The cron rotates on the 1st
+# of each month and the old token is deleted then, so a month's token outlives its month by a few days of grace.
+TOKEN_EXPIRY_DAYS = 33
+
+# a staging slot set longer ago than this is refused, so a value left behind from an earlier rotation is never
+# pasted again (D-099)
+STAGED_MAX_AGE_DAYS = 7
+
+# the cicd environment that holds every staging slot
+OPS_ENVIRONMENT = "ops"
 
 # a registry entry's `check.live` names where its real expiry is read, with the secret itself (D-049)
 LIVE_SOURCES = {"github": "GitHub", "vercel-current": "Vercel", "vercel-named": "Vercel"}
@@ -208,6 +223,34 @@ def delete_github_env_secret(
         return
     resp.raise_for_status()
 
+
+def github_env_secret_updated_at(gh_token: str, owner_repo: str, environment: str, secret_name: str) -> str | None:
+    """
+    When an environment secret was last set, from GitHub's metadata, never its value.
+
+    Args:
+        gh_token: A token that reads the repo's environment secrets
+        owner_repo: The repo, owner/name
+        environment: The environment holding it
+        secret_name: The secret's name
+
+    Returns:
+        The `updated_at` time GitHub reports, or None when the secret is not set
+
+    Raises:
+        requests.HTTPError: When GitHub refuses the read
+    """
+    owner, repo = owner_repo.split("/", 1)
+    resp = _SESSION.get(
+        f"{GITHUB_API}/repos/{owner}/{repo}/environments/{environment}/secrets/{secret_name}",
+        headers = _github_headers(gh_token),
+        timeout = 30,
+    )
+    if resp.status_code == 404:
+        return None
+    resp.raise_for_status()
+    return resp.json().get("updated_at")
+
 # ======================================================================================================================
 # Vercel helpers
 # ======================================================================================================================
@@ -351,6 +394,42 @@ def _select_secrets(registry: dict, names: frozenset[str]) -> list[dict]:
         known = ", ".join(sorted(by_name))
         sys.exit(f"Error: unknown secret(s): {', '.join(unknown)}. Known: {known}.")
     return [by_name[n] for n in sorted(names)]
+
+
+def staging_slots(registry: dict) -> dict[str, tuple[dict, str]]:
+    """
+    Every staging slot the registry names, each with its entry and the one environment it feeds (D-099).
+
+    A `paste` entry lists its slots in `staging`, one for an entry held in repository secrets alone and one per
+    environment for an entry held in environments, so a slot's name alone decides where its value goes.
+
+    Args:
+        registry: The parsed registry
+
+    Returns:
+        The slot's name mapped to its entry and its environment, empty for a repository held entry
+    """
+    slots: dict[str, tuple[dict, str]] = {}
+    for entry in registry.get("secrets", []):
+        for slot in entry.get("staging", []):
+            slots[slot["slot"]] = (entry, str(slot.get("environment", "")).lower())
+    return slots
+
+
+def _refuse_unless_paste(entry: dict) -> None:
+    """
+    Refuse a paste of any entry whose kind is not `paste`.
+
+    A generated token, a credential made straight into ops or an App key distributed with its pair never takes a
+    pasted value, which would write it outside its own flow, its generation or its key check (D-099).
+
+    Args:
+        entry: The registry entry being pasted
+    """
+    if entry.get("kind") != "paste":
+        sys.exit(
+            f"Error: {entry['name']} is of kind '{entry.get('kind')}', and only a 'paste' entry takes a pasted value.",
+        )
 
 
 def _refuse_if_terraform_managed(entry: dict) -> None:
@@ -748,7 +827,10 @@ def _check_recorded(entry: dict, environ: dict[str, str] | None = None) -> int:
     name = entry["name"]
     raw  = env.get(f"{RECORDED_PREFIX}{name}", "").strip()
     if not raw:
-        print(f"  {name}: no recorded expiry yet. Dispatch Rotate Vercel Deployment Token with mode record-expiry.")
+        print(
+            f"  {name}: WARNING — no recorded expiry yet. A distribution from its staging slot records it, or Rotate "
+            "Vercel Deployment Token's record-expiry for a token that run reads."
+        )
         return 1
     fact = _read_fact(raw)
     if fact is None:
@@ -1006,14 +1088,61 @@ def cmd_generate(
 
 def _actionable_vercel(targets: list[dict]) -> list[dict]:
     """
-    Vercel targets whose project_id is real (skip TODO placeholders with a warning).
+    Vercel targets whose project_id is real and that the registry does not mark inactive, each other one named.
     """
     actionable, skipped = [], []
     for t in targets:
-        (skipped if str(t["project_id"]).startswith("TODO") else actionable).append(t)
+        (skipped if t.get("inactive") or str(t["project_id"]).startswith("TODO") else actionable).append(t)
     for t in skipped:
-        print(f"  Skipping Vercel {t['project_name']} — fill in project_id in secret_registry.json")
+        print(f"  Skipping Vercel {t['project_name']} — inactive, or no project_id in secret_registry.json")
     return actionable
+
+
+def _is_project_id(value: object) -> bool:
+    """
+    Whether a registry value is a real Vercel project id, a string, not blank and no `TODO` placeholder.
+
+    Args:
+        value: The target's `project_id`
+
+    Returns:
+        True for a real id
+    """
+    return isinstance(value, str) and bool(value.strip()) and not value.startswith("TODO")
+
+
+def _resolve_vercel(entry: dict, envs: frozenset[str], master_token: str) -> tuple[list[dict], list[dict]]:
+    """
+    The Vercel targets a paste writes and those the registry marks inactive, refusing before any write a target it
+    cannot resolve.
+
+    A target with no project id, or a Vercel target with no master token to write it, would be left on the old value
+    while the run said every target was written, so either stops the paste first. A target the registry marks
+    `inactive` is named as left unwritten, never counted as written (D-099).
+
+    Args:
+        entry: The registry entry being pasted
+        envs: The environments the paste names, empty for none
+        master_token: The Vercel master token, empty when the run holds none
+
+    Returns:
+        The active targets and the inactive ones
+    """
+    targets    = _vercel_targets(entry, envs)
+    active     = [target for target in targets if not target.get("inactive")]
+    inactive   = [target for target in targets if target.get("inactive")]
+    unresolved = [str(target.get("project_name")) for target in active if not _is_project_id(target.get("project_id"))]
+    if unresolved:
+        sys.exit(
+            f"Error: {entry['name']}'s Vercel target(s) {', '.join(unresolved)} have no project id. Fill each "
+            "project_id in secret_registry.json, or mark the target inactive, and nothing is written until then."
+        )
+    if active and not master_token:
+        sys.exit(
+            f"Error: VERCEL_MASTER_TOKEN is not set and {entry['name']} has {len(active)} Vercel target(s), so "
+            "nothing is written."
+        )
+    return active, inactive
 
 
 def _refuse_unless_one_environment(entry: dict, envs: frozenset[str]) -> None:
@@ -1023,12 +1152,20 @@ def _refuse_unless_one_environment(entry: dict, envs: frozenset[str]) -> None:
     A value meant for one environment written to both would put DEV's value in PROD (the secrets fence), so the paste
     of such a secret writes the one environment named, and a copy kept in each is pasted once for each.
 
+    An entry held in repository secrets alone takes no environment, since its repository copies are one global value
+    and an environment would narrow its Vercel copies alone, leaving the rotation half done (D-099).
+
     Args:
         entry: The registry entry being pasted
         envs: The environments the paste names, empty for none
     """
     held = sorted({str(target.get("environment", "")).lower() for target in entry.get("github_env_secrets", [])})
     if not held:
+        if envs:
+            sys.exit(
+                f"Error: {entry['name']} lives in no environment, so its paste names none, and every one of its "
+                "targets is written."
+            )
         return
     if len(envs) != 1:
         sys.exit(
@@ -1041,15 +1178,27 @@ def _refuse_unless_one_environment(entry: dict, envs: frozenset[str]) -> None:
 
 
 def cmd_paste(entry: dict, envs: frozenset[str], gh_token: str, master_token: str, value: str) -> int:
+    """
+    Write one staged value to one `paste` entry's targets, every refusal before the first write.
+
+    Args:
+        entry: The registry entry being pasted
+        envs: The one environment named for an entry held in environments, empty otherwise
+        gh_token: A token that writes the targets' secrets
+        master_token: The Vercel master token, for the entry's Vercel targets
+        value: The staged value, never printed
+
+    Returns:
+        0 when every active target was written, else 1
+    """
+    _refuse_unless_paste(entry)
     _refuse_if_terraform_managed(entry)
     _refuse_unless_one_environment(entry, envs)
     if not gh_token:
         sys.exit("Error: GH_TOKEN not set.")
     if not value:
-        sys.exit(
-            "Error: STAGED_SECRET_VALUE not set — stage the value in the SECRET_VALUE_NEW repo "
-            "secret first (never put a secret value in the public issue body)."
-        )
+        sys.exit("Error: no staged value, so nothing is written. Stage it in its slot in cicd's ops first.")
+    vercel, inactive = _resolve_vercel(entry, envs, master_token)
     errors: list[str] = []
     gh = _gh_targets(entry, frozenset(), envs)
     print(f"Pasting {entry['name']} to {len(gh)} GitHub environment secret(s):")
@@ -1089,24 +1238,239 @@ def cmd_paste(entry: dict, envs: frozenset[str], gh_token: str, master_token: st
         else:
             print("  skipping retired env-secret cleanup — a repository write failed; env copy left in place.")
 
-    vc = _vercel_targets(entry, envs)
-    if vc:
-        if not master_token:
-            print(f"\nVERCEL_MASTER_TOKEN unset — skipping {len(vc)} Vercel target(s).")
-        else:
-            actionable = _actionable_vercel(vc)
-            if actionable:
-                print(f"\nPasting to {len(actionable)} Vercel project(s):")
-            for t in actionable:
-                label = f"{t['project_name']} [{t['environment']}] {t['env_key']}"
-                print(f"  {label}", end = " ... ", flush = True)
-                try:
-                    upsert_vercel_env_var(master_token, t["project_id"], t["env_key"], value)
-                    print("OK")
-                except Exception as exc:  # noqa: BLE001
-                    print(f"FAILED - {exc}")
-                    errors.append(f"Vercel {label}: {exc}")
-    return _summary(errors)
+    if vercel:
+        print(f"\nPasting to {len(vercel)} Vercel project(s):")
+    for t in vercel:
+        label = f"{t['project_name']} [{t['environment']}] {t['env_key']}"
+        print(f"  {label}", end = " ... ", flush = True)
+        try:
+            upsert_vercel_env_var(master_token, t["project_id"], t["env_key"], value)
+            print("OK")
+        except Exception as exc:  # noqa: BLE001
+            print(f"FAILED - {exc}")
+            errors.append(f"Vercel {label}: {exc}")
+    return _summary(errors, [f"Vercel {target['project_name']} [{target['environment']}]" for target in inactive])
+
+# ======================================================================================================================
+# Mode: paste-staged
+# ======================================================================================================================
+
+def _staged_age_refusal(updated_at: str | None, now: datetime) -> str | None:
+    """
+    Why a slot's age refuses it, or None when it was set recently enough.
+
+    Args:
+        updated_at: When GitHub says the slot was last set, None when it is not set
+        now: The run's time
+
+    Returns:
+        The reason, or None
+    """
+    if updated_at is None:
+        return "is not set in ops"
+    try:
+        when = datetime.strptime(updated_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo = timezone.utc)
+    except ValueError:
+        return "has a time GitHub gave that cannot be read"
+    if now - when > timedelta(days = STAGED_MAX_AGE_DAYS):
+        return (
+            f"was set {(now - when).days} days ago, more than {STAGED_MAX_AGE_DAYS}, so it may be a value left from an "
+            "earlier rotation. Stage it again"
+        )
+    return None
+
+
+def _record_staged_expiry(entry: dict, facts_token: str, repo: str, value: str, now: datetime) -> bool:
+    """
+    Read a distributed token's expiry live from the value itself and keep it as its fact, true only when both worked.
+
+    A read that failed would leave the expiry unknown, and the run holds the one copy of the value it can read again,
+    so the slot stays until the read and the write both succeed (Codex's second read of D-099). A token its provider
+    says has no expiry is a fact read whole.
+
+    Args:
+        entry: The registry entry, marked `check.recorded`
+        facts_token: A token that writes cicd's variables, empty when none was minted
+        repo: cicd, owner/name
+        value: The token just distributed, never printed
+        now: The time recorded
+
+    Returns:
+        True when the expiry was read and its fact written
+    """
+    if not facts_token:
+        print(f"  {RECORDED_PREFIX}{entry['name']}: NOT recorded, no token writes cicd's variables")
+        return False
+    date, status = live_expiry(entry, {entry["name"]: value})
+    word = _status_word(status)
+    if word not in ("ok", "no-expiry"):
+        print(f"  {RECORDED_PREFIX}{entry['name']}: NOT recorded, its expiry could not be read, {word}")
+        return False
+    fact = f"expires={date or 'none'} status={word} recorded={now.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+    try:
+        set_repo_variable(facts_token, repo, f"{RECORDED_PREFIX}{entry['name']}", fact)
+    except Exception as exc:  # noqa: BLE001, the type alone, an exception's text could carry a request's details
+        print(f"  {RECORDED_PREFIX}{entry['name']}: NOT recorded, {type(exc).__name__}")
+        return False
+    print(f"  {RECORDED_PREFIX}{entry['name']}: {fact}")
+    return True
+
+
+def _preflight_slot(
+    slot: str,
+    entry: dict,
+    environment: str,
+    environ: dict[str, str],
+    gh_token: str,
+    master_token: str,
+    repo: str,
+    now: datetime,
+) -> tuple[str | None, str | None]:
+    """
+    Why one selected slot is not ready, or None when it is, every check the paste would make and its age, with the
+    time GitHub says it was set, which the run holds it to before it deletes the slot.
+
+    Args:
+        slot: The slot's name
+        entry: Its registry entry
+        environment: The one environment it feeds, empty for a repository held entry
+        environ: Where the slot's value is read
+        gh_token: A token that reads cicd's ops secrets
+        master_token: The Vercel master token
+        repo: cicd, owner/name
+        now: The run's time
+
+    Returns:
+        The reason or None, and the slot's set time or None
+    """
+    envs = frozenset({environment}) if environment else frozenset()
+    try:
+        _refuse_unless_paste(entry)
+        _refuse_if_terraform_managed(entry)
+        _refuse_unless_one_environment(entry, envs)
+        _resolve_vercel(entry, envs, master_token)
+    except SystemExit as exc:
+        return str(exc.code).removeprefix("Error: "), None
+    if not environ.get(slot, ""):
+        return "is not set in this run, stage it in ops first", None
+    try:
+        updated_at = github_env_secret_updated_at(gh_token, repo, OPS_ENVIRONMENT, slot)
+    except Exception as exc:  # noqa: BLE001, the type alone, an exception's text could carry a request's details
+        return f"its age could not be read, {type(exc).__name__}", None
+    return _staged_age_refusal(updated_at, now), updated_at
+
+
+def _delete_slot_if_unchanged(gh_token: str, repo: str, slot: str, staged_at: str | None) -> str:
+    """
+    Delete a distributed slot, unless it was set again during the run, the result in words.
+
+    The run distributed the value it read at its start. A slot set again since then holds a value no target has, so
+    it is kept for its own distribution (Codex's third read of D-099). A narrow window stays between this read and the
+    delete, so the runbook says never to set a selected slot while its run is going.
+
+    Args:
+        gh_token: A token that reads and deletes cicd's ops secrets
+        repo: cicd, owner/name
+        slot: The slot's name
+        staged_at: The time GitHub gave for the slot when the run checked it
+
+    Returns:
+        The slot's result
+    """
+    try:
+        now_at = github_env_secret_updated_at(gh_token, repo, OPS_ENVIRONMENT, slot)
+    except Exception as exc:  # noqa: BLE001, the type alone, an exception's text could carry a request's details
+        return f"written, the slot NOT deleted, its time could not be read again, {type(exc).__name__}"
+    if now_at != staged_at:
+        return "written, the slot was set again during the run, so it is kept for its own distribution"
+    try:
+        delete_github_env_secret(gh_token, repo, OPS_ENVIRONMENT, slot)
+    except Exception as exc:  # noqa: BLE001, the type alone, an exception's text could carry a request's details
+        return f"written, the slot NOT deleted, {type(exc).__name__}, delete it by hand"
+    return "written, the slot deleted"
+
+
+def cmd_paste_staged(
+    registry: dict,
+    selected: list[str],
+    gh_token: str,
+    facts_token: str,
+    master_token: str,
+    repo: str,
+    environ: dict[str, str] | None = None,
+    now: datetime | None = None,
+) -> int:
+    """
+    Distribute the staging slots the owner selected, each to its own entry's targets (D-099).
+
+    Every selected slot is checked first, a `paste` entry's, set in this run and in ops, set within
+    STAGED_MAX_AGE_DAYS, and every target resolved, and one not ready stops the run before anything is written. Then
+    each is pasted, a recorded token's expiry kept as its fact from the value itself, and the slot deleted from ops
+    once its targets are written and its expiry read and recorded, so a set slot always means a value whose
+    distribution is not finished. A slot whose paste failed, or whose expiry could not be read or recorded, is kept for
+    a retry, since it holds the one copy the run can read again, and the others go on.
+
+    Args:
+        registry: The parsed registry
+        selected: The slots' names
+        gh_token: A token that writes the targets' secrets, and reads and deletes cicd's ops secrets
+        facts_token: A token that writes cicd's variables, empty when none was minted
+        master_token: The Vercel master token
+        repo: cicd, owner/name
+        environ: Where each slot's value is read, this process's environment when None
+        now: The run's time, the clock's when None
+
+    Returns:
+        0 when every selected slot was written, its fact recorded where its entry is recorded, and deleted, else 1
+    """
+    env   = os.environ if environ is None else environ
+    when  = now or datetime.now(timezone.utc)
+    known = staging_slots(registry)
+    if not selected:
+        sys.exit("Error: name the slots to distribute, --slots NAME[,NAME].")
+    unknown = sorted(slot for slot in selected if slot not in known)
+    if unknown:
+        sys.exit(f"Error: no staging slot named {', '.join(unknown)}. The slots are {', '.join(sorted(known))}.")
+    if len(set(selected)) != len(selected):
+        sys.exit("Error: a slot is named twice.")
+    if not gh_token or not repo:
+        sys.exit("Error: GH_TOKEN and GITHUB_REPOSITORY are needed to distribute the staged slots.")
+
+    print(f"Checking {len(selected)} staged slot(s) before anything is written:")
+    not_ready = []
+    staged_at: dict[str, str | None] = {}
+    for slot in selected:
+        entry, environment = known[slot]
+        why, staged_at[slot] = _preflight_slot(slot, entry, environment, env, gh_token, master_token, repo, when)
+        print(f"  {slot}: " + ("ready" if why is None else f"NOT READY, {why}"))
+        if why is not None:
+            not_ready.append(slot)
+    if not_ready:
+        print(f"\nNothing written, {len(not_ready)} slot(s) not ready: {', '.join(not_ready)}.")
+        return 1
+
+    results: dict[str, str] = {}
+    for slot in selected:
+        entry, environment = known[slot]
+        envs = frozenset({environment}) if environment else frozenset()
+        print(f"\n== {slot}, to {entry['name']}" + (f" in {environment}" if environment else ""))
+        if cmd_paste(entry, envs, gh_token, master_token, env[slot]) != 0:
+            results[slot] = "FAILED, the slot is kept for a retry"
+            continue
+        recorded = True
+        if (entry.get("check") or {}).get("recorded"):
+            recorded = _record_staged_expiry(entry, facts_token, repo, env[slot], when)
+        if not recorded:
+            # the slot holds the one copy of the value the run can read again, the npm token's above all, so it stays
+            # until its expiry is recorded
+            results[slot] = "written, its expiry NOT recorded, the slot is kept, dispatch it again to record it"
+            continue
+        results[slot] = _delete_slot_if_unchanged(gh_token, repo, slot, staged_at[slot])
+
+    print("\nThe staged slots:")
+    for slot in selected:
+        print(f"  {slot}: {results[slot]}")
+    return 0 if all(result == "written, the slot deleted" for result in results.values()) else 1
 
 # ======================================================================================================================
 # Mode: prove-master
@@ -1146,14 +1510,29 @@ def cmd_prove_master(master_token: str, team_id: str) -> int:
 # Shared summary
 # ======================================================================================================================
 
-def _summary(errors: list[str]) -> int:
+def _summary(errors: list[str], inactive: list[str] | None = None) -> int:
+    """
+    The run's last lines, each failed target, then each target left unwritten because the registry marks it inactive.
+
+    Args:
+        errors: Each failed target and why
+        inactive: Each target left unwritten on purpose, never counted as written
+
+    Returns:
+        1 when a target failed, else 0
+    """
     print()
     if errors:
         print(f"{len(errors)} target(s) failed:")
         for e in errors:
             print(f"  - {e}")
+    if inactive:
+        print(f"{len(inactive)} inactive target(s) left unwritten, as the registry marks them:")
+        for target in inactive:
+            print(f"  - {target}")
+    if errors:
         return 1
-    print("All targets updated successfully.")
+    print("All active targets updated successfully." if inactive else "All targets updated successfully.")
     return 0
 
 # ======================================================================================================================
@@ -1168,12 +1547,17 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--mode",
         required = True,
-        choices = ["generate", "paste", "check", "record-expiry", "prove-master"],
+        choices = ["generate", "paste", "paste-staged", "check", "record-expiry", "prove-master"],
     )
     parser.add_argument(
         "--secrets",
         default = "all",
         help = 'Comma-separated secret names, or "all". Paste mode requires exactly one.',
+    )
+    parser.add_argument(
+        "--slots",
+        default = "",
+        help = "paste-staged, the staging slots to distribute, comma separated",
     )
     parser.add_argument("--apps", default = "all", help = 'Vercel app filter for generate, or "all".')
     parser.add_argument("--envs", default = "all", help = 'Environment filter (prod,dev,infra), or "all".')
@@ -1196,6 +1580,17 @@ def main(argv: list[str] | None = None) -> None:
     master_token = os.environ.get("VERCEL_MASTER_TOKEN", "").strip()
     team_id      = os.environ.get("VERCEL_TEAM_ID", "").strip()
     staged_value = os.environ.get("STAGED_SECRET_VALUE", "")
+
+    if args.mode == "paste-staged":
+        slots = [slot.strip().upper() for slot in args.slots.replace(",", " ").split() if slot.strip()]
+        sys.exit(cmd_paste_staged(
+            registry,
+            slots,
+            gh_token,
+            os.environ.get("FACTS_GH_TOKEN", "").strip(),
+            master_token,
+            os.environ.get("GITHUB_REPOSITORY", "").strip(),
+        ))
 
     entries = _select_secrets(registry, names)
 

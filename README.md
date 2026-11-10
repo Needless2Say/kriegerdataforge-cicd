@@ -69,10 +69,10 @@ Keeping CI/CD logic in one place means deploy behavior is consistent across all 
 | `ci-codeql.yml` | CodeQL static analysis (gated by `ENABLE_CODEQL`, needs public repo or Code Security) | kriegerdataforge, kriegerdataforge-sdk |
 | `issue-create-repo.yml` | Auto provision new repositories from an issue template | Internal |
 | `rotate-vercel-tokens.yml` | Scheduled rotation of Vercel tokens | Internal |
-| `distribute-gh-pat.yml` | Distribute a staged `GH_PACKAGES_PAT` to all targets | Internal |
+| `distribute-staged.yml` | Distribute the staged manual secrets, each from its own slot in `ops`, to their targets (D-099) | Internal |
 | `check-secret-expiry.yml` | Weekly credential expiry monitor → opens/closes a deduped rotation issue | Internal |
 | `check-oidc-rp-drift.yml` | Weekly PL-084 guard. Detects drift of the copy pasted OIDC RP core across the two tenant frontends → deduped tracking issue | Internal |
-| `ops-rotate-secrets.yml` | Owner only on demand secret rotation (driven by the `Ops · Rotate a secret` issue form) | Internal |
+| `ops-rotate-secrets.yml` | Owner only on demand expiry check (the `Ops · Check secret expiry` issue form), writing nothing (D-099) | Internal |
 | `mirror-ci-images.yml` | Copies every image CI pulls to `ghcr.io/needless2say/<name>` and proves each public (D-077, D-080). The lanes' Postgres, the E2E services and Checkov by digest, and the base images `node:24-alpine` and `python:3.14-slim` by the digest Docker Hub names each day, unless held. On `main` alone, at a push that changes it, the owner's dispatch and a daily schedule. No version of any package is ever deleted | Internal, every Postgres lane, Dockerfile, E2E stack and the terraform scan pull its copies |
 
 ---
@@ -146,10 +146,11 @@ GitHub secrets come in two scopes and rotate differently:
   [`scripts/secret_registry.json`](scripts/secret_registry.json) (`VERCEL_DEPLOYMENT_TOKEN`,
   `GH_PACKAGES_PAT`) live here, as **repository level** Actions secrets in the consumer repos, *not*
   per environment (a same named env secret would shadow the repo value). They are rotated by the
-  **engine** ([`scripts/rotate_secret.py`](scripts/rotate_secret.py)), `generate` (auto mint the Vercel
-  token) or `paste` (distribute the owner staged PAT), and the engine reaps any retired per environment
-  copies as it goes. Drive it from the **`Ops · Rotate a secret`** issue form (add the
-  `ops:rotate-secrets` label) or the CLI. The cicd ops/control-plane secrets that authenticate the engine
+  **engine** ([`scripts/rotate_secret.py`](scripts/rotate_secret.py)), the Vercel token minted by
+  **Rotate Vercel Deployment Token** on the 1st of each month, and each PAT the owner makes staged in its own
+  slot in cicd's `ops` and distributed by **Ops · Distribute staged secrets** (D-099), the engine reaping any
+  retired per environment copies as it goes. Every token lasts 33 days. The cicd ops/control-plane secrets that
+  authenticate the engine
   itself (`CICD_PAT`, `VERCEL_MASTER_TOKEN`, the writing App's key) live in cicd's `ops` environment and are
   rotated **by hand**, straight into `ops`. Their expiry is recorded by the rotation's `ops` run as cicd
   repository variables, `EXPIRY_<NAME>`, which the weekly monitor reads.

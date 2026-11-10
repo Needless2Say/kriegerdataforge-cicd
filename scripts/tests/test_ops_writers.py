@@ -25,13 +25,18 @@ import pytest
 import yaml
 from tests.test_owner_check import expression_value
 
-ROOT       = Path(__file__).resolve().parents[2]
-WORKFLOWS  = ROOT / ".github" / "workflows"
-REGISTRY   = ROOT / "scripts" / "secret_registry.json"
-CHECK      = "./.github/workflows/_authorize-owner.yml"
-MINT       = "actions/create-github-app-token@"
-WRITERS    = {"KDF_WRITER_APP_ID", "KDF_WRITER_APP_PRIVATE_KEY", "CICD_PAT", "VERCEL_MASTER_TOKEN"}
-STAGING    = {"SECRET_VALUE_NEW", "GH_PACKAGES_PAT_NEW"}
+ROOT      = Path(__file__).resolve().parents[2]
+WORKFLOWS = ROOT / ".github" / "workflows"
+REGISTRY  = ROOT / "scripts" / "secret_registry.json"
+CHECK     = "./.github/workflows/_authorize-owner.yml"
+MINT      = "actions/create-github-app-token@"
+WRITERS   = {"KDF_WRITER_APP_ID", "KDF_WRITER_APP_PRIVATE_KEY", "CICD_PAT", "VERCEL_MASTER_TOKEN"}
+# every staging slot the registry names (D-099), and the projects flow's classic token, a name of its own
+STAGING    = {
+    slot["slot"]
+    for entry in json.loads(REGISTRY.read_text(encoding = "utf-8"))["secrets"]
+    for slot in entry.get("staging", [])
+} | {"PROVISION_PROJECTS_PAT"}
 READER_OPS = {"KDF_READER_APP_ID", "KDF_READER_APP_PRIVATE_KEY"}
 HELD       = WRITERS | STAGING | READER_OPS
 CRON       = {
@@ -48,6 +53,7 @@ ARM        = "vars.ARM_OPS_SCHEDULE"
 # a mint whose token writes Actions variables, its workflow, job, step id and the one repository it is held to
 VARIABLES_MINTS = (
     ("rotate-vercel-tokens.yml", "rotate", "facts-token", "kriegerdataforge-cicd"),
+    ("distribute-staged.yml", "distribute", "facts-token", "kriegerdataforge-cicd"),
     ("ops-setup-e2e.yml", "setup", "app-token", "${{ steps.fields.outputs.repo }}"),
 )
 # a key shaped as an RSA key is, one DER sequence whose declared length is the bytes that follow, and the same key with
@@ -174,6 +180,39 @@ def test_a_variables_mint_asks_for_no_filter_and_is_held_to_one_repository(workf
     assert not [key for key in mint["with"] if key.startswith("permission-")], f"{workflow} {step_id}"
     assert mint["with"]["repositories"] == repository
     assert job.get("environment") == "ops"
+
+
+def test_the_staged_run_reads_exactly_the_registrys_slots_each_only_when_selected():
+    # a workflow cannot list an environment's secrets by expression, so its slots are a second list held to the
+    # registry's here (D-099, the Round Table's L20), each passed only when the dispatch names it
+    job   = _load(WORKFLOWS / "distribute-staged.yml")["jobs"]["distribute"]
+    step  = next(step for step in _steps(job) if "--mode paste-staged" in str(step.get("run", "")))
+    slots = STAGING - {"PROVISION_PROJECTS_PAT"}
+    named = {key for key in step["env"] if key.endswith("_NEW")}
+    assert named == slots
+    for slot in slots:
+        value = " ".join(str(step["env"][slot]).split())
+        assert value == f"${{{{ contains(inputs.slots, '{slot}') && secrets.{slot} || '' }}}}", slot
+    assert job.get("environment") == "ops"
+    data = _load(WORKFLOWS / "distribute-staged.yml")
+    assert _events(data) == ["workflow_dispatch"]
+    assert data["concurrency"] == {"group": "ops-distribute-staged", "cancel-in-progress": False}
+
+
+def test_the_rotation_never_records_a_staged_tokens_fact():
+    # the staged distribution alone writes the packages and npm tokens' facts, from the token it sends, so no second
+    # writer can overwrite a newer fact or leave a failed read in its way (Codex's third and fourth reads of D-099)
+    text = (WORKFLOWS / "rotate-vercel-tokens.yml").read_text(encoding = "utf-8")
+    job  = _load(WORKFLOWS / "rotate-vercel-tokens.yml")["jobs"]["rotate"]
+    step = next(step for step in _steps(job) if step.get("name") == "Record the expiry facts")
+    assert " ".join(step["run"].split()).endswith("--secrets CICD_PAT,VERCEL_MASTER_TOKEN,VERCEL_DEPLOYMENT_TOKEN")
+    assert "GH_PACKAGES_PAT" not in step.get("env", {})
+    assert "secrets.GH_PACKAGES_PAT" not in text and "secrets.GH_NPM_TOKEN" not in text
+
+
+def test_no_workflow_reads_the_retired_shared_slot():
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        assert "SECRET_VALUE_NEW" not in path.read_text(encoding = "utf-8"), path.name
 
 
 def test_no_mint_asks_for_the_variables_permission_the_token_api_lacks():

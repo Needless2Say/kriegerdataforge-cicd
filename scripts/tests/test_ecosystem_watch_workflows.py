@@ -157,13 +157,13 @@ def test_the_watch_runs_cicds_own_scripts_and_keeps_the_snapshot() -> None:
     assert "snapshot.json" in keep and "retention-days:" in keep
 
 
-def test_the_expiry_monitor_reads_the_packages_token_live_and_the_recorded_facts_for_the_writers() -> None:
-    # the writers live in ops, which the monitor never names, so it reads the facts the ops run recorded (the fence)
+def test_the_expiry_monitor_reads_the_recorded_facts_alone_and_holds_no_token() -> None:
+    # the writers live in ops, which the monitor never names, so it reads the facts the ops runs recorded (the fence),
+    # the packages and npm tokens' among them since D-099, so no token at all reaches it
     check = _step(EXPIRY, "Run expiry check")
     assert "rotate_secret.py --mode check --secrets all --live" in check
-    assert "GH_PACKAGES_PAT: ${{ secrets.GH_PACKAGES_PAT }}" in check
-    assert _code(EXPIRY).count("secrets.GH_PACKAGES_PAT") == 1, "GH_PACKAGES_PAT reaches another step"
-    for token in ("CICD_PAT", "VERCEL_MASTER_TOKEN", "VERCEL_DEPLOYMENT_TOKEN"):
+    assert "secrets." not in _code(EXPIRY), "the monitor reads a secret"
+    for token in ("CICD_PAT", "VERCEL_MASTER_TOKEN", "VERCEL_DEPLOYMENT_TOKEN", "GH_PACKAGES_PAT", "GH_NPM_TOKEN"):
         assert f"EXPIRY_{token}: ${{{{ vars.EXPIRY_{token} }}}}" in check
         assert f"secrets.{token}" not in _code(EXPIRY), f"the monitor reads {token}"
     assert "REGISTRY_DRIFT" in check and 'echo "drift=$drift"' in check

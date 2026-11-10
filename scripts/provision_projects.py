@@ -30,8 +30,9 @@ Auth (resolved W1 finding, proven live 2026-07-12):
   it — GitHub exposes a Projects permission only for ORGANIZATION-owned projects, so on a personal
   account `createProjectV2` on a user `ownerId` is refused ("does not have permission to create
   projects"). The ops workflow therefore passes a short-lived classic PAT the owner stages in
-  SECRET_VALUE_NEW (and revokes after) — never an App token, a fine-grained PAT, or GH_PACKAGES_PAT.
-  GH_TOKEN          The staged classic PAT (SECRET_VALUE_NEW). `project` scope creates boards +
+  PROVISION_PROJECTS_PAT in cicd's ops, a name of its own (D-099), deleted and revoked after — never an App token, a
+  fine-grained PAT, or GH_PACKAGES_PAT.
+  GH_TOKEN          The staged classic PAT (PROVISION_PROJECTS_PAT). `project` scope creates boards +
                     fields; add `repo` only for automatic repo-linking (best-effort otherwise).
   PROJECTS_OWNER    Board owner login (defaults to Needless2Say). The engine never relies on the
                     GraphQL `viewer` (no App/PAT viewer assumptions).
@@ -175,8 +176,8 @@ def _resolve_token(token: str, owner: str) -> str:
     exposes a Projects permission only for ORGANIZATION-owned projects (there is no user-account
     Projects permission), so on a personal account ``createProjectV2`` on a user ``ownerId`` is
     refused (proven live 2026-07-12; resolves the epic's W1 question). The ops workflow therefore
-    passes a short-lived classic PAT the owner stages in the ``SECRET_VALUE_NEW`` repo secret (and
-    revokes after). Validated here with a read-probe so a wrong-scoped/expired token fails now with
+    passes a short-lived classic PAT the owner stages in ``PROVISION_PROJECTS_PAT`` in cicd's ops (and
+    deletes and revokes after). Validated here with a read-probe so a wrong-scoped/expired token fails now with
     clear guidance, not mid-flight. (``project`` is enough for boards + fields; add ``repo`` only if
     you want automatic repo-linking — see cmd_execute, which treats linking as best-effort.)
     """
@@ -196,8 +197,8 @@ def _auth_guidance(exc: Exception) -> str:
         f"({exc}).\nProvisioning needs a CLASSIC PAT with the 'project' scope (add 'repo' too for "
         "automatic repo-linking) acting as the owner. A GitHub App installation token and a "
         "fine-grained PAT (e.g. CICD_PAT) both CANNOT manage user-owned ProjectsV2 — GitHub offers a "
-        "Projects permission only for organizations. Stage a classic PAT in the SECRET_VALUE_NEW "
-        "repo secret, re-run, then revoke it."
+        "Projects permission only for organizations. Stage a classic PAT in PROVISION_PROJECTS_PAT "
+        "in cicd's ops, re-run, then delete and revoke it."
     )
 
 # ======================================================================================================================
@@ -540,13 +541,13 @@ def main() -> None:
     gh_token = os.environ.get("GH_TOKEN", "").strip()
     if not gh_token:
         sys.exit(
-            "Error: GH_TOKEN not set — stage a classic PAT with the 'project' scope in the "
-            "SECRET_VALUE_NEW repo secret (App/fine-grained tokens can't create user-owned boards)."
+            "Error: GH_TOKEN not set — stage a classic PAT with the 'project' scope in "
+            "PROVISION_PROJECTS_PAT in cicd's ops (App/fine-grained tokens can't create user-owned boards)."
         )
     owner = os.environ.get("PROJECTS_OWNER", DEFAULT_OWNER).strip() or DEFAULT_OWNER
 
     token = _resolve_token(gh_token, owner)
-    print("Token: staged classic PAT (SECRET_VALUE_NEW)")
+    print("Token: staged classic PAT (PROVISION_PROJECTS_PAT)")
 
     # A ProjectsAuthError can still surface mid-run (e.g. finer-grained refusals the probe can't
     # anticipate) — end with the same guidance, never a traceback.

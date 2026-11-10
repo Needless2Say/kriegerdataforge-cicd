@@ -2,8 +2,8 @@ name: Rotate Vercel Deployment Token
 
 on:
   # Monthly auto-rotation: first of every month at 09:00 UTC. The new Vercel token is created with a
-  # 45-day expiry, so a monthly cadence (worst-case 31-day gap) leaves ~2 weeks of slack — a single
-  # missed run never expires the token. This rotates the ONE shared Vercel token
+  # 33-day expiry, the owner's rule of 2026-11-10 for every token, and the old one is deleted at once, so
+  # a month's token outlives its month by a few days of grace. This rotates the ONE shared Vercel token
   # (VERCEL_DEPLOYMENT_TOKEN) used by every app repo's CI to deploy AND by the terraform repo to
   # manage Vercel — consolidated 2026-06-30 from the former VERCEL_TOKEN + VERCEL_API_TOKEN split
   # because both were the same account-scoped token.
@@ -128,6 +128,7 @@ jobs:
       - name: Mint GitHub App token (variables on this repo)
         id: facts-token
         if: env.MODE != 'prove-master' && vars.USE_GITHUB_APP == 'true'
+        # zizmor: ignore[github-app] the token API has no Variables key so this mint holds one repository in ops
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           client-id: ${{ secrets.KDF_WRITER_APP_ID }}
@@ -141,6 +142,8 @@ jobs:
           CICD_PAT: ${{ secrets.CICD_PAT }}
           VERCEL_MASTER_TOKEN: ${{ secrets.VERCEL_MASTER_TOKEN }}
           GH_TOKEN: ${{ steps.facts-token.outputs.token || secrets.CICD_PAT }}
+        # The packages and npm tokens' facts are the staged distribution's alone, written from the token it sends
+        # (D-099), so this run never records them and no copy read before a distribution overwrites a newer fact.
         run: |
           python scripts/rotate_secret.py \
             --mode record-expiry \
