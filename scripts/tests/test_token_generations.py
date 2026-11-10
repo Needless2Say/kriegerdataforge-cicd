@@ -253,6 +253,35 @@ class TestRotate:
         with pytest.raises(tg.RecordError, match = "pending"):
             engine(github, vercel, clock).rotate()
         assert github.secrets == {}
+        assert record(github)["generations"] == [] and vercel.valid() == set()
+
+
+    def test_a_withdrawn_generation_leaves_the_older_one_and_its_facts_agreeing(self, world: tuple) -> None:
+        github, vercel, clock = world
+        engine(github, vercel, clock).rotate()
+        g1    = record(github)["generations"][-1]["token_id"]
+        facts = github.facts
+        clock.advance(days = 1)
+        github.fail_facts = True
+        with pytest.raises(tg.RecordError):
+            engine(github, vercel, clock).rotate()
+        assert record(github)["generations"][-1]["id"] == "G1" and github.facts == facts
+        assert vercel.valid() == {g1} and holders_valid(github, vercel)
+
+
+    def test_a_withdrawn_token_vercel_refused_to_revoke_is_reaped_by_the_next_generation(self, world: tuple) -> None:
+        github, vercel, clock = world
+        github.fail_facts  = True
+        vercel.fail_revoke = {"tok1"}
+        with pytest.raises(tg.RecordError):
+            engine(github, vercel, clock).rotate()
+        assert record(github)["tokens"]["tok1"] == {"generation": None, "revoked": None}
+        github.fail_facts  = False
+        vercel.fail_revoke = set()
+        engine(github, vercel, clock).rotate()
+        clock.advance(hours = 6)
+        engine(github, vercel, clock).reap()
+        assert "tok1" not in vercel.valid()
 
 
     def test_a_lost_write_answer_leaves_the_target_unrecorded(self, world: tuple) -> None:

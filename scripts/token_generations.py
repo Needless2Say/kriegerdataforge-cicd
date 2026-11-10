@@ -691,8 +691,9 @@ class Engine:
         try:
             self.github.write_facts(facts_text(record))
         except Exception as exc:  # noqa: BLE001
+            self._withdraw(record, gen)
             raise RecordError(
-                f"the public facts could not say {gen_id} is pending, so no target is written, {exc}",
+                f"the facts could not say {gen_id} is pending, so it is withdrawn and no target is written, {exc}",
             ) from exc
         print(f"{gen_id} minted, writing {len(self.targets)} target(s)")
         errors = []
@@ -716,6 +717,32 @@ class Engine:
             print(f"{gen_id} incomplete, every older token stays valid")
         self.publish(record, errors)
         return errors
+
+
+    def _withdraw(self, record: dict, gen: dict) -> None:
+        """
+        Take back a generation that wrote no target, so the record and the facts agree again on the one before it. Its
+        token is revoked, or, when Vercel refuses, kept as a token no generation holds, a predecessor of the next
+        generation and revoked by its reap. A save that fails here leaves the record as it was, the next rotation's
+        own predecessor rule still reaching the token (Codex's revision read, M).
+
+        Args:
+            record: the record, changed in place
+            gen: the pending generation, the newest
+        """
+        record["generations"].remove(gen)
+        # a token no generation holds, so the record keeps its revocation, or the next generation reaps it
+        token = record["tokens"][gen["token_id"]]
+        token["generation"] = None
+        try:
+            self.vercel.revoke(gen["token_id"])
+            token["revoked"] = _iso(self.clock())
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            self.save(record)
+        except RecordError:
+            print(f"the record still holds {gen['id']} pending, the next rotation retires it")
 
 
     def _revoke(self, record: dict, gen: dict, errors: list[str]) -> None:
