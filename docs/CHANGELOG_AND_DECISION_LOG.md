@@ -5337,7 +5337,8 @@ cron where a script can mint it and by the owner where none can.
 - **The issue form checks alone.** Its `paste` and `generate` retire, the deployment token minted by its rotation
   alone, so its job names no environment and mints no token. `distribute-gh-pat.yml` is removed, its job the new
   run's.
-- **33 days.** The deployment token is minted for 33 days, `TOKEN_EXPIRY_DAYS`, and the monthly tokens warn at 3 days.
+- **33 days.** The deployment token is minted for 33 days, `TOKEN_EXPIRY_DAYS`, and the monthly tokens warn at 7 days,
+  a weekly interval, so the Monday monitor always warns before one expires, in a normal month just before the 1st.
   The packages and npm tokens' expiry is recorded by the new run alone, from the token it sends, its one writer, so
   no copy read earlier overwrites a newer fact, and the weekly monitor holds no token at all.
 
