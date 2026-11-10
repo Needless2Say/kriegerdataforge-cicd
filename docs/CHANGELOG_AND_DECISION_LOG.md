@@ -5378,9 +5378,10 @@ held to `main`. A deploy that succeeds proves nothing about which copy it read, 
   generation pending in cicd's `ops` variable `VERCEL_TOKEN_RECORD` before any target is written, every older token
   its predecessor, the repository era's and a crashed mint's among them. Each target's secret and its variable are
   saved as they land, and a failed save stops the run. Every target written makes it complete.
-- **The reap.** It revokes the newest generation's predecessors only once it is complete, its last write six hours
-  old, GitHub's limit on a hosted job, and every repository copy retired, since a job with no environment, a pull
-  request's among them, reads a repository copy until it is deleted. It refuses an incomplete or replaced
+- **The reap.** It revokes the newest generation's predecessors only once it is complete and every repository copy
+  retired, since a job with no environment, a pull request's among them, reads a repository copy until it is deleted,
+  and six hours after it settled, its last write or the last copy's retirement, whichever came later, GitHub's limit
+  on a hosted job, so a job that read either still finishes on a valid token. It refuses an incomplete or replaced
   generation, recording each revocation.
   `revoke-now` is the emergency, revoking at once despite failed targets and naming them to repair.
   `retire-repo-copies` deletes the repository copies, for the newest complete generation alone, once the owner's list

@@ -409,6 +409,12 @@ class TestReap:
         verified = ",".join(target.split("/", 1)[1] for target in TARGETS)
         engine(github, vercel, clock).retire_repo_copies("G1", verified)
         assert tg.parse_facts(github.facts)["copies"] == "retired"
+        assert tg.parse_facts(github.facts)["settled"] == clock.now.isoformat()
+        # a job that read a repository copy just before its deletion still finishes on a valid token
+        assert tg.due(github.facts, clock.now + timedelta(hours = 5, minutes = 59)) == "none"
+        with pytest.raises(tg.Refused, match = "six hours"):
+            engine(github, vercel, clock).reap()
+        clock.advance(hours = 6)
         assert tg.due(github.facts, clock.now) == "reap"
         engine(github, vercel, clock).reap()
         assert era not in vercel.valid()
@@ -556,6 +562,7 @@ class TestDue:
             "completed": START.isoformat(),
             "outstanding": "0",
             "copies": "retired",
+            "settled": START.isoformat(),
         }
         base.update(fields)
         return " ".join(f"{key}={value}" for key, value in base.items())
@@ -583,6 +590,13 @@ class TestDue:
     def test_no_reap_is_asked_while_a_repository_copy_is_kept(self) -> None:
         assert tg.due(self.facts(outstanding = "1", copies = "kept"), START + timedelta(hours = 7)) == "none"
         assert tg.due(self.facts(outstanding = "1", copies = ""), START + timedelta(hours = 7)) == "none"
+
+
+    def test_the_six_hours_count_from_the_last_retirement(self) -> None:
+        facts = self.facts(outstanding = "1", settled = (START + timedelta(days = 1)).isoformat())
+        assert tg.due(facts, START + timedelta(days = 1, hours = 5)) == "none"
+        assert tg.due(facts, START + timedelta(days = 1, hours = 6)) == "reap"
+        assert tg.due(self.facts(outstanding = "1", settled = "none"), START + timedelta(days = 2)) == "none"
 
 
     def test_a_month_with_its_generation_complete_and_reaped_asks_nothing(self) -> None:

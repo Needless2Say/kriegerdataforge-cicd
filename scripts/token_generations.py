@@ -459,6 +459,29 @@ def copies_retired(record: dict, repo_copies: list[str]) -> bool:
     return all(repo in retired for repo in repo_copies)
 
 
+def settled_at(record: dict, repo_copies: list[str]) -> datetime | None:
+    """
+    When the newest generation last changed what a job may read, its last write or the last repository copy's
+    retirement, whichever came later. A reap waits six hours from it, so a job that read a repository copy just before
+    its deletion still finishes on a valid token (Codex's fourth read of D-100, M).
+
+    Args:
+        record: the record
+        repo_copies: each repository copy's repo
+
+    Returns:
+        datetime | None: the time, None while the newest generation is incomplete
+    """
+    if not record["generations"]:
+        return None
+    completed = _parse_time(record["generations"][-1]["completed_at"])
+    if completed is None:
+        return None
+    retired = record.get("retired_repo_copies", {})
+    times   = [_parse_time(retired[repo].get("at")) for repo in repo_copies if repo in retired]
+    return max([completed] + [moment for moment in times if moment is not None])
+
+
 def facts_text(record: dict, repo_copies: list[str]) -> str:
     """
     The public facts of the newest generation, nothing secret, as the due job reads them.
@@ -480,6 +503,7 @@ def facts_text(record: dict, repo_copies: list[str]) -> str:
         f"completed={gen['completed_at'] or 'none'}",
         f"outstanding={len(_outstanding(record, gen['id']))}",
         f"copies={'retired' if copies_retired(record, repo_copies) else 'kept'}",
+        f"settled={_iso(settled) if (settled := settled_at(record, repo_copies)) else 'none'}",
     ])
 
 
@@ -504,7 +528,8 @@ def due(text: str, now: datetime) -> str:
     step 11), so the armed schedule never moves the token on its own. Once one exists, a rotation is due when the
     newest is incomplete, a failed run tried again the next day, when it was minted before this month, the owner's
     rotation on the 1st, or when the facts cannot be read. A reap is due when the newest is complete, still retires a
-    token, every repository copy is retired, and its last write is six hours old.
+    token, every repository copy is retired, and six hours have passed since it settled, its last write or the last
+    copy's retirement, whichever came later.
 
     Args:
         text: the facts
@@ -524,8 +549,10 @@ def due(text: str, now: datetime) -> str:
     completed = _parse_time(facts.get("completed"))
     if completed is None:
         return "rotate"
-    if facts.get("outstanding", "0") != "0" and facts.get("copies") == "retired" and now - completed >= REAP_DELAY:
-        return "reap"
+    settled = _parse_time(facts.get("settled"))
+    if facts.get("outstanding", "0") != "0" and facts.get("copies") == "retired" and settled is not None:
+        if now - settled >= REAP_DELAY:
+            return "reap"
     return "none"
 
 
@@ -703,7 +730,7 @@ class Engine:
             except Exception:  # noqa: BLE001
                 pass  # a token the record never held is a predecessor of the next generation
             raise
-        # The facts say pending before any write, so a run that stops part way is seen by the next day's due job and
+        # the facts say pending before any write, so a run that stops part way is seen by the next day's due job and
         # tried again, never hidden behind an older complete generation's facts (Codex's review read, M).
         try:
             self.github.write_facts(facts_text(record, self.repo_copies))
@@ -800,11 +827,13 @@ class Engine:
         gen    = self.newest(record)
         if not gen["completed_at"]:
             raise Refused(f"{gen['id']} is incomplete, so no token is revoked")
-        completed = _parse_time(gen["completed_at"])
-        if completed is None or self.clock() - completed < REAP_DELAY:
-            raise Refused(f"{gen['id']}'s last write is not yet six hours old, so no token is revoked")
         if not copies_retired(record, self.repo_copies):
             raise Refused("a repository copy is not yet retired, so no token is revoked, run retire-repo-copies first")
+        settled = settled_at(record, self.repo_copies)
+        if settled is None or self.clock() - settled < REAP_DELAY:
+            raise Refused(
+                f"{gen['id']}'s last write or last copy retirement is not yet six hours old, so no token is revoked",
+            )
         errors: list[str] = []
         self._revoke(record, gen, errors)
         self.publish(record, errors)
