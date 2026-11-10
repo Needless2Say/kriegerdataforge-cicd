@@ -61,11 +61,15 @@ concurrency:
 
 jobs:
   due:
-    # The schedule's first job, outside ops and holding no secret. It reads the public facts alone.
+    # The schedule's first job, outside ops and holding no secret. It reads the public facts alone. It runs on the
+    # owner's dispatch too, as every job here admits the owner, and a dispatch then does the mode it chose.
     if: >-
-      github.event_name == 'schedule' &&
       github.repository == 'Needless2Say/kriegerdataforge-cicd' &&
-      vars.ARM_OPS_SCHEDULE == 'true'
+      ((github.event_name == 'schedule' && vars.ARM_OPS_SCHEDULE == 'true') ||
+        (github.event_name == 'workflow_dispatch' &&
+          github.actor == github.repository_owner &&
+          github.triggering_actor == github.repository_owner)) &&
+      (github.run_attempt == '1' || github.triggering_actor == github.repository_owner)
     runs-on: ubuntu-slim
     permissions:
       contents: read

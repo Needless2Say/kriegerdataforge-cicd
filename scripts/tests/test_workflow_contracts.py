@@ -147,7 +147,8 @@ def test_no_deploy_holds_a_permission_nothing_uses_or_claims_a_reviewer(text):
     assert "id-token: write" not in text
     assert "Requires approval from the configured reviewers" not in text
     assert "Pauses for required reviewer approval" not in text
-    assert "repository secret" in text, "the empty token diagnostic names the secret's real scope"
+    # since D-100 the token lives in each repo's dev and prod, written there by cicd's rotation
+    assert "writes it into each repo's dev and prod (D-100)" in text, "the empty token diagnostic names the real scope"
     assert "environment secret on this repo" not in text
 
 
