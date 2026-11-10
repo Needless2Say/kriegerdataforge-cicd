@@ -74,11 +74,12 @@ The private key + App ID are themselves referenced by name only (`secrets.KDF_AP
 `secrets.KDF_APP_PRIVATE_KEY`) and never inlined. The App private key is registered as a monitored,
 manually rotated credential (`secret_registry.json:118-140`).
 
-> **Least privilege nuance (documented, not a gap).** `ops-setup-e2e.yml` mints a token with **no**
-> per permission filter, because `create-github-app-token@v3.2.0` still has no `permission-variables`
-> input and the job must write both Secrets *and* Variables. It is instead scoped to the **single**
-> target repo via `repositories:` (`ops-setup-e2e.yml:86-101`). Scoping is by repo there, not
-> by-permission.
+> **Least privilege nuance (documented, not a gap).** `ops-setup-e2e.yml` and the expiry facts' step of
+> `rotate-vercel-tokens.yml` mint a token with **no** per permission filter, because the job must write
+> Variables and GitHub's token API has no key for that permission, so a mint asking for `variables` is
+> refused (422, cicd run 42728994281, the secrets fence's sitting). Each is instead scoped to its
+> **single** repo via `repositories:`, in `ops` after the owner's approval, and held there by
+> `scripts/tests/test_ops_writers.py`. Scoping is by repo there, not by permission.
 
 ### C2. Deployer registry fail closed gate + Environment protection (defense in depth)
 

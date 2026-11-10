@@ -45,6 +45,11 @@ CICD       = "Needless2Say/kriegerdataforge-cicd"
 CONTEXT    = "Needless2Say/kriegerdataforge-context"
 BOOTSTRAP  = ("ops-distribute-app-secrets.yml", "run", "bootstrap-token")
 ARM        = "vars.ARM_OPS_SCHEDULE"
+# a mint whose token writes Actions variables, its workflow, job, step id and the one repository it is held to
+VARIABLES_MINTS = (
+    ("rotate-vercel-tokens.yml", "rotate", "facts-token", "kriegerdataforge-cicd"),
+    ("ops-setup-e2e.yml", "setup", "app-token", "${{ steps.fields.outputs.repo }}"),
+)
 # a key shaped as an RSA key is, one DER sequence whose declared length is the bytes that follow, and the same key with
 # interior lines removed, its markers built from two parts so no line of this file is a whole key block to a scanner
 BEGIN     = "-----BEGIN RSA " + "PRIVATE KEY-----"
@@ -157,13 +162,29 @@ def test_the_bootstrap_is_the_one_mint_of_a_write_from_the_repository_pair_and_r
     assert "steps.fields.outputs.mode != 'bootstrap'" in writer["if"]
 
 
-def test_the_e2e_setup_copies_the_readers_pair_and_mints_exactly_secrets_and_variables_write():
-    # the pinned action has no declared permission-variables input, but reads every permission-* input it is given
-    # (lib/get-permissions-from-inputs.js at the pin), so the two inputs ask for those two grants and nothing more
-    job   = _load(WORKFLOWS / "ops-setup-e2e.yml")["jobs"]["setup"]
-    mint  = next(step for step in _steps(job) if str(step.get("uses", "")).startswith(MINT))
-    asked = {key: value for key, value in mint["with"].items() if key.startswith("permission-")}
-    assert asked == {"permission-secrets": "write", "permission-variables": "write"}
+@pytest.mark.parametrize(("workflow", "name", "step_id", "repository"), VARIABLES_MINTS)
+def test_a_variables_mint_asks_for_no_filter_and_is_held_to_one_repository(workflow, name, step_id, repository):
+    # the token API has no key for the Variables permission, so a mint asking for `variables` is refused, 422, "The
+    # permissions requested are not granted to this installation", the sitting's record-expiry run 42728994281. so a
+    # mint whose token writes variables asks for no filter, taking the writing App's set, and is held to the one
+    # repository it writes instead, in ops after the owner's approval
+    job  = _load(WORKFLOWS / workflow)["jobs"][name]
+    mint = next(step for step in _steps(job) if step.get("id") == step_id)
+    assert str(mint["uses"]).startswith(MINT)
+    assert not [key for key in mint["with"] if key.startswith("permission-")], f"{workflow} {step_id}"
+    assert mint["with"]["repositories"] == repository
+    assert job.get("environment") == "ops"
+
+
+def test_no_mint_asks_for_the_variables_permission_the_token_api_lacks():
+    for workflow, name, job, _ in _jobs():
+        for step in _steps(job):
+            if str(step.get("uses", "")).startswith(MINT):
+                assert "permission-variables" not in (step.get("with") or {}), f"{workflow} job {name}"
+
+
+def test_the_e2e_setup_copies_the_readers_pair():
+    job  = _load(WORKFLOWS / "ops-setup-e2e.yml")["jobs"]["setup"]
     copy = next(step for step in _steps(job) if "gh secret set" in str(step.get("run", "")))
     assert copy["env"]["KDF_APP_ID"] == "${{ secrets.KDF_READER_APP_ID }}"
     assert copy["env"]["KDF_APP_PRIVATE_KEY"] == "${{ secrets.KDF_READER_APP_PRIVATE_KEY }}"
