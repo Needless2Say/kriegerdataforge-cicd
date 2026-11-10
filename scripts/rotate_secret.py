@@ -1067,6 +1067,10 @@ def cmd_generate(
     errors: list[str] = []
     for entry in entries:
         _refuse_if_terraform_managed(entry)
+        if entry.get("generations"):
+            # its generations are recorded before any write and reaped later, so an immediate mint and revoke here
+            # would revoke a token a target still reads (D-100)
+            sys.exit(f"Error: '{entry['name']}' is rotated by scripts/token_generations.py alone, never by generate.")
         generator = entry.get("generator")
         print(f"Generating {entry['name']} (generator={generator}):")
         if generator == "vercel_token":

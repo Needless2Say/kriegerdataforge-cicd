@@ -1,0 +1,29 @@
+name: Deployment token generation
+description: >-
+  Compares the job's VERCEL_DEPLOYMENT_TOKEN with its environment's VERCEL_TOKEN_GENERATION and prints the generation
+  and yes, no or stale, never the token, and never fails (the secrets fence, step 10, ADR D-100).
+
+inputs:
+  token:
+    description: The job's VERCEL_DEPLOYMENT_TOKEN, only hashed
+    required: false
+    default: ""
+  generation:
+    description: The environment's VERCEL_TOKEN_GENERATION variable
+    required: false
+    default: ""
+  expected:
+    description: The generation the verifier was told, empty for a deploy
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Compare the token with its generation
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.token }}
+        LOCAL: ${{ inputs.generation }}
+        EXPECTED: ${{ inputs.expected }}
+      run: bash "$GITHUB_ACTION_PATH/check.sh"

@@ -244,7 +244,7 @@ jobs:
         run: |
           TOKEN="$(printf '%s' "$VERCEL_DEPLOYMENT_TOKEN" | tr -d '[:space:]')"
           if [ -z "$TOKEN" ]; then
-            echo "::error::VERCEL_DEPLOYMENT_TOKEN is empty — set the VERCEL_DEPLOYMENT_TOKEN repository secret on the calling repo (one value, read by every environment)."
+            echo "::error::VERCEL_DEPLOYMENT_TOKEN is empty in this environment — cicd's token rotation writes it into each repo's dev and prod (D-100)."
             exit 1
           fi
           echo "::add-mask::$TOKEN"
@@ -252,6 +252,15 @@ jobs:
           echo "VERCEL_DEPLOYMENT_TOKEN trimmed length=${#TOKEN}"
         env:
           VERCEL_DEPLOYMENT_TOKEN: ${{ secrets.VERCEL_DEPLOYMENT_TOKEN }}
+
+      # The token's generation (the secrets fence, step 10, D-100). Compares the token with this environment's
+      # VERCEL_TOKEN_GENERATION and prints its generation and yes or no, never the token, and never fails the
+      # deploy, since the deploy's own call to Vercel proves the token works.
+      - name: Compare the token with its generation
+        uses: Needless2Say/kriegerdataforge-cicd/.github/actions/token-generation@main
+        with:
+          token: ${{ secrets.VERCEL_DEPLOYMENT_TOKEN }}
+          generation: ${{ vars.VERCEL_TOKEN_GENERATION }}
 
       # ── Why this deploys a PREBUILT artifact ──────────────────────────────────
       # A plain `vercel --prod` uploads SOURCE and builds on Vercel's machine. That
