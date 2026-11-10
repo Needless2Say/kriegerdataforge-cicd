@@ -5356,3 +5356,58 @@ plainly that a fact is missing until then. A new manual
 secret is a registry entry with its `staging`, its slot named in `distribute-staged.yml`, a test holding the two
 equal.
 
+## D-100. The deployment token as recorded generations, in each repo's dev and prod, reaped after six hours
+
+- **Date.** 2026-11-10
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Follows.** D-099 and the secrets fence, its plan's step 10 and the design's 5.5.
+- **Tier / scope:** Epic step · `scripts/token_generations.py` (new), `scripts/secret_registry.json`,
+  `scripts/token_repositories.py`, `scripts/rotate_secret.py`, `.github/workflows/rotate-vercel-tokens.yml`,
+  `.github/workflows/verify-token-generation.yml` (new), `.github/actions/token-generation/` (new),
+  `cd-nextjs-vercel.yml`, `cd-python-vercel.yml`, the tests and the docs
+
+**Context.** The shared `VERCEL_DEPLOYMENT_TOKEN` was minted, written to seven repository secrets and every older
+token of its name deleted in one run, kept only when a write failed. Nothing remembered which token each repo held,
+so a reap that kept the newest by name could revoke a token repos still read after a partial rotation. Repository
+secrets reach every job, a pull request's among them, and the fence moves the token into each repo's `dev` and `prod`,
+held to `main`. A deploy that succeeds proves nothing about which copy it read, since both may work.
+
+**Decision.**
+
+- **Generations, recorded first.** `token_generations.py` lists the tokens of the name, mints one, and records the
+  generation pending in cicd's `ops` variable `VERCEL_TOKEN_RECORD` before any target is written, every older token
+  its predecessor, the repository era's and a crashed mint's among them. Each target's secret and its variable are
+  saved as they land, and a failed save stops the run. Every target written makes it complete.
+- **The reap.** It revokes the newest generation's predecessors only once it is complete and its last write six hours
+  old, GitHub's limit on a hosted job, and refuses an incomplete or replaced one, recording each revocation.
+  `revoke-now` is the emergency, revoking at once despite failed targets and naming them to repair.
+  `retire-repo-copies` deletes the repository copies, for the newest complete generation alone, once the owner's list
+  of verified targets equals its targets and the registry's.
+- **The daily due job.** The schedule is daily, and its first job, outside `ops` and holding no secret, reads the
+  public facts `VERCEL_TOKEN_FACTS` and runs the `ops` job only when a rotation or a reap is due. Nothing is due
+  before the first generation, which the owner dispatches as the token's move. Every entry point shares one
+  concurrency group that never cancels a running job, so each is safe to lose.
+- **The transport.** Beside each copy the engine writes `VERCEL_TOKEN_GENERATION`, the generation's id and the first 16
+  hex digits of the SHA256 of the trimmed token. Each deploy prints its own generation and yes or no through the
+  `token-generation` action and never fails on it. A consumer cannot read cicd's variables, so the verifier,
+  `verify-token-generation.yml`, takes the expected generation as an input the owner types, and prints yes only when
+  the local pair matches and is that generation, stale for an older one, the owner's choice of 2026-11-10 after
+  Codex's decision read picked the same.
+- **The registry reversed.** The token's entry lists each repo's `dev` and `prod` under `github_env_secrets` and its
+  repository copies under `retired_github_repo_secrets`, and `rotate_secret.py` refuses to generate an entry marked
+  `generations`.
+
+**Alternatives considered.**
+
+- *The expected generation written beside each copy.* Declined, a second distribution that can finish only part way,
+  and the record still decides.
+- *The deploys minting an App token to read cicd's facts.* Declined, more authority for a public identifier, and a
+  mint with no permission filter in every deploy.
+- *A reap that keeps the newest token by name.* Declined, it revokes a complete generation while a partial newer one
+  is still being written.
+
+**Consequences.** The token's move is the owner's dispatch of a first generation, then redeploys on `dev` and `prod`
+printing it and yes, then `retire-repo-copies`. The reap is a second approval a day after each rotation. After the
+first generation a revert of this change would bring back the deletion of environment copies, so the way back is
+forward, a fault fixed by a new change.
+

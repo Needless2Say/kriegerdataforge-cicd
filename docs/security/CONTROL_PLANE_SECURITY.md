@@ -166,11 +166,14 @@ context can't bake the token into a layer and regress the `--mount=type=secret` 
 (`run-e2e/action.yml:107-111`). The App token doubling as `GH_PACKAGES_PAT` is auto masked by
 Actions (`run-e2e/action.yml:142-144`).
 
-**Repo level vs environment scoped shadowing.** The rotation registry encodes a subtle invariant:
-the singular tokens (`GH_PACKAGES_PAT`, `VERCEL_DEPLOYMENT_TOKEN`) live **only** at repository level,
-because a same named environment secret would *shadow* the repo value (env wins over repo). The
-engine tracks `retired_github_env_secrets` and **deletes** those env level copies on rotation,
-revoking the old token only after every shadow is gone (`secret_registry.json:2, 9, 66-81`).
+**Repo level vs environment scoped shadowing.** A same named environment secret *shadows* the repo value
+(env wins over repo). `GH_PACKAGES_PAT` lives **only** at repository level, since CI jobs that declare no
+environment read it. `VERCEL_DEPLOYMENT_TOKEN` moves the other way (D-100). It lives in each repo's `dev` and
+`prod`, held to `main`, as recorded generations, so it shadows the repository copy, which
+`retire-repo-copies` deletes once the owner verified every target holds the newest complete generation. Each
+generation is recorded in cicd's `ops` before any write, and its predecessors are revoked only by a reap six hours
+after its last write, or by `revoke-now`, never by name or creation time, so a partial rotation never revokes a
+token a target still reads (`scripts/token_generations.py`).
 
 **Rotation engine + guardrails.** `rotate_secret.py` + `secret_registry.json` are the single source
 of truth. App plane (Terraform owned) secrets are **refused** by a `terraform_managed` guard so a

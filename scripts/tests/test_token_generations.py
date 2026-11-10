@@ -40,7 +40,6 @@ class Clock:
     """
     A clock the test moves.
     """
-
     def __init__(self, now: datetime = START) -> None:
         self.now = now
 
@@ -57,10 +56,9 @@ class FakeVercel:
     """
     Vercel's token list, each token valid until revoked.
     """
-
     def __init__(self) -> None:
         self.tokens: dict[str, dict[str, str]] = {}
-        self.count       = 0
+        self.count = 0
         self.fail_revoke: set[str] = set()
 
 
@@ -70,8 +68,8 @@ class FakeVercel:
 
     def mint(self, name: str) -> tuple[str, str]:
         self.count += 1
-        token_id    = f"tok{self.count}"
-        value       = f"value-{self.count}"
+        token_id = f"tok{self.count}"
+        value    = f"value-{self.count}"
         self.tokens[token_id] = {"name": name, "value": value}
         return token_id, value
 
@@ -95,18 +93,17 @@ class FakeGitHub:
     Each target's environment secret and variable, the repository copies, cicd's record and its public facts, each
     write able to fail or lose its answer.
     """
-
     def __init__(self) -> None:
-        self.secrets: dict[str, str]      = {}
-        self.variables: dict[str, str]    = {}
-        self.repo_copies: dict[str, str]  = {repo: "value-era" for repo in COPIES}
-        self.record: str | None           = None
-        self.facts: str | None            = None
-        self.fail_write: set[str]         = set()
+        self.secrets:       dict[str, str]      = {}
+        self.variables:     dict[str, str]    = {}
+        self.repo_copies:   dict[str, str]  = {repo: "value-era" for repo in COPIES}
+        self.record:        str | None           = None
+        self.facts:         str | None            = None
+        self.fail_write:    set[str]         = set()
         self.fail_variable: set[str]      = set()
-        self.lost_answer: set[str]        = set()
-        self.fail_delete: set[str]        = set()
-        self.saves_left: int | None       = None
+        self.lost_answer:   set[str]        = set()
+        self.fail_delete:   set[str]        = set()
+        self.saves_left:    int | None       = None
 
 
     def write_secret(self, target: str, name: str, value: str) -> None:
@@ -172,6 +169,9 @@ def world() -> tuple[FakeGitHub, FakeVercel, Clock]:
 # ======================================================================================================================
 
 class TestRotate:
+    """
+    A generation recorded before any write, each target saved as it lands.
+    """
     def test_a_complete_generation_writes_every_target_with_its_variable(self, world: tuple) -> None:
         github, vercel, clock = world
         assert engine(github, vercel, clock).rotate() == []
@@ -226,8 +226,8 @@ class TestRotate:
     def test_a_lost_write_answer_leaves_the_target_unrecorded(self, world: tuple) -> None:
         github, vercel, clock = world
         github.lost_answer = {TARGETS[0]}
-        errors = engine(github, vercel, clock).rotate()
-        gen    = record(github)["generations"][-1]
+        errors             = engine(github, vercel, clock).rotate()
+        gen                = record(github)["generations"][-1]
         assert errors and TARGETS[0] not in gen["written"] and gen["completed_at"] is None
 
 
@@ -266,6 +266,9 @@ class TestRotate:
 # ======================================================================================================================
 
 class TestReap:
+    """
+    The predecessors revoked only for a complete newest generation, six hours after its last write.
+    """
     def test_a_complete_a_a_partial_b_and_a_reap_keep_every_holder_valid(self, world: tuple) -> None:
         github, vercel, clock = world
         engine(github, vercel, clock).rotate()
@@ -352,6 +355,9 @@ class TestReap:
 # ======================================================================================================================
 
 class TestRevokeNow:
+    """
+    The emergency, at once and despite failed targets, for the newest generation alone.
+    """
     def test_it_revokes_the_predecessors_at_once_and_names_the_targets_to_repair(self, world: tuple) -> None:
         github, vercel, clock = world
         era, _ = vercel.mint(NAME)
@@ -373,6 +379,9 @@ class TestRevokeNow:
 
 
 class TestRetireRepoCopies:
+    """
+    The repository copies deleted only for a complete newest generation and its exact verified targets.
+    """
     def verified(self) -> str:
         return ",".join(target.split("/", 1)[1] for target in TARGETS)
 
@@ -441,6 +450,9 @@ class TestRetireRepoCopies:
 # ======================================================================================================================
 
 class TestDue:
+    """
+    The daily due job's answer from the public facts, on an injected clock.
+    """
     def facts(self, **fields: str) -> str:
         base = {
             "generation": "G1",
@@ -500,6 +512,9 @@ def fingerprint(value: str) -> str:
 
 
 class TestCompare:
+    """
+    The compare each deploy and the verifier run, never relabelling an older pair.
+    """
     def test_a_matching_token_says_its_own_generation_and_yes(self) -> None:
         assert compare("value-1", f"G1:{fingerprint('value-1')}") == "token generation=G1 result=yes"
 
@@ -545,6 +560,9 @@ class TestCompare:
 # ======================================================================================================================
 
 class TestRegistryAndWorkflows:
+    """
+    The registry's reversed entry and the workflows that carry the engine.
+    """
     def entry(self) -> dict:
         registry = json.loads((ROOT / "scripts" / "secret_registry.json").read_text(encoding = "utf-8"))
         return next(entry for entry in registry["secrets"] if entry["name"] == NAME)

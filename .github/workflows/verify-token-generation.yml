@@ -29,9 +29,6 @@ on:
         description: "The generation the owner expects, such as G1"
         required: true
         type: string
-    secrets:
-      VERCEL_DEPLOYMENT_TOKEN:
-        required: false
 
 permissions: {}
 

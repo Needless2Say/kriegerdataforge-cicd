@@ -194,7 +194,7 @@ on every result GitHub can write.
 
 ## Reusable workflow catalog
 
-24 workflows are `on: workflow_call`. None declares an explicit `secrets:` block, so callers pass
+30 workflows are `on: workflow_call`. None declares an explicit `secrets:` block, so callers pass
 `secrets: inherit`. Permissions are stated as declared in each file (top level and/or per job), an
 undeclared scope means the workflow relies on the caller's / default token.
 
@@ -215,7 +215,9 @@ Deploy a Next.js app to a Vercel project (`vercel pull` → `vercel build`, the 
 | `environment` | string | — | **yes.** `dev` or `prod` (`:32-35`) |
 | `version` | string | — | **yes.** Tag to deploy, e.g. `1.2.0` (`:36-39`) |
 
-- **Secrets read (via `inherit`):** `VERCEL_DEPLOYMENT_TOKEN` (repo level), `VERCEL_ORG_ID`,
+- **Secrets read (via `inherit`):** `VERCEL_DEPLOYMENT_TOKEN` (the environment's copy since D-100, the
+  repository copy until it is retired, compared with `vars.VERCEL_TOKEN_GENERATION` and printed yes or no
+  by the `token-generation` action, never failing the deploy), `VERCEL_ORG_ID`,
   `VERCEL_PROJECT_ID` (per environment, job fails fast if unset, `:101-113`), optional
   `GH_NPM_TOKEN` (classic `read:packages`, exported to `npm ci` for private GH Packages deps;
   Vercel's remote build reads its own project env var instead).
@@ -260,7 +262,9 @@ deployment's runtime logs. The revision is read from alembic's verbose `Rev:` li
 | `run_migrations` | **string** | `'true'` | no. Gate is `if: inputs.run_migrations == 'true'`. Pass the **string** `'true'`/`'false'` (`:43-47`, `:169`, `:175`) |
 | `version` | string | — | **yes.** Tag to deploy (`:48-51`) |
 
-- **Secrets read (via `inherit`):** `VERCEL_DEPLOYMENT_TOKEN`, `GH_PACKAGES_PAT` (private SDK clone,
+- **Secrets read (via `inherit`):** `VERCEL_DEPLOYMENT_TOKEN` (the environment's copy since D-100,
+  compared with `vars.VERCEL_TOKEN_GENERATION` by the `token-generation` action, never failing the
+  deploy), `GH_PACKAGES_PAT` (private SDK clone,
   `:112-115`), `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, `DB_DATABASE_URL` (only when `run_migrations`,
   `:178`).
 - **Outputs.** None.
@@ -324,6 +328,38 @@ jobs:
     with:
       environment: ${{ inputs.environment }}   # dev | prod
       version: ${{ inputs.version }}
+    secrets: inherit
+```
+
+#### `verify-token-generation.yml`
+
+The deployment token's verifier (the secrets fence, step 10, D-100). It compares the environment's
+`VERCEL_DEPLOYMENT_TOKEN` with its `vars.VERCEL_TOKEN_GENERATION`, the generation's id and the first 16 hex digits
+of the SHA256 of the trimmed token, through the `token-generation` composite action, and prints one line, never the
+token, and never fails. A consumer cannot read cicd's variables, so the owner types the expected generation, the
+newest complete one in cicd's `VERCEL_TOKEN_FACTS`. `result=yes` means the local pair matches and is that
+generation, `stale` that it matches but is an older one, and `no` a token whose fingerprint differs or a missing or
+malformed variable, so an older pair is never reported as the expected one. Only yes lines for a generation printed
+after it completed count toward the owner's `verified` list for `retire-repo-copies`.
+
+| Input | Type | Default | Required / notes |
+|---|---|---|---|
+| `environment` | string | — | **yes.** `dev` or `prod`, the job's environment |
+| `expected_generation` | string | — | **yes.** Such as `G1` |
+
+- **Secrets read (via `inherit`):** `VERCEL_DEPLOYMENT_TOKEN`, only hashed.
+- **Outputs.** None. **Permissions.** `{}`.
+- **Consumer.** `kriegerdataforge-terraform`'s `verify-token.yml`, and any consumer that wants the check apart from a
+  deploy. Each deploy (`cd-nextjs-vercel.yml`, `cd-python-vercel.yml`) runs the same action with no expected
+  generation and prints its own generation and yes or no.
+
+```yaml
+jobs:
+  verify:
+    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/verify-token-generation.yml@main
+    with:
+      environment: ${{ inputs.environment }}                   # dev | prod
+      expected_generation: ${{ inputs.expected_generation }}   # e.g. G1
     secrets: inherit
 ```
 
@@ -936,7 +972,7 @@ owner gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for 
 | `ops-triage-reports.yml` | `issues: labeled` (`ops:triage-reports`) | issue form front end for `trigger_triage.py` (`dry-run`/`execute`, dev/prod). The owner's "run triage now" button. Fires the selected apps' `/reports/triage/cron` endpoints from `reports_registry.json` and comments the metadata only result (executing against prod requires the Confirm dropdown). The issue body is parsed in a job with no secret and no token, and the cron copies are read in another that names the environment the parse chose. Ops guide, the owner's `REPORTS_TRIAGE_OPS.md` (`kriegerdataforge-context/ops/`) | `_authorize-owner` |
 | `distribute-kit.yml` | `workflow_dispatch` (`mode` check/distribute, `only`, `repos`) | runs `distribute_kit.py` in **`ops`**. Opens one sync PR per drifted repo. `check` also fails on a gap in a repo's own files (the `AGENTS.md` role pointer, `.env.kdf.example`, `.env.kdf` ignored), which that repo fixes itself. The weekly drift alarm runs in the ecosystem watch on its own App's read token | `_authorize-owner`, then `ops`'s reviewer |
 | `distribute-staged.yml` | `workflow_dispatch` (`slots`) | **Ops · Distribute staged secrets** (D-099). Every secret a person makes has its own staging slot in **`ops`**, the registry's `staging`, one per environment for an entry held in two. `rotate_secret.py --mode paste-staged` checks every selected slot first, a `paste` entry's, set in the run and in `ops`, set within 7 days, every target resolved, and writes nothing when one is not ready. Then it pastes each, records a recorded token's expiry from the token itself, and deletes the slot once its targets are written, a failed slot kept for a retry. Each slot reaches the step only when named. Its own concurrency group | `_authorize-owner`, then `ops`'s reviewer |
-| `rotate-vercel-tokens.yml` | monthly `schedule` + `workflow_dispatch` (`mode` rotate/record-expiry/prove-master) | in **`ops`**. `rotate` re-mints the shared `VERCEL_DEPLOYMENT_TOKEN` (`--mode generate`, 33-day life, the owner's rule for every token) and records the expiry facts. `record-expiry` reads `CICD_PAT`, the master token and the deployment token live and writes each as the cicd repository variable `EXPIRY_<NAME>`, nothing secret. The packages and npm tokens' facts are written by `distribute-staged.yml` alone, their one writer (D-099). `prove-master` mints a throwaway token with the master and deletes it. The schedule runs only once the owner sets `ARM_OPS_SCHEDULE` to `true` | `_authorize-owner` on a dispatch, then `ops`'s reviewer, the schedule gated by `ARM_OPS_SCHEDULE` |
+| `rotate-vercel-tokens.yml` | daily `schedule` (09:00 UTC) + `workflow_dispatch` (`mode` rotate/reap/revoke-now/retire-repo-copies/record-expiry/prove-master, `generation`, `verified`) | The shared `VERCEL_DEPLOYMENT_TOKEN`'s generations (D-100), `scripts/token_generations.py`, every entry point in one concurrency group, `vercel-token-engine`, that never cancels a running job. On the schedule a first job, `due`, outside `ops` and holding no secret, reads the public facts `VERCEL_TOKEN_FACTS` and runs the `ops` job only when a rotation or a reap is due, nothing before the first generation, which the owner dispatches. In **`ops`**, `rotate` mints a generation (33-day life), records it pending in the `ops` variable `VERCEL_TOKEN_RECORD` before any write, then writes each repo's `dev` and `prod` copy with its `VERCEL_TOKEN_GENERATION` variable, saving each as it lands. `reap` revokes the newest complete generation's predecessors six hours after its last write, `revoke-now` at once with the targets to repair named, and `retire-repo-copies` deletes the repository copies once the owner's `verified` list equals the generation's targets. Each run records the expiry facts. `record-expiry` reads `CICD_PAT`, the master token and the deployment token live and writes each as the cicd repository variable `EXPIRY_<NAME>`, nothing secret. The packages and npm tokens' facts are written by `distribute-staged.yml` alone, their one writer (D-099). `prove-master` mints a throwaway token with the master and deletes it. The schedule runs only once the owner sets `ARM_OPS_SCHEDULE` to `true` | `_authorize-owner` on a dispatch, then `ops`'s reviewer, the schedule gated by `ARM_OPS_SCHEDULE` |
 | `check-secret-expiry.yml` | weekly `schedule` (Mon 09:00 UTC) + `workflow_dispatch` | `rotate_secret.py --mode check --secrets all --live`. Every token marked `check.recorded`, the packages and npm tokens among them since D-099, is read from its recorded `EXPIRY_<NAME>` fact and never the registry's date, a missing fact said plainly, so the monitor holds no token. Each monthly token warns at 7 days, a weekly interval, so a Monday always falls before its expiry. Keeps one dedup tracking issue (`ops:secret-expiry`) open/closed | `_authorize-owner` on a dispatch, the schedule unchanged (`issues:write`, no token, no writer) |
 | `check-oidc-rp-drift.yml` | weekly `schedule` (Mon 12:30 UTC) + `workflow_dispatch` | PL-084 interim guard. `check_oidc_drift.py` compares the copy pasted OIDC RP core (`oidc.ts` + callback/initiate/logout routes, `scripts/oidc_drift_manifest.json`) across the two tenant frontends. Keeps one dedup tracking issue (`ops:oidc-rp-drift`) open while any pair differs. Paths + changed line counts only, never file contents | n/a (the read only App's token for cross repo reads, no fallback, `issues:write`) |
 | `trigger-reports-triage.yml` | weekly `schedule` (Mon 09:23 UTC) + `workflow_dispatch` (`apps`, `environment`, `dry_run`) | `trigger_triage.py`: POSTs each selected app's `X-Cron-Secret`-gated `/reports/triage/cron` (`reports_registry.json`). **Disarmed at birth**: the schedule job requires `vars.RUN_REPORTS_TRIAGE == 'true'` AND per app registry `enabled: true`. Scheduled runs = enabled apps against prod. POSTs never status retried, output metadata only | `_authorize-owner` on a dispatch, the schedule gated by `RUN_REPORTS_TRIAGE` |

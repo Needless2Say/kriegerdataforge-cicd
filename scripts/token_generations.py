@@ -51,7 +51,6 @@ from typing import Protocol
 
 # third party imports
 import requests
-
 # local imports, found beside this script as Python puts its folder first
 import rotate_secret as rs
 
@@ -92,55 +91,192 @@ class Refused(RuntimeError):
 # ======================================================================================================================
 
 class GitHub(Protocol):
-    def write_secret(self, target: str, name: str, value: str) -> None: ...
-    def write_variable(self, target: str, name: str, value: str) -> None: ...
-    def delete_repo_secret(self, repo: str, name: str) -> None: ...
-    def read_record(self) -> str | None: ...
-    def write_record(self, text: str) -> None: ...
-    def write_facts(self, text: str) -> None: ...
+    """
+    What the engine asks of GitHub, each target named owner/repo:environment.
+    """
+    def write_secret(self, target: str, name: str, value: str) -> None:
+        """
+        Write a target's environment secret.
+
+        Args:
+            target: owner/repo:environment
+            name: the secret's name
+            value: the token
+        """
+
+
+    def write_variable(self, target: str, name: str, value: str) -> None:
+        """
+        Write a target's environment variable, nothing secret.
+
+        Args:
+            target: owner/repo:environment
+            name: the variable's name
+            value: its value
+        """
+
+
+    def delete_repo_secret(self, repo: str, name: str) -> None:
+        """
+        Delete a repository secret, one already gone counting as deleted.
+
+        Args:
+            repo: owner/repo
+            name: the secret's name
+        """
+
+
+    def read_record(self) -> str | None:
+        """
+        The record as cicd's ops holds it.
+
+        Returns:
+            str | None: its text, None before the first save
+        """
+
+
+    def write_record(self, text: str) -> None:
+        """
+        Save the record in cicd's ops.
+
+        Args:
+            text: its text
+        """
+
+
+    def write_facts(self, text: str) -> None:
+        """
+        Write the public facts as a cicd repository variable.
+
+        Args:
+            text: the facts
+        """
 
 
 class Vercel(Protocol):
-    def names(self, name: str) -> list[str]: ...
-    def mint(self, name: str) -> tuple[str, str]: ...
-    def revoke(self, token_id: str) -> None: ...
+    """
+    What the engine asks of Vercel's token API.
+    """
+    def names(self, name: str) -> list[str]:
+        """
+        The ids of every token of a name.
+
+        Args:
+            name: the tokens' name
+
+        Returns:
+            list[str]: their ids
+        """
+
+
+    def mint(self, name: str) -> tuple[str, str]:
+        """
+        Mint a token of a name.
+
+        Args:
+            name: its name
+
+        Returns:
+            tuple[str, str]: its id and its value
+        """
+
+
+    def revoke(self, token_id: str) -> None:
+        """
+        Revoke a token, one already gone counting as revoked.
+
+        Args:
+            token_id: its id
+        """
 
 
 class LiveGitHub:
     """
     GitHub's API, the targets through one token and cicd's record and facts through another.
     """
-
     def __init__(self, gh_token: str, facts_token: str) -> None:
+        """
+        Args:
+            gh_token: writes the targets' secrets and variables and deletes the repository copies
+            facts_token: reads and writes cicd's record and writes its facts
+        """
         self.gh_token    = gh_token
         self.facts_token = facts_token
 
 
     def _env_variable_url(self, repo: str, environment: str) -> str:
+        """
+        An environment's variables endpoint.
+
+        Args:
+            repo: owner/repo
+            environment: the environment
+
+        Returns:
+            str: the URL
+        """
         return f"{rs.GITHUB_API}/repos/{repo}/environments/{environment}/variables"
 
 
     def _set_env_variable(self, token: str, repo: str, environment: str, name: str, value: str) -> None:
+        """
+        Update an environment variable, or create it when it does not exist yet.
+
+        Args:
+            token: a token that writes the environment
+            repo: owner/repo
+            environment: the environment
+            name: the variable's name
+            value: its value, never a secret
+
+        Raises:
+            RuntimeError: when GitHub refuses the write
+        """
         base = self._env_variable_url(repo, environment)
         body = {"name": name, "value": value}
         resp = rs._SESSION.patch(f"{base}/{name}", headers = rs._github_headers(token), json = body, timeout = 30)
         if resp.status_code == 404:
             resp = rs._SESSION.post(base, headers = rs._github_headers(token), json = body, timeout = 30)
         if not resp.ok:
-            raise RuntimeError(f"GitHub answered HTTP {resp.status_code} to the write of {name} in {repo} [{environment}]")
+            raise RuntimeError(
+                f"GitHub answered HTTP {resp.status_code} to the write of {name} in {repo} [{environment}]",
+            )
 
 
     def write_secret(self, target: str, name: str, value: str) -> None:
+        """
+        Write a target's environment secret.
+
+        Args:
+            target: owner/repo:environment
+            name: the secret's name
+            value: the token
+        """
         repo, environment = target.rsplit(":", 1)
         rs.update_github_env_secret(self.gh_token, repo, environment, name, value)
 
 
     def write_variable(self, target: str, name: str, value: str) -> None:
+        """
+        Write a target's environment variable, nothing secret.
+
+        Args:
+            target: owner/repo:environment
+            name: the variable's name
+            value: its value
+        """
         repo, environment = target.rsplit(":", 1)
         self._set_env_variable(self.gh_token, repo, environment, name, value)
 
 
     def delete_repo_secret(self, repo: str, name: str) -> None:
+        """
+        Delete a repository secret, one already gone counting as deleted.
+
+        Args:
+            repo: owner/repo
+            name: the secret's name
+        """
         resp = rs._SESSION.delete(
             f"{rs.GITHUB_API}/repos/{repo}/actions/secrets/{name}",
             headers = rs._github_headers(self.gh_token),
@@ -151,6 +287,12 @@ class LiveGitHub:
 
 
     def read_record(self) -> str | None:
+        """
+        The record as cicd's ops holds it.
+
+        Returns:
+            str | None: its text, None before the first save
+        """
         resp = rs._SESSION.get(
             f"{self._env_variable_url(CICD_REPO, rs.OPS_ENVIRONMENT)}/{RECORD_VARIABLE}",
             headers = rs._github_headers(self.facts_token),
@@ -163,10 +305,22 @@ class LiveGitHub:
 
 
     def write_record(self, text: str) -> None:
+        """
+        Save the record in cicd's ops.
+
+        Args:
+            text: its text
+        """
         self._set_env_variable(self.facts_token, CICD_REPO, rs.OPS_ENVIRONMENT, RECORD_VARIABLE, text)
 
 
     def write_facts(self, text: str) -> None:
+        """
+        Write the public facts as a cicd repository variable.
+
+        Args:
+            text: the facts
+        """
         rs.set_repo_variable(self.facts_token, CICD_REPO, FACTS_VARIABLE, text)
 
 
@@ -174,21 +328,49 @@ class LiveVercel:
     """
     Vercel's token API through the master token.
     """
-
     def __init__(self, master_token: str, team_id: str) -> None:
+        """
+        Args:
+            master_token: lists, mints and revokes the tokens
+            team_id: the team a minted token belongs to
+        """
         self.master_token = master_token
         self.team_id      = team_id
 
 
     def names(self, name: str) -> list[str]:
+        """
+        The ids of every token of a name.
+
+        Args:
+            name: the tokens' name
+
+        Returns:
+            list[str]: their ids
+        """
         return [token["id"] for token in rs.list_vercel_tokens(self.master_token) if token.get("name") == name]
 
 
     def mint(self, name: str) -> tuple[str, str]:
+        """
+        Mint a token of a name, for TOKEN_EXPIRY_DAYS.
+
+        Args:
+            name: its name
+
+        Returns:
+            tuple[str, str]: its id and its value
+        """
         return rs.create_vercel_token(self.master_token, name, self.team_id)
 
 
     def revoke(self, token_id: str) -> None:
+        """
+        Revoke a token, one already gone counting as revoked.
+
+        Args:
+            token_id: its id
+        """
         try:
             rs.delete_vercel_token(self.master_token, token_id)
         except requests.HTTPError as exc:
@@ -214,10 +396,28 @@ def fingerprint(value: str) -> str:
 
 
 def _iso(moment: datetime) -> str:
+    """
+    A time as the record writes it.
+
+    Args:
+        moment: the time
+
+    Returns:
+        str: its ISO form
+    """
     return moment.isoformat()
 
 
 def _parse_time(raw: object) -> datetime | None:
+    """
+    A time from the record or the facts, None when it is no time with a zone.
+
+    Args:
+        raw: the text
+
+    Returns:
+        datetime | None: the time
+    """
     if not isinstance(raw, str):
         return None
     try:
@@ -230,6 +430,13 @@ def _parse_time(raw: object) -> datetime | None:
 def _outstanding(record: dict, generation: str) -> list[str]:
     """
     Every token the record holds that the generation retires, not its own and not yet revoked.
+
+    Args:
+        record: the record
+        generation: the generation's id
+
+    Returns:
+        list[str]: the tokens' ids, sorted
     """
     return sorted(
         token_id for token_id, token in record["tokens"].items()
@@ -315,8 +522,8 @@ def registry_targets(entry: dict) -> tuple[list[str], list[str]]:
     Returns:
         tuple[list[str], list[str]]: each target as owner/repo:environment, and each repository copy's repo
     """
-    targets = sorted(f"{t['repo']}:{t['environment']}" for t in entry.get("github_env_secrets", []))
-    copies  = sorted({t["repo"] for t in entry.get("retired_github_repo_secrets", [])})
+    targets = sorted(f"{target['repo']}:{target['environment']}" for target in entry.get("github_env_secrets", []))
+    copies  = sorted({target["repo"] for target in entry.get("retired_github_repo_secrets", [])})
     return targets, copies
 
 # ======================================================================================================================
@@ -327,7 +534,6 @@ class Engine:
     """
     The generations of one shared token, over its providers and a clock.
     """
-
     def __init__(
         self,
         github: GitHub,
@@ -338,6 +544,16 @@ class Engine:
         token_name: str,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ) -> None:
+        """
+        Args:
+            github: the targets, the record and the facts
+            vercel: the token API
+            targets: each target, owner/repo:environment
+            repo_copies: each repository copy's repo, retired once verified
+            secret_name: the secret's name in each target
+            token_name: the tokens' name at Vercel
+            clock: the time, injected by the tests
+        """
         self.github      = github
         self.vercel      = vercel
         self.targets     = sorted(targets)
@@ -351,6 +567,9 @@ class Engine:
     def load(self) -> dict:
         """
         The record as saved, an empty one before the first generation.
+
+        Returns:
+            dict: the record
 
         Raises:
             RecordError: when it cannot be read or parsed
@@ -375,12 +594,15 @@ class Engine:
         Save the record, keeping its newest generations, every token they name, every token still valid, and every
         revocation of a token no generation held, the repository era's among them.
 
+        Args:
+            record: the record, trimmed in place
+
         Raises:
             RecordError: when GitHub refuses it, which stops the run
         """
         record["generations"] = record["generations"][-KEEP_GENERATIONS:]
-        kept                  = {gen["id"] for gen in record["generations"]}
-        record["tokens"]      = {
+        kept = {gen["id"] for gen in record["generations"]}
+        record["tokens"] = {
             token_id: token for token_id, token in record["tokens"].items()
             if token["revoked"] is None or token["generation"] is None or token["generation"] in kept
         }
@@ -393,6 +615,10 @@ class Engine:
     def publish(self, record: dict, errors: list[str]) -> None:
         """
         Write the public facts, a failure kept as an error since the record holds the truth.
+
+        Args:
+            record: the record
+            errors: the run's errors, added to in place
         """
         try:
             self.github.write_facts(facts_text(record))
@@ -403,6 +629,13 @@ class Engine:
     def newest(self, record: dict, generation: str | None = None) -> dict:
         """
         The newest generation, the one named when one is.
+
+        Args:
+            record: the record
+            generation: the id the caller named, None for any
+
+        Returns:
+            dict: the generation
 
         Raises:
             Refused: when there is none, or the one named is not the newest
@@ -428,13 +661,13 @@ class Engine:
         record = self.load()
         before = self.vercel.names(self.token_name)
         token_id, value = self.vercel.mint(self.token_name)
-        gen_id          = f"G{record['next']}"
-        now             = self.clock()
+        gen_id = f"G{record['next']}"
+        now    = self.clock()
         for old in before:
             # a token of the name the record never held, the repository era's or a crashed mint's, is a predecessor
             record["tokens"].setdefault(old, {"generation": None, "revoked": None})
         record["tokens"][token_id] = {"generation": gen_id, "revoked": None}
-        gen                        = {
+        gen = {
             "id": gen_id,
             "token_id": token_id,
             "fingerprint": fingerprint(value),
@@ -478,6 +711,14 @@ class Engine:
 
 
     def _revoke(self, record: dict, gen: dict, errors: list[str]) -> None:
+        """
+        Revoke every predecessor of a generation, saving each revocation as it lands.
+
+        Args:
+            record: the record, changed in place
+            gen: the generation
+            errors: the run's errors, a failed revocation added and kept for the next run
+        """
         for token_id in _outstanding(record, gen["id"]):
             print(f"  revoke {token_id}", end = " ... ", flush = True)
             try:
@@ -540,6 +781,15 @@ class Engine:
 
 
     def _normalise(self, verified: str) -> set[str]:
+        """
+        The owner's verified list, each repo:env given its owner.
+
+        Args:
+            verified: the list, comma or space separated
+
+        Returns:
+            set[str]: each target, owner/repo:environment
+        """
         owner = self.targets[0].split("/", 1)[0] if self.targets else ""
         out   = set()
         for word in verified.replace(" ", ",").split(","):
@@ -605,10 +855,28 @@ class Engine:
 # ======================================================================================================================
 
 def _registry_entry() -> dict:
+    """
+    The token's registry entry.
+
+    Returns:
+        dict: the entry
+    """
     return next(entry for entry in rs._load_registry()["secrets"] if entry["name"] == ENTRY_NAME)
 
 
 def _need(name: str) -> str:
+    """
+    An environment variable the mode needs.
+
+    Args:
+        name: its name
+
+    Returns:
+        str: its value
+
+    Raises:
+        SystemExit: when it is not set
+    """
     value = os.environ.get(name, "")
     if not value:
         raise SystemExit(f"token_generations: {name} is not set")
@@ -624,6 +892,9 @@ def main(argv: list[str] | None = None) -> int:
 
     Returns:
         int: 0 when it did all it set out to, 1 when a target, a revocation or a delete failed
+
+    Raises:
+        SystemExit: when a needed variable is not set or a generation is not named
     """
     parser = argparse.ArgumentParser(description = "The shared Vercel deployment token's generations (D-100).")
     parser.add_argument("mode", choices = ("rotate", "reap", "revoke-now", "retire-repo-copies", "due"))
@@ -637,9 +908,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.mode in ("revoke-now", "retire-repo-copies") and not GENERATION_ID.fullmatch(args.generation):
         raise SystemExit("token_generations: --generation must name a generation, such as G1")
     targets, copies = registry_targets(_registry_entry())
-    github          = LiveGitHub(os.environ.get("GH_TOKEN", ""), _need("FACTS_GH_TOKEN"))
-    vercel          = LiveVercel(os.environ.get("VERCEL_MASTER_TOKEN", ""), os.environ.get("VERCEL_TEAM_ID", ""))
-    engine          = Engine(github, vercel, targets, copies, ENTRY_NAME, ENTRY_NAME)
+    github = LiveGitHub(os.environ.get("GH_TOKEN", ""), _need("FACTS_GH_TOKEN"))
+    vercel = LiveVercel(os.environ.get("VERCEL_MASTER_TOKEN", ""), os.environ.get("VERCEL_TEAM_ID", ""))
+    engine = Engine(github, vercel, targets, copies, ENTRY_NAME, ENTRY_NAME)
     try:
         if args.mode == "rotate":
             _need("GH_TOKEN")
