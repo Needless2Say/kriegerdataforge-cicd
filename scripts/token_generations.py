@@ -686,6 +686,14 @@ class Engine:
             except Exception:  # noqa: BLE001
                 pass  # a token the record never held is a predecessor of the next generation
             raise
+        # The facts say pending before any write, so a run that stops part way is seen by the next day's due job and
+        # tried again, never hidden behind an older complete generation's facts (Codex's review read, M).
+        try:
+            self.github.write_facts(facts_text(record))
+        except Exception as exc:  # noqa: BLE001
+            raise RecordError(
+                f"the public facts could not say {gen_id} is pending, so no target is written, {exc}",
+            ) from exc
         print(f"{gen_id} minted, writing {len(self.targets)} target(s)")
         errors = []
         for target in gen["targets"]:

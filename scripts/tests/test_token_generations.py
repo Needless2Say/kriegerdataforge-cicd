@@ -104,6 +104,7 @@ class FakeGitHub:
         self.lost_answer:   set[str]        = set()
         self.fail_delete:   set[str]        = set()
         self.saves_left:    int | None       = None
+        self.fail_facts:    bool             = False
 
 
     def write_secret(self, target: str, name: str, value: str) -> None:
@@ -139,6 +140,8 @@ class FakeGitHub:
 
 
     def write_facts(self, text: str) -> None:
+        if self.fail_facts:
+            raise RuntimeError("GitHub refused the facts' write")
         self.facts = text
 
 
@@ -221,6 +224,35 @@ class TestRotate:
         gen = record(github)["generations"][-1]
         assert gen["id"] == "G2" and len(gen["written"]) == 1 and gen["completed_at"] is None
         assert holders_valid(github, vercel)
+
+
+    def test_a_run_that_stops_part_way_is_tried_again_the_next_day(self, world: tuple) -> None:
+        github, vercel, clock = world
+        github.saves_left = 2
+        with pytest.raises(tg.RecordError):
+            engine(github, vercel, clock).rotate()
+        assert tg.parse_facts(github.facts)["state"] == "pending"
+        assert tg.due(github.facts, clock.now + timedelta(days = 1)) == "rotate"
+
+
+    def test_an_interrupted_newer_generation_is_not_hidden_behind_an_older_one(self, world: tuple) -> None:
+        github, vercel, clock = world
+        engine(github, vercel, clock).rotate()
+        clock.advance(days = 1)
+        github.saves_left = 2
+        with pytest.raises(tg.RecordError):
+            engine(github, vercel, clock).rotate()
+        facts = tg.parse_facts(github.facts)
+        assert facts["generation"] == "G2" and facts["state"] == "pending"
+        assert tg.due(github.facts, clock.now + timedelta(days = 1)) == "rotate"
+
+
+    def test_facts_that_cannot_say_pending_stop_the_run_before_any_write(self, world: tuple) -> None:
+        github, vercel, clock = world
+        github.fail_facts = True
+        with pytest.raises(tg.RecordError, match = "pending"):
+            engine(github, vercel, clock).rotate()
+        assert github.secrets == {}
 
 
     def test_a_lost_write_answer_leaves_the_target_unrecorded(self, world: tuple) -> None:
