@@ -1280,6 +1280,42 @@ def _staged_age_refusal(updated_at: str | None, now: datetime) -> str | None:
     return None
 
 
+def _record_staged_expiry(entry: dict, facts_token: str, repo: str, value: str, now: datetime) -> bool:
+    """
+    Read a distributed token's expiry live from the value itself and keep it as its fact, true only when both worked.
+
+    A read that failed would leave the expiry unknown, and the run holds the one copy of the value it can read again,
+    so the slot stays until the read and the write both succeed (Codex's second read of D-099). A token its provider
+    says has no expiry is a fact read whole.
+
+    Args:
+        entry: The registry entry, marked `check.recorded`
+        facts_token: A token that writes cicd's variables, empty when none was minted
+        repo: cicd, owner/name
+        value: The token just distributed, never printed
+        now: The time recorded
+
+    Returns:
+        True when the expiry was read and its fact written
+    """
+    if not facts_token:
+        print(f"  {RECORDED_PREFIX}{entry['name']}: NOT recorded, no token writes cicd's variables")
+        return False
+    date, status = live_expiry(entry, {entry["name"]: value})
+    word = _status_word(status)
+    if word not in ("ok", "no-expiry"):
+        print(f"  {RECORDED_PREFIX}{entry['name']}: NOT recorded, its expiry could not be read, {word}")
+        return False
+    fact = f"expires={date or 'none'} status={word} recorded={now.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+    try:
+        set_repo_variable(facts_token, repo, f"{RECORDED_PREFIX}{entry['name']}", fact)
+    except Exception as exc:  # noqa: BLE001, the type alone, an exception's text could carry a request's details
+        print(f"  {RECORDED_PREFIX}{entry['name']}: NOT recorded, {type(exc).__name__}")
+        return False
+    print(f"  {RECORDED_PREFIX}{entry['name']}: {fact}")
+    return True
+
+
 def _preflight_slot(
     slot: str,
     entry: dict,
@@ -1339,9 +1375,9 @@ def cmd_paste_staged(
     Every selected slot is checked first, a `paste` entry's, set in this run and in ops, set within
     STAGED_MAX_AGE_DAYS, and every target resolved, and one not ready stops the run before anything is written. Then
     each is pasted, a recorded token's expiry kept as its fact from the value itself, and the slot deleted from ops
-    once its targets are written, so a set slot always means a value not yet distributed. A slot whose paste failed, or
-    whose expiry could not be recorded, is kept for a retry, since it holds the one copy the run can read again, and
-    the others go on.
+    once its targets are written and its expiry read and recorded, so a set slot always means a value whose
+    distribution is not finished. A slot whose paste failed, or whose expiry could not be read or recorded, is kept for
+    a retry, since it holds the one copy the run can read again, and the others go on.
 
     Args:
         registry: The parsed registry
@@ -1391,13 +1427,7 @@ def cmd_paste_staged(
             continue
         recorded = True
         if (entry.get("check") or {}).get("recorded"):
-            recorded = bool(facts_token) and cmd_record_expiry(
-                [entry],
-                facts_token,
-                repo,
-                {entry["name"]: env[slot]},
-                when,
-            ) == 0
+            recorded = _record_staged_expiry(entry, facts_token, repo, env[slot], when)
         if not recorded:
             # the slot holds the one copy of the value the run can read again, the npm token's above all, so it stays
             # until its expiry is recorded

@@ -1320,27 +1320,52 @@ class TestPasteStaged:
         assert "written, the slot NOT deleted, RuntimeError, delete it by hand" in capsys.readouterr().out
 
 
+    EXPIRING = {"github-authentication-token-expiration": "2026-12-09 12:00:00 UTC"}
+
+
     @pytest.mark.parametrize(
-        ("facts", "record_rc", "rc_expected"),
-        [("facts", 0, 0), ("", 0, 1), ("facts", 1, 1)],
-        ids = ["recorded", "no facts token", "the record failed"],
+        ("facts", "read", "write_fails", "fact"),
+        [
+            ("facts", (200, EXPIRING), False, "expires=2026-12-09 status=ok recorded=2026-11-06T12:00:00Z"),
+            ("facts", (200, None), False, "expires=none status=no-expiry recorded=2026-11-06T12:00:00Z"),
+            ("", (200, EXPIRING), False, None),
+            ("facts", (503, None), False, None),
+            ("facts", (200, {"github-authentication-token-expiration": "soon"}), False, None),
+            ("facts", RuntimeError("timed out"), False, None),
+            ("facts", (401, None), False, None),
+            ("facts", (200, EXPIRING), True, None),
+        ],
+        ids = [
+            "read and written",
+            "no expiry read whole",
+            "no facts token",
+            "the read answered 503",
+            "the header unreadable",
+            "the read timed out",
+            "the token rejected",
+            "the write failed",
+        ],
     )
-    def test_a_recorded_tokens_expiry_is_kept_from_the_value_itself_and_its_slot_kept_until_it_is(
+    def test_a_slot_is_deleted_only_once_its_tokens_expiry_was_read_and_recorded(
         self,
         sample_registry,
         capsys,
         facts,
-        record_rc,
-        rc_expected,
+        read,
+        write_fails,
+        fact,
     ):
-        # the slot holds the one copy the run can read again, the npm token's above all, so a slot whose expiry was not
-        # recorded is kept (Codex's read of D-099, M1)
+        # the slot holds the one copy the run can read again, the npm token's above all, so it stays until its expiry
+        # was read live and its fact written, through the real recorder with only GitHub mocked (Codex's reads of
+        # D-099, M1)
         sample_registry["secrets"][0]["check"] = {"live": "github", "recorded": True}
+        get = {"side_effect": read} if isinstance(read, Exception) else {"return_value": _resp(*read)}
         with patch.object(rs, "github_env_secret_updated_at", return_value = self.FRESH), \
              patch.object(rs, "update_github_env_secret"), \
              patch.object(rs, "upsert_vercel_env_var"), \
-             patch.object(rs, "delete_github_env_secret") as dele, \
-             patch.object(rs, "cmd_record_expiry", return_value = record_rc) as record:
+             patch.object(rs._SESSION, "get", **get), \
+             patch.object(rs, "set_repo_variable", side_effect = RuntimeError("422") if write_fails else None) as put, \
+             patch.object(rs, "delete_github_env_secret") as dele:
             rc = rs.cmd_paste_staged(
                 sample_registry,
                 ["GH_PACKAGES_PAT_PROD_NEW"],
@@ -1351,18 +1376,16 @@ class TestPasteStaged:
                 {"GH_PACKAGES_PAT_PROD_NEW": self.VALUE},
                 NOW,
             )
-        assert rc == rc_expected
-        if facts:
-            entries, token, repo, environ, when = record.call_args.args
-            assert [entry["name"] for entry in entries] == ["GH_PACKAGES_PAT"]
-            assert (token, repo, environ, when) == ("facts", self.CICD, {"GH_PACKAGES_PAT": self.VALUE}, NOW)
-        else:
-            record.assert_not_called()
-        if rc_expected == 0:
+        out = capsys.readouterr().out
+        assert self.VALUE not in out
+        if fact:
+            assert rc == 0
+            put.assert_called_once_with("facts", self.CICD, "EXPIRY_GH_PACKAGES_PAT", fact)
             dele.assert_called_once()
         else:
+            assert rc == 1
             dele.assert_not_called()
-            assert "its expiry NOT recorded, the slot is kept" in capsys.readouterr().out
+            assert "its expiry NOT recorded, the slot is kept" in out
 
 
     @pytest.mark.parametrize(

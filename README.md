@@ -72,7 +72,7 @@ Keeping CI/CD logic in one place means deploy behavior is consistent across all 
 | `distribute-staged.yml` | Distribute the staged manual secrets, each from its own slot in `ops`, to their targets (D-099) | Internal |
 | `check-secret-expiry.yml` | Weekly credential expiry monitor → opens/closes a deduped rotation issue | Internal |
 | `check-oidc-rp-drift.yml` | Weekly PL-084 guard. Detects drift of the copy pasted OIDC RP core across the two tenant frontends → deduped tracking issue | Internal |
-| `ops-rotate-secrets.yml` | Owner only on demand secret rotation (driven by the `Ops · Rotate a secret` issue form) | Internal |
+| `ops-rotate-secrets.yml` | Owner only on demand expiry check (the `Ops · Check secret expiry` issue form), writing nothing (D-099) | Internal |
 | `mirror-ci-images.yml` | Copies every image CI pulls to `ghcr.io/needless2say/<name>` and proves each public (D-077, D-080). The lanes' Postgres, the E2E services and Checkov by digest, and the base images `node:24-alpine` and `python:3.14-slim` by the digest Docker Hub names each day, unless held. On `main` alone, at a push that changes it, the owner's dispatch and a daily schedule. No version of any package is ever deleted | Internal, every Postgres lane, Dockerfile, E2E stack and the terraform scan pull its copies |
 
 ---
