@@ -261,6 +261,7 @@ class TestRotate:
             engine(github, vercel, clock).rotate()
         assert github.secrets == {}
         assert record(github)["generations"] == [] and vercel.valid() == set()
+        assert record(github)["tokens"]["tok1"] == {"generation": None, "revoked": clock.now.isoformat()}
 
 
     def test_a_withdrawn_generation_leaves_the_older_one_and_its_facts_agreeing(self, world: tuple) -> None:
