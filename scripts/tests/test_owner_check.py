@@ -32,12 +32,12 @@ NEWLY_GATED = ("hub-prune-tokens.yml", "trigger-reports-triage.yml", "check-secr
 CICD        = "Needless2Say/kriegerdataforge-cicd"
 # a job's output another job's condition reads, given the value that runs the reader, so the actors alone decide: the
 # deployment token's due job naming a rotation (D-100)
-OUTPUTS     = {"mode": "rotate"}
-TOKEN       = re.compile(
+OUTPUTS   = {"mode": "rotate"}
+TOKEN     = re.compile(
     r"\s*(?:(?P<text>'(?:[^']|'')*')|(?P<op>&&|\|\||==|!=|!|\(|\))|(?P<call>[a-z]+\(\))|(?P<name>[A-Za-z_][\w.\-]*))",
 )
-OPERATORS   = {"&&": " and ", "||": " or ", "==": " == ", "!=": " != ", "(": "(", ")": ")"}
-STATUS      = {"always()": "True", "success()": "True", "failure()": "False", "cancelled()": "False"}
+OPERATORS = {"&&": " and ", "||": " or ", "==": " == ", "!=": " != ", "(": "(", ")": ")"}
+STATUS    = {"always()": "True", "success()": "True", "failure()": "False", "cancelled()": "False"}
 
 
 def _load(name: str) -> dict:
