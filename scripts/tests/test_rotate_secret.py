@@ -564,6 +564,10 @@ class TestRecordedExpiry:
         assert self._recorded(monkeypatch, None)[0] == 1
         out = capsys.readouterr().out
         assert "no recorded expiry" in out and "2026-07-30" not in out
+        # the monitor's issue keeps the lines holding one of its words, so a missing fact reaches the issue (Codex's
+        # fifth read of D-099)
+        line = next(line for line in out.splitlines() if "no recorded expiry" in line)
+        assert any(word in line for word in ("WARNING", "EXPIRED", "ERROR", "REJECTED", "DRIFT"))
 
 
     @pytest.mark.parametrize(("value", "said"), [

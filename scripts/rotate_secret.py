@@ -828,8 +828,8 @@ def _check_recorded(entry: dict, environ: dict[str, str] | None = None) -> int:
     raw  = env.get(f"{RECORDED_PREFIX}{name}", "").strip()
     if not raw:
         print(
-            f"  {name}: no recorded expiry yet. A distribution from its staging slot records it, or Rotate Vercel "
-            "Deployment Token's record-expiry for a token that run reads."
+            f"  {name}: WARNING — no recorded expiry yet. A distribution from its staging slot records it, or Rotate "
+            "Vercel Deployment Token's record-expiry for a token that run reads."
         )
         return 1
     fact = _read_fact(raw)
