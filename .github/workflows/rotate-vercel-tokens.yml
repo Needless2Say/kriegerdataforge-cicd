@@ -122,7 +122,9 @@ jobs:
       # The expiry facts (the secrets fence, design 5.5 item 9). The weekly monitor runs outside ops and
       # holds neither CICD_PAT nor the master token, so this run reads each recorded token live and keeps
       # its expiry as a cicd repository variable, nothing secret. A token from the writing App on this
-      # repo alone, with the one grant the variables need.
+      # repo alone. GitHub's token API has no key for the Variables permission, so a mint asking for
+      # `variables` is refused (422, run 42728994281). It asks for no filter, taking the App's set, and
+      # is held to this one repository instead, in ops after the owner's approval.
       - name: Mint GitHub App token (variables on this repo)
         id: facts-token
         if: env.MODE != 'prove-master' && vars.USE_GITHUB_APP == 'true'
@@ -132,7 +134,6 @@ jobs:
           private-key: ${{ secrets.KDF_WRITER_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: kriegerdataforge-cicd
-          permission-variables: write
 
       - name: Record the expiry facts
         if: env.MODE != 'prove-master'

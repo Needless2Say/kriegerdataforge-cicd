@@ -120,12 +120,11 @@ jobs:
           fi
           echo "The read only App's pair is an App id and a whole PEM private key."
 
-      # App token from the writing App, scoped to JUST the target repo, asking for exactly the two
-      # grants the steps below use, that repo's Actions secrets AND variables write, never the App's
-      # whole set. create-github-app-token@v3.2.0 declares no `permission-variables` input, but its
-      # lib/get-permissions-from-inputs.js reads every `permission-*` input it is given, and the runner
-      # passes an undeclared `with:` key on as one (with a warning). Auto-revoked at job end. Gated on
-      # USE_GITHUB_APP; falls back to CICD_PAT.
+      # App token from the writing App, scoped to JUST the target repo, for the steps below, that repo's
+      # Actions secrets AND variables write. GitHub's token API has no key for the Variables permission,
+      # so a mint asking for `variables` is refused (422, cicd run 42728994281), and this one asks for no
+      # filter, taking the App's set, held to the one target repo instead, in ops after the owner's
+      # approval. Auto-revoked at job end. Gated on USE_GITHUB_APP; falls back to CICD_PAT.
       - name: Mint GitHub App token (secrets + variables write on the target)
         id: app-token
         if: vars.USE_GITHUB_APP == 'true'
@@ -135,8 +134,6 @@ jobs:
           private-key: ${{ secrets.KDF_WRITER_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ steps.fields.outputs.repo }}
-          permission-secrets: write
-          permission-variables: write
 
       - name: Set repo variables (gate OFF; App path armed)
         env:
