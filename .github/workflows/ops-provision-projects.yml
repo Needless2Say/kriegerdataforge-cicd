@@ -12,7 +12,8 @@ name: Ops · Provision Projects boards (issue-triggered)
 #   * Auth (resolved W1 finding): neither a GitHub App token nor a fine-grained PAT (e.g. CICD_PAT)
 #     can create user-owned ProjectsV2 — GitHub offers a Projects permission only for orgs. So
 #     provisioning runs on a short-lived CLASSIC PAT (`project` scope) the owner stages in
-#     SECRET_VALUE_NEW in cicd's ops environment for the run and revokes after, never a repository
+#     PROVISION_PROJECTS_PAT in cicd's ops environment for the run, a name of its own so no
+#     distribution ever reads it (D-099), and deletes and revokes after, never a repository
 #     secret every branch could read. `repo` scope is optional (auto repo-linking).
 #   * Board node ids are METADATA, not secrets — safe in the issue summary; no token value is
 #     ever echoed.
@@ -104,8 +105,8 @@ jobs:
           # Board provisioning needs a CLASSIC PAT with the `project` scope acting as the owner —
           # neither a GitHub App installation token nor a fine-grained PAT (e.g. CICD_PAT) can manage
           # user-owned ProjectsV2 (GitHub offers a Projects permission only for orgs). The owner
-          # stages a short-lived classic PAT in SECRET_VALUE_NEW for the run, then revokes it.
-          GH_TOKEN: ${{ secrets.SECRET_VALUE_NEW }}
+          # stages a short-lived classic PAT in PROVISION_PROJECTS_PAT for the run, then deletes and revokes it.
+          GH_TOKEN: ${{ secrets.PROVISION_PROJECTS_PAT }}
           PROJECTS_OWNER: ${{ github.repository_owner }}
           MODE: ${{ steps.fields.outputs.mode }}
           BOARDS: ${{ steps.fields.outputs.boards }}

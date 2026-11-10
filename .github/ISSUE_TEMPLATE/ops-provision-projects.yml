@@ -26,7 +26,8 @@ body:
         > **Auth is App-first.** The workflow mints a short-lived GitHub App installation token.
         > If the GraphQL API refuses App tokens for user-owned ProjectsV2, the run tells you the
         > fallback: create a short-lived **classic PAT** with `project` + `repo` scopes, stage it
-        > in the **`SECRET_VALUE_NEW`** repo secret, re-add the label, then **revoke the PAT**.
+        > in **`PROVISION_PROJECTS_PAT`** in cicd's **`ops`** environment from a prompt, re-add the
+        > label, then delete that secret and **revoke the PAT**.
         > Never type a token into this issue — this repo is public.
 
         > **What stays manual (one-time, per board):** reshaping the built-in **Status** field's

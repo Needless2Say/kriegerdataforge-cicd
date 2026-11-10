@@ -2,8 +2,8 @@ name: Rotate Vercel Deployment Token
 
 on:
   # Monthly auto-rotation: first of every month at 09:00 UTC. The new Vercel token is created with a
-  # 45-day expiry, so a monthly cadence (worst-case 31-day gap) leaves ~2 weeks of slack — a single
-  # missed run never expires the token. This rotates the ONE shared Vercel token
+  # 33-day expiry, the owner's rule of 2026-11-10 for every token, and the old one is deleted at once, so
+  # a month's token outlives its month by a few days of grace. This rotates the ONE shared Vercel token
   # (VERCEL_DEPLOYMENT_TOKEN) used by every app repo's CI to deploy AND by the terraform repo to
   # manage Vercel — consolidated 2026-06-30 from the former VERCEL_TOKEN + VERCEL_API_TOKEN split
   # because both were the same account-scoped token.
@@ -140,11 +140,13 @@ jobs:
         env:
           CICD_PAT: ${{ secrets.CICD_PAT }}
           VERCEL_MASTER_TOKEN: ${{ secrets.VERCEL_MASTER_TOKEN }}
+          # cicd's own repository copy of the packages token, a read alone, so its fact is recorded here too (D-099)
+          GH_PACKAGES_PAT: ${{ secrets.GH_PACKAGES_PAT }}
           GH_TOKEN: ${{ steps.facts-token.outputs.token || secrets.CICD_PAT }}
         run: |
           python scripts/rotate_secret.py \
             --mode record-expiry \
-            --secrets CICD_PAT,VERCEL_MASTER_TOKEN,VERCEL_DEPLOYMENT_TOKEN
+            --secrets CICD_PAT,VERCEL_MASTER_TOKEN,VERCEL_DEPLOYMENT_TOKEN,GH_PACKAGES_PAT
 
       # The sitting makes a fresh master token straight into ops, and this proves it mints before anything
       # depends on it. The throwaway token is deleted at once and its value never printed.

@@ -197,7 +197,7 @@ def test_resolve_token_validates_and_returns_the_token():
 def test_resolve_token_exits_with_guidance_on_refusal():
     """
     A token that can't reach ProjectsV2 exits with classic-PAT guidance — the message must name
-    why an App/fine-grained token (CICD_PAT) can't do it and point at SECRET_VALUE_NEW.
+    why an App/fine-grained token (CICD_PAT) can't do it and point at PROVISION_PROJECTS_PAT, its own name (D-099).
     """
     with patch.object(pp, "_gql", side_effect = pp.ProjectsAuthError("no project scope")):
         with pytest.raises(SystemExit) as exc:
@@ -205,7 +205,7 @@ def test_resolve_token_exits_with_guidance_on_refusal():
     msg = str(exc.value)
     assert "classic" in msg.lower()
     assert "project" in msg
-    assert "SECRET_VALUE_NEW" in msg
+    assert "PROVISION_PROJECTS_PAT" in msg
     assert "fine-grained" in msg
 
 

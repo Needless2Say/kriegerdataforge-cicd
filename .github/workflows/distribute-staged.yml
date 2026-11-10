@@ -1,0 +1,124 @@
+name: Ops · Distribute staged secrets
+
+# The staging slots' run (D-099). Every secret a person makes, a PAT GitHub has no API to mint or a value another
+# system owns, has a staging slot of its own in cicd's ops environment, named in scripts/secret_registry.json's
+# `staging`, one per environment for a secret held in two, so a slot's name alone decides where its value goes. The
+# owner stages each new value at a prompt, `gh secret set <SLOT> --env ops --repo Needless2Say/kriegerdataforge-cicd`,
+# then dispatches this run once naming the slots, and approves ops.
+#
+# rotate_secret.py --mode paste-staged checks every selected slot before anything is written, a `paste` entry's, set
+# in this run and in ops, set within a week, and every target resolved, and stops on any that is not ready. Then it
+# pastes each to its entry's targets, records a recorded token's expiry from the token itself as EXPIRY_<NAME>, and
+# deletes the slot from ops once its targets are written, so a set slot always means a value not yet distributed. A
+# slot whose paste failed is kept for a retry, and the others go on.
+#
+# SECURITY. The slots live in ops alone, held to main and waiting for the owner's approval, and this workflow starts
+# from a dispatch alone. A slot's value reaches the step only when its name is selected, and the selection reaches
+# the engine as data in an env var, never in a shell string. The engine prints names, environments and results, never
+# a value. Its own concurrency group, so a run waiting for approval never holds or cancels the rotation's.
+
+on:
+  workflow_dispatch:
+    inputs:
+      slots:
+        description: "The staging slots to distribute, comma separated, each as scripts/secret_registry.json names it"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops-distribute-staged
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    uses: ./.github/workflows/_authorize-owner.yml
+
+  distribute:
+    name: Distribute staged secrets
+    needs: authorize
+    # A rerun of failed jobs alone keeps the owner check's passed output, so both actors are tested here too.
+    if: >-
+      needs.authorize.outputs.authorized == 'true' &&
+      github.actor == github.repository_owner &&
+      github.triggering_actor == github.repository_owner
+    runs-on: ubuntu-slim
+    # the slots, the writing App's pair, CICD_PAT and the master token live in ops alone, held to main and waiting for
+    # the owner's approval
+    environment: ops
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      # the repos the run writes, each selected slot's entry's targets, and cicd, where the slots are read and deleted
+      - name: List the repositories the distribution reaches
+        id: targets
+        env:
+          SLOTS: ${{ inputs.slots }}
+        run: python scripts/token_repositories.py staged --names="$SLOTS" >> "$GITHUB_OUTPUT"
+
+      # secrets write for the repository copies, environments write for the environment copies and the slots in ops
+      - name: Mint GitHub App token
+        id: app-token
+        if: vars.USE_GITHUB_APP == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.KDF_WRITER_APP_ID }}
+          private-key: ${{ secrets.KDF_WRITER_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.targets.outputs.repositories }}
+          permission-secrets: write
+          permission-environments: write
+
+      # The expiry facts, cicd's variables. GitHub's token API has no key for the Variables permission, so this mint
+      # asks for no filter, taking the App's set, and is held to cicd alone.
+      - name: Mint GitHub App token (variables on this repo)
+        id: facts-token
+        if: vars.USE_GITHUB_APP == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.KDF_WRITER_APP_ID }}
+          private-key: ${{ secrets.KDF_WRITER_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: kriegerdataforge-cicd
+
+      - name: Distribute the selected slots
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
+          FACTS_GH_TOKEN: ${{ steps.facts-token.outputs.token || secrets.CICD_PAT }}
+          VERCEL_MASTER_TOKEN: ${{ secrets.VERCEL_MASTER_TOKEN }}
+          SLOTS: ${{ inputs.slots }}
+          # each slot, held in ops, reaches this step only when its name is selected
+          GH_PACKAGES_PAT_NEW: ${{ contains(inputs.slots, 'GH_PACKAGES_PAT_NEW') && secrets.GH_PACKAGES_PAT_NEW || '' }}
+          GH_NPM_TOKEN_NEW: ${{ contains(inputs.slots, 'GH_NPM_TOKEN_NEW') && secrets.GH_NPM_TOKEN_NEW || '' }}
+          REPORTS_CRON_SECRET_FITNESS_APP_DEV_NEW: >-
+            ${{ contains(inputs.slots, 'REPORTS_CRON_SECRET_FITNESS_APP_DEV_NEW') &&
+            secrets.REPORTS_CRON_SECRET_FITNESS_APP_DEV_NEW || '' }}
+          REPORTS_CRON_SECRET_FITNESS_APP_PROD_NEW: >-
+            ${{ contains(inputs.slots, 'REPORTS_CRON_SECRET_FITNESS_APP_PROD_NEW') &&
+            secrets.REPORTS_CRON_SECRET_FITNESS_APP_PROD_NEW || '' }}
+          REPORTS_CRON_SECRET_TIFFANYS_SPACE_DEV_NEW: >-
+            ${{ contains(inputs.slots, 'REPORTS_CRON_SECRET_TIFFANYS_SPACE_DEV_NEW') &&
+            secrets.REPORTS_CRON_SECRET_TIFFANYS_SPACE_DEV_NEW || '' }}
+          REPORTS_CRON_SECRET_TIFFANYS_SPACE_PROD_NEW: >-
+            ${{ contains(inputs.slots, 'REPORTS_CRON_SECRET_TIFFANYS_SPACE_PROD_NEW') &&
+            secrets.REPORTS_CRON_SECRET_TIFFANYS_SPACE_PROD_NEW || '' }}
+          KDF_HUB_URL_DEV_NEW: ${{ contains(inputs.slots, 'KDF_HUB_URL_DEV_NEW') && secrets.KDF_HUB_URL_DEV_NEW || '' }}
+          KDF_HUB_URL_PROD_NEW: ${{ contains(inputs.slots, 'KDF_HUB_URL_PROD_NEW') && secrets.KDF_HUB_URL_PROD_NEW || '' }}
+          KDF_HUB_CRON_SECRET_DEV_NEW: >-
+            ${{ contains(inputs.slots, 'KDF_HUB_CRON_SECRET_DEV_NEW') && secrets.KDF_HUB_CRON_SECRET_DEV_NEW || '' }}
+          KDF_HUB_CRON_SECRET_PROD_NEW: >-
+            ${{ contains(inputs.slots, 'KDF_HUB_CRON_SECRET_PROD_NEW') && secrets.KDF_HUB_CRON_SECRET_PROD_NEW || '' }}
+        run: python scripts/rotate_secret.py --mode paste-staged --slots "$SLOTS"

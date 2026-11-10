@@ -69,7 +69,7 @@ Keeping CI/CD logic in one place means deploy behavior is consistent across all 
 | `ci-codeql.yml` | CodeQL static analysis (gated by `ENABLE_CODEQL`, needs public repo or Code Security) | kriegerdataforge, kriegerdataforge-sdk |
 | `issue-create-repo.yml` | Auto provision new repositories from an issue template | Internal |
 | `rotate-vercel-tokens.yml` | Scheduled rotation of Vercel tokens | Internal |
-| `distribute-gh-pat.yml` | Distribute a staged `GH_PACKAGES_PAT` to all targets | Internal |
+| `distribute-staged.yml` | Distribute the staged manual secrets, each from its own slot in `ops`, to their targets (D-099) | Internal |
 | `check-secret-expiry.yml` | Weekly credential expiry monitor → opens/closes a deduped rotation issue | Internal |
 | `check-oidc-rp-drift.yml` | Weekly PL-084 guard. Detects drift of the copy pasted OIDC RP core across the two tenant frontends → deduped tracking issue | Internal |
 | `ops-rotate-secrets.yml` | Owner only on demand secret rotation (driven by the `Ops · Rotate a secret` issue form) | Internal |

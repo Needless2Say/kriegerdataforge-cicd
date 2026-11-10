@@ -73,7 +73,10 @@ def sample_registry():
                 "name": "GH_PACKAGES_PAT",
                 "kind": "paste",
                 "per_env": False,
-                "value_staging_secret": "SECRET_VALUE_NEW",
+                "staging": [
+                    {"slot": "GH_PACKAGES_PAT_PROD_NEW", "environment": "prod"},
+                    {"slot": "GH_PACKAGES_PAT_DEV_NEW", "environment": "dev"},
+                ],
                 "check": {"expiry": _future(60), "warn_days_before_expiry": 14},
                 "github_env_secrets": [
                     {"repo": "Needless2Say/kriegerdataforge", "environment": "prod", "secret_name": "GH_PACKAGES_PAT"},
@@ -81,7 +84,13 @@ def sample_registry():
                 ],
                 "vercel_env_vars": [
                     {"project_id": "prj_real_1", "project_name": "kdf-prod", "environment": "prod", "env_key": "GH_PACKAGES_PAT"},
-                    {"project_id": "TODO_x", "project_name": "kdf-dev", "environment": "dev", "env_key": "GH_PACKAGES_PAT"},
+                    {
+                        "project_id": "TODO_x",
+                        "project_name": "kdf-dev",
+                        "environment": "dev",
+                        "env_key": "GH_PACKAGES_PAT",
+                        "inactive": True,
+                    },
                 ],
             },
             {
@@ -615,10 +624,17 @@ class TestRecordedExpiry:
         delete.assert_not_called()
 
 
-    def test_the_real_registry_records_the_three_tokens_the_monitor_cannot_read(self):
+    def test_the_real_registry_records_every_token_the_monitor_cannot_read(self):
+        # the packages and npm tokens since D-099, recorded when the staged run distributes them
         entries  = json.loads(rs.REGISTRY_FILE.read_text(encoding = "utf-8"))["secrets"]
         recorded = sorted(entry["name"] for entry in entries if (entry.get("check") or {}).get("recorded"))
-        assert recorded == ["CICD_PAT", "VERCEL_DEPLOYMENT_TOKEN", "VERCEL_MASTER_TOKEN"]
+        assert recorded == [
+            "CICD_PAT",
+            "GH_NPM_TOKEN",
+            "GH_PACKAGES_PAT",
+            "VERCEL_DEPLOYMENT_TOKEN",
+            "VERCEL_MASTER_TOKEN",
+        ]
 
 
 # ── generate: vercel_token ──────────────────────────────────────────────────────
@@ -923,12 +939,54 @@ class TestPaste:
         assert vc.call_args[0][3] == "the-value"
 
 
-    def test_a_todo_vercel_project_is_skipped(self, sample_registry):
+    def test_an_inactive_vercel_project_is_named_unwritten_and_never_counted_as_written(self, sample_registry, capsys):
         with patch.object(rs, "update_github_env_secret") as gh, \
              patch.object(rs, "upsert_vercel_env_var") as vc:
             rc = cmd_paste(self._entry(sample_registry), frozenset({"dev"}), "gh", "master", "the-value")
         assert rc == 0 and gh.call_count == 1
         vc.assert_not_called()
+        out = capsys.readouterr().out
+        assert "1 inactive target(s) left unwritten" in out and "kdf-dev" in out
+        assert "All active targets updated successfully." in out
+        assert "All targets updated successfully." not in out
+
+
+    def test_an_active_vercel_project_with_no_id_stops_the_paste_before_any_write(self, sample_registry):
+        # a target left on the old value while the run said every target was written (D-099, the Round Table's L1)
+        entry = self._entry(sample_registry)
+        entry["vercel_env_vars"][1].pop("inactive")
+        with patch.object(rs, "update_github_env_secret") as gh, \
+             patch.object(rs, "upsert_vercel_env_var") as vc, \
+             pytest.raises(SystemExit, match = "no project id"):
+            cmd_paste(entry, frozenset({"dev"}), "gh", "master", "the-value")
+        gh.assert_not_called()
+        vc.assert_not_called()
+
+
+    @pytest.mark.parametrize("kind", ["generate", "manual", "distribute"])
+    def test_an_entry_not_of_kind_paste_is_refused_before_any_write(self, sample_registry, kind):
+        # a generated token, a credential made in ops or an App key never takes a pasted value (D-099, L4)
+        entry = dict(self._entry(sample_registry), kind = kind)
+        with patch.object(rs, "update_github_env_secret") as gh, \
+             patch.object(rs, "update_github_repo_secret") as repo, \
+             pytest.raises(SystemExit, match = "only a 'paste' entry"):
+            cmd_paste(entry, frozenset({"prod"}), "gh", "master", "the-value")
+        gh.assert_not_called()
+        repo.assert_not_called()
+
+
+    def test_an_entry_held_in_repository_secrets_alone_refuses_an_environment(self):
+        # an environment would narrow its Vercel copies alone and leave the rotation half done (D-099, L2)
+        entry = {
+            "name": "GLOBAL_PAT",
+            "kind": "paste",
+            "github_repo_secrets": [{"repo": "Needless2Say/a", "secret_name": "GLOBAL_PAT"}],
+            "vercel_env_vars": [{"project_id": "prj_1", "project_name": "p", "environment": "dev", "env_key": "X"}],
+        }
+        with patch.object(rs, "update_github_repo_secret") as repo, \
+             pytest.raises(SystemExit, match = "lives in no environment"):
+            cmd_paste(entry, frozenset({"dev"}), "gh", "master", "the-value")
+        repo.assert_not_called()
 
 
     @pytest.mark.parametrize("envs", [ALL, frozenset({"dev", "prod"})])
@@ -1077,7 +1135,7 @@ class TestPaste:
 
 
     def test_missing_value_exits(self, sample_registry):
-        with pytest.raises(SystemExit, match = "STAGED_SECRET_VALUE"):
+        with pytest.raises(SystemExit, match = "no staged value"):
             cmd_paste(self._entry(sample_registry), frozenset({"prod"}), "gh", "m", "")
 
 
@@ -1086,10 +1144,12 @@ class TestPaste:
             cmd_paste(self._entry(sample_registry), frozenset({"prod"}), "", "m", "v")
 
 
-    def test_vercel_skipped_without_master(self, sample_registry):
-        with patch.object(rs, "update_github_env_secret"), \
-             patch.object(rs, "upsert_vercel_env_var") as vc:
+    def test_vercel_targets_without_the_master_stop_the_paste_before_any_write(self, sample_registry):
+        with patch.object(rs, "update_github_env_secret") as gh, \
+             patch.object(rs, "upsert_vercel_env_var") as vc, \
+             pytest.raises(SystemExit, match = "VERCEL_MASTER_TOKEN"):
             cmd_paste(self._entry(sample_registry), frozenset({"prod"}), "gh", "", "v")
+        gh.assert_not_called()
         vc.assert_not_called()
 
 
@@ -1121,6 +1181,217 @@ class TestPaste:
         tf = next(e for e in sample_registry["secrets"] if e["name"] == "DB_DATABASE_URL")
         with pytest.raises(SystemExit, match = "Terraform-managed"):
             cmd_paste(tf, ALL, "gh", "m", "v")
+
+
+# ── paste-staged, the staging slots' run (D-099) ─────────────────────────────────
+class TestPasteStaged:
+    """
+    The staged slots' run, each slot checked before any write, deleted once written, kept when it failed.
+    """
+    CICD  = "Needless2Say/kriegerdataforge-cicd"
+    FRESH = "2026-11-06T09:00:00Z"
+    STALE = "2026-10-29T11:59:00Z"
+    VALUE = "the-staged-value-never-printed"
+
+
+    def _run(self, registry, slots, environ, updated_at = FRESH, facts = "facts", master = "master"):
+        with patch.object(rs, "github_env_secret_updated_at", return_value = updated_at) as age, \
+             patch.object(rs, "update_github_env_secret") as gh, \
+             patch.object(rs, "upsert_vercel_env_var") as vc, \
+             patch.object(rs, "delete_github_env_secret") as dele:
+            rc = rs.cmd_paste_staged(registry, slots, "gh", facts, master, self.CICD, environ, NOW)
+        return rc, age, gh, vc, dele
+
+
+    def test_a_ready_slot_is_written_to_its_one_environment_and_then_deleted(self, sample_registry):
+        rc, age, gh, vc, dele = self._run(
+            sample_registry,
+            ["GH_PACKAGES_PAT_PROD_NEW"],
+            {"GH_PACKAGES_PAT_PROD_NEW": self.VALUE},
+        )
+        assert rc == 0
+        age.assert_called_once_with("gh", self.CICD, "ops", "GH_PACKAGES_PAT_PROD_NEW")
+        # the prod target alone, never dev, and the prod Vercel copy
+        assert [c.args[2] for c in gh.call_args_list] == ["prod"]
+        assert vc.call_args.args[1] == "prj_real_1" and vc.call_args.args[3] == self.VALUE
+        dele.assert_called_once_with("gh", self.CICD, "ops", "GH_PACKAGES_PAT_PROD_NEW")
+
+
+    def test_an_unknown_slot_is_refused(self, sample_registry):
+        with pytest.raises(SystemExit, match = "no staging slot named SECRET_VALUE_NEW"):
+            rs.cmd_paste_staged(sample_registry, ["SECRET_VALUE_NEW"], "gh", "f", "m", self.CICD, {}, NOW)
+
+
+    def test_no_slot_named_is_refused(self, sample_registry):
+        with pytest.raises(SystemExit, match = "name the slots"):
+            rs.cmd_paste_staged(sample_registry, [], "gh", "f", "m", self.CICD, {}, NOW)
+
+
+    @pytest.mark.parametrize(
+        ("environ", "updated_at", "why"),
+        [
+            ({}, FRESH, "not set in this run"),
+            ({"GH_PACKAGES_PAT_PROD_NEW": VALUE}, None, "not set in ops"),
+            ({"GH_PACKAGES_PAT_PROD_NEW": VALUE}, STALE, "more than 7"),
+        ],
+        ids = ["unset in the run", "unset in ops", "set more than a week ago"],
+    )
+    def test_a_slot_not_ready_stops_the_run_before_anything_is_written(
+        self,
+        sample_registry,
+        capsys,
+        environ,
+        updated_at,
+        why,
+    ):
+        # a slot left from an earlier rotation is never pasted again (D-099, the Round Table's L3)
+        environ = dict(environ, GH_PACKAGES_PAT_DEV_NEW = self.VALUE)
+        rc, _age, gh, vc, dele = self._run(
+            sample_registry,
+            ["GH_PACKAGES_PAT_DEV_NEW", "GH_PACKAGES_PAT_PROD_NEW"],
+            environ,
+            updated_at,
+        )
+        assert rc == 1
+        gh.assert_not_called()
+        vc.assert_not_called()
+        dele.assert_not_called()
+        out = capsys.readouterr().out
+        assert why in out and "Nothing written" in out
+
+
+    def test_an_unresolved_target_stops_the_run_before_anything_is_written(self, sample_registry, capsys):
+        sample_registry["secrets"][0]["vercel_env_vars"][1].pop("inactive")
+        rc, _age, gh, _vc, dele = self._run(
+            sample_registry,
+            ["GH_PACKAGES_PAT_DEV_NEW"],
+            {"GH_PACKAGES_PAT_DEV_NEW": self.VALUE},
+        )
+        assert rc == 1
+        gh.assert_not_called()
+        dele.assert_not_called()
+        assert "no project id" in capsys.readouterr().out
+
+
+    def test_a_failed_slot_is_kept_for_a_retry_and_the_others_go_on(self, sample_registry, capsys):
+        def update(_token, _repo, environment, _name, _value):
+            if environment == "dev":
+                raise RuntimeError("HTTP 502")
+
+
+        environ = {"GH_PACKAGES_PAT_DEV_NEW": self.VALUE, "GH_PACKAGES_PAT_PROD_NEW": self.VALUE}
+        with patch.object(rs, "github_env_secret_updated_at", return_value = self.FRESH), \
+             patch.object(rs, "update_github_env_secret", side_effect = update), \
+             patch.object(rs, "upsert_vercel_env_var"), \
+             patch.object(rs, "delete_github_env_secret") as dele:
+            rc = rs.cmd_paste_staged(
+                sample_registry,
+                ["GH_PACKAGES_PAT_DEV_NEW", "GH_PACKAGES_PAT_PROD_NEW"],
+                "gh",
+                "f",
+                "m",
+                self.CICD,
+                environ,
+                NOW,
+            )
+        assert rc == 1
+        dele.assert_called_once_with("gh", self.CICD, "ops", "GH_PACKAGES_PAT_PROD_NEW")
+        out = capsys.readouterr().out
+        assert "GH_PACKAGES_PAT_DEV_NEW: FAILED, the slot is kept for a retry" in out
+        assert "GH_PACKAGES_PAT_PROD_NEW: written, the slot deleted" in out
+
+
+    def test_a_slot_that_could_not_be_deleted_fails_the_run_and_says_so(self, sample_registry, capsys):
+        with patch.object(rs, "github_env_secret_updated_at", return_value = self.FRESH), \
+             patch.object(rs, "update_github_env_secret"), \
+             patch.object(rs, "upsert_vercel_env_var"), \
+             patch.object(rs, "delete_github_env_secret", side_effect = RuntimeError("HTTP 403")):
+            rc = rs.cmd_paste_staged(
+                sample_registry,
+                ["GH_PACKAGES_PAT_PROD_NEW"],
+                "gh",
+                "f",
+                "m",
+                self.CICD,
+                {"GH_PACKAGES_PAT_PROD_NEW": self.VALUE},
+                NOW,
+            )
+        assert rc == 1
+        assert "written, the slot NOT deleted, RuntimeError, delete it by hand" in capsys.readouterr().out
+
+
+    @pytest.mark.parametrize(("facts", "rc_expected"), [("facts", 0), ("", 1)])
+    def test_a_recorded_tokens_expiry_is_kept_from_the_value_itself(self, sample_registry, capsys, facts, rc_expected):
+        sample_registry["secrets"][0]["check"] = {"live": "github", "recorded": True}
+        with patch.object(rs, "github_env_secret_updated_at", return_value = self.FRESH), \
+             patch.object(rs, "update_github_env_secret"), \
+             patch.object(rs, "upsert_vercel_env_var"), \
+             patch.object(rs, "delete_github_env_secret"), \
+             patch.object(rs, "cmd_record_expiry", return_value = 0) as record:
+            rc = rs.cmd_paste_staged(
+                sample_registry,
+                ["GH_PACKAGES_PAT_PROD_NEW"],
+                "gh",
+                facts,
+                "m",
+                self.CICD,
+                {"GH_PACKAGES_PAT_PROD_NEW": self.VALUE},
+                NOW,
+            )
+        assert rc == rc_expected
+        if facts:
+            entries, token, repo, environ, when = record.call_args.args
+            assert [entry["name"] for entry in entries] == ["GH_PACKAGES_PAT"]
+            assert (token, repo, environ, when) == ("facts", self.CICD, {"GH_PACKAGES_PAT": self.VALUE}, NOW)
+        else:
+            record.assert_not_called()
+            assert "its expiry NOT recorded" in capsys.readouterr().out
+
+
+    def test_no_value_is_ever_printed(self, sample_registry, capsys):
+        self._run(sample_registry, ["GH_PACKAGES_PAT_PROD_NEW"], {"GH_PACKAGES_PAT_PROD_NEW": self.VALUE})
+        printed = capsys.readouterr()
+        assert self.VALUE not in printed.out + printed.err
+
+
+    @pytest.mark.parametrize(
+        ("updated_at", "refused"),
+        [("2026-11-06T12:00:00Z", False), ("2026-10-30T12:00:00Z", False), ("2026-10-30T11:59:59Z", True)],
+    )
+    def test_a_slot_older_than_a_week_is_refused(self, updated_at, refused):
+        assert (rs._staged_age_refusal(updated_at, NOW) is not None) == refused
+
+
+# ── the real registry's slots (D-099) ────────────────────────────────────────────
+class TestRealSlots:
+    """
+    The real registry's slots, one for each place a paste entry lives, named for it.
+    """
+    def _registry(self):
+        return json.loads(rs.REGISTRY_FILE.read_text(encoding = "utf-8"))
+
+
+    def test_every_paste_entry_has_a_slot_for_each_place_it_lives_and_no_other_kind_has_one(self):
+        for entry in self._registry()["secrets"]:
+            slots = entry.get("staging", [])
+            if entry["kind"] != "paste":
+                assert not slots, entry["name"]
+                continue
+            held = sorted({target["environment"] for target in entry.get("github_env_secrets", [])})
+            assert sorted(slot.get("environment", "") for slot in slots) == (held or [""]), entry["name"]
+
+
+    def test_each_slot_is_named_for_its_entry_and_its_environment(self):
+        for slot, (entry, environment) in rs.staging_slots(self._registry()).items():
+            # an entry already named for its environment, KDF_HUB_URL_DEV, takes no second suffix
+            named_for_it = not environment or entry["name"].endswith(environment.upper())
+            expected     = f"{entry['name']}_NEW" if named_for_it else f"{entry['name']}_{environment.upper()}_NEW"
+            assert slot == expected
+
+
+    def test_no_entry_keeps_the_retired_shared_slot(self):
+        text = rs.REGISTRY_FILE.read_text(encoding = "utf-8")
+        assert "SECRET_VALUE_NEW" not in text and "value_staging_secret" not in text
 
 
 # ── CLI + main dispatch ─────────────────────────────────────────────────────────
@@ -1433,11 +1704,12 @@ class TestLiveExpiry:
         assert TOKEN not in printed.out + printed.err
 
 
-    def test_the_real_registry_reads_four_tokens_live(self):
+    def test_the_real_registry_reads_five_tokens_live(self):
         registry = json.loads(rs.REGISTRY_FILE.read_text(encoding = "utf-8"))
         live     = {e["name"]: e["check"]["live"] for e in registry["secrets"] if (e.get("check") or {}).get("live")}
         assert live == {
             "GH_PACKAGES_PAT": "github",
+            "GH_NPM_TOKEN": "github",
             "VERCEL_DEPLOYMENT_TOKEN": "vercel-named",
             "CICD_PAT": "github",
             "VERCEL_MASTER_TOKEN": "vercel-current",
