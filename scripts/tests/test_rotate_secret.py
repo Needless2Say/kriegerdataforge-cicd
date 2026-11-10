@@ -1210,7 +1210,8 @@ class TestPasteStaged:
             {"GH_PACKAGES_PAT_PROD_NEW": self.VALUE},
         )
         assert rc == 0
-        age.assert_called_once_with("gh", self.CICD, "ops", "GH_PACKAGES_PAT_PROD_NEW")
+        # read at the check, and again just before the delete
+        assert [c.args for c in age.call_args_list] == [("gh", self.CICD, "ops", "GH_PACKAGES_PAT_PROD_NEW")] * 2
         # the prod target alone, never dev, and the prod Vercel copy
         assert [c.args[2] for c in gh.call_args_list] == ["prod"]
         assert vc.call_args.args[1] == "prj_real_1" and vc.call_args.args[3] == self.VALUE
@@ -1411,6 +1412,48 @@ class TestPasteStaged:
         gh.assert_not_called()
         vc.assert_not_called()
         dele.assert_not_called()
+
+
+    @pytest.mark.parametrize(
+        ("again", "result"),
+        [
+            ("2026-11-06T12:30:00Z", "the slot was set again during the run, so it is kept for its own distribution"),
+            (None, "the slot was set again during the run, so it is kept for its own distribution"),
+            (RuntimeError("HTTP 502"), "the slot NOT deleted, its time could not be read again, RuntimeError"),
+        ],
+        ids = ["set again", "deleted by hand", "the read failed"],
+    )
+    def test_a_slot_changed_during_the_run_is_never_deleted(self, sample_registry, capsys, again, result):
+        # a value set again while the run distributed the old one reached no target, so it stays (Codex's third read
+        # of D-099)
+        times = [self.FRESH, again]
+
+
+        def updated_at(*_args):
+            value = times.pop(0)
+            if isinstance(value, Exception):
+                raise value
+            return value
+
+
+        with patch.object(rs, "github_env_secret_updated_at", side_effect = updated_at), \
+             patch.object(rs, "update_github_env_secret") as gh, \
+             patch.object(rs, "upsert_vercel_env_var"), \
+             patch.object(rs, "delete_github_env_secret") as dele:
+            rc = rs.cmd_paste_staged(
+                sample_registry,
+                ["GH_PACKAGES_PAT_PROD_NEW"],
+                "gh",
+                "f",
+                "m",
+                self.CICD,
+                {"GH_PACKAGES_PAT_PROD_NEW": self.VALUE},
+                NOW,
+            )
+        assert rc == 1
+        gh.assert_called_once()
+        dele.assert_not_called()
+        assert f"GH_PACKAGES_PAT_PROD_NEW: written, {result}" in capsys.readouterr().out
 
 
     def test_no_value_is_ever_printed(self, sample_registry, capsys):

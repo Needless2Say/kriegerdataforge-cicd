@@ -9,8 +9,9 @@ name: Ops · Distribute staged secrets
 # rotate_secret.py --mode paste-staged checks every selected slot before anything is written, a `paste` entry's, set
 # in this run and in ops, set within a week, and every target resolved, and stops on any that is not ready. Then it
 # pastes each to its entry's targets, records a recorded token's expiry from the token itself as EXPIRY_<NAME>, and
-# deletes the slot from ops once its targets are written, so a set slot always means a value not yet distributed. A
-# slot whose paste failed is kept for a retry, and the others go on.
+# deletes the slot from ops once its targets are written and its expiry recorded, so a set slot always means a value
+# whose distribution is not finished. A slot whose paste or record failed is kept for a retry, and the others go on.
+# A slot set again while its run is going is kept, never deleted, but set none of the selected slots mid-run.
 #
 # SECURITY. The slots live in ops alone, held to main and waiting for the owner's approval, and this workflow starts
 # from a dispatch alone. A slot's value reaches the step only when its name is selected, and the selection reaches

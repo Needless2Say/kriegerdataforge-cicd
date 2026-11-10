@@ -1325,9 +1325,10 @@ def _preflight_slot(
     master_token: str,
     repo: str,
     now: datetime,
-) -> str | None:
+) -> tuple[str | None, str | None]:
     """
-    Why one selected slot is not ready, or None when it is, every check the paste would make and its age.
+    Why one selected slot is not ready, or None when it is, every check the paste would make and its age, with the
+    time GitHub says it was set, which the run holds it to before it deletes the slot.
 
     Args:
         slot: The slot's name
@@ -1340,7 +1341,7 @@ def _preflight_slot(
         now: The run's time
 
     Returns:
-        The reason, or None
+        The reason or None, and the slot's set time or None
     """
     envs = frozenset({environment}) if environment else frozenset()
     try:
@@ -1349,14 +1350,44 @@ def _preflight_slot(
         _refuse_unless_one_environment(entry, envs)
         _resolve_vercel(entry, envs, master_token)
     except SystemExit as exc:
-        return str(exc.code).removeprefix("Error: ")
+        return str(exc.code).removeprefix("Error: "), None
     if not environ.get(slot, ""):
-        return "is not set in this run, stage it in ops first"
+        return "is not set in this run, stage it in ops first", None
     try:
         updated_at = github_env_secret_updated_at(gh_token, repo, OPS_ENVIRONMENT, slot)
     except Exception as exc:  # noqa: BLE001, the type alone, an exception's text could carry a request's details
-        return f"its age could not be read, {type(exc).__name__}"
-    return _staged_age_refusal(updated_at, now)
+        return f"its age could not be read, {type(exc).__name__}", None
+    return _staged_age_refusal(updated_at, now), updated_at
+
+
+def _delete_slot_if_unchanged(gh_token: str, repo: str, slot: str, staged_at: str | None) -> str:
+    """
+    Delete a distributed slot, unless it was set again during the run, the result in words.
+
+    The run distributed the value it read at its start. A slot set again since then holds a value no target has, so
+    it is kept for its own distribution (Codex's third read of D-099). A narrow window stays between this read and the
+    delete, so the runbook says never to set a selected slot while its run is going.
+
+    Args:
+        gh_token: A token that reads and deletes cicd's ops secrets
+        repo: cicd, owner/name
+        slot: The slot's name
+        staged_at: The time GitHub gave for the slot when the run checked it
+
+    Returns:
+        The slot's result
+    """
+    try:
+        now_at = github_env_secret_updated_at(gh_token, repo, OPS_ENVIRONMENT, slot)
+    except Exception as exc:  # noqa: BLE001, the type alone, an exception's text could carry a request's details
+        return f"written, the slot NOT deleted, its time could not be read again, {type(exc).__name__}"
+    if now_at != staged_at:
+        return "written, the slot was set again during the run, so it is kept for its own distribution"
+    try:
+        delete_github_env_secret(gh_token, repo, OPS_ENVIRONMENT, slot)
+    except Exception as exc:  # noqa: BLE001, the type alone, an exception's text could carry a request's details
+        return f"written, the slot NOT deleted, {type(exc).__name__}, delete it by hand"
+    return "written, the slot deleted"
 
 
 def cmd_paste_staged(
@@ -1407,9 +1438,10 @@ def cmd_paste_staged(
 
     print(f"Checking {len(selected)} staged slot(s) before anything is written:")
     not_ready = []
+    staged_at: dict[str, str | None] = {}
     for slot in selected:
         entry, environment = known[slot]
-        why = _preflight_slot(slot, entry, environment, env, gh_token, master_token, repo, when)
+        why, staged_at[slot] = _preflight_slot(slot, entry, environment, env, gh_token, master_token, repo, when)
         print(f"  {slot}: " + ("ready" if why is None else f"NOT READY, {why}"))
         if why is not None:
             not_ready.append(slot)
@@ -1433,11 +1465,7 @@ def cmd_paste_staged(
             # until its expiry is recorded
             results[slot] = "written, its expiry NOT recorded, the slot is kept, dispatch it again to record it"
             continue
-        try:
-            delete_github_env_secret(gh_token, repo, OPS_ENVIRONMENT, slot)
-            results[slot] = "written, the slot deleted"
-        except Exception as exc:  # noqa: BLE001, the type alone, an exception's text could carry a request's details
-            results[slot] = f"written, the slot NOT deleted, {type(exc).__name__}, delete it by hand"
+        results[slot] = _delete_slot_if_unchanged(gh_token, repo, slot, staged_at[slot])
 
     print("\nThe staged slots:")
     for slot in selected:
