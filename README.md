@@ -68,7 +68,8 @@ Keeping CI/CD logic in one place means deploy behavior is consistent across all 
 | `ci-python-kdf-fmt.yml` | kdf-fmt formatter/linter style gate (the required `style / Style (kdf-fmt)` check) | All 8 Python repos (hub, sdk, reports-sdk, backends, templates, cicd) |
 | `ci-codeql.yml` | CodeQL static analysis (gated by `ENABLE_CODEQL`, needs public repo or Code Security) | kriegerdataforge, kriegerdataforge-sdk |
 | `issue-create-repo.yml` | Auto provision new repositories from an issue template | Internal |
-| `rotate-vercel-tokens.yml` | Scheduled rotation of Vercel tokens | Internal |
+| `rotate-vercel-tokens.yml` | The shared Vercel token's generations, a daily due job, the rotation, the reap and the retirement of its repository copies (D-100) | Internal |
+| `verify-token-generation.yml` | Prints whether an environment's Vercel token is the expected generation (D-100) | kriegerdataforge-terraform |
 | `distribute-staged.yml` | Distribute the staged manual secrets, each from its own slot in `ops`, to their targets (D-099) | Internal |
 | `check-secret-expiry.yml` | Weekly credential expiry monitor → opens/closes a deduped rotation issue | Internal |
 | `check-oidc-rp-drift.yml` | Weekly PL-084 guard. Detects drift of the copy pasted OIDC RP core across the two tenant frontends → deduped tracking issue | Internal |
@@ -143,13 +144,14 @@ GitHub secrets come in two scopes and rotate differently:
 
 - **Repository secrets.** The store every job can read, *including* CI jobs that declare no
   `environment:`. The shared deploy/build credentials in
-  [`scripts/secret_registry.json`](scripts/secret_registry.json) (`VERCEL_DEPLOYMENT_TOKEN`,
-  `GH_PACKAGES_PAT`) live here, as **repository level** Actions secrets in the consumer repos, *not*
-  per environment (a same named env secret would shadow the repo value). They are rotated by the
-  **engine** ([`scripts/rotate_secret.py`](scripts/rotate_secret.py)), the Vercel token minted by
-  **Rotate Vercel Deployment Token** on the 1st of each month, and each PAT the owner makes staged in its own
-  slot in cicd's `ops` and distributed by **Ops · Distribute staged secrets** (D-099), the engine reaping any
-  retired per environment copies as it goes. Every token lasts 33 days. The cicd ops/control-plane secrets that
+  [`scripts/secret_registry.json`](scripts/secret_registry.json) (`GH_PACKAGES_PAT`) live here, as
+  **repository level** Actions secrets in the consumer repos. The Vercel token, `VERCEL_DEPLOYMENT_TOKEN`, moves
+  into each repo's `dev` and `prod` environment, held to `main`, as recorded generations
+  ([`scripts/token_generations.py`](scripts/token_generations.py), D-100), minted by **Rotate Vercel Deployment
+  Token** on the 1st of each month and its predecessors reaped six hours after the last write. The other secrets
+  are rotated by the **engine** ([`scripts/rotate_secret.py`](scripts/rotate_secret.py)), each PAT the owner makes
+  staged in its own slot in cicd's `ops` and distributed by **Ops · Distribute staged secrets** (D-099), the
+  engine reaping any retired per environment copies as it goes. Every token lasts 33 days. The cicd ops/control-plane secrets that
   authenticate the engine
   itself (`CICD_PAT`, `VERCEL_MASTER_TOKEN`, the writing App's key) live in cicd's `ops` environment and are
   rotated **by hand**, straight into `ops`. Their expiry is recorded by the rotation's `ops` run as cicd

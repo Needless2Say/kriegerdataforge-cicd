@@ -475,11 +475,12 @@ class TestRealRegistry:
         assert not ({"VERCEL_TOKEN", "VERCEL_API_TOKEN", "CICD_REGISTRY_PAT"} & names)
         vercel = next(e for e in entries if e["name"] == "VERCEL_DEPLOYMENT_TOKEN")
         assert vercel.get("shared") is True and vercel.get("vercel_token_name") == "VERCEL_DEPLOYMENT_TOKEN"
-        # one global token -> stored ONLY at repository level (no env copies); the former prod/dev
-        # env secrets are listed for deletion so they can't shadow the repo value.
-        assert not vercel.get("github_env_secrets")
-        assert len(vercel["github_repo_secrets"]) == 7  # one repo secret per repo (6 apps + terraform)
-        assert len(vercel["retired_github_env_secrets"]) == 14  # old prod/dev env copies, reaped on rotation
+        # since D-100 one global token in each repo's dev and prod, rotated by its generations alone, and the
+        # repository copies retired, deleted only once the owner verified every target
+        assert vercel.get("generations") is True
+        assert len(vercel["github_env_secrets"]) == 14  # prod and dev in each of the 6 apps and terraform
+        assert len(vercel["retired_github_repo_secrets"]) == 7  # the former repository copies
+        assert not vercel.get("github_repo_secrets") and not vercel.get("retired_github_env_secrets")
         assert vercel.get("check", {}).get("recorded")  # its expiry is the fact the ops run records, read live
         # the manual tokens carry a check block (monitored) and no engine targets
         for name in ("CICD_PAT", "VERCEL_MASTER_TOKEN", "KDF_APP_PRIVATE_KEY"):

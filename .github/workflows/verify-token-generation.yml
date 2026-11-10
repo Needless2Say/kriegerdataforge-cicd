@@ -1,0 +1,48 @@
+name: Verify Token Generation
+
+# The deployment token's verifier (the secrets fence, step 10, ADR D-100). A caller in a consumer repo dispatches it
+# for one of its environments with the generation the owner expects, the newest complete one in cicd's public facts,
+# typed in since a consumer cannot read cicd's variables. It compares the environment's VERCEL_DEPLOYMENT_TOKEN with
+# its VERCEL_TOKEN_GENERATION and prints one line, the local generation, the expected one and yes, no or stale,
+# never the token. Yes means the local pair matches and is the expected generation, stale that it matches but is an
+# older one, so an older pair is never reported as the expected one. It never fails, since it reports. Only yes
+# lines for a generation printed after it completed count toward the owner's list for retire-repo-copies.
+#
+# Caller (the terraform repo's verify-token.yml, and any consumer's):
+#
+#   jobs:
+#     verify:
+#       uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/verify-token-generation.yml@main
+#       with:
+#         environment: ${{ inputs.environment }}
+#         expected_generation: ${{ inputs.expected_generation }}
+#       secrets: inherit
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "The environment to verify, dev or prod"
+        required: true
+        type: string
+      expected_generation:
+        description: "The generation the owner expects, such as G1"
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  verify:
+    name: Verify the token's generation
+    runs-on: ubuntu-slim
+    # the environment's own token and variable, held to main like the deploy that reads them
+    environment: ${{ inputs.environment }}
+    permissions: {}
+    steps:
+      - name: Compare the token with its generation
+        uses: Needless2Say/kriegerdataforge-cicd/.github/actions/token-generation@main
+        with:
+          token: ${{ secrets.VERCEL_DEPLOYMENT_TOKEN }}
+          generation: ${{ vars.VERCEL_TOKEN_GENERATION }}
+          expected: ${{ inputs.expected_generation }}

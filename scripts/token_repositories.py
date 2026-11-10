@@ -111,7 +111,12 @@ def secret_targets(names: str) -> list[str]:
         raise SystemExit(f"token_repositories: no secret named {', '.join(unknown) or 'at all'}")
     repos = []
     for name in sorted(wanted):
-        for key in ("github_env_secrets", "github_repo_secrets", "retired_github_env_secrets"):
+        for key in (
+            "github_env_secrets",
+            "github_repo_secrets",
+            "retired_github_env_secrets",
+            "retired_github_repo_secrets",
+        ):
             repos += [target["repo"] for target in entries[name].get(key, [])]
     return repos
 

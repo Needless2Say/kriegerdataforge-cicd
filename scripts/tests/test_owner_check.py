@@ -30,11 +30,14 @@ BOTH        = (
 )
 NEWLY_GATED = ("hub-prune-tokens.yml", "trigger-reports-triage.yml", "check-secret-expiry.yml")
 CICD        = "Needless2Say/kriegerdataforge-cicd"
-TOKEN       = re.compile(
+# a job's output another job's condition reads, given the value that runs the reader, so the actors alone decide: the
+# deployment token's due job naming a rotation (D-100)
+OUTPUTS   = {"mode": "rotate"}
+TOKEN     = re.compile(
     r"\s*(?:(?P<text>'(?:[^']|'')*')|(?P<op>&&|\|\||==|!=|!|\(|\))|(?P<call>[a-z]+\(\))|(?P<name>[A-Za-z_][\w.\-]*))",
 )
-OPERATORS   = {"&&": " and ", "||": " or ", "==": " == ", "!=": " != ", "(": "(", ")": ")"}
-STATUS      = {"always()": "True", "success()": "True", "failure()": "False", "cancelled()": "False"}
+OPERATORS = {"&&": " and ", "||": " or ", "==": " == ", "!=": " != ", "(": "(", ")": ")"}
+STATUS    = {"always()": "True", "success()": "True", "failure()": "False", "cancelled()": "False"}
 
 
 def _load(name: str) -> dict:
@@ -225,6 +228,9 @@ def _values(workflow: str, event: str, attempt: str, actor: str, triggering_acto
         if checked and not skipped:
             # the check passed on an earlier attempt, and a rerun of failed jobs alone keeps its output
             values[f"needs.{name}.outputs.authorized"] = "true"
+        for output in job.get("outputs", {}):
+            if output in OUTPUTS:
+                values[f"needs.{name}.outputs.{output}"] = OUTPUTS[output]
     return values
 
 

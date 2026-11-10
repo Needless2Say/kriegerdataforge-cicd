@@ -326,6 +326,8 @@ def _schedule_values(armed: str) -> dict[str, str]:
         "needs.authorize.result": "skipped",
         "needs.due.result": "success",
         "needs.due.outputs.due": "true",
+        # the deployment token's due job names the mode it found (D-100)
+        "needs.due.outputs.mode": "rotate",
     }
 
 
@@ -335,6 +337,17 @@ def test_a_scheduled_ops_job_exists_and_skips_until_the_owner_arms_it():
     for workflow, name, condition in found:
         assert not expression_value(condition, _schedule_values("")), f"{workflow} job {name} runs unarmed"
         assert expression_value(condition, _schedule_values("true")), f"{workflow} job {name} never runs armed"
+
+
+def test_the_token_s_ops_job_asks_no_approval_on_a_day_with_nothing_due():
+    found = [entry for entry in _ops_scheduled() if entry[0] == "rotate-vercel-tokens.yml"]
+    assert found, "the deployment token keeps a scheduled ops job"
+    for _, name, condition in found:
+        for mode in ("none", ""):
+            values = {**_schedule_values("true"), "needs.due.outputs.mode": mode}
+            assert not expression_value(condition, values), f"job {name} runs with the due job's mode {mode!r}"
+        values = {**_schedule_values("true"), "needs.due.result": "failure"}
+        assert not expression_value(condition, values), f"job {name} runs after a failed due job"
 
 # ======================================================================================================================
 # The registry
