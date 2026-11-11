@@ -5,9 +5,9 @@ terraform_run.py, the reusable terraform workflow's generic helpers (terraform i
 Each subcommand is one check the workflow `terraform-run.yml` makes, environment agnostic, the names of tenants,
 secrets and roots staying in the caller's own manifest and scripts (AGENTS.md rule 12).
 
-  resolve     The release's tag resolved once to its commit, which must lie in main's history, and the version at or
-              above the environment's floor, the first release holding that environment's backend block. Every later
-              job checks out that commit and never the tag's name, so a tag moved between jobs changes nothing.
+The release's tag is resolved once by `check_release_commit.py`, the one release check every CD workflow runs, and
+its floor held by `at-least` here.
+
   no-changes  A plan of no changes, no resource change and no output change, the release marker's move to the run's
               own release the one change expected and checked to be the marker alone (Round Table 80, L4).
   seal        The gate's plan manifest sealed by an HMAC-SHA256 under TF_MANIFEST_KEY over its canonical JSON.
@@ -34,7 +34,6 @@ import hmac
 import json
 import os
 import re
-import subprocess
 import sys
 import urllib.parse
 from datetime import datetime, timezone
@@ -79,7 +78,7 @@ class Refused(ValueError):
     """
 
 # ======================================================================================================================
-# The release resolution
+# Versions
 # ======================================================================================================================
 
 def version_tuple(version: str) -> tuple[int, int, int]:
@@ -99,48 +98,6 @@ def version_tuple(version: str) -> tuple[int, int, int]:
         raise Refused(f"{version!r} is no version of the form X.Y.Z")
     major, minor, patch = (int(part) for part in version.split("."))
     return major, minor, patch
-
-
-def _git(repo_dir: Path, *args: str) -> subprocess.CompletedProcess:
-    """
-    Run git in the checkout, its result returned and never raised on.
-
-    Args:
-        repo_dir: The checkout
-        args: git's arguments
-
-    Returns:
-        The finished process
-    """
-    return subprocess.run(["git", "-C", str(repo_dir), *args], capture_output = True, text = True, check = False)
-
-
-def resolve(repo_dir: Path, version: str, floor: str, main_ref: str = "origin/main") -> str:
-    """
-    Resolve the release's tag once to its commit and check it may be applied.
-
-    Args:
-        repo_dir: A checkout holding the tags and main's history
-        version: The release version, without the v
-        floor: The environment's floor, the first release holding its backend block
-        main_ref: The ref main's history is read from
-
-    Returns:
-        The tag's commit, a full SHA
-
-    Raises:
-        Refused: When the version or floor is malformed, the version is below the floor, there is no such tag, or
-            its commit is not in main's history
-    """
-    if version_tuple(version) < version_tuple(floor):
-        raise Refused(f"v{version} is below the environment's floor v{floor}, the first release on this design")
-    found  = _git(repo_dir, "rev-parse", "--verify", "--quiet", f"refs/tags/v{version}^{{commit}}")
-    commit = found.stdout.strip()
-    if found.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", commit):
-        raise Refused(f"there is no tag v{version} naming a commit")
-    if _git(repo_dir, "merge-base", "--is-ancestor", commit, main_ref).returncode != 0:
-        raise Refused(f"v{version} names {commit[:12]}, which is not in {main_ref}'s history")
-    return commit
 
 # ======================================================================================================================
 # A plan of no changes
@@ -411,12 +368,6 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description = "The reusable terraform workflow's generic helpers.")
     sub    = parser.add_subparsers(dest = "command", required = True)
 
-    resolve_cmd = sub.add_parser("resolve", help = "resolve the release's tag once to its commit")
-    resolve_cmd.add_argument("--repo-dir", default = ".")
-    resolve_cmd.add_argument("--version", required = True)
-    resolve_cmd.add_argument("--floor", required = True)
-    resolve_cmd.add_argument("--main-ref", default = "origin/main")
-
     quiet_cmd = sub.add_parser("no-changes", help = "check a plan is a plan of no changes")
     quiet_cmd.add_argument("--plan", required = True)
     quiet_cmd.add_argument("--release", required = True)
@@ -456,11 +407,6 @@ def main(argv: list[str] | None = None) -> int:
     """
     args = parse_cli_args(argv)
     try:
-        if args.command == "resolve":
-            commit = resolve(Path(args.repo_dir), args.version, args.floor, args.main_ref)
-            print(f"v{args.version} resolves to {commit}")
-            _write_output("commit", commit)
-            return 0
         if args.command == "no-changes":
             return _report(no_change_findings(_read_json(args.plan), args.release), "Plan of no changes")
         if args.command == "seal":

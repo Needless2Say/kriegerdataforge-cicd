@@ -2,17 +2,15 @@
 Unit tests for scripts/terraform_run.py, the reusable terraform workflow's generic helpers (terraform in Actions,
 design 5.6 and 5.7).
 
-The release resolution runs against a real git repository made in a temporary folder, so the tag, the history and the
-ancestry are git's own. The plan check reads plans shaped as `terraform show -json` writes them, the seal and its
-verification run on made up fields and a made up key, and the backend identity on made up connection strings.
+The release's tag is resolved by check_release_commit.py and tested there. The plan check reads plans shaped as
+`terraform show -json` writes them, the seal and its verification run on made up fields and a made up key, and the
+backend identity on made up connection strings.
 """
 
 from __future__ import annotations
 
 import json
-import subprocess
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 import pytest
 import terraform_run as tr
@@ -22,83 +20,17 @@ KEY = "kdfmk-made-up-manifest-key"
 NOW = datetime(2026, 11, 11, 12, 0, tzinfo = timezone.utc)
 
 # ======================================================================================================================
-# The release resolution
+# Versions
 # ======================================================================================================================
 
-def _git(repo: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", "-C", str(repo), *args],
-        check = True,
-        capture_output = True,
-        text = True,
-    ).stdout.strip()
-
-
-@pytest.fixture
-def repo(tmp_path: Path) -> Path:
+class TestVersions:
     """
-    A repository whose main holds three releases, v0.9.0, v0.10.0 and v0.11.0, and a branch off it holding v0.12.0,
-    a tag that never merged.
+    A version is exactly X.Y.Z and compares as three numbers.
     """
-    path = tmp_path / "repo"
-    path.mkdir()
-    _git(path, "init", "-q", "-b", "main")
-    _git(path, "config", "user.email", "made-up@example.test")
-    _git(path, "config", "user.name", "made up")
-    for version in ("0.9.0", "0.10.0", "0.11.0"):
-        (path / "VERSION").write_text(version + "\n", encoding = "utf-8")
-        _git(path, "add", "VERSION")
-        _git(path, "commit", "-q", "-m", version)
-        _git(path, "tag", "v" + version)
-    _git(path, "checkout", "-q", "-b", "side")
-    (path / "VERSION").write_text("0.12.0\n", encoding = "utf-8")
-    _git(path, "commit", "-q", "-am", "0.12.0")
-    _git(path, "tag", "v0.12.0")
-    _git(path, "checkout", "-q", "main")
-    return path
-
-
-class TestResolve:
-    """
-    The release's tag resolved once, its commit in main's history and its version at or above the floor.
-    """
-    def test_a_release_on_main_at_the_floor_resolves_to_its_commit(self, repo):
-        assert tr.resolve(repo, "0.10.0", "0.10.0", "main") == _git(repo, "rev-parse", "v0.10.0^{commit}")
-
-
-    def test_an_older_release_above_the_floor_resolves(self, repo):
-        assert tr.resolve(repo, "0.10.0", "0.9.0", "main") == _git(repo, "rev-parse", "v0.10.0^{commit}")
-
-
-    def test_a_release_below_the_floor_is_refused(self, repo):
-        with pytest.raises(Refused, match = "floor"):
-            tr.resolve(repo, "0.9.0", "0.10.0", "main")
-
-
-    def test_a_tag_that_never_merged_is_refused(self, repo):
-        with pytest.raises(Refused, match = "history"):
-            tr.resolve(repo, "0.12.0", "0.9.0", "main")
-
-
-    def test_a_missing_tag_is_refused(self, repo):
-        with pytest.raises(Refused, match = "no tag"):
-            tr.resolve(repo, "0.13.0", "0.9.0", "main")
-
-
-    def test_an_annotated_tag_resolves_to_its_commit(self, repo):
-        _git(repo, "tag", "-a", "v0.11.1", "-m", "annotated", "v0.11.0")
-        assert tr.resolve(repo, "0.11.1", "0.9.0", "main") == _git(repo, "rev-parse", "v0.11.0^{commit}")
-
-
     @pytest.mark.parametrize("version", ["1.2", "v1.2.3", "1.2.3-rc1", "01.2.3", "1.2.3 ", "1..3", ""])
-    def test_a_version_not_x_y_z_is_refused(self, repo, version):
+    def test_a_version_not_x_y_z_is_refused(self, version):
         with pytest.raises(Refused):
-            tr.resolve(repo, version, "0.9.0", "main")
-
-
-    def test_a_floor_not_x_y_z_is_refused(self, repo):
-        with pytest.raises(Refused):
-            tr.resolve(repo, "0.10.0", "latest", "main")
+            tr.version_tuple(version)
 
 
     def test_versions_compare_as_numbers(self):
@@ -369,13 +301,18 @@ class TestCli:
         assert "kdfmk" not in out
 
 
-    def test_resolve_writes_the_commit_to_the_step_outputs(self, repo, tmp_path, monkeypatch):
+    def test_verify_writes_the_verified_terraform_version(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("TF_MANIFEST_KEY", KEY)
         out = tmp_path / "out"
         out.write_text("", encoding = "utf-8")
         monkeypatch.setenv("GITHUB_OUTPUT", str(out))
-        args = ["resolve", "--repo-dir", str(repo), "--version", "0.10.0", "--floor", "0.9.0", "--main-ref", "main"]
-        assert tr.main(args) == 0
-        assert out.read_text(encoding = "utf-8") == f"commit={_git(repo, 'rev-parse', 'v0.10.0^{commit}')}\n"
+        manifest = tmp_path / "manifest.json"
+        fields   = _fields(created_at = NOW.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        manifest.write_text(json.dumps(tr.seal(fields, KEY)), encoding = "utf-8")
+        expected = tmp_path / "expected.json"
+        expected.write_text(json.dumps(_expected()), encoding = "utf-8")
+        assert tr.main(["verify", "--manifest", str(manifest), "--expected", str(expected), "--floor", "1.17.0"]) == 0
+        assert out.read_text(encoding = "utf-8") == "terraform_version=1.17.1\n"
 
 
     @pytest.mark.parametrize("version, floor, code", [
@@ -391,6 +328,6 @@ class TestCli:
         assert tr.main(["at-least", "--version", version, "--floor", floor, "--what", "the release"]) == code
 
 
-    def test_a_refusal_exits_two(self, repo):
-        args = ["resolve", "--repo-dir", str(repo), "--version", "0.12.0", "--floor", "0.9.0", "--main-ref", "main"]
-        assert tr.main(args) == 2
+    def test_a_refusal_exits_two(self, monkeypatch):
+        monkeypatch.setenv("TF_STATE_PG_CONN_STR", "mysql://u:p@db.example.test/terraform")
+        assert tr.main(["identity", "--env-var", "TF_STATE_PG_CONN_STR", "--schema", "dev"]) == 2
