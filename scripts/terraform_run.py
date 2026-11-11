@@ -267,6 +267,103 @@ def verified_terraform_version(manifest: dict) -> str:
     return version
 
 # ======================================================================================================================
+# A repair's forced push
+# ======================================================================================================================
+
+def _state_of(data: bytes, what: str) -> dict:
+    """
+    A pulled state's JSON object.
+
+    Args:
+        data: The bytes `terraform state pull` wrote
+        what: Which state, for a refusal's message
+
+    Returns:
+        The state
+
+    Raises:
+        Refused: When the bytes are no state
+    """
+    try:
+        state = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        raise Refused(f"the {what} is no state JSON") from None
+    if not isinstance(state, dict) or "lineage" not in state or "serial" not in state:
+        raise Refused(f"the {what} holds no lineage or serial")
+    return state
+
+
+def _marker(state: dict) -> str | None:
+    """
+    The release marker a state holds, None when it holds none.
+
+    Args:
+        state: A pulled state
+
+    Returns:
+        The marker without its v, or None
+    """
+    value = ((state.get("outputs") or {}).get(RELEASE_OUTPUT) or {}).get("value")
+    if not isinstance(value, str) or not value:
+        return None
+    return value[1:] if value.startswith("v") else value
+
+
+def bind_push_findings(
+    candidate: bytes,
+    live: bytes,
+    *,
+    candidate_sha256: str,
+    live_sha256: str,
+    lineage: str,
+    serial: str,
+    named_release: str,
+) -> list[str]:
+    """
+    Bind a forced push to what the recovery mode and the live read recorded, since state push -force skips
+    Terraform's own refusal (the revision read of version 9 and the last read).
+
+    The candidate must be the one reviewed, the live state unchanged since its digest, lineage and serial were read,
+    a live state that moved sending the repair back to the recovery mode, and the candidate's release marker no older
+    than the live one's unless the dispatch names that release, since an old version forgets every object made since.
+
+    Args:
+        candidate: The candidate pulled from the scratch schema
+        live: The live state pulled once the environment's group is held
+        candidate_sha256: The candidate's digest the recovery mode recorded
+        live_sha256: The live state's digest read before the review
+        lineage: The live state's lineage then
+        serial: The live state's serial then, digits
+        named_release: An older release the owner names on purpose, empty for none
+
+    Returns:
+        One finding per broken binding, empty when the push may go ahead
+
+    Raises:
+        Refused: When a binding is malformed or a state is no state
+    """
+    for name, digest in (("candidate_sha256", candidate_sha256), ("live_sha256", live_sha256)):
+        if not re.fullmatch(r"[0-9a-f]{64}", digest or ""):
+            raise Refused(f"{name} is no sha256")
+    if not lineage or not re.fullmatch(r"[0-9]+", serial or ""):
+        raise Refused("the live lineage or serial is missing or malformed")
+    candidate_state = _state_of(candidate, "candidate")
+    live_state      = _state_of(live, "live state")
+    found: list[str] = []
+    if hashlib.sha256(candidate).hexdigest() != candidate_sha256:
+        found.append("the candidate is not the one the recovery mode recorded")
+    if hashlib.sha256(live).hexdigest() != live_sha256:
+        found.append("the live state changed since it was read, the repair goes back to the recovery mode")
+    if live_state.get("lineage") != lineage or str(live_state.get("serial")) != serial:
+        found.append("the live state's lineage or serial is not the one reviewed")
+    older, newer = _marker(candidate_state), _marker(live_state)
+    if older is not None and newer is not None and version_tuple(older) < version_tuple(newer):
+        named = named_release[1:] if named_release.startswith("v") else named_release
+        if named != older:
+            found.append(f"the candidate's release v{older} is older than the live v{newer}, and no dispatch named it")
+    return found
+
+# ======================================================================================================================
 # The backend identity
 # ======================================================================================================================
 
@@ -392,6 +489,18 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     identity_cmd = sub.add_parser("identity", help = "print a backend's identity from a named variable's string")
     identity_cmd.add_argument("--env-var", required = True)
     identity_cmd.add_argument("--schema", required = True)
+
+    push_cmd = sub.add_parser("bind-push", help = "bind a repair's forced push to what was reviewed")
+    push_cmd.add_argument("--candidate", required = True)
+    push_cmd.add_argument("--live", required = True)
+    push_cmd.add_argument("--candidate-sha256", required = True)
+    push_cmd.add_argument("--live-sha256", required = True)
+    push_cmd.add_argument("--lineage", required = True)
+    push_cmd.add_argument("--serial", required = True)
+    push_cmd.add_argument("--named-release", default = "")
+
+    digest_cmd = sub.add_parser("state-digest", help = "print a pulled state's sha256, lineage and serial")
+    digest_cmd.add_argument("--state", required = True)
     return parser.parse_args(argv)
 
 
@@ -435,6 +544,22 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"ERROR: {args.what} {version} is below {args.floor}")
                 return 1
             print(f"==> {args.what} {version} is at or above {args.floor}")
+            return 0
+        if args.command == "bind-push":
+            found = bind_push_findings(
+                Path(args.candidate).read_bytes(),
+                Path(args.live).read_bytes(),
+                candidate_sha256 = args.candidate_sha256,
+                live_sha256 = args.live_sha256,
+                lineage = args.lineage,
+                serial = args.serial,
+                named_release = args.named_release,
+            )
+            return _report(found, "Forced push binding")
+        if args.command == "state-digest":
+            data  = Path(args.state).read_bytes()
+            state = _state_of(data, "state")
+            print(f"sha256 {hashlib.sha256(data).hexdigest()} lineage {state['lineage']} serial {state['serial']}")
             return 0
         print(identity(os.environ.get(args.env_var, ""), args.schema))
         return 0

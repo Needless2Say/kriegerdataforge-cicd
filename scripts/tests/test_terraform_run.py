@@ -265,6 +265,107 @@ class TestIdentity:
             tr.identity("postgresql://u:p@db.example.test/terraform", "prod; drop")
 
 # ======================================================================================================================
+# A repair's forced push, bound to what the recovery mode recorded
+# ======================================================================================================================
+
+def _state(lineage: str = "lineage-1", serial: int = 7, release: str | None = "v0.11.0") -> bytes:
+    outputs = {"release": {"value": release, "type": "string"}} if release is not None else {}
+    return json.dumps({"version": 4, "lineage": lineage, "serial": serial, "outputs": outputs}).encode("utf-8")
+
+
+def _sha(data: bytes) -> str:
+    import hashlib
+    return hashlib.sha256(data).hexdigest()
+
+
+class TestBindPush:
+    """
+    A forced push skips Terraform's own refusal, so the candidate and the live state must be the ones reviewed.
+    """
+    def _bind(self, candidate: bytes, live: bytes, **overrides) -> list[str]:
+        args = {
+            "candidate_sha256": _sha(candidate),
+            "live_sha256": _sha(live),
+            "lineage": "lineage-1",
+            "serial": "7",
+            "named_release": "",
+        }
+        args.update(overrides)
+        return tr.bind_push_findings(candidate, live, **args)
+
+
+    def test_the_reviewed_candidate_and_live_state_pass(self):
+        assert self._bind(_state(serial = 5, release = "v0.11.0"), _state()) == []
+
+
+    def test_a_candidate_other_than_the_one_reviewed_is_refused(self):
+        found = self._bind(_state(serial = 5), _state(), candidate_sha256 = "0" * 64)
+        assert found and "candidate" in found[0]
+
+
+    def test_a_live_state_that_changed_since_sends_it_back_to_recovery(self):
+        found = self._bind(_state(serial = 5), _state(serial = 8), live_sha256 = _sha(_state()))
+        assert any("recovery" in line for line in found)
+
+
+    def test_another_lineage_or_serial_is_refused(self):
+        assert self._bind(_state(serial = 5), _state(), lineage = "lineage-2")
+        assert self._bind(_state(serial = 5), _state(), serial = "8")
+
+
+    def test_an_older_release_marker_is_refused_unless_named(self):
+        candidate = _state(serial = 5, release = "v0.10.0")
+        found     = self._bind(candidate, _state(release = "v0.11.0"))
+        assert found and "older" in found[0]
+        assert self._bind(candidate, _state(release = "v0.11.0"), named_release = "v0.10.0") == []
+
+
+    def test_a_live_state_with_no_marker_holds_nothing_older(self):
+        assert self._bind(_state(serial = 5, release = "v0.10.0"), _state(release = None)) == []
+
+
+    @pytest.mark.parametrize("field, value", [
+        ("candidate_sha256", "not a digest"),
+        ("live_sha256", ""),
+        ("serial", "seven"),
+        ("lineage", ""),
+    ])
+    def test_a_malformed_binding_is_refused(self, field, value):
+        with pytest.raises(Refused):
+            self._bind(_state(serial = 5), _state(), **{field: value})
+
+
+    def test_a_candidate_that_is_no_state_is_refused(self):
+        with pytest.raises(Refused):
+            self._bind(b"not json", _state())
+
+
+    def test_the_cli_binds_and_the_digest_prints_what_a_later_push_binds(self, tmp_path, capsys):
+        candidate = tmp_path / "candidate.json"
+        candidate.write_bytes(_state(serial = 5))
+        live = tmp_path / "live.json"
+        live.write_bytes(_state())
+        assert tr.main(["state-digest", "--state", str(live)]) == 0
+        assert capsys.readouterr().out.strip() == f"sha256 {_sha(_state())} lineage lineage-1 serial 7"
+        args = [
+            "bind-push",
+            "--candidate",
+            str(candidate),
+            "--live",
+            str(live),
+            "--candidate-sha256",
+            _sha(_state(serial = 5)),
+            "--live-sha256",
+            _sha(_state()),
+            "--lineage",
+            "lineage-1",
+            "--serial",
+            "7",
+        ]
+        assert tr.main(args) == 0
+        assert tr.main([*args[:-1], "8"]) == 1
+
+# ======================================================================================================================
 # The command line
 # ======================================================================================================================
 
