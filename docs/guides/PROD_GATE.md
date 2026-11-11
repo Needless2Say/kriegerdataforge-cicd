@@ -75,6 +75,18 @@ the tag. A run counts when all of these hold.
   sent it elsewhere, and a rerun of it does not help, since a rerun of its verdict job alone keeps the lanes'
   first results. So each repo's next PROD release dispatches its gate again.
 
+A deploy may name the gate run it rests on, `--gate-run` or `GATE_RUN_ID`, and the checker then judges that run
+alone by the same rules. Two gates for one release can hold two plans, and without a name the checker returns the
+first passing run on the tag's commit. When the deploy may proceed on a run, the checker's step outputs name it,
+`gate_run_id`, `gate_run_attempt` and `gate_commit`.
+
+**Terraform's gate.** `kriegerdataforge-terraform`'s `prod-gate.yml` runs `make ci`'s lanes but the version lane,
+then a `gate-plan` job of `terraform-run.yml` in the `prod` environment, which saves the plan, proves every state it
+carries, and keeps it three days with a manifest sealed under `TF_MANIFEST_KEY`. Its summary prints the gate run's
+id and the plan's digest. The PROD deploy names that run, and `terraform-run.yml` checks it with `--gate-run`,
+verifies the seal before installing the Terraform version the manifest names, claims the run once and applies that
+saved plan. A gate whose plan is older than 72 hours, or already consumed, takes a new gate.
+
 ## When the gate is red
 
 Open the run. The `PROD Gate v<version>` job's summary names the lanes that did not pass.
