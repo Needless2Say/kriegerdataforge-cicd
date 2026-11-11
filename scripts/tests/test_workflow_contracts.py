@@ -638,3 +638,25 @@ def test_the_release_reads_its_tag_from_the_environment_in_every_step():
     assert 'grep -qxF -- "$TAG"' in check
     for block in re.findall(r"run: \|\n((?:          .*\n|\n)+)", release):
         assert "${{" not in block, f"a run block writes an expression into the shell:\n{block}"
+
+
+def test_the_release_outputs_its_version_and_commit_and_keeps_its_interface():
+    """
+    The release declares two additive outputs, the version it read and the commit whose VERSION that was, so a
+    caller's later job resolves the tag once and checks it names that commit, an existing tag the release skipped
+    included (the terraform in Actions pipeline, design 5.6). Its inputs, none, its permissions and its tag step stay
+    exactly as they were, since the SDK's release calls it at main (D-038).
+    """
+    release = _lane("create-github-release.yml")
+    head    = release.split("\njobs:\n", 1)[0]
+    assert re.search(r"\non:\n  workflow_call:\n(?:    #.*\n)*    outputs:\n", head)
+    assert "inputs:" not in head
+    assert "      version:\n        description:" in head
+    assert "        value: ${{ jobs.release.outputs.version }}\n" in head
+    assert "      commit:\n        description:" in head
+    assert "        value: ${{ jobs.release.outputs.commit }}\n" in head
+    job = release.split("\njobs:\n", 1)[1]
+    assert "    outputs:\n      version: ${{ steps.version.outputs.version }}\n" in job
+    assert "      commit: ${{ steps.version.outputs.commit }}\n" in job
+    assert "    permissions:\n      contents: write\n" in job
+    assert '            echo "commit=$(git rev-parse HEAD)"\n' in job
