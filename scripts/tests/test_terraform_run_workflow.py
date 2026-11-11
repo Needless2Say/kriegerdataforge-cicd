@@ -201,10 +201,39 @@ class TestTheRunJob:
     The checkout held to the resolved commit first, the backend's identity and the seal before what rests on them.
     """
     def test_the_checkout_is_the_expected_commit_without_its_credentials(self, flow):
-        first = _steps(flow, "run")[0]
-        assert first["uses"].startswith("actions/checkout@")
+        first = next(s for s in _steps(flow, "run") if str(s.get("uses", "")).startswith("actions/checkout@"))
         assert first["with"]["ref"] == "${{ inputs.expected_commit }}"
         assert first["with"]["persist-credentials"] is False
+
+
+    def test_the_run_job_holds_the_switch_first_on_every_execution_word_for_word(self, flow):
+        # a rerun of failed jobs alone keeps the authorize job's pass (Codex's first read of 144057c)
+        run_steps = _steps(flow, "run")
+        first     = run_steps[0]
+        assert "switch" in first["name"]
+        authorize = _steps(flow, "authorize")
+        assert first["run"] == authorize[_index(authorize, "switch")]["run"]
+        assert first["env"]["SWITCH_DEV"] == "${{ vars.TF_ACTIONS_ON_DEV }}"
+        assert first["env"]["SWITCH_PROD"] == "${{ vars.TF_ACTIONS_ON_PROD }}"
+
+
+    def test_a_repair_goes_ahead_on_a_state_the_check_refuses(self, flow):
+        # the repair the failure summary prescribes cures what this check refuses (Codex's first read of 144057c)
+        steps  = _steps(flow, "run")
+        script = steps[_index(steps, "state before the plan")]["run"]
+        assert script.count('"$MODE" != repair') == 2
+        assert "exit 1" in script
+
+
+    def test_a_deploy_claims_its_gate_run_once_before_the_apply(self, flow):
+        steps = _steps(flow, "run")
+        claim = _index(steps, "Claim the gate run")
+        assert claim < _index(steps, "Terraform apply")
+        assert steps[claim]["if"] == "inputs.mode == 'deploy'"
+        assert "already consumed" in steps[claim]["run"] and "exit 1" in steps[claim]["run"]
+        assert "terraform_gate_run" in steps[claim]["run"]
+        mark = steps[_index(steps, "Mark the gate run's deployment")]
+        assert mark["if"] == "always() && steps.claim.outcome == 'success'"
 
 
     def test_head_is_checked_before_any_of_the_callers_code_or_terraform_runs(self, flow):
