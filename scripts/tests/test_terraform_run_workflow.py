@@ -262,8 +262,36 @@ class TestTheRunJob:
         )
 
 
-    def test_the_live_string_is_named_nowhere_else(self, text):
-        assert text.count("secrets.TF_STATE_PG_CONN_STR") == 1
+    def test_the_live_string_is_named_nowhere_else_but_the_recovery_refusal(self, text):
+        # the mapping, and the recovery's presence check, which reads true or false and never the value
+        assert text.count("secrets.TF_STATE_PG_CONN_STR") == 2
+        assert "LIVE_PRESENT: ${{ secrets.TF_STATE_PG_CONN_STR != '' }}" in text
+
+
+    def test_a_recovery_refuses_to_hold_the_live_string_before_any_caller_code(self, flow):
+        # the bundle handed to the caller's preflight would hold it, so a recovery's caller passes its secrets by name
+        # without it, and this step fails closed when it is there at all (the owner's answer of 2026-11-11)
+        steps  = _steps(flow, "run")
+        refuse = _index(steps, "Refuse the live string in a recovery")
+        assert steps[refuse]["if"] == "inputs.mode == 'recovery'"
+        assert refuse < _index(steps, "Check out the release commit")
+        assert refuse < _index(steps, "Map the inputs")
+
+
+    @pytest.mark.parametrize("present, allowed", [("false", True), ("true", False), ("", False), ("False", False)])
+    def test_the_recovery_refusal_runs_as_a_shell(self, flow, tmp_path, present, allowed):
+        shell = _bash()
+        if shell is None:
+            pytest.skip("no bash to run the step's shell")
+        steps = _steps(flow, "run")
+        (tmp_path / "step.sh").write_text(
+            steps[_index(steps, "Refuse the live string in a recovery")]["run"],
+            encoding = "utf-8",
+            newline = "\n",
+        )
+        env  = {**os.environ, "LIVE_PRESENT": present}
+        code = subprocess.run([shell, "step.sh"], cwd = tmp_path, env = env, capture_output = True, check = False)
+        assert (code.returncode == 0) is allowed
 
 
     def test_the_identity_is_held_before_init(self, flow):

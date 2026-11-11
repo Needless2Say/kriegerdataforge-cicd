@@ -10,8 +10,9 @@
 #   deploy      PROD, the named gate run's plan. The gate checker, the seal first, the Terraform version the manifest
 #               names, the gate run claimed once, the saved plan applied, then the state proof. Switch on.
 #   validate    Plan with refresh, never apply, fails unless a plan of no changes. Switch off.
-#   recovery    Plan against a scratch schema through TF_STATE_RECOVERY_CONN_STR alone, never apply, the live string
-#               never mapped and a backend identity equal to the live one refused before init. Switch unheld.
+#   recovery    Plan against a scratch schema through TF_STATE_RECOVERY_CONN_STR alone, never apply, a run holding
+#               the live string refused, its caller naming its secrets without it, and a backend identity equal to
+#               the live one refused before init. Switch unheld.
 #   repair      One named thing, a version the recovery mode planned pushed with state push -force, bound to the two
 #               digests and the live lineage and serial it was reviewed against, or one object imported at its
 #               manifest address by the caller's one import, then the state proof. Switch off.
@@ -22,8 +23,9 @@
 # release. A newer release always moves the marker, so a rule reading any change as a failure would fail every run.
 #
 # ── The caller ────────────────────────────────────────────────────────────────────────────────────────────────────────
-# Calls it with secrets: inherit from a job of its own, its release resolved once by check_release_commit.py and its
-# floor held, the commit passed as expected_commit, which this workflow never resolves again. The run job takes the
+# Calls it with secrets: inherit from a job of its own, a recovery's job alone passing its secrets by name without
+# TF_STATE_PG_CONN_STR, its release resolved once by check_release_commit.py and its floor held, the commit passed as
+# expected_commit, which this workflow never resolves again. The run job takes the
 # environment's concurrency group, terraform-<env>, never the caller too, since a caller holding it waits on itself.
 #
 # Secrets, in the environment: TF_STATE_PG_CONN_STR (the writer, mapped to PG_CONN_STR, the backend's own channel),
@@ -288,6 +290,20 @@ jobs:
             exit 1
           fi
           echo "the $MODE mode may run on $TARGET, its switch ${switch:-unset}"
+
+      # a recovery never holds the live string at all, since the bundle handed to the caller's preflight would carry
+      # it, so its caller passes its secrets by name without TF_STATE_PG_CONN_STR, and this fails closed when it is
+      # there. The check reads whether the secret is set, never its value
+      - name: Refuse the live string in a recovery
+        if: inputs.mode == 'recovery'
+        env:
+          LIVE_PRESENT: ${{ secrets.TF_STATE_PG_CONN_STR != '' }}
+        run: |
+          if [ "$LIVE_PRESENT" != false ]; then
+            echo "::error::this recovery holds TF_STATE_PG_CONN_STR, its caller names its secrets without it"
+            exit 1
+          fi
+          echo "this recovery run holds no live state string"
 
       - name: Check out the release commit
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
