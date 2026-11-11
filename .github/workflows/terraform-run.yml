@@ -770,6 +770,11 @@ jobs:
             echo "::error::the state cannot be read after the change, the outcome is UNCERTAIN, never clean"
             exit 1
           fi
+          # both roots always hold projects, so an empty state after a change is wrong whatever the caller's proof says
+          if [ -z "$(terraform -chdir="$TF_DIR" state list)" ]; then
+            echo "::error::the state is empty after the change, turn the switch off and repair it"
+            exit 1
+          fi
           python3 scripts/tf_state_proof.py --state "$RUNNER_TEMP/after.json" --schema "$RUNNER_TEMP/schema.json" \
             --rules "$STATE_RULES"
 

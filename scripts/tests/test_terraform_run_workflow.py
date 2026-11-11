@@ -225,6 +225,15 @@ class TestTheRunJob:
         assert "exit 1" in script
 
 
+    def test_the_proof_after_a_change_refuses_an_empty_state_itself(self, flow):
+        # both roots always hold projects, so an empty state after an apply or a repair is wrong whatever the caller's
+        # proof says of it (Codex's second read of 82c3c8e)
+        steps  = _steps(flow, "run")
+        script = steps[_index(steps, "state proof after")]["run"]
+        assert "state list" in script
+        assert "empty after" in script
+
+
     def test_a_deploy_claims_its_gate_run_once_before_the_apply(self, flow):
         steps = _steps(flow, "run")
         claim = _index(steps, "Claim the gate run")
