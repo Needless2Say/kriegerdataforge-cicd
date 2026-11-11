@@ -14,6 +14,8 @@ secrets and roots staying in the caller's own manifest and scripts (AGENTS.md ru
   verify      A deploy's check of that manifest, the seal first, then each field equal to the deploy's own, the plan's
               age within its limit, the Terraform version's syntax and floor, in that order, since every field is
               untrusted until the seal holds (the revision read of version 9).
+  at-least    A version at or above a floor, the release against its environment's, the Terraform version against
+              the supported floor, and an automatic run's release against the one the state last applied.
   identity    A backend's identity from its connection string, host, port, database and schema, never the role or
               its password, read from a named environment variable so the string never reaches a process's argv.
 
@@ -431,6 +433,11 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     verify_cmd.add_argument("--max-age-hours", type = int, default = DEFAULT_MAX_AGE_HOURS)
     verify_cmd.add_argument("--key-env", default = "TF_MANIFEST_KEY")
 
+    least_cmd = sub.add_parser("at-least", help = "check a version is at or above a floor")
+    least_cmd.add_argument("--version", required = True)
+    least_cmd.add_argument("--floor", required = True)
+    least_cmd.add_argument("--what", default = "the version")
+
     identity_cmd = sub.add_parser("identity", help = "print a backend's identity from a named variable's string")
     identity_cmd.add_argument("--env-var", required = True)
     identity_cmd.add_argument("--schema", required = True)
@@ -475,6 +482,14 @@ def main(argv: list[str] | None = None) -> int:
             if code == 0:
                 _write_output("terraform_version", verified_terraform_version(manifest))
             return code
+        if args.command == "at-least":
+            # a leading v is the tag's spelling of the same version
+            version = args.version[1:] if args.version.startswith("v") else args.version
+            if version_tuple(version) < version_tuple(args.floor):
+                print(f"ERROR: {args.what} {version} is below {args.floor}")
+                return 1
+            print(f"==> {args.what} {version} is at or above {args.floor}")
+            return 0
         print(identity(os.environ.get(args.env_var, ""), args.schema))
         return 0
     except Refused as exc:

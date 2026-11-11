@@ -378,6 +378,19 @@ class TestCli:
         assert out.read_text(encoding = "utf-8") == f"commit={_git(repo, 'rev-parse', 'v0.10.0^{commit}')}\n"
 
 
+    @pytest.mark.parametrize("version, floor, code", [
+        ("0.10.0", "0.10.0", 0),
+        ("0.11.0", "0.10.0", 0),
+        ("0.9.9", "0.10.0", 1),
+        ("v0.10.0", "0.10.0", 0),
+        ("0.10", "0.10.0", 2),
+        ("0.10.0", "", 2),
+    ])
+    def test_at_least_compares_two_versions(self, version, floor, code, capsys):
+        # a leading v is the tag's spelling and is read as the version, anything else not X.Y.Z is refused
+        assert tr.main(["at-least", "--version", version, "--floor", floor, "--what", "the release"]) == code
+
+
     def test_a_refusal_exits_two(self, repo):
         args = ["resolve", "--repo-dir", str(repo), "--version", "0.12.0", "--floor", "0.9.0", "--main-ref", "main"]
         assert tr.main(args) == 2
