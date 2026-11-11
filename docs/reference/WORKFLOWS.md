@@ -331,6 +331,66 @@ jobs:
     secrets: inherit
 ```
 
+#### `terraform-run.yml`
+
+The one writer of a terraform environment's state, beside `cd-terraform.yml`, which its caller keeps until the
+move switches this on (D-102). One mode per call, each held to its home environment and that environment's
+switch here as well as in the caller, then one job in the environment under the group `terraform-<env>` with
+cancellation off and a five hour timeout.
+
+| Mode | Home | Switch | What it does |
+|---|---|---|---|
+| `apply` | `dev` | on | plan with refresh, the policies, apply, the state proof |
+| `gate-plan` | `prod` | on | plan, every state the saved plan carries proven, the manifest sealed, both kept three days |
+| `deploy` | `prod` | on | the named gate run checked, the seal verified, its Terraform installed, the run claimed once, the saved plan applied, the state proof |
+| `validate` | either | off | plan with refresh, never applied, fails unless a plan of no changes |
+| `recovery` | either | unheld | plan against a scratch schema through `TF_STATE_RECOVERY_CONN_STR` alone, never applied |
+| `repair` | either | off | one action, `push` (bound by `bind-push`) or `import` (the caller's shared import), then the state proof |
+| `acceptance` | `dev` | unheld | the gate's plan and the deploy's verify and apply on the same code, refused unless a plan of no changes |
+
+| Input | Type | Default | Required |
+|---|---|---|---|
+| `mode`, `environment` | string | — | **yes** |
+| `release` | string | — | **yes.** `X.Y.Z`, the tag `v<release>` the caller resolved |
+| `expected_commit` | string | — | **yes.** The resolved commit, checked against the checkout's `HEAD` before any caller code |
+| `release_floor`, `terraform_version` | string | — | **yes.** The environment's first release on this design, the Terraform a plan runs with |
+| `terraform_floor` | string | `1.17.0` | no |
+| `allow_older_release` | boolean | `false` | no. An `apply` of a release older than the state's marker, named on purpose |
+| `gate_run_id`, `max_plan_age_hours` | string, number | `''`, `72` | `deploy` |
+| `repair_action`, `repair_address`, `repair_object_id`, `repair_candidate_sha256`, `repair_live_sha256`, `repair_live_lineage`, `repair_live_serial`, `repair_named_release` | string | `''` | `repair` |
+| `manifest_path`, `state_rules_path` | string | `manifest/manifest.json`, `manifest/state_rules.json` | no |
+
+- **Secrets read (via `inherit`).** `TF_STATE_PG_CONN_STR` mapped to `PG_CONN_STR`, the backend's channel, for
+  the whole job in the writing modes, `TF_STATE_RECOVERY_CONN_STR` in `recovery` and a `repair` push's candidate
+  read, `TF_MANIFEST_KEY`, and every secret the caller's manifest names. cicd's own step alone reads the inherited
+  bundle and hands the caller's preflight a file without the connection strings, the key or the job's token. In a
+  `recovery` nothing in the job holds the live string. A caller inherits, since passing secrets by name would need
+  cicd to declare each tenant's.
+- **Variables read.** `TF_ACTIONS_ON_DEV`, `TF_ACTIONS_ON_PROD`, and the environment's `TF_STATE_SCHEMA` and
+  `TF_STATE_IDENTITY`, the live backend's public identity, never read from the release.
+- **The caller's files.** `scripts/tf_inputs.py` (the preflight and the derived versions), `scripts/tf_state_proof.py`,
+  `scripts/tf_plan_proof.py`, `scripts/tf_repair_import.py`, `policy/`, the manifest and the state rules, by these
+  names at the commit applied, so cicd names no tenant (AGENTS.md rule 12).
+- **Helpers.** `scripts/terraform_run.py`, `at-least`, `identity`, `no-changes`, `seal`, `verify`, `state-digest`,
+  `bind-push`, and `check_prod_gate.py --gate-run`.
+- **Outputs.** `plan_sha256`. **Permissions.** `authorize`: `contents: read`. `run`: `contents: read`,
+  `actions: read` (the gate's artifact), `deployments: write` (the gate run's claim).
+- **Consumer.** `kriegerdataforge-terraform`, from the move on.
+
+```yaml
+jobs:
+  terraform:
+    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/terraform-run.yml@main
+    with:
+      mode: apply
+      environment: dev
+      release: ${{ needs.resolve.outputs.version }}
+      expected_commit: ${{ needs.resolve.outputs.commit }}
+      release_floor: 0.11.0
+      terraform_version: 1.17.1
+    secrets: inherit
+```
+
 #### `verify-token-generation.yml`
 
 The deployment token's verifier (the secrets fence, step 10, D-100). It compares the environment's
@@ -390,8 +450,10 @@ The tag goes on the commit `VERSION` was read from, the triggering commit, passe
 (D-038). Without it GitHub tags the default branch's tip when the command runs, and a second merge
 landing in between would take the first one's tag.
 
-- **Inputs.** None. **Secrets.** `GITHUB_TOKEN` (default). **Outputs.** None.
-- **Permissions.** `release` job. `contents: write` (**the caller must grant this**) (`:35-36`).
+- **Inputs.** None. **Secrets.** `GITHUB_TOKEN` (default). **Outputs.** `version`, the version read, and `commit`,
+  the commit whose `VERSION` that was, additive, so a caller's later job resolves the tag once and checks it names
+  that commit, an existing tag the run skipped included (terraform in Actions, D-102).
+- **Permissions.** `release` job. `contents: write` (**the caller must grant this**).
 - **Consumers.** Every repo with a `release.yml` caller (fires on push to `main` touching `VERSION`).
 
 ```yaml
@@ -940,6 +1002,7 @@ shown where it differs from top level):
 | `cd-nextjs-vercel.yml` | `authorize`: `contents:read`, `deploy`: `contents:read` |
 | `cd-python-vercel.yml` | `authorize`: `contents:read`, `deploy`: `contents:read` |
 | `cd-terraform.yml` | `authorize`: `contents:read`, `apply`: `contents:read` |
+| `terraform-run.yml` | `authorize`: `contents:read`, `run`: `contents:read` + `actions:read` + `deployments:write` |
 | `bump-version-check.yml` | job: `contents:read` |
 | `create-github-release.yml` | job: `contents:write` (caller must grant) |
 | `ci-codeql.yml` | job: `actions:read` + `contents:read` + `security-events:write` (caller must grant) |
@@ -1149,7 +1212,7 @@ The authoritative allow list is [`scripts/deployer_registry.json`](../../scripts
 | `fitness-app-backend` | `dev`, `prod` | `cd-python-vercel.yml` |
 | `tiffanys-space` | `dev`, `prod` | `cd-nextjs-vercel.yml` |
 | `tiffanys-space-backend` | `dev`, `prod` | `cd-python-vercel.yml` |
-| `kriegerdataforge-terraform` | `dev`, `prod` | `cd-terraform.yml` |
+| `kriegerdataforge-terraform` | `dev`, `prod` | `cd-terraform.yml`, then `terraform-run.yml` once the move switches it on |
 | `arthurs-portfolio` | `github-pages` | self contained `cd.yml` → GitHub Pages (runs the gate) |
 | `kriegerdataforge-portfolio` | `github-pages` | self contained `cd.yml` → GitHub Pages (runs the gate) |
 | `kriegerdataforge-template-nextjs` | `dev`, `prod` | `cd-nextjs-vercel.yml` (prepared files placeholder) |

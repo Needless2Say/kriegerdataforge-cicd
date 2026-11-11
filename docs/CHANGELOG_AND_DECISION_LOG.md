@@ -5441,3 +5441,49 @@ owner chose the code fix.
 **Consequences.** After a normal sitting the monthly issue closes. While a rotation is incomplete or a repository
 copy is kept, the fact still shows the earliest token, as before.
 
+## D-102. Terraform run from GitHub Actions, one reusable workflow and its modes
+
+- **Date.** 2026-11-11
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Follows.** D-100, whose deployment token generations the terraform environments hold, and the terraform repo's
+  D-018 and D-019, no secret in a state or a plan and the state's store.
+- **Tier / scope:** Epic · `.github/workflows/terraform-run.yml`, `scripts/terraform_run.py`, an additive output of
+  `create-github-release.yml`, an additive input and output of `scripts/check_prod_gate.py`, the tests and the docs
+
+**Context.** `cd-terraform.yml` has never run. It plans and applies in one job, maps every secret by a name cicd
+holds, makes its policy gate advisory, and expects a remote backend no root has. The terraform repo moves its runs
+to GitHub Actions, with no terraform secret on the owner's machines, its state in Postgres through the `pg` backend,
+and every secret written through a write only value at a derived version, so neither the state nor a plan holds one.
+
+**Decision.** A new reusable workflow, `terraform-run.yml`, beside `cd-terraform.yml`, which its caller keeps until
+the terraform repo's move switches the new one on, the additive rule. One mode per call, `apply`, `gate-plan`,
+`deploy`, `validate`, `recovery`, `repair` or `acceptance`, each held to its home environment and that environment's
+switch in this workflow as well as its caller. One job in the environment holds the group `terraform-<env>` with
+cancellation off and a five hour timeout, under GitHub's six, so a token rotation's reap waits past every run. It
+checks out the commit its caller resolved with `check_release_commit.py`, holds `HEAD` to it before any caller code,
+holds the release and the Terraform version to their floors, and the backend's identity to the environment's public
+one, the recovery mode mapping its scratch string alone and refusing the live identity before `init`. cicd's own
+step alone reads the inherited secrets and hands the caller's preflight a file without the connection strings, so in
+a recovery nothing in the job holds the live string, while in the writing modes the live writer is the job's
+`PG_CONN_STR`, as Terraform needs (the owner's answer of 2026-11-11, a by name hand off needing cicd to declare each
+tenant's secret). The caller's
+own scripts, by fixed names, check and map the secrets its manifest names, so cicd names no tenant. Every policy
+deny blocks. `validate` and `acceptance` refuse anything but a plan of no changes, the release marker's move the one
+change allowed. The gate's saved plan is proven, then kept three days with a manifest sealed by HMAC-SHA256 under
+`TF_MANIFEST_KEY`. A deploy names its gate run, which `check_prod_gate.py --gate-run` judges alone, verifies the seal
+before installing the Terraform version the manifest names, claims the run once as a GitHub deployment and applies
+that saved plan. A repair's `state push -force` is bound by `bind-push` to the digests the recovery mode and a live
+read recorded. The state proof runs after every apply or repair that started, a failed one included, and an
+unreadable state is reported uncertain, never clean. `create-github-release.yml` gains `version` and `commit`
+outputs, `check_prod_gate.py` the named gate run and its run as step outputs, each additive.
+
+**Alternatives considered.** *Rewriting `cd-terraform.yml` in place.* Declined, its caller would change behaviour on
+the merge, before the move proves the new path. *Naming the secrets in cicd.* Declined, rule 12, the caller's
+manifest names them. *A second release resolver.* Declined, `check_release_commit.py` already refuses a commit off
+`main` and a shallow history. *The claim as a file in the repo.* Declined, CI never writes repo files.
+
+**Consequences.** No repo calls the new workflow until the terraform repo's workflows land and its move switches each
+environment on, so this merge changes no run. The terraform repo's scripts named in the workflow's header are its
+contract with that repo. A gate run is consumed by its first deploy, a deploy cut off after its claim included, so a
+rerun takes a new gate.
+

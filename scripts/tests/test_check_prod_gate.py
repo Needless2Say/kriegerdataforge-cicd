@@ -542,3 +542,178 @@ class TestRulesetDates:
         monkeypatch.setattr(gate, "github_fetch", _fetch(_github(runs = [_run(7)])))
         assert main(["--repo", REPO, "--version", "0.3.7", "--environment", "prod"]) == 1
         assert "ruleset dates" in capsys.readouterr().out
+
+# ======================================================================================================================
+# The named gate run, and the structured output (terraform in Actions, design 5.7, Round Table 81, L6)
+# ======================================================================================================================
+
+def _named(
+    run: dict,
+    *,
+    jobs: list[dict] | None = None,
+    runs: list[dict] | None = None,
+    path: str = f".github/workflows/{WORKFLOW}",
+) -> dict[str, object]:
+    """
+    GitHub answering for one named run, its jobs registered before the run itself, since the run's URL is a prefix of
+    its jobs' and the fetch answers the first prefix that matches.
+    """
+    answers = _github(runs = runs or [])
+    answers[f"{API}/repos/{REPO}/actions/runs/{run['id']}/jobs"] = {"jobs": jobs if jobs is not None else RELEASE_JOBS}
+    answers[f"{API}/repos/{REPO}/actions/runs/{run['id']}"] = {"path": path, "run_attempt": 1, **run}
+    return answers
+
+
+def _decide_run(answers: dict[str, object], gate_run: str | None, environment: str = "prod", **kwargs):
+    return gate.decide_run(
+        _fetch(answers),
+        api_url = API,
+        repo = REPO,
+        version = "0.3.7",
+        environment = environment,
+        workflow = WORKFLOW,
+        gate_run = gate_run,
+        **kwargs,
+    )
+
+
+class TestTheNamedGateRun:
+    """
+    With a named run the checker judges that run alone by the same rules, today's rule kept when none is named.
+    """
+    def test_a_named_run_on_the_tags_commit_is_allowed_and_described(self):
+        ok, reason, run = _decide_run(_named({**_run(9), "head_sha": SHA}), "9")
+        assert ok is True
+        assert "run #41" in reason
+        assert run == {"run_id": "9", "run_attempt": "1", "commit": SHA}
+
+
+    def test_a_later_gate_dispatched_after_main_moved_is_named_and_allowed(self):
+        # an earlier gate on the tag's commit passed too, and today's pick would return it, the named one is judged
+        named   = {**_run(12), "head_sha": OTHER, "event": "workflow_dispatch"}
+        answers = _named(named, runs = [_run(7)])
+        ok, _, run = _decide_run(answers, "12")
+        assert ok is True
+        assert run["run_id"] == "12"
+
+
+    def test_a_named_run_whose_release_job_did_not_pass_is_denied(self):
+        failed = [{"name": "PROD Gate v0.3.7", "conclusion": "failure"}]
+        ok, reason, run = _decide_run(_named({**_run(9), "head_sha": SHA}, jobs = failed), "9")
+        assert ok is False
+        assert run is None
+        assert "PROD Gate v0.3.7" in reason
+
+
+    def test_a_named_run_that_did_not_succeed_is_denied(self):
+        ok, _, _ = _decide_run(_named({**_run(9, conclusion = "failure"), "head_sha": SHA}), "9")
+        assert ok is False
+
+
+    def test_a_named_run_of_another_workflow_is_denied(self):
+        answers = _named({**_run(9), "head_sha": SHA}, path = ".github/workflows/e2e.yml")
+        ok, reason, _ = _decide_run(answers, "9")
+        assert ok is False
+        assert "e2e.yml" in reason
+
+
+    def test_a_named_run_on_another_branch_with_another_head_is_denied(self):
+        answers = _named({**_run(9, head_branch = "feature/x"), "head_sha": OTHER})
+        ok, reason, _ = _decide_run(answers, "9")
+        assert ok is False
+        assert "feature/x" in reason
+
+
+    def test_a_named_run_begun_before_the_ruleset_date_is_denied(self):
+        named = {**_run(9), "head_sha": SHA, "created_at": BEFORE}
+        ok, _, _ = _decide_run(_named(named), "9", expected_commit = SHA, ruleset_date = RULESET_DATE)
+        assert ok is False
+        later = {**_run(9), "head_sha": SHA, "created_at": AFTER}
+        ok, _, _ = _decide_run(_named(later), "9", expected_commit = SHA, ruleset_date = RULESET_DATE)
+        assert ok is True
+
+
+    def test_a_named_run_github_does_not_know_is_denied(self):
+        ok, reason, _ = _decide_run(_github(runs = []), "9")
+        assert ok is False
+        assert "run 9" in reason
+
+
+    def test_a_named_run_that_is_no_number_is_denied(self):
+        ok, reason, _ = _decide_run(_named({**_run(9), "head_sha": SHA}), "9; rm")
+        assert ok is False
+        assert "no run id" in reason
+
+
+    def test_the_tag_moved_since_the_resolution_is_denied_with_a_named_run(self):
+        ok, _, _ = _decide_run(_named({**_run(9), "head_sha": SHA}), "9", expected_commit = OTHER)
+        assert ok is False
+
+
+    def test_on_dev_a_failed_named_run_is_noted_and_allowed(self):
+        failed = [{"name": "PROD Gate v0.3.7", "conclusion": "failure"}]
+        ok, _, run = _decide_run(_named({**_run(9), "head_sha": SHA}, jobs = failed), "9", environment = "dev")
+        assert ok is True
+        assert run is None
+
+
+    def test_without_a_named_run_todays_rule_is_kept_and_its_run_described(self):
+        ok, _, run = _decide_run(_github(runs = [{**_run(7), "run_attempt": 2}]), None)
+        assert ok is True
+        assert run == {"run_id": "7", "run_attempt": "2", "commit": SHA}
+
+
+    def test_decide_keeps_its_two_part_answer(self):
+        ok, reason = _decide(_github(runs = [_run(7)]))
+        assert ok is True
+        assert isinstance(reason, str)
+
+
+class TestTheStructuredOutput:
+    """
+    main writes the run, its attempt and its commit to the step's outputs when the deploy may proceed on a run.
+    """
+    def _main(self, monkeypatch, tmp_path, answers, *extra):
+        out = tmp_path / "out"
+        out.write_text("", encoding = "utf-8")
+        monkeypatch.setenv("GITHUB_OUTPUT", str(out))
+        monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising = False)
+        monkeypatch.delenv("PROD_GATE_WORKFLOW", raising = False)
+        monkeypatch.delenv("GATE_RUN_ID", raising = False)
+        monkeypatch.delenv("EXPECTED_COMMIT", raising = False)
+        monkeypatch.setattr(gate, "github_fetch", _fetch(answers))
+        code = main(["--repo", REPO, "--version", "0.3.7", "--environment", "prod", *extra])
+        return code, out.read_text(encoding = "utf-8")
+
+
+    def test_an_allowed_named_run_writes_its_id_attempt_and_commit(self, monkeypatch, tmp_path):
+        code, out = self._main(monkeypatch, tmp_path, _named({**_run(9), "head_sha": SHA}), "--gate-run", "9")
+        assert code == 0
+        assert out.splitlines() == ["gate_run_id=9", "gate_run_attempt=1", "gate_commit=" + SHA]
+
+
+    def test_the_named_run_falls_back_to_its_variable(self, monkeypatch, tmp_path):
+        answers = _named({**_run(9), "head_sha": SHA})
+        out     = tmp_path / "out"
+        out.write_text("", encoding = "utf-8")
+        monkeypatch.setenv("GITHUB_OUTPUT", str(out))
+        monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising = False)
+        monkeypatch.delenv("PROD_GATE_WORKFLOW", raising = False)
+        monkeypatch.delenv("EXPECTED_COMMIT", raising = False)
+        monkeypatch.setenv("GATE_RUN_ID", "9")
+        monkeypatch.setattr(gate, "github_fetch", _fetch(answers))
+        assert main(["--repo", REPO, "--version", "0.3.7", "--environment", "prod"]) == 0
+        assert "gate_run_id=9" in out.read_text(encoding = "utf-8")
+
+
+    def test_a_denial_writes_no_output(self, monkeypatch, tmp_path):
+        failed = [{"name": "PROD Gate v0.3.7", "conclusion": "failure"}]
+        code, out = self._main(
+            monkeypatch,
+            tmp_path,
+            _named({**_run(9), "head_sha": SHA}, jobs = failed),
+            "--gate-run",
+            "9",
+        )
+        assert code == 1
+        assert out == ""

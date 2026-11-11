@@ -1,0 +1,834 @@
+# Reusable workflow, terraform run (terraform in Actions, design 5.6 to 5.8 in the owner's context repo)
+#
+# The one writer of a terraform environment's state, its modes held to that environment's switch, beside
+# cd-terraform.yml, which today's caller keeps until it moves here (CONTRIBUTING.md, the additive rule).
+#
+# ── Modes ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+#   apply       DEV, by the release. Plan with refresh, the policies, apply, then the state proof. Switch on.
+#   gate-plan   PROD's gate. Plan, the proofs of every state the saved plan carries, the manifest sealed under
+#               TF_MANIFEST_KEY, the plan and its manifest uploaded for three days. Switch on.
+#   deploy      PROD, the named gate run's plan. The gate checker, the seal first, the Terraform version the manifest
+#               names, the gate run claimed once, the saved plan applied, then the state proof. Switch on.
+#   validate    Plan with refresh, never apply, fails unless a plan of no changes. Switch off.
+#   recovery    Plan against a scratch schema through TF_STATE_RECOVERY_CONN_STR alone, never apply, the live string
+#               mapped nowhere and dropped from the secrets the caller's code reads, and a backend identity equal to
+#               the live one refused before init. Switch unheld.
+#   repair      One named thing, a version the recovery mode planned pushed with state push -force, bound to the two
+#               digests and the live lineage and serial it was reviewed against, or one object imported at its
+#               manifest address by the caller's one import, then the state proof. Switch off.
+#   acceptance  DEV, the gate's plan and the deploy's verify and apply on the same code, refused in this workflow
+#               unless the plan is a plan of no changes. Switch unheld.
+#
+# A plan of no changes holds no resource change and no output change but the release marker's move to the run's own
+# release. A newer release always moves the marker, so a rule reading any change as a failure would fail every run.
+#
+# ── The caller ────────────────────────────────────────────────────────────────────────────────────────────────────────
+# Calls it with secrets: inherit from a job of its own, its release resolved once by check_release_commit.py and its
+# floor held, the commit passed as expected_commit, which this workflow never resolves again. The run job takes the
+# environment's concurrency group, terraform-<env>, never the caller too, since a caller holding it waits on itself.
+#
+# Secrets, in the environment: TF_STATE_PG_CONN_STR (the writer, mapped to PG_CONN_STR, the backend's own channel),
+#   TF_STATE_RECOVERY_CONN_STR (the scratch schema, recovery and repair alone), TF_MANIFEST_KEY (the versions' and
+#   the manifest's key), the Vercel token and every secret the caller's manifest names.
+# Variables: TF_ACTIONS_ON_DEV, TF_ACTIONS_ON_PROD (the switches, the owner's), and in the environment
+#   TF_STATE_SCHEMA (the backend block's schema) and TF_STATE_IDENTITY (the live backend's identity,
+#   host:port/database?schema=name, public, never read from the release being applied).
+#
+# The caller's repo holds, at the commit applied, by these names (environment agnostic here, AGENTS.md rule 12):
+#   manifest/manifest.json, or manifest_path     the secrets and their inputs, by resource address
+#   manifest/state_rules.json, or state_rules_path the state proof's rules
+#   scripts/tf_inputs.py      reads --secrets-file, the inherited secrets less the connection strings, and the
+#                             manifest, checks every secret (the preflight), derives each
+#                             version with tf_versions.py, writes the variables file and each secret's keyed hash,
+#                             printing addresses and versions alone
+#   scripts/tf_state_proof.py the structural proof of a state, names alone
+#   scripts/tf_plan_proof.py  the gate's proof of every state a saved plan carries
+#   scripts/tf_repair_import.py one object imported at its manifest address by the shared import, tf_import.py
+#   policy/                   the conftest policies, every deny blocking
+
+name: CD, Terraform run (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: 'apply, gate-plan, deploy, validate, recovery, repair or acceptance, see the header'
+        required: true
+        type: string
+      environment:
+        description: 'dev or prod, the root environments/<env> and the GitHub Environment'
+        required: true
+        type: string
+      release:
+        description: 'The release, X.Y.Z, whose tag v<release> the caller resolved'
+        required: true
+        type: string
+      expected_commit:
+        description: 'The commit the caller resolved the tag to, a full SHA, checked against the checkout HEAD'
+        required: true
+        type: string
+      release_floor:
+        description: 'The environment floor, X.Y.Z, the first release holding its backend block'
+        required: true
+        type: string
+      terraform_version:
+        description: 'The Terraform version, X.Y.Z, a plan runs with. A deploy applies with the one its manifest names'
+        required: true
+        type: string
+      terraform_floor:
+        description: 'The supported Terraform floor, X.Y.Z'
+        required: false
+        type: string
+        default: '1.17.0'
+      allow_older_release:
+        description: 'An apply of a release older than the one the state last applied, named on purpose'
+        required: false
+        type: boolean
+        default: false
+      gate_run_id:
+        description: 'deploy, the PROD Gate run whose plan the owner read'
+        required: false
+        type: string
+        default: ''
+      max_plan_age_hours:
+        description: 'deploy, how old the gate plan may be'
+        required: false
+        type: number
+        default: 72
+      repair_action:
+        description: 'repair, push or import'
+        required: false
+        type: string
+        default: ''
+      repair_address:
+        description: 'repair import, the manifest address'
+        required: false
+        type: string
+        default: ''
+      repair_object_id:
+        description: 'repair import, the object id at that address'
+        required: false
+        type: string
+        default: ''
+      repair_candidate_sha256:
+        description: 'repair push, the candidate state digest the recovery mode recorded'
+        required: false
+        type: string
+        default: ''
+      repair_live_sha256:
+        description: 'repair push, the live state digest the candidate was reviewed against'
+        required: false
+        type: string
+        default: ''
+      repair_live_lineage:
+        description: 'repair push, the live state lineage'
+        required: false
+        type: string
+        default: ''
+      repair_live_serial:
+        description: 'repair push, the live state serial'
+        required: false
+        type: string
+        default: ''
+      repair_named_release:
+        description: 'repair push, an older release the candidate marker may hold, named on purpose'
+        required: false
+        type: string
+        default: ''
+      manifest_path:
+        description: 'The caller manifest'
+        required: false
+        type: string
+        default: 'manifest/manifest.json'
+      state_rules_path:
+        description: 'The state proof rules'
+        required: false
+        type: string
+        default: 'manifest/state_rules.json'
+    outputs:
+      plan_sha256:
+        description: 'The sha256 of the plan this run made or applied'
+        value: ${{ jobs.run.outputs.plan_sha256 }}
+
+permissions: {}
+
+jobs:
+  # ── The deployer and the switch, holding nothing ──────────────────────────────────────────────────────────────────
+  authorize:
+    name: Authorize the run
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the deployer registry (kriegerdataforge-cicd)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Needless2Say/kriegerdataforge-cicd
+          ref: main
+          sparse-checkout: scripts
+          path: _kdf_cicd
+          persist-credentials: false
+          token: ${{ github.token }}
+
+      - name: Verify the deployer is approved
+        run: python3 _kdf_cicd/scripts/check_deployer.py
+        env:
+          DEPLOY_REPO: ${{ github.repository }}
+          DEPLOY_ACTOR: ${{ github.triggering_actor }}
+          DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+
+      # Held here as well as in the caller (Round Table 78, L2). apply, gate-plan and deploy need the switch on,
+      # validate and repair need it off, recovery and acceptance are not held by it. apply and acceptance are DEV's,
+      # gate-plan and deploy PROD's
+      - name: Hold the mode to its environment and switch
+        env:
+          MODE: ${{ inputs.mode }}
+          TARGET: ${{ inputs.environment }}
+          SWITCH_DEV: ${{ vars.TF_ACTIONS_ON_DEV }}
+          SWITCH_PROD: ${{ vars.TF_ACTIONS_ON_PROD }}
+        run: |
+          set -euo pipefail
+          case "$TARGET" in
+            dev) switch="$SWITCH_DEV" ;;
+            prod) switch="$SWITCH_PROD" ;;
+            *) echo "::error::the environment must be dev or prod"; exit 1 ;;
+          esac
+          case "$MODE" in
+            apply|acceptance) home=dev ;;
+            gate-plan|deploy) home=prod ;;
+            validate|recovery|repair) home=any ;;
+            *) echo "::error::unknown mode, see the workflow header"; exit 1 ;;
+          esac
+          if [ "$home" != any ] && [ "$home" != "$TARGET" ]; then
+            echo "::error::the $MODE mode runs on $home alone"
+            exit 1
+          fi
+          case "$MODE" in
+            apply|gate-plan|deploy) want=true ;;
+            validate|repair) want=false ;;
+            *) want=any ;;
+          esac
+          if [ "$want" = true ] && [ "$switch" != true ]; then
+            echo "::error::the $TARGET switch is off, the $MODE mode needs it on"
+            exit 1
+          fi
+          if [ "$want" = false ] && [ "$switch" = true ]; then
+            echo "::error::the $TARGET switch is on, the $MODE mode needs it off"
+            exit 1
+          fi
+          echo "the $MODE mode may run on $TARGET, its switch ${switch:-unset}"
+
+  # ── The one job in the environment ────────────────────────────────────────────────────────────────────────────────
+  run:
+    name: Terraform ${{ inputs.mode }} (${{ inputs.environment }})
+    needs: authorize
+    # a rerun of failed jobs alone keeps the deployer check's pass, so only the login that started the run reruns it
+    if: github.actor == github.triggering_actor
+    runs-on: ubuntu-slim
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: terraform-${{ inputs.environment }}
+      cancel-in-progress: false
+    # under GitHub's six hours, so a token rotation's reap waits past every run (L21)
+    timeout-minutes: 300
+    permissions:
+      contents: read
+      actions: read
+      deployments: write
+    outputs:
+      plan_sha256: ${{ steps.digest.outputs.plan_sha256 }}
+    env:
+      TF_DIR: environments/${{ inputs.environment }}
+      TF_IN_AUTOMATION: '1'
+      TF_INPUT: '0'
+      MODE: ${{ inputs.mode }}
+      TARGET: ${{ inputs.environment }}
+      RELEASE: ${{ inputs.release }}
+      HELPER: _kdf_cicd/scripts/terraform_run.py
+      # the backend's own channel, never a -backend-config argument. recovery maps the scratch string alone, and an
+      # empty one maps nothing, never the live one
+      PG_CONN_STR: >-
+        ${{ inputs.mode == 'recovery' && secrets.TF_STATE_RECOVERY_CONN_STR
+        || inputs.mode != 'recovery' && secrets.TF_STATE_PG_CONN_STR || '' }}
+    steps:
+      # held again on every execution of this job, the authorize job's script word for word, since a rerun of failed
+      # jobs alone keeps that job's pass and a switch turned off since would not stop the rerun
+      - name: Hold the mode to its environment and switch, on every execution
+        env:
+          MODE: ${{ inputs.mode }}
+          TARGET: ${{ inputs.environment }}
+          SWITCH_DEV: ${{ vars.TF_ACTIONS_ON_DEV }}
+          SWITCH_PROD: ${{ vars.TF_ACTIONS_ON_PROD }}
+        run: |
+          set -euo pipefail
+          case "$TARGET" in
+            dev) switch="$SWITCH_DEV" ;;
+            prod) switch="$SWITCH_PROD" ;;
+            *) echo "::error::the environment must be dev or prod"; exit 1 ;;
+          esac
+          case "$MODE" in
+            apply|acceptance) home=dev ;;
+            gate-plan|deploy) home=prod ;;
+            validate|recovery|repair) home=any ;;
+            *) echo "::error::unknown mode, see the workflow header"; exit 1 ;;
+          esac
+          if [ "$home" != any ] && [ "$home" != "$TARGET" ]; then
+            echo "::error::the $MODE mode runs on $home alone"
+            exit 1
+          fi
+          case "$MODE" in
+            apply|gate-plan|deploy) want=true ;;
+            validate|repair) want=false ;;
+            *) want=any ;;
+          esac
+          if [ "$want" = true ] && [ "$switch" != true ]; then
+            echo "::error::the $TARGET switch is off, the $MODE mode needs it on"
+            exit 1
+          fi
+          if [ "$want" = false ] && [ "$switch" = true ]; then
+            echo "::error::the $TARGET switch is on, the $MODE mode needs it off"
+            exit 1
+          fi
+          echo "the $MODE mode may run on $TARGET, its switch ${switch:-unset}"
+
+      - name: Check out the release commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.expected_commit }}
+          persist-credentials: false
+
+      - name: Hold the checkout to the resolved commit
+        env:
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$EXPECTED_COMMIT" | grep -qxE '[0-9a-f]{40}'; then
+            echo "::error::expected_commit is no full commit SHA"
+            exit 1
+          fi
+          head="$(git rev-parse HEAD)"
+          if [ "$head" != "$EXPECTED_COMMIT" ]; then
+            echo "::error::the checkout is $head, not the resolved $EXPECTED_COMMIT"
+            exit 1
+          fi
+          echo "the checkout is the resolved commit $head"
+
+      - name: Check out the helpers (kriegerdataforge-cicd)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Needless2Say/kriegerdataforge-cicd
+          ref: main
+          sparse-checkout: scripts
+          path: _kdf_cicd
+          persist-credentials: false
+          token: ${{ github.token }}
+
+      - name: Hold the release and the Terraform version to their floors
+        env:
+          RELEASE_FLOOR: ${{ inputs.release_floor }}
+          TF_VERSION: ${{ inputs.terraform_version }}
+          TF_FLOOR: ${{ inputs.terraform_floor }}
+        run: |
+          set -euo pipefail
+          python3 "$HELPER" at-least --version "$RELEASE" --floor "$RELEASE_FLOOR" --what "the release"
+          python3 "$HELPER" at-least --version "$TF_VERSION" --floor "$TF_FLOOR" --what "Terraform"
+
+      - name: Hold the backend's identity
+        id: identity
+        env:
+          TF_STATE_SCHEMA: ${{ vars.TF_STATE_SCHEMA }}
+          TF_STATE_IDENTITY: ${{ vars.TF_STATE_IDENTITY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TF_STATE_IDENTITY" ]; then
+            echo "::error::the environment names no TF_STATE_IDENTITY"
+            exit 1
+          fi
+          identity="$(python3 "$HELPER" identity --env-var PG_CONN_STR --schema "$TF_STATE_SCHEMA")"
+          if [ "$MODE" = recovery ]; then
+            if [ "$identity" = "$TF_STATE_IDENTITY" ]; then
+              echo "::error::the recovery string names the live backend, the recovery mode refuses it before init"
+              exit 1
+            fi
+          elif [ "$identity" != "$TF_STATE_IDENTITY" ]; then
+            echo "::error::the backend $identity is not the environment's $TF_STATE_IDENTITY"
+            exit 1
+          fi
+          echo "identity=$identity" >> "$GITHUB_OUTPUT"
+          echo "the backend is $identity"
+
+      # cicd's own step alone receives the inherited bundle, and drops the connection strings, the key and the job's
+      # token from it, so the file the caller's preflight reads holds no connection string. In a recovery nothing in
+      # the job holds the live string, PG_CONN_STR holding the scratch one. In the writing modes PG_CONN_STR is the
+      # live writer for the whole job, since Terraform reaches the state through it, and the release's own scripts
+      # run beside it as its configuration does. A caller cannot pass its secrets by name without cicd declaring
+      # each one, which would name a tenant here
+      - name: Drop the connection strings from the secrets the caller's preflight reads
+        env:
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+        run: |
+          set -euo pipefail
+          python3 "$HELPER" secrets-file --env-var SECRETS_JSON --out "$RUNNER_TEMP/tf-secrets.json" \
+            --drop TF_STATE_PG_CONN_STR --drop TF_STATE_RECOVERY_CONN_STR --drop TF_MANIFEST_KEY --drop github_token
+
+      # the preflight and the derived versions, addresses and versions printed, the values written to a file in the
+      # runner's temporary folder for this job alone
+      - name: Map the inputs (the caller's preflight)
+        env:
+          TF_MANIFEST_KEY: ${{ secrets.TF_MANIFEST_KEY }}
+          MANIFEST_PATH: ${{ inputs.manifest_path }}
+        run: |
+          set -euo pipefail
+          python3 scripts/tf_inputs.py --environment "$TARGET" --manifest "$MANIFEST_PATH" --release "v$RELEASE" \
+            --secrets-file "$RUNNER_TEMP/tf-secrets.json" --var-file "$RUNNER_TEMP/tf-inputs.tfvars.json" \
+            --hashes "$RUNNER_TEMP/tf-secret-hashes.json"
+          rm -f "$RUNNER_TEMP/tf-secrets.json"
+
+      # ── deploy, the gate's plan found, read and claimed before anything rests on it ─────────────────────────────────
+      - name: Check the named gate run
+        id: gate
+        if: inputs.mode == 'deploy'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_REPO: ${{ github.repository }}
+          DEPLOY_VERSION: ${{ inputs.release }}
+          DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+          GATE_RUN_ID: ${{ inputs.gate_run_id }}
+        run: python3 _kdf_cicd/scripts/check_prod_gate.py
+
+      - name: Download the gate's plan
+        if: inputs.mode == 'deploy'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: tf-gate-plan-${{ inputs.environment }}
+          run-id: ${{ inputs.gate_run_id }}
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/gate
+
+      - name: Verify the gate's manifest
+        id: verify
+        if: inputs.mode == 'deploy'
+        env:
+          TF_MANIFEST_KEY: ${{ secrets.TF_MANIFEST_KEY }}
+          TF_FLOOR: ${{ inputs.terraform_floor }}
+          MAX_AGE: ${{ inputs.max_plan_age_hours }}
+          GATE_RUN_ID: ${{ steps.gate.outputs.gate_run_id }}
+          GATE_RUN_ATTEMPT: ${{ steps.gate.outputs.gate_run_attempt }}
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+          IDENTITY: ${{ steps.identity.outputs.identity }}
+        run: |
+          set -euo pipefail
+          plan_sha="$(sha256sum "$RUNNER_TEMP/gate/tfplan" | cut -d' ' -f1)"
+          lock_sha="$(sha256sum "$TF_DIR/.terraform.lock.hcl" | cut -d' ' -f1)"
+          python3 - "$RUNNER_TEMP/expected.json" "$plan_sha" "$lock_sha" <<'PY'
+          import json, os, sys
+          out, plan_sha, lock_sha = sys.argv[1:4]
+          with open(os.path.join(os.environ["RUNNER_TEMP"], "tf-secret-hashes.json"), encoding = "utf-8") as fh:
+              hashes = json.load(fh)
+          expected = {
+              "gate_run_id": os.environ["GATE_RUN_ID"],
+              "gate_run_attempt": os.environ["GATE_RUN_ATTEMPT"],
+              "environment": os.environ["TARGET"],
+              "backend_identity": os.environ["IDENTITY"],
+              "commit": os.environ["EXPECTED_COMMIT"],
+              "plan_sha256": plan_sha,
+              "lock_sha256": lock_sha,
+              "secret_hashes": hashes,
+          }
+          with open(out, "w", encoding = "utf-8") as fh:
+              json.dump(expected, fh)
+          PY
+          python3 "$HELPER" verify --manifest "$RUNNER_TEMP/gate/manifest.json" \
+            --expected "$RUNNER_TEMP/expected.json" --floor "$TF_FLOOR" --max-age-hours "$MAX_AGE"
+          cp "$RUNNER_TEMP/gate/tfplan" "$RUNNER_TEMP/tfplan"
+
+      # ── Terraform, the caller's version for a plan, the manifest's for a deploy, read back either way ──────────────
+      - name: Set up Terraform for a plan
+        if: inputs.mode != 'deploy'
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+          terraform_wrapper: false
+
+      - name: Set up Terraform for the deploy
+        if: inputs.mode == 'deploy'
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
+        with:
+          terraform_version: ${{ steps.verify.outputs.terraform_version }}
+          terraform_wrapper: false
+
+      - name: Read the installed Terraform back
+        env:
+          WANTED: ${{ inputs.mode == 'deploy' && steps.verify.outputs.terraform_version || inputs.terraform_version }}
+        run: |
+          set -euo pipefail
+          installed="$(terraform version -json \
+            | python3 -c 'import json, sys; print(json.load(sys.stdin)["terraform_version"])')"
+          if [ "$installed" != "$WANTED" ]; then
+            echo "::error::Terraform $installed is installed, $WANTED was asked"
+            exit 1
+          fi
+          echo "Terraform $installed"
+
+      - name: Terraform init
+        run: terraform -chdir="$TF_DIR" init -input=false -lockfile=readonly
+
+      - name: Read the provider schema
+        run: terraform -chdir="$TF_DIR" providers schema -json > "$RUNNER_TEMP/schema.json"
+
+      # an empty, unexpected or unmigrated state refused before any plan, recovery's scratch copy excepted
+      - name: Hold the state before the plan
+        if: inputs.mode != 'recovery'
+        env:
+          STATE_RULES: ${{ inputs.state_rules_path }}
+        run: |
+          set -euo pipefail
+          # a repair is meant to cure a state this check refuses, so for a repair it records and warns, and the
+          # proof after the repair decides the run
+          if [ -z "$(terraform -chdir="$TF_DIR" state list)" ]; then
+            if [ "$MODE" != repair ]; then
+              echo "::error::the state is empty, an unmigrated or unexpected backend"
+              exit 1
+            fi
+            echo "::warning::the live state is empty, the repair goes ahead and the proof after it decides"
+          fi
+          terraform -chdir="$TF_DIR" state pull > "$RUNNER_TEMP/before.json"
+          if ! python3 scripts/tf_state_proof.py --state "$RUNNER_TEMP/before.json" \
+            --schema "$RUNNER_TEMP/schema.json" --rules "$STATE_RULES"; then
+            if [ "$MODE" != repair ]; then
+              exit 1
+            fi
+            echo "::warning::the live state fails its proof, which the repair is meant to cure"
+          fi
+          # what a later repair's forced push binds to, the live state as this run read it
+          {
+            echo "### The $TARGET state before this run"
+            echo
+            echo "\`$(python3 "$HELPER" state-digest --state "$RUNNER_TEMP/before.json")\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          rm -f "$RUNNER_TEMP/before.json"
+
+      # an automatic run older than the release the state last applied stops, GitHub keeping one pending run per
+      # group and promising no order
+      - name: Refuse an obsolete run
+        if: inputs.mode == 'apply' && !inputs.allow_older_release
+        run: |
+          set -euo pipefail
+          applied="$(terraform -chdir="$TF_DIR" output -raw release 2>/dev/null || true)"
+          if [ -n "$applied" ]; then
+            python3 "$HELPER" at-least --version "$RELEASE" --floor "${applied#v}" \
+              --what "the release against the one last applied"
+          fi
+
+      - name: Terraform plan
+        if: inputs.mode != 'deploy' && inputs.mode != 'repair'
+        run: |
+          set -euo pipefail
+          code=0
+          terraform -chdir="$TF_DIR" plan -input=false -detailed-exitcode \
+            -var-file="$RUNNER_TEMP/tf-inputs.tfvars.json" -var "release=v$RELEASE" \
+            -out="$RUNNER_TEMP/tfplan" || code=$?
+          if [ "$code" = 1 ]; then
+            echo "::error::the plan failed"
+            exit 1
+          fi
+          terraform -chdir="$TF_DIR" show -json "$RUNNER_TEMP/tfplan" > "$RUNNER_TEMP/tfplan.json"
+
+      - name: Record the plan's digest
+        id: digest
+        if: inputs.mode != 'repair'
+        run: echo "plan_sha256=$(sha256sum "$RUNNER_TEMP/tfplan" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: The policies, every deny blocking
+        if: inputs.mode != 'deploy' && inputs.mode != 'repair'
+        run: |
+          set -euo pipefail
+          CONFTEST_VERSION="0.68.2"
+          CONFTEST_SHA256="e8144c6d6d2ae0260b869caa60c7c262a1f95ac63ec1e5d2fb19be452d606347"
+          CONFTEST_TARBALL="conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz"
+          curl -sSL --fail \
+            "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/${CONFTEST_TARBALL}" \
+            -o "$RUNNER_TEMP/${CONFTEST_TARBALL}"
+          echo "${CONFTEST_SHA256}  $RUNNER_TEMP/${CONFTEST_TARBALL}" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/${CONFTEST_TARBALL}" -C "$RUNNER_TEMP" conftest
+          # the plan carries no dev or prod marker, so the prod rules read the one injected here
+          python3 - "$RUNNER_TEMP/tfplan.json" <<'PY'
+          import json, os, sys
+          with open(sys.argv[1], encoding = "utf-8") as fh:
+              plan = json.load(fh)
+          plan["environment"] = os.environ["TARGET"]
+          with open(sys.argv[1], "w", encoding = "utf-8") as fh:
+              json.dump(plan, fh)
+          PY
+          "$RUNNER_TEMP/conftest" test "$RUNNER_TEMP/tfplan.json" --policy policy --all-namespaces
+
+      - name: Hold the plan to a plan of no changes
+        if: inputs.mode == 'validate' || inputs.mode == 'acceptance'
+        run: python3 "$HELPER" no-changes --plan "$RUNNER_TEMP/tfplan.json" --release "v$RELEASE"
+
+      - name: Report every difference (recovery, never applied)
+        if: inputs.mode == 'recovery'
+        run: |
+          set -euo pipefail
+          {
+            echo "### Terraform recovery plan ($TARGET), never applied"
+            echo
+            echo '```'
+            terraform -chdir="$TF_DIR" show -no-color "$RUNNER_TEMP/tfplan"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # the candidate a repair's forced push binds to, the scratch state as this run read it
+          terraform -chdir="$TF_DIR" state pull > "$RUNNER_TEMP/candidate.json"
+          {
+            echo
+            echo "Candidate \`$(python3 "$HELPER" state-digest --state "$RUNNER_TEMP/candidate.json")\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          rm -f "$RUNNER_TEMP/candidate.json"
+
+      # ── gate-plan and acceptance, every state the saved plan carries proven, then sealed and kept three days ──────
+      - name: Prove every state the saved plan carries
+        if: inputs.mode == 'gate-plan' || inputs.mode == 'acceptance'
+        env:
+          STATE_RULES: ${{ inputs.state_rules_path }}
+        run: |
+          python3 scripts/tf_plan_proof.py --plan "$RUNNER_TEMP/tfplan.json" --schema "$RUNNER_TEMP/schema.json" \
+            --rules "$STATE_RULES"
+
+      - name: Seal the gate's manifest
+        if: inputs.mode == 'gate-plan' || inputs.mode == 'acceptance'
+        env:
+          TF_MANIFEST_KEY: ${{ secrets.TF_MANIFEST_KEY }}
+          TF_VERSION: ${{ inputs.terraform_version }}
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+          IDENTITY: ${{ steps.identity.outputs.identity }}
+          PLAN_SHA: ${{ steps.digest.outputs.plan_sha256 }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gate"
+          lock_sha="$(sha256sum "$TF_DIR/.terraform.lock.hcl" | cut -d' ' -f1)"
+          python3 - "$RUNNER_TEMP/fields.json" "$lock_sha" <<'PY'
+          import json, os, sys
+          from datetime import datetime, timezone
+          out, lock_sha = sys.argv[1:3]
+          with open(os.path.join(os.environ["RUNNER_TEMP"], "tf-secret-hashes.json"), encoding = "utf-8") as fh:
+              hashes = json.load(fh)
+          fields = {
+              "schema": 1,
+              "gate_run_id": os.environ["GITHUB_RUN_ID"],
+              "gate_run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "environment": os.environ["TARGET"],
+              "backend_identity": os.environ["IDENTITY"],
+              "commit": os.environ["EXPECTED_COMMIT"],
+              "plan_sha256": os.environ["PLAN_SHA"],
+              "terraform_version": os.environ["TF_VERSION"],
+              "lock_sha256": lock_sha,
+              "secret_hashes": hashes,
+              "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+          }
+          with open(out, "w", encoding = "utf-8") as fh:
+              json.dump(fields, fh)
+          PY
+          python3 "$HELPER" seal --fields "$RUNNER_TEMP/fields.json" --out "$RUNNER_TEMP/gate/manifest.json"
+          cp "$RUNNER_TEMP/tfplan" "$RUNNER_TEMP/gate/tfplan"
+          {
+            echo "### Terraform gate plan ($TARGET)"
+            echo
+            echo "Gate run \`$GITHUB_RUN_ID\`, plan sha256 \`$PLAN_SHA\`. Name this run to the deploy."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the plan and its manifest
+        if: inputs.mode == 'gate-plan'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: tf-gate-plan-${{ inputs.environment }}
+          path: |
+            ${{ runner.temp }}/gate/tfplan
+            ${{ runner.temp }}/gate/manifest.json
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: Verify the sealed manifest (acceptance)
+        if: inputs.mode == 'acceptance'
+        env:
+          TF_MANIFEST_KEY: ${{ secrets.TF_MANIFEST_KEY }}
+          TF_FLOOR: ${{ inputs.terraform_floor }}
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+          IDENTITY: ${{ steps.identity.outputs.identity }}
+          PLAN_SHA: ${{ steps.digest.outputs.plan_sha256 }}
+        run: |
+          set -euo pipefail
+          lock_sha="$(sha256sum "$TF_DIR/.terraform.lock.hcl" | cut -d' ' -f1)"
+          python3 - "$RUNNER_TEMP/expected.json" "$lock_sha" <<'PY'
+          import json, os, sys
+          out, lock_sha = sys.argv[1:3]
+          with open(os.path.join(os.environ["RUNNER_TEMP"], "tf-secret-hashes.json"), encoding = "utf-8") as fh:
+              hashes = json.load(fh)
+          with open(out, "w", encoding = "utf-8") as fh:
+              json.dump({
+                  "gate_run_id": os.environ["GITHUB_RUN_ID"],
+                  "gate_run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+                  "environment": os.environ["TARGET"],
+                  "backend_identity": os.environ["IDENTITY"],
+                  "commit": os.environ["EXPECTED_COMMIT"],
+                  "plan_sha256": os.environ["PLAN_SHA"],
+                  "lock_sha256": lock_sha,
+                  "secret_hashes": hashes,
+              }, fh)
+          PY
+          python3 "$HELPER" verify --manifest "$RUNNER_TEMP/gate/manifest.json" \
+            --expected "$RUNNER_TEMP/expected.json" --floor "$TF_FLOOR"
+
+      # ── deploy, the gate run claimed once under the environment's group, before the apply ───────────────────────────
+      - name: Claim the gate run
+        id: claim
+        if: inputs.mode == 'deploy'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GATE_RUN_ID: ${{ steps.gate.outputs.gate_run_id }}
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+        run: |
+          set -euo pipefail
+          claimed="$(gh api "repos/$GITHUB_REPOSITORY/deployments?environment=$TARGET&per_page=100" --paginate \
+            --jq '.[] | select(.payload.terraform_gate_run == env.GATE_RUN_ID) | .id')"
+          if [ -n "$claimed" ]; then
+            echo "::error::gate run $GATE_RUN_ID was already consumed by deployment $claimed, a new gate is needed"
+            exit 1
+          fi
+          python3 - "$RUNNER_TEMP/deployment.json" <<'PY'
+          import json, os, sys
+          body = {
+              "ref": os.environ["EXPECTED_COMMIT"],
+              "environment": os.environ["TARGET"],
+              "auto_merge": False,
+              "required_contexts": [],
+              "production_environment": os.environ["TARGET"] == "prod",
+              "description": "terraform deploy of gate run " + os.environ["GATE_RUN_ID"],
+              "payload": {"terraform_gate_run": os.environ["GATE_RUN_ID"]},
+          }
+          with open(sys.argv[1], "w", encoding = "utf-8") as fh:
+              json.dump(body, fh)
+          PY
+          id="$(gh api -X POST "repos/$GITHUB_REPOSITORY/deployments" \
+            --input "$RUNNER_TEMP/deployment.json" --jq '.id')"
+          gh api -X POST "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" -f state=in_progress >/dev/null
+          echo "deployment=$id" >> "$GITHUB_OUTPUT"
+          echo "gate run $GATE_RUN_ID claimed by deployment $id"
+
+      # ── The apply, apply, deploy and acceptance alone ───────────────────────────────────────────────────────────────
+      - name: Terraform apply
+        id: apply
+        if: inputs.mode == 'apply' || inputs.mode == 'deploy' || inputs.mode == 'acceptance'
+        run: |
+          set -euo pipefail
+          # a saved plan holds no ephemeral value, so the run supplies them again, the manifest proving they are the
+          # ones the plan was made with
+          terraform -chdir="$TF_DIR" apply -input=false -var-file="$RUNNER_TEMP/tf-inputs.tfvars.json" \
+            "$RUNNER_TEMP/tfplan"
+
+      # ── repair, one named thing with the switch off ─────────────────────────────────────────────────────────────────
+      - name: Repair, push the candidate the recovery mode planned
+        id: push
+        if: inputs.mode == 'repair' && inputs.repair_action == 'push'
+        env:
+          RECOVERY_CONN_STR: >-
+            ${{ inputs.mode == 'repair' && inputs.repair_action == 'push'
+            && secrets.TF_STATE_RECOVERY_CONN_STR || '' }}
+          CANDIDATE_SHA: ${{ inputs.repair_candidate_sha256 }}
+          LIVE_SHA: ${{ inputs.repair_live_sha256 }}
+          LIVE_LINEAGE: ${{ inputs.repair_live_lineage }}
+          LIVE_SERIAL: ${{ inputs.repair_live_serial }}
+          NAMED_RELEASE: ${{ inputs.repair_named_release }}
+        run: |
+          set -euo pipefail
+          # the candidate read from the scratch schema in a copy of the root, the live state read again once the
+          # environment's group is held, both bound to what the recovery mode recorded before the push
+          cp -r "$TF_DIR" "$RUNNER_TEMP/candidate-root"
+          rm -rf "$RUNNER_TEMP/candidate-root/.terraform"
+          candidate_root="$RUNNER_TEMP/candidate-root"
+          PG_CONN_STR="$RECOVERY_CONN_STR" terraform -chdir="$candidate_root" init -input=false -lockfile=readonly
+          PG_CONN_STR="$RECOVERY_CONN_STR" terraform -chdir="$candidate_root" state pull > "$RUNNER_TEMP/candidate.json"
+          terraform -chdir="$TF_DIR" state pull > "$RUNNER_TEMP/live.json"
+          python3 "$HELPER" bind-push --candidate "$RUNNER_TEMP/candidate.json" \
+            --live "$RUNNER_TEMP/live.json" --candidate-sha256 "$CANDIDATE_SHA" --live-sha256 "$LIVE_SHA" \
+            --lineage "$LIVE_LINEAGE" --serial "$LIVE_SERIAL" --named-release "$NAMED_RELEASE"
+          terraform -chdir="$TF_DIR" state push -force "$RUNNER_TEMP/candidate.json"
+
+      - name: Repair, import one object at its manifest address
+        id: import
+        if: inputs.mode == 'repair' && inputs.repair_action == 'import'
+        env:
+          REPAIR_ADDRESS: ${{ inputs.repair_address }}
+          REPAIR_OBJECT_ID: ${{ inputs.repair_object_id }}
+          MANIFEST_PATH: ${{ inputs.manifest_path }}
+        run: |
+          set -euo pipefail
+          python3 scripts/tf_repair_import.py --environment "$TARGET" --manifest "$MANIFEST_PATH" \
+            --address "$REPAIR_ADDRESS" --object-id "$REPAIR_OBJECT_ID" --var-file "$RUNNER_TEMP/tf-inputs.tfvars.json"
+
+      - name: Refuse a repair that names nothing
+        if: inputs.mode == 'repair' && inputs.repair_action != 'push' && inputs.repair_action != 'import'
+        run: |
+          echo "::error::a repair names one action, push or import"
+          exit 1
+
+      # ── After every apply or repair that started, failed ones included ──────────────────────────────────────────────
+      - name: The state proof after the apply or repair
+        id: proof
+        if: >-
+          always() && (steps.apply.outcome != 'skipped' || steps.push.outcome != 'skipped'
+          || steps.import.outcome != 'skipped')
+        env:
+          STATE_RULES: ${{ inputs.state_rules_path }}
+        run: |
+          set -euo pipefail
+          if ! terraform -chdir="$TF_DIR" state pull > "$RUNNER_TEMP/after.json"; then
+            echo "::error::the state cannot be read after the change, the outcome is UNCERTAIN, never clean"
+            exit 1
+          fi
+          # both roots always hold projects, so an empty state after a change is wrong whatever the caller's proof says
+          if [ -z "$(terraform -chdir="$TF_DIR" state list)" ]; then
+            echo "::error::the state is empty after the change, turn the switch off and repair it"
+            exit 1
+          fi
+          python3 scripts/tf_state_proof.py --state "$RUNNER_TEMP/after.json" --schema "$RUNNER_TEMP/schema.json" \
+            --rules "$STATE_RULES"
+
+      - name: Summarize what applied
+        if: always() && steps.proof.outcome != 'skipped' && steps.proof.outcome != ''
+        env:
+          APPLY: ${{ steps.apply.outcome }}
+          PUSH: ${{ steps.push.outcome }}
+          IMPORT: ${{ steps.import.outcome }}
+          PROOF: ${{ steps.proof.outcome }}
+        run: |
+          {
+            echo "### Terraform $MODE ($TARGET), release v$RELEASE"
+            echo
+            echo "apply ${APPLY:-skipped}, push ${PUSH:-skipped}, import ${IMPORT:-skipped}, state proof $PROOF"
+            echo
+            if [ "$PROOF" != success ]; then
+              echo "**The state proof did not pass.** Turn this environment's switch off. If it names a secret, rotate"
+              echo "it, contain DEV's reader first, clean the state by a repair once the cause is fixed, and delete the"
+              echo "history rows holding it (design 5.6 step 6). A state that cannot be read is UNCERTAIN, never clean."
+            fi
+            if [ "${APPLY:-skipped}" = failure ]; then
+              echo "**The apply failed.** Nothing is rolled back. The state holds what applied, read it with a"
+              echo "refreshed plan, fix forward, or dispatch an older release at or above the floor (design 5.8)."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Mark the gate run's deployment
+        if: always() && steps.claim.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOYMENT: ${{ steps.claim.outputs.deployment }}
+          APPLY: ${{ steps.apply.outcome }}
+          PROOF: ${{ steps.proof.outcome }}
+        run: |
+          set -euo pipefail
+          # a claim the apply never completed stays consumed, so a rerun of this deploy is refused and takes a new gate
+          if [ "$APPLY" = success ] && [ "$PROOF" = success ]; then state=success; else state=failure; fi
+          gh api -X POST "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT/statuses" -f state="$state" >/dev/null
+          echo "deployment $DEPLOYMENT marked $state"

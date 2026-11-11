@@ -26,6 +26,15 @@ name: Create GitHub Release (reusable)
 
 on:
   workflow_call:
+    # Additive outputs (the terraform in Actions pipeline, design 5.6). A caller's later job resolves the tag once and
+    # checks it names this commit, an existing tag this run skipped included. Nothing else here changes
+    outputs:
+      version:
+        description: 'The version read from VERSION, e.g. 1.2.0'
+        value: ${{ jobs.release.outputs.version }}
+      commit:
+        description: 'The commit whose VERSION was read, the one the tag names when this run creates it'
+        value: ${{ jobs.release.outputs.commit }}
 
 jobs:
   release:
@@ -34,6 +43,10 @@ jobs:
 
     permissions:
       contents: write
+
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      commit: ${{ steps.version.outputs.commit }}
 
     steps:
       - name: Checkout
