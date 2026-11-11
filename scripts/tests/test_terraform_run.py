@@ -19,6 +19,15 @@ from terraform_run import Refused
 KEY = "kdfmk-made-up-manifest-key"
 NOW = datetime(2026, 11, 11, 12, 0, tzinfo = timezone.utc)
 
+# an inherited secrets bundle, made up, and the names the workflow drops before the caller's preflight
+BUNDLE = {
+    "TF_STATE_PG_CONN_STR": "postgresql://w:kdfmk-live-made-up@db.example.test/terraform",
+    "TF_STATE_RECOVERY_CONN_STR": "postgresql://r:kdfmk-scratch-made-up@db.example.test/scratch",
+    "APP_SECRET": "kdfmk-app-made-up",
+    "github_token": "kdfmk-token-made-up",
+}
+DROPS  = ["TF_STATE_PG_CONN_STR", "TF_STATE_RECOVERY_CONN_STR", "github_token"]
+
 # ======================================================================================================================
 # Versions
 # ======================================================================================================================
@@ -364,6 +373,48 @@ class TestBindPush:
         ]
         assert tr.main(args) == 0
         assert tr.main([*args[:-1], "8"]) == 1
+
+# ======================================================================================================================
+# The secrets handed to the caller's preflight, the connection strings dropped
+# ======================================================================================================================
+
+class TestSecretsFile:
+    """
+    The caller's code never receives a connection string, so a recovery's guarantee holds in cicd itself (the
+    owner's answer of 2026-11-11, after a by-name hand off proved to need cicd to name tenant secrets).
+    """
+    def test_the_named_secrets_are_dropped_and_the_rest_kept(self):
+        assert tr.filtered_secrets(dict(BUNDLE), DROPS) == {"APP_SECRET": "kdfmk-app-made-up"}
+
+
+    def test_a_drop_absent_from_the_bundle_is_no_error(self):
+        assert tr.filtered_secrets({"APP_SECRET": "x"}, DROPS) == {"APP_SECRET": "x"}
+
+
+    @pytest.mark.parametrize("bundle", [[], "text", {"A": 1}, {"A": None}])
+    def test_a_bundle_that_is_no_object_of_strings_is_refused(self, bundle):
+        with pytest.raises(Refused):
+            tr.filtered_secrets(bundle, DROPS)
+
+
+    def test_the_cli_writes_the_file_and_prints_names_alone(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("SECRETS_JSON", json.dumps(BUNDLE))
+        out  = tmp_path / "tf-secrets.json"
+        args = ["secrets-file", "--env-var", "SECRETS_JSON", "--out", str(out)]
+        for name in DROPS:
+            args += ["--drop", name]
+        assert tr.main(args) == 0
+        assert json.loads(out.read_text(encoding = "utf-8")) == {"APP_SECRET": "kdfmk-app-made-up"}
+        printed = capsys.readouterr().out
+        assert "kdfmk" not in printed
+        assert "TF_STATE_PG_CONN_STR" in printed
+
+
+    def test_an_unreadable_bundle_exits_two_and_writes_nothing(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SECRETS_JSON", "{not json")
+        out = tmp_path / "tf-secrets.json"
+        assert tr.main(["secrets-file", "--env-var", "SECRETS_JSON", "--out", str(out)]) == 2
+        assert not out.exists()
 
 # ======================================================================================================================
 # The command line

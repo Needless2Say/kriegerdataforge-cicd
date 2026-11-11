@@ -364,6 +364,29 @@ def bind_push_findings(
     return found
 
 # ======================================================================================================================
+# The secrets handed to the caller's preflight
+# ======================================================================================================================
+
+def filtered_secrets(bundle: object, drops: list[str]) -> dict[str, str]:
+    """
+    The inherited secrets less the named ones, so the caller's code never receives a connection string and a
+    recovery's guarantee, the live string never held by anything but the backend's mapping, rests on cicd alone.
+
+    Args:
+        bundle: The secrets context as `toJSON(secrets)` gives it
+        drops: The names left out
+
+    Returns:
+        Every other secret, name to value
+
+    Raises:
+        Refused: When the bundle is no object of strings
+    """
+    if not isinstance(bundle, dict) or any(not isinstance(v, str) for v in bundle.values()):
+        raise Refused("the secrets bundle is no JSON object of strings")
+    return {name: value for name, value in bundle.items() if name not in set(drops)}
+
+# ======================================================================================================================
 # The backend identity
 # ======================================================================================================================
 
@@ -499,6 +522,11 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     push_cmd.add_argument("--serial", required = True)
     push_cmd.add_argument("--named-release", default = "")
 
+    secrets_cmd = sub.add_parser("secrets-file", help = "write the inherited secrets less the named ones to a file")
+    secrets_cmd.add_argument("--env-var", default = "SECRETS_JSON")
+    secrets_cmd.add_argument("--out", required = True)
+    secrets_cmd.add_argument("--drop", action = "append", default = [])
+
     digest_cmd = sub.add_parser("state-digest", help = "print a pulled state's sha256, lineage and serial")
     digest_cmd.add_argument("--state", required = True)
     return parser.parse_args(argv)
@@ -556,6 +584,20 @@ def main(argv: list[str] | None = None) -> int:
                 named_release = args.named_release,
             )
             return _report(found, "Forced push binding")
+        if args.command == "secrets-file":
+            try:
+                bundle = json.loads(os.environ.get(args.env_var, ""))
+            except ValueError:
+                print(f"REFUSED: {args.env_var} holds no JSON")
+                return 2
+            kept = filtered_secrets(bundle, args.drop)
+            # created for its owner alone, the runner's other users never reading it
+            handle = os.open(args.out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(handle, "w", encoding = "utf-8") as out:
+                json.dump(kept, out)
+            dropped = sorted(name for name in args.drop if name in bundle)
+            print(f"==> {len(kept)} secrets handed on, dropped {', '.join(dropped) or 'none'}")
+            return 0
         if args.command == "state-digest":
             data  = Path(args.state).read_bytes()
             state = _state_of(data, "state")

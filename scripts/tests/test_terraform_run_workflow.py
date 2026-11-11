@@ -262,36 +262,35 @@ class TestTheRunJob:
         )
 
 
-    def test_the_live_string_is_named_nowhere_else_but_the_recovery_refusal(self, text):
-        # the mapping, and the recovery's presence check, which reads true or false and never the value
-        assert text.count("secrets.TF_STATE_PG_CONN_STR") == 2
-        assert "LIVE_PRESENT: ${{ secrets.TF_STATE_PG_CONN_STR != '' }}" in text
+    def test_the_live_string_is_named_nowhere_else(self, text):
+        assert text.count("secrets.TF_STATE_PG_CONN_STR") == 1
 
 
-    def test_a_recovery_refuses_to_hold_the_live_string_before_any_caller_code(self, flow):
-        # the bundle handed to the caller's preflight would hold it, so a recovery's caller passes its secrets by name
-        # without it, and this step fails closed when it is there at all (the owner's answer of 2026-11-11)
+    def test_the_bundle_reaches_cicds_own_filter_alone(self, flow, text):
+        # a caller passes secrets by name only when cicd declares each, so it inherits them all, and cicd's own step
+        # drops the connection strings before the caller's code sees any (the owner's answer of 2026-11-11)
+        assert text.count("toJSON(secrets)") == 1
         steps  = _steps(flow, "run")
-        refuse = _index(steps, "Refuse the live string in a recovery")
-        assert steps[refuse]["if"] == "inputs.mode == 'recovery'"
-        assert refuse < _index(steps, "Check out the release commit")
-        assert refuse < _index(steps, "Map the inputs")
+        bundle = steps[_index(steps, "Drop the connection strings")]
+        assert bundle["env"]["SECRETS_JSON"] == "${{ toJSON(secrets) }}"
+        script = bundle["run"]
+        assert 'python3 "$HELPER" secrets-file' in script
+        for name in ("TF_STATE_PG_CONN_STR", "TF_STATE_RECOVERY_CONN_STR", "TF_MANIFEST_KEY", "github_token"):
+            assert f"--drop {name}" in script
+        assert "scripts/" not in script.replace("_kdf_cicd/scripts/", "")
 
 
-    @pytest.mark.parametrize("present, allowed", [("false", True), ("true", False), ("", False), ("False", False)])
-    def test_the_recovery_refusal_runs_as_a_shell(self, flow, tmp_path, present, allowed):
-        shell = _bash()
-        if shell is None:
-            pytest.skip("no bash to run the step's shell")
-        steps = _steps(flow, "run")
-        (tmp_path / "step.sh").write_text(
-            steps[_index(steps, "Refuse the live string in a recovery")]["run"],
-            encoding = "utf-8",
-            newline = "\n",
-        )
-        env  = {**os.environ, "LIVE_PRESENT": present}
-        code = subprocess.run([shell, "step.sh"], cwd = tmp_path, env = env, capture_output = True, check = False)
-        assert (code.returncode == 0) is allowed
+    def test_the_callers_preflight_reads_the_filtered_file_and_never_the_bundle(self, flow):
+        steps     = _steps(flow, "run")
+        preflight = steps[_index(steps, "Map the inputs")]
+        assert "SECRETS_JSON" not in preflight.get("env", {})
+        assert '--secrets-file "$RUNNER_TEMP/tf-secrets.json"' in preflight["run"]
+        assert _index(steps, "Drop the connection strings") < _index(steps, "Map the inputs")
+
+
+    def test_no_step_refuses_an_inherited_live_string(self, text):
+        # an inherited bundle always holds it, so such a refusal would stop every recovery
+        assert "LIVE_PRESENT" not in text
 
 
     def test_the_identity_is_held_before_init(self, flow):

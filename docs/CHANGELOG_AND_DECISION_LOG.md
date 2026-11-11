@@ -5462,9 +5462,11 @@ switch in this workflow as well as its caller. One job in the environment holds 
 cancellation off and a five hour timeout, under GitHub's six, so a token rotation's reap waits past every run. It
 checks out the commit its caller resolved with `check_release_commit.py`, holds `HEAD` to it before any caller code,
 holds the release and the Terraform version to their floors, and the backend's identity to the environment's public
-one, the recovery mode mapping its scratch string alone, refusing the live identity before `init`, and refusing a
-run that holds the live string at all, its caller naming its secrets without it, since the bundle the caller's
-preflight receives would otherwise carry it (the owner's answer of 2026-11-11). The caller's
+one, the recovery mode mapping its scratch string alone and refusing the live identity before `init`. cicd's own
+step alone reads the inherited secrets and hands the caller's preflight a file without the connection strings, so in
+a recovery nothing in the job holds the live string, while in the writing modes the live writer is the job's
+`PG_CONN_STR`, as Terraform needs (the owner's answer of 2026-11-11, a by name hand off needing cicd to declare each
+tenant's secret). The caller's
 own scripts, by fixed names, check and map the secrets its manifest names, so cicd names no tenant. Every policy
 deny blocks. `validate` and `acceptance` refuse anything but a plan of no changes, the release marker's move the one
 change allowed. The gate's saved plan is proven, then kept three days with a manifest sealed by HMAC-SHA256 under

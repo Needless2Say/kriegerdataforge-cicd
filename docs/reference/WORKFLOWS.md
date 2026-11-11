@@ -360,11 +360,12 @@ cancellation off and a five hour timeout.
 | `repair_action`, `repair_address`, `repair_object_id`, `repair_candidate_sha256`, `repair_live_sha256`, `repair_live_lineage`, `repair_live_serial`, `repair_named_release` | string | `''` | `repair` |
 | `manifest_path`, `state_rules_path` | string | `manifest/manifest.json`, `manifest/state_rules.json` | no |
 
-- **Secrets read (via `inherit`).** `TF_STATE_PG_CONN_STR` mapped to `PG_CONN_STR`, the backend's channel,
-  `TF_STATE_RECOVERY_CONN_STR` in `recovery` and a `repair` push's candidate read, `TF_MANIFEST_KEY`, and every
-  secret the caller's manifest names, handed whole to the caller's preflight. A `recovery` holds no live string at
-  all. Its caller passes its secrets by name without `TF_STATE_PG_CONN_STR`, never `inherit`, and the run is
-  refused when that secret is set.
+- **Secrets read (via `inherit`).** `TF_STATE_PG_CONN_STR` mapped to `PG_CONN_STR`, the backend's channel, for
+  the whole job in the writing modes, `TF_STATE_RECOVERY_CONN_STR` in `recovery` and a `repair` push's candidate
+  read, `TF_MANIFEST_KEY`, and every secret the caller's manifest names. cicd's own step alone reads the inherited
+  bundle and hands the caller's preflight a file without the connection strings, the key or the job's token. In a
+  `recovery` nothing in the job holds the live string. A caller inherits, since passing secrets by name would need
+  cicd to declare each tenant's.
 - **Variables read.** `TF_ACTIONS_ON_DEV`, `TF_ACTIONS_ON_PROD`, and the environment's `TF_STATE_SCHEMA` and
   `TF_STATE_IDENTITY`, the live backend's public identity, never read from the release.
 - **The caller's files.** `scripts/tf_inputs.py` (the preflight and the derived versions), `scripts/tf_state_proof.py`,
