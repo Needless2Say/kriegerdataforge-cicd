@@ -381,7 +381,8 @@ up in Vercel or sets it back, since the record trusts those values.
   `scripts/tf_repair_import.py`, `policy/`, the manifest and the state rules, by these names at the commit applied, so
   cicd names no tenant (AGENTS.md rule 12).
 - **Helpers.** `scripts/terraform_run.py`, `at-least`, `identity`, `no-changes`, `seal`, `verify`, `state-digest`,
-  `bind-push`, `record-seal`, `record-check`, and `check_prod_gate.py --gate-run`.
+  `bind-push`, `differences` (each change and drifted address validate lists), `record-seal`, `record-check`, and
+  `check_prod_gate.py --gate-run`.
 - **Outputs.** `plan_sha256`. **Permissions.** `authorize`: `contents: read`. `run`: `contents: read`,
   `actions: read` (the gate's artifact), `deployments: write` (the gate run's claim and the proof records).
 - **Consumer.** `kriegerdataforge-terraform`, from the move on.

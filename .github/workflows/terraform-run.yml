@@ -632,6 +632,20 @@ jobs:
           PY
           "$RUNNER_TEMP/conftest" test "$RUNNER_TEMP/tfplan.json" --policy policy --all-namespaces
 
+      # what the owner looks up before naming a digest, each change and each drifted address, since a refresh can
+      # find a stored value drifted while the plan shows a no-op (Codex's review of f05c870)
+      - name: List what differs (validate)
+        if: inputs.mode == 'validate'
+        run: |
+          set -euo pipefail
+          {
+            echo "### What differs from the stored $TARGET state and the configuration"
+            echo
+            echo '```'
+            python3 "$HELPER" differences --plan "$RUNNER_TEMP/tfplan.proof.json" --release "v$RELEASE"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Hold the plan to a plan of no changes
         if: (inputs.mode == 'validate' && inputs.certify_digest == '') || inputs.mode == 'acceptance'
         run: python3 "$HELPER" no-changes --plan "$RUNNER_TEMP/tfplan.json" --release "v$RELEASE"
@@ -659,7 +673,7 @@ jobs:
             echo "set back before this digest was named."
             echo
             echo '```'
-            python3 "$HELPER" no-changes --plan "$RUNNER_TEMP/tfplan.proof.json" --release "v$RELEASE" || true
+            python3 "$HELPER" differences --plan "$RUNNER_TEMP/tfplan.proof.json" --release "v$RELEASE"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           echo "record=certified" >> "$GITHUB_OUTPUT"

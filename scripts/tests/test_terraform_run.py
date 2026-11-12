@@ -63,6 +63,36 @@ def _marker(before: str, after: str, actions: list[str] | None = None) -> dict:
     return {"release": {"actions": actions or ["update"], "before": before, "after": after}}
 
 
+class TestDifferences:
+    """
+    What validate lists for the owner, every planned change and every address a refresh found drifted from the
+    stored state, since certifying records the stored bytes (Codex's review of f05c870).
+    """
+    def test_a_drifted_address_with_a_no_op_change_is_listed(self, capsys):
+        plan = _plan([("vercel_project_environment_variable.plain[\"A\"]", ["no-op"])])
+        plan["resource_drift"] = [
+            {"address": "vercel_project_environment_variable.plain[\"A\"]", "change": {"actions": ["update"]}},
+        ]
+        assert tr.no_change_findings(plan, "v0.11.0") == []
+        found = tr.differences(plan, "v0.11.0")
+        assert any("plain[\"A\"]" in line and "drift" in line for line in found)
+
+
+    def test_planned_changes_are_listed_too_and_nothing_for_a_quiet_plan(self):
+        assert tr.differences(_plan([("a.b", ["update"])]), "v0.11.0") == ["a.b plans ['update']"]
+        assert tr.differences(_plan([("a.b", ["no-op"])], _marker("v0.10.0", "v0.11.0")), "v0.11.0") == []
+
+
+    def test_the_cli_lists_and_always_exits_zero(self, tmp_path, capsys):
+        plan = _plan([("a.b", ["update"])])
+        plan["resource_drift"] = [{"address": "c.d", "change": {"actions": ["update"]}}]
+        path = tmp_path / "plan.json"
+        path.write_text(json.dumps(plan), encoding = "utf-8")
+        assert tr.main(["differences", "--plan", str(path), "--release", "v0.11.0"]) == 0
+        out = capsys.readouterr().out
+        assert "a.b" in out and "c.d" in out
+
+
 class TestNoChanges:
     """
     A plan of no changes, the release marker's move to the run's release the one change allowed.

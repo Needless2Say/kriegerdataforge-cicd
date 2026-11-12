@@ -471,6 +471,24 @@ class TestThePlanProofAndTheRecord:
         assert "record=complete" in script and "record=partial" in script and "record=none" in script
 
 
+    def test_a_completed_write_is_held_to_the_full_rules_and_never_the_committed_ones(self, flow):
+        # a mutation giving the success branch the structural rules passed before (Codex's review of f05c870)
+        steps   = _steps(flow, "run")
+        script  = steps[_index(steps, "state proof after")]["run"]
+        success = script.split('elif [ "$APPLY" = success ]; then', 1)[1].split("else", 1)[0]
+        assert success.count('--rules "$full"') == 2
+        assert "STATE_RULES" not in success
+
+
+    def test_validate_lists_every_difference_and_drift_and_the_certify_step_does_too(self, flow):
+        steps  = _steps(flow, "run")
+        lister = steps[_index(steps, "List what differs")]
+        assert lister["if"] == "inputs.mode == 'validate'"
+        assert 'python3 "$HELPER" differences' in lister["run"]
+        assert 'python3 "$HELPER" differences' in steps[_index(steps, "Certify the named state")]["run"]
+        assert "no-changes" not in steps[_index(steps, "Certify the named state")]["run"]
+
+
     def test_a_repair_never_makes_a_record(self, flow):
         steps  = _steps(flow, "run")
         script = steps[_index(steps, "state proof after")]["run"]

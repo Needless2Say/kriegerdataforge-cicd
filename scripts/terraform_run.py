@@ -18,6 +18,7 @@ its floor held by `at-least` here.
               the supported floor, and an automatic run's release against the one the state last applied.
   identity    A backend's identity from its connection string, host, port, database and schema, never the role or
               its password, read from a named environment variable so the string never reaches a process's argv.
+  differences Each change and each address a refresh found drifted, what validate lists for the owner (D-103).
   record-seal The deployment body that records a proven state, its fields sealed under TF_MANIFEST_KEY (D-103).
   record-check The PROD gate's and deploy's check that the stored state is the newest sealed record's, the newest
               judged alone and never an older one in its place (D-103).
@@ -136,6 +137,25 @@ def no_change_findings(plan: dict, release: str) -> list[str]:
         if name == RELEASE_OUTPUT and actions in (["update"], ["create"]) and change.get("after") == release:
             continue
         found.append(f"output {name} plans {actions}, only {RELEASE_OUTPUT} may move, and only to {release}")
+    return found
+
+
+def differences(plan: dict, release: str) -> list[str]:
+    """
+    What validate lists for the owner, every change beyond the release marker's move and every address a refresh
+    found drifted from the stored state, which a no-op change hides and a certify would record (D-103).
+
+    Args:
+        plan: The plan as `terraform show -json` writes it
+        release: The run's release, the tag's name
+
+    Returns:
+        One line per change or drifted address, names alone
+    """
+    found = no_change_findings(plan, release)
+    for drift in plan.get("resource_drift") or []:
+        actions = (drift.get("change") or {}).get("actions")
+        found.append(f"{drift.get('address')} drifted from the stored state, {actions}")
     return found
 
 # ======================================================================================================================
@@ -646,6 +666,10 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     quiet_cmd.add_argument("--plan", required = True)
     quiet_cmd.add_argument("--release", required = True)
 
+    diff_cmd = sub.add_parser("differences", help = "list each change and drifted address, names alone")
+    diff_cmd.add_argument("--plan", required = True)
+    diff_cmd.add_argument("--release", required = True)
+
     seal_cmd = sub.add_parser("seal", help = "seal the gate's plan manifest")
     seal_cmd.add_argument("--fields", required = True)
     seal_cmd.add_argument("--out", required = True)
@@ -717,6 +741,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "no-changes":
             return _report(no_change_findings(_read_json(args.plan), args.release), "Plan of no changes")
+        if args.command == "differences":
+            listed = differences(_read_json(args.plan), args.release)
+            for line in listed:
+                print(line)
+            print(f"==> {len(listed)} differences from the stored state and the configuration")
+            return 0
         if args.command == "seal":
             sealed = seal(_read_json(args.fields), os.environ.get(args.key_env, ""))
             Path(args.out).write_text(json.dumps(sealed, indent = 2, sort_keys = True) + "\n", encoding = "utf-8")
