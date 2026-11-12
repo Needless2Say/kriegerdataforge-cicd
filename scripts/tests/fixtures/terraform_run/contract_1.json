@@ -1,79 +1,133 @@
 {
-  "root": "environments/${{ inputs.environment }}",
+  "job": {
+    "env": {
+      "TF_DIR": "environments/${{ inputs.environment }}",
+      "TF_IN_AUTOMATION": "1",
+      "TF_INPUT": "0",
+      "MODE": "${{ inputs.mode }}",
+      "TARGET": "${{ inputs.environment }}",
+      "RELEASE": "${{ inputs.release }}",
+      "HELPER": "_kdf_cicd/scripts/terraform_run.py",
+      "PG_CONN_STR": "${{ inputs.mode == 'recovery' && secrets.TF_STATE_RECOVERY_CONN_STR || inputs.mode != 'recovery' && secrets.TF_STATE_PG_CONN_STR || '' }}"
+    }
+  },
+  "checkout": {
+    "ref": "${{ inputs.expected_commit }}",
+    "persist-credentials": false
+  },
   "manifest_path": "manifest/manifest.json",
   "state_rules_path": "manifest/state_rules.json",
   "names": [
     "--policy policy",
     "-var \"release=",
     ".terraform.lock.hcl",
-    "output -raw release"
+    "output -raw release",
+    "scripts/tf_inputs.py",
+    "scripts/tf_plan_proof.py",
+    "scripts/tf_repair_import.py",
+    "scripts/tf_state_extra.py",
+    "scripts/tf_state_proof.py",
+    "scripts/tf_state_rules.py"
   ],
   "calls": [
     {
-      "if": "",
-      "strict": true,
-      "lines": [
-        "python3 scripts/tf_inputs.py --environment \"$TARGET\" --manifest \"$MANIFEST_PATH\" --release \"v$RELEASE\" --secrets-file \"$RUNNER_TEMP/tf-secrets.json\" --var-file \"$RUNNER_TEMP/tf-inputs.tfvars.json\" --hashes \"$RUNNER_TEMP/tf-secret-hashes.json\""
+      "env": {
+        "TF_MANIFEST_KEY": "${{ secrets.TF_MANIFEST_KEY }}",
+        "MANIFEST_PATH": "${{ inputs.manifest_path }}"
+      },
+      "run": [
+        "set -euo pipefail",
+        "python3 scripts/tf_inputs.py --environment \"$TARGET\" --manifest \"$MANIFEST_PATH\" --release \"v$RELEASE\" --secrets-file \"$RUNNER_TEMP/tf-secrets.json\" --var-file \"$RUNNER_TEMP/tf-inputs.tfvars.json\" --hashes \"$RUNNER_TEMP/tf-secret-hashes.json\"",
+        "rm -f \"$RUNNER_TEMP/tf-secrets.json\""
       ]
     },
     {
       "if": "inputs.mode != 'recovery'",
-      "strict": true,
-      "lines": [
+      "env": {
+        "STATE_RULES": "${{ inputs.state_rules_path }}"
+      },
+      "run": [
+        "set -euo pipefail",
         "if [ -z \"$(terraform -chdir=\"$TF_DIR\" state list)\" ]; then",
         "if [ \"$MODE\" != repair ]; then",
         "exit 1",
         "fi",
         "fi",
+        "terraform -chdir=\"$TF_DIR\" state pull > \"$RUNNER_TEMP/before.json\"",
         "if ! { python3 scripts/tf_state_rules.py --existing-only --base \"$STATE_RULES\" --stored \"$RUNNER_TEMP/before.json\" --existing-out \"$RUNNER_TEMP/state-rules-stored.json\" && python3 scripts/tf_state_extra.py --state \"$RUNNER_TEMP/before.json\" --schema \"$RUNNER_TEMP/schema.json\" --rules \"$RUNNER_TEMP/state-rules-stored.json\" && python3 scripts/tf_state_proof.py --state \"$RUNNER_TEMP/before.json\" --schema \"$RUNNER_TEMP/schema.json\" --rules \"$RUNNER_TEMP/state-rules-stored.json\"; }; then",
         "if [ \"$MODE\" != repair ]; then",
         "exit 1",
         "fi",
-        "fi"
+        "fi",
+        "{",
+        "echo \"\\`$(python3 \"$HELPER\" state-digest --state \"$RUNNER_TEMP/before.json\")\\`\"",
+        "} >> \"$GITHUB_STEP_SUMMARY\""
       ]
     },
     {
       "if": "inputs.mode == 'apply' || inputs.mode == 'gate-plan' || inputs.mode == 'acceptance' || inputs.mode == 'deploy'",
-      "strict": true,
-      "lines": [
+      "env": {
+        "STATE_RULES": "${{ inputs.state_rules_path }}",
+        "MANIFEST_PATH": "${{ inputs.manifest_path }}"
+      },
+      "run": [
+        "set -euo pipefail",
         "python3 scripts/tf_state_rules.py --environment \"$TARGET\" --manifest \"$MANIFEST_PATH\" --base \"$STATE_RULES\" --plan \"$RUNNER_TEMP/tfplan.proof.json\" --stored \"$RUNNER_TEMP/before.json\" --full-out \"$RUNNER_TEMP/state-rules-full.json\" --existing-out \"$RUNNER_TEMP/state-rules-existing.json\""
       ]
     },
     {
       "if": "inputs.mode == 'gate-plan' || inputs.mode == 'acceptance' || inputs.mode == 'apply'",
-      "strict": false,
-      "lines": [
+      "env": {
+        "STATE_RULES": "${{ inputs.state_rules_path }}"
+      },
+      "run": [
         "python3 scripts/tf_plan_proof.py --plan \"$RUNNER_TEMP/tfplan.proof.json\" --planfile \"$RUNNER_TEMP/tfplan\" --stored \"$RUNNER_TEMP/before.json\" --schema \"$RUNNER_TEMP/schema.json\" --rules \"$STATE_RULES\" --existing-rules \"$RUNNER_TEMP/state-rules-existing.json\" --full-rules \"$RUNNER_TEMP/state-rules-full.json\" --var-file \"$RUNNER_TEMP/tf-inputs.tfvars.json\""
       ]
     },
     {
       "if": "inputs.mode == 'repair' && inputs.repair_action == 'import'",
-      "strict": true,
-      "lines": [
+      "env": {
+        "REPAIR_ADDRESS": "${{ inputs.repair_address }}",
+        "REPAIR_OBJECT_ID": "${{ inputs.repair_object_id }}",
+        "MANIFEST_PATH": "${{ inputs.manifest_path }}"
+      },
+      "run": [
+        "set -euo pipefail",
         "python3 scripts/tf_repair_import.py --environment \"$TARGET\" --manifest \"$MANIFEST_PATH\" --address \"$REPAIR_ADDRESS\" --object-id \"$REPAIR_OBJECT_ID\" --var-file \"$RUNNER_TEMP/tf-inputs.tfvars.json\""
       ]
     },
     {
       "if": "always() && (steps.apply.outcome != 'skipped' || steps.push.outcome != 'skipped' || steps.import.outcome != 'skipped')",
-      "strict": true,
-      "lines": [
+      "env": {
+        "STATE_RULES": "${{ inputs.state_rules_path }}",
+        "APPLY": "${{ steps.apply.outcome }}"
+      },
+      "run": [
+        "set -euo pipefail",
         "if ! terraform -chdir=\"$TF_DIR\" state pull > \"$RUNNER_TEMP/after.json\"; then",
         "exit 1",
         "fi",
         "if [ -z \"$(terraform -chdir=\"$TF_DIR\" state list)\" ]; then",
         "exit 1",
         "fi",
+        "after=\"$RUNNER_TEMP/after.json\"",
+        "schema=\"$RUNNER_TEMP/schema.json\"",
+        "written=\"$RUNNER_TEMP/state-rules-written.json\"",
         "if [ \"$MODE\" = repair ]; then",
         "python3 scripts/tf_state_rules.py --existing-only --base \"$STATE_RULES\" --stored \"$after\" --existing-out \"$written\"",
         "python3 scripts/tf_state_extra.py --state \"$after\" --schema \"$schema\" --rules \"$written\"",
         "python3 scripts/tf_state_proof.py --state \"$after\" --schema \"$schema\" --rules \"$written\"",
+        "echo \"record=none\" >> \"$GITHUB_OUTPUT\"",
         "elif [ \"$APPLY\" = success ]; then",
+        "full=\"$RUNNER_TEMP/state-rules-full.json\"",
         "python3 scripts/tf_state_extra.py --state \"$after\" --schema \"$schema\" --rules \"$full\"",
         "python3 scripts/tf_state_proof.py --state \"$after\" --schema \"$schema\" --rules \"$full\"",
+        "echo \"record=complete\" >> \"$GITHUB_OUTPUT\"",
         "else",
         "python3 scripts/tf_state_rules.py --existing-only --base \"$STATE_RULES\" --stored \"$after\" --existing-out \"$written\"",
         "python3 scripts/tf_state_extra.py --state \"$after\" --schema \"$schema\" --rules \"$written\" --partial-plan \"$RUNNER_TEMP/tfplan.proof.json\"",
         "python3 scripts/tf_state_proof.py --state \"$after\" --schema \"$schema\" --rules \"$written\"",
+        "echo \"record=partial\" >> \"$GITHUB_OUTPUT\"",
         "fi"
       ]
     }

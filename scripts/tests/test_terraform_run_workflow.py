@@ -27,15 +27,32 @@ PINNED   = re.compile(r"[^@\s]+@[0-9a-f]{40}")
 # contract 1, the interface as merged, frozen (design 5.6, Round Table 92, L12)
 CONTRACT_1 = Path(__file__).resolve().parent / "fixtures" / "terraform_run" / "contract_1.json"
 
-# a script of the release, by its path in the caller's checkout, never one of cicd's own under _kdf_cicd/
-RELEASE_SCRIPT = re.compile(r"(?<![\w/.$-])scripts/[a-z_]+\.py")
+# a call of a release script, python3 running it by its path in the caller's checkout, never one of cicd's own under
+# _kdf_cicd/, so a message naming a script is no call
+RELEASE_CALL = re.compile(r"(?<![\w/.$-])python3 scripts/[a-z_]+\.py")
 
-# the other names the workflow reads from the release, its lock file, its policies, and its root's release variable
-# and output
-RELEASE_NAMES = re.compile(r'\.terraform\.lock\.hcl|--policy \S+|-var "\w+=|output -raw \w+')
+# the names the workflow reads from the release, a path in its checkout, its lock file, its policies, and its root's
+# variables and outputs
+RELEASE_NAMES = re.compile(
+    r"(?<![\w/.$-])(?:manifest|scripts|environments|modules|policy)/[\w.-]+(?:/[\w.-]+)*"
+    r'|\.terraform\.lock\.hcl|--policy \S+|-var "\w+=|output -raw \w+'
+)
 
-# a shell line that decides which call runs or what its failure does, kept beside the calls of a step
-CONTROL = re.compile(r"(if|elif|else|fi|case|esac|exit)\b")
+# the keys of a step and of the job that decide whether a step runs, what it reads and what a failure does
+STEP_KEYS = ("if", "env", "continue-on-error", "shell", "working-directory")
+JOB_KEYS  = ("env", "defaults", "continue-on-error")
+
+# the lines of each verify that may touch the folder a download fills, a read of the copy, its verify and its copy to
+# the apply's path, in that order
+GATE_VERIFY = " ".join([
+    'python3 "$HELPER" verify --manifest "$RUNNER_TEMP/gate/manifest.json"',
+    '--expected "$RUNNER_TEMP/expected.json" --floor "$TF_FLOOR" --max-age-hours "$MAX_AGE"',
+])
+GATE_LINES  = [
+    "plan_sha=\"$(sha256sum \"$RUNNER_TEMP/gate/tfplan\" | cut -d' ' -f1)\"",
+    GATE_VERIFY,
+    'cp "$RUNNER_TEMP/gate/tfplan" "$RUNNER_TEMP/tfplan"',
+]
 
 
 @pytest.fixture(scope = "module")
@@ -607,20 +624,38 @@ class TestThePlanProofAndTheRecord:
 # The run contract (design 5.6, Round Table 92, L12, the owner's answers of 2026-11-12)
 # ======================================================================================================================
 
-def _logical_lines(script: str) -> list[str]:
+def _shell_lines(script: str) -> list[str]:
     """
-    A step's script as its shell reads it, each continued line joined and its spaces made single.
+    A step's script as its shell runs it, each continued line joined, its spaces made single and its comments left out.
     """
     joined = re.sub(r"\\\n[ \t]*", " ", script)
-    return [" ".join(line.split()) for line in joined.splitlines() if line.strip()]
+    lines  = (" ".join(line.split()) for line in joined.splitlines())
+    return [line for line in lines if line and not line.startswith("#")]
+
+
+def _prints_only(line: str) -> bool:
+    """
+    Whether a shell line only prints, an echo with no redirect, no command run inside it and nothing chained to it.
+    """
+    is_echo = line == "echo" or line.startswith("echo ")
+    return is_echo and not any(mark in line for mark in (">", "$(", "`", "|", ";", "&&"))
+
+
+def _logical_lines(script: str) -> list[str]:
+    """
+    The lines of a step that can change what the release is asked, its shell lines less each one that only prints,
+    so a changed message declares nothing.
+    """
+    return [line for line in _shell_lines(script) if not _prints_only(line)]
 
 
 def release_interface(flow: dict) -> dict:
     """
-    What the workflow asks of the release it runs, contract 1's parts. Each step that calls a release script, in
-    order, with its condition, whether a failure stops it, and its calls with the shell lines that decide which call
-    runs and what a failure does, then the files read by fixed names and the root's names. A message the step prints
-    is left out, so changing one declares nothing.
+    What the workflow asks of the release it runs, contract 1's parts. Each step that calls a release script, whole,
+    in order, its condition, its variables, whether a failure stops it, its shell and every line it runs but its
+    comments and its echoes that only print. Then the job's variables, the release's checkout, the defaults of the
+    caller's file inputs, and every path in the release's checkout and name of its root the job reads (Codex's review
+    of a2bdbd1, finding 1).
     """
     inputs = flow[True]["workflow_call"]["inputs"]
     job    = flow["jobs"]["run"]
@@ -628,17 +663,20 @@ def release_interface(flow: dict) -> dict:
     names: set[str]   = set()
     for step in job["steps"]:
         lines = _logical_lines(step.get("run", ""))
-        for line in lines:
-            names.update(match.group(0) for match in RELEASE_NAMES.finditer(line))
-        if not any(RELEASE_SCRIPT.search(line) for line in lines):
+        for text in [*lines, *(str(value) for value in (step.get("env") or {}).values())]:
+            names.update(match.group(0) for match in RELEASE_NAMES.finditer(text))
+        if not any(RELEASE_CALL.search(line) for line in lines):
             continue
-        calls.append({
-            "if": str(step.get("if", "")),
-            "strict": step.get("run", "").lstrip().startswith("set -euo pipefail"),
-            "lines": [line for line in lines if RELEASE_SCRIPT.search(line) or CONTROL.match(line)],
-        })
+        frozen = {key: step[key] for key in STEP_KEYS if key in step}
+        frozen["run"] = lines
+        calls.append(frozen)
+    checkout = next(
+        step for step in job["steps"]
+        if str(step.get("uses", "")).startswith("actions/checkout@") and "repository" not in (step.get("with") or {})
+    )
     return {
-        "root": job["env"]["TF_DIR"],
+        "job": {key: job[key] for key in JOB_KEYS if key in job},
+        "checkout": checkout["with"],
         "manifest_path": inputs["manifest_path"]["default"],
         "state_rules_path": inputs["state_rules_path"]["default"],
         "names": sorted(names),
@@ -660,7 +698,7 @@ class TestTheRunContract:
         assert step["run"].strip() == 'python3 "$HELPER" contract --root . --release "v$RELEASE"'
         helpers = next(i for i, s in enumerate(steps) if (s.get("with") or {}).get("path") == "_kdf_cicd")
         assert _index(steps, "resolved commit") < helpers < contract
-        first = next(i for i, s in enumerate(steps) if RELEASE_SCRIPT.search(s.get("run", "")))
+        first = next(i for i, s in enumerate(steps) if RELEASE_CALL.search(s.get("run", "")))
         assert contract < first
         assert contract < _index(steps, "Terraform init")
 
@@ -674,26 +712,69 @@ class TestTheRunContract:
         )
 
 
-    @pytest.mark.parametrize("step, field, old, new, part", [
-        ("Map the inputs", "run", "--hashes", "--new --hashes", "calls"),
-        ("Map the inputs", "run", "set -euo pipefail\n", "", "calls"),
+    @pytest.mark.parametrize("step, field, old, new", [
+        # an argument, the exit handling, a branch and a mode's condition
+        ("Map the inputs", "run", "--hashes", "--new --hashes"),
+        ("Map the inputs", "run", "set -euo pipefail\n", ""),
+        ("Map the inputs", "run", "set -euo pipefail\n", "set -euo pipefail\nset +e\n"),
         ("Hold the state before the plan", "run", "&& python3 scripts/tf_state_proof.py",
-         "|| python3 scripts/tf_state_proof.py", "calls"),
-        ("Hold the state before the plan", "run", 'if [ "$MODE" != repair ]; then',
-         'if [ "$MODE" != validate ]; then', "calls"),
-        ("The state proof after", "run", 'elif [ "$APPLY" = success ]', 'elif [ "$APPLY" = failure ]', "calls"),
-        ("Build the run's rules", "if", "inputs.mode == 'apply' || ", "", "calls"),
-        ("The policies", "run", "--policy policy", "--policy rules", "names"),
-        ("Refuse an obsolete run", "run", "output -raw release", "output -raw marker", "names"),
+         "|| python3 scripts/tf_state_proof.py"),
+        ("Hold the state before the plan", "run", 'if [ "$MODE" != repair ]; then', 'if [ "$MODE" != validate ]; then'),
+        ("The state proof after", "run", 'elif [ "$APPLY" = success ]', 'elif [ "$APPLY" = failure ]'),
+        ("Build the run's rules", "if", "inputs.mode == 'apply' || ", ""),
+        # the secrets file kept after the call, and a name the release is read by (Codex's review of a2bdbd1)
+        ("Map the inputs", "run", 'rm -f "$RUNNER_TEMP/tf-secrets.json"', 'true'),
+        ("The policies", "run", "--policy policy", "--policy rules"),
+        ("The policies", "run", "--policy policy", "--policy policy --data manifest/new-policy.json"),
+        ("Refuse an obsolete run", "run", "output -raw release", "output -raw marker"),
     ])
-    def test_the_freeze_sees_each_part_of_the_interface(self, flow, step, field, old, new, part):
-        # each kind of change the frozen copy must catch, made to a copy of the workflow, an argument, the exit
-        # handling, a mode's condition and a name the release is read by
+    def test_the_freeze_sees_each_part_of_the_interface(self, flow, step, field, old, new):
         changed = copy.deepcopy(flow)
         target  = changed["jobs"]["run"]["steps"][_index(changed["jobs"]["run"]["steps"], step)]
         assert old in target[field]
         target[field] = target[field].replace(old, new)
-        assert release_interface(changed)[part] != release_interface(flow)[part]
+        assert release_interface(changed) != release_interface(flow)
+
+
+    def test_the_freeze_sees_a_moved_removal_a_step_variable_a_kept_failure_and_the_jobs_own(self, flow):
+        # each a change Codex's review of a2bdbd1 made that the first freeze missed
+        changes = []
+        moved   = copy.deepcopy(flow)
+        step    = _steps(moved, "run")[_index(_steps(moved, "run"), "Map the inputs")]
+        removal = 'rm -f "$RUNNER_TEMP/tf-secrets.json"\n'
+        assert removal in step["run"]
+        step["run"] = step["run"].replace(removal, "").replace("set -euo pipefail\n", "set -euo pipefail\n" + removal)
+        changes.append(moved)
+        renamed = copy.deepcopy(flow)
+        _steps(renamed, "run")[_index(_steps(renamed, "run"), "Map the inputs")]["env"]["MANIFEST_PATH"] = (
+            "manifest/new-name.json"
+        )
+        changes.append(renamed)
+        kept = copy.deepcopy(flow)
+        _steps(kept, "run")[_index(_steps(kept, "run"), "Map the inputs")]["continue-on-error"] = True
+        changes.append(kept)
+        rooted = copy.deepcopy(flow)
+        rooted["jobs"]["run"]["env"]["TF_DIR"] = "roots/${{ inputs.environment }}"
+        changes.append(rooted)
+        moved_checkout = copy.deepcopy(flow)
+        next(s for s in _steps(moved_checkout, "run") if str(s.get("uses", "")).startswith("actions/checkout@")
+             and "repository" not in s["with"])["with"]["path"] = "release"
+        changes.append(moved_checkout)
+        for changed in changes:
+            assert release_interface(changed) != release_interface(flow)
+
+
+    @pytest.mark.parametrize("step, old, new", [
+        ("Map the inputs", "set -euo pipefail\n", 'set -euo pipefail\necho "the preflight starts"\n'),
+        ("Terraform plan", "set -euo pipefail\n", 'set -euo pipefail\necho "scripts/tf_inputs.py finished"\n'),
+        ("Hold the state before the plan", "set -euo pipefail\n", "set -euo pipefail\n# a note on the check\n"),
+    ])
+    def test_a_message_or_a_comment_declares_nothing(self, flow, step, old, new):
+        changed = copy.deepcopy(flow)
+        target  = _steps(changed, "run")[_index(_steps(changed, "run"), step)]
+        assert old in target["run"]
+        target["run"] = target["run"].replace(old, new, 1)
+        assert release_interface(changed) == release_interface(flow)
 
 
     def test_cicd_keeps_contract_1_at_its_fixed_name(self):
@@ -706,6 +787,31 @@ class TestTheRunContract:
 
 def _downloads(steps: list[dict]) -> list[int]:
     return [i for i, step in enumerate(steps) if str(step.get("uses", "")).startswith("actions/download-artifact@")]
+
+
+def handoff_faults(flow: dict) -> list[str]:
+    """
+    Every way acceptance could verify or apply a copy the download did not bring back, or skip the seal or the upload,
+    so the handoff it runs is the deploy's (Codex's review of a2bdbd1, finding 2).
+    """
+    faults: list[str] = []
+    steps  = _steps(flow, "run")
+    seal   = _index(steps, "Seal the gate's manifest")
+    upload = _index(steps, "Keep the plan and its manifest")
+    for place in (seal, upload):
+        if steps[place].get("if") != "inputs.mode == 'gate-plan' || inputs.mode == 'acceptance'":
+            faults.append(f"{steps[place]['name']} does not run in both the gate and acceptance")
+    verifies = (_index(steps, "Verify the gate's manifest"), _index(steps, "Verify the downloaded copy"))
+    for i, step in enumerate(steps):
+        text = json.dumps({key: value for key, value in step.items() if key != "name"})
+        if "sealed" in text and i not in (seal, upload):
+            faults.append(f"{step['name']} names the sealed folder")
+        gate = [line for line in _shell_lines(step.get("run", "")) if "$RUNNER_TEMP/gate" in line]
+        if i in verifies and gate != GATE_LINES:
+            faults.append(f"{step['name']} touches the downloaded copy other than to read, verify and apply it")
+        if i not in verifies and gate:
+            faults.append(f"{step['name']} touches the folder a download fills")
+    return faults
 
 
 class TestTheAcceptanceHandoff:
@@ -724,10 +830,33 @@ class TestTheAcceptanceHandoff:
             "${{ runner.temp }}/sealed/manifest.json",
             "${{ runner.temp }}/sealed/tfplan",
         ]
-        for step in steps:
-            if "$RUNNER_TEMP/gate" in step.get("run", ""):
-                assert 'python3 "$HELPER" verify --manifest "$RUNNER_TEMP/gate/manifest.json"' in step["run"]
         assert [steps[i]["with"]["path"] for i in _downloads(steps)] == ["${{ runner.temp }}/gate"] * 2
+        assert handoff_faults(flow) == []
+
+
+    @pytest.mark.parametrize("change", [
+        "the verifies fill the folder from the sealed one first",
+        "the seal skips acceptance",
+        "the upload skips acceptance",
+        "a later step copies the sealed plan to the apply's path",
+    ])
+    def test_each_way_around_the_download_is_a_fault(self, flow, change):
+        # each passed every case before (Codex's review of a2bdbd1, finding 2)
+        changed = copy.deepcopy(flow)
+        steps   = _steps(changed, "run")
+        if change.startswith("the verifies"):
+            filled = 'if [ -d "$RUNNER_TEMP/sealed" ]; then cp "$RUNNER_TEMP/sealed/"* "$RUNNER_TEMP/gate/"; fi\n'
+            for name in ("Verify the gate's manifest", "Verify the downloaded copy"):
+                step = steps[_index(steps, name)]
+                step["run"] = step["run"].replace("set -euo pipefail\n", "set -euo pipefail\n" + filled)
+        elif change == "the seal skips acceptance":
+            steps[_index(steps, "Seal the gate's manifest")]["if"] = "inputs.mode == 'gate-plan'"
+        elif change == "the upload skips acceptance":
+            steps[_index(steps, "Keep the plan and its manifest")]["if"] = "inputs.mode == 'gate-plan'"
+        else:
+            claim = steps[_index(steps, "Claim the gate run")]
+            claim["run"] = 'cp "$RUNNER_TEMP/sealed/tfplan" "$RUNNER_TEMP/tfplan"\n' + claim["run"]
+        assert handoff_faults(changed)
 
 
     def test_the_upload_keeps_the_gates_and_the_acceptances_plan_after_its_proofs(self, flow):
