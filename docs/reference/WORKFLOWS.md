@@ -340,13 +340,19 @@ cancellation off and a five hour timeout.
 
 | Mode | Home | Switch | What it does |
 |---|---|---|---|
-| `apply` | `dev` | on | plan with refresh, the policies, apply, the state proof |
-| `gate-plan` | `prod` | on | plan, every state the saved plan carries proven, the manifest sealed, both kept three days |
-| `deploy` | `prod` | on | the named gate run checked, the seal verified, its Terraform installed, the run claimed once, the saved plan applied, the state proof |
-| `validate` | either | off | plan with refresh, never applied, fails unless a plan of no changes |
+| `apply` | `dev` | on | plan with refresh, the policies, the run's rules, the plan proof, apply, the state proof, the record |
+| `gate-plan` | `prod` | on | the newest record held, plan, the run's rules, every state the saved plan carries proven from the binary, the manifest sealed, both kept three days |
+| `deploy` | `prod` | on | the named gate run checked, the seal verified, its Terraform installed, the newest record held, the gate's binary decoded and its rules built, the run claimed once, the saved plan applied, the state proof, the record |
+| `validate` | either | off | plan with refresh, never applied, fails unless a plan of no changes. With `certify_digest`, the pulled state of that digest recorded, each differing address listed |
 | `recovery` | either | unheld | plan against a scratch schema through `TF_STATE_RECOVERY_CONN_STR` alone, never applied |
-| `repair` | either | off | one action, `push` (bound by `bind-push`) or `import` (the caller's shared import), then the state proof |
+| `repair` | either | off | one action, `push` (bound by `bind-push`) or `import` (the caller's shared import), then the structural proof, no record |
 | `acceptance` | `dev` | unheld | the gate's plan and the deploy's verify and apply on the same code, refused unless a plan of no changes |
+
+The proof record (D-103). A proof that passes after a write, the full rules after a completed one and the partial
+rule after one that stopped, and the owner's named `validate`, record the state in a deployment of its own, sealed
+under `TF_MANIFEST_KEY` by this job. The PROD gate and deploy stop unless the stored state is the newest record's.
+Before naming a digest, the owner runs an ordinary `validate`, which names each address that differs, and looks each
+up in Vercel or sets it back, since the record trusts those values.
 
 | Input | Type | Default | Required |
 |---|---|---|---|
@@ -358,7 +364,8 @@ cancellation off and a five hour timeout.
 | `allow_older_release` | boolean | `false` | no. An `apply` of a release older than the state's marker, named on purpose |
 | `gate_run_id`, `max_plan_age_hours` | string, number | `''`, `72` | `deploy` |
 | `repair_action`, `repair_address`, `repair_object_id`, `repair_candidate_sha256`, `repair_live_sha256`, `repair_live_lineage`, `repair_live_serial`, `repair_named_release` | string | `''` | `repair` |
-| `manifest_path`, `state_rules_path` | string | `manifest/manifest.json`, `manifest/state_rules.json` | no |
+| `manifest_path`, `state_rules_path` | string | `manifest/manifest.json`, `manifest/state_rules.json` | no. The rules in the proof's structural mode |
+| `certify_digest` | string | `''` | `validate` alone, the sha256 of the pulled state the owner names to record |
 
 - **Secrets read (via `inherit`).** `TF_STATE_PG_CONN_STR` mapped to `PG_CONN_STR`, the backend's channel, for
   the whole job in the writing modes, `TF_STATE_RECOVERY_CONN_STR` in `recovery` and a `repair` push's candidate
@@ -369,12 +376,14 @@ cancellation off and a five hour timeout.
 - **Variables read.** `TF_ACTIONS_ON_DEV`, `TF_ACTIONS_ON_PROD`, and the environment's `TF_STATE_SCHEMA` and
   `TF_STATE_IDENTITY`, the live backend's public identity, never read from the release.
 - **The caller's files.** `scripts/tf_inputs.py` (the preflight and the derived versions), `scripts/tf_state_proof.py`,
-  `scripts/tf_plan_proof.py`, `scripts/tf_repair_import.py`, `policy/`, the manifest and the state rules, by these
-  names at the commit applied, so cicd names no tenant (AGENTS.md rule 12).
+  `scripts/tf_state_extra.py` (beside every proof), `scripts/tf_state_rules.py` (the run's own rules from the plan it
+  applies), `scripts/tf_plan_proof.py` (the binary plan by name, the stored state and both rules files),
+  `scripts/tf_repair_import.py`, `policy/`, the manifest and the state rules, by these names at the commit applied, so
+  cicd names no tenant (AGENTS.md rule 12).
 - **Helpers.** `scripts/terraform_run.py`, `at-least`, `identity`, `no-changes`, `seal`, `verify`, `state-digest`,
-  `bind-push`, and `check_prod_gate.py --gate-run`.
+  `bind-push`, `record-seal`, `record-check`, and `check_prod_gate.py --gate-run`.
 - **Outputs.** `plan_sha256`. **Permissions.** `authorize`: `contents: read`. `run`: `contents: read`,
-  `actions: read` (the gate's artifact), `deployments: write` (the gate run's claim).
+  `actions: read` (the gate's artifact), `deployments: write` (the gate run's claim and the proof records).
 - **Consumer.** `kriegerdataforge-terraform`, from the move on.
 
 ```yaml

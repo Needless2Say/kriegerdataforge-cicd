@@ -361,3 +361,151 @@ class TestTheRunJob:
 
     def test_no_state_file_is_ever_uploaded(self, text):
         assert "errored.tfstate" not in text.split("actions/upload-artifact@", 1)[1].split("- name:", 1)[0]
+
+# ======================================================================================================================
+# The saved plan read whole, the run's rules and the proof record (design version 14, Round Table 88)
+# ======================================================================================================================
+
+def _if(steps: list[dict], name: str) -> str:
+    """
+    A step's condition, by the words in its name.
+    """
+    return str(steps[_index(steps, name)].get("if", ""))
+
+
+class TestThePlanProofAndTheRecord:
+    """
+    The binary plan given by name, full rules built from the plan a run applies, a sealed record of each proven state
+    the PROD gate and deploy require, and the owner's named validate as the way back.
+    """
+    def test_certify_digest_is_an_optional_string(self, flow):
+        spec = flow[True]["workflow_call"]["inputs"]["certify_digest"]
+        assert spec["required"] is False and spec["type"] == "string" and spec["default"] == ""
+
+
+    def test_a_certify_digest_outside_validate_is_refused(self, flow):
+        steps = _steps(flow, "run")
+        step  = steps[_index(steps, "certify_digest outside validate")]
+        assert "exit 1" in step["run"]
+        assert step["if"] == "inputs.certify_digest != '' && inputs.mode != 'validate'"
+        assert _index(steps, "certify_digest outside validate") < _index(steps, "Terraform init")
+
+
+    def test_the_proofs_json_is_written_from_the_binary_in_the_step_that_saves_it(self, flow):
+        # the policies' step rewrites its own copy, so the proof and the builder read one it never touches (M2)
+        steps = _steps(flow, "run")
+        plan  = steps[_index(steps, "Terraform plan")]["run"]
+        assert '-out="$RUNNER_TEMP/tfplan"' in plan and "tfplan.proof.json" in plan
+        assert "tfplan.proof.json" not in steps[_index(steps, "The policies")]["run"]
+
+
+    def test_a_deploy_decodes_the_gates_binary_with_the_manifests_terraform(self, flow):
+        steps  = _steps(flow, "run")
+        decode = _index(steps, "Decode the gate's plan")
+        assert _if(steps, "Decode the gate's plan") == "inputs.mode == 'deploy'"
+        assert 'show -json "$RUNNER_TEMP/tfplan" > "$RUNNER_TEMP/tfplan.proof.json"' in steps[decode]["run"]
+        assert _index(steps, "Verify the gate's manifest") < decode
+        assert _index(steps, "Set up Terraform for the deploy") < decode < _index(steps, "Terraform apply")
+
+
+    def test_the_rules_are_built_from_the_proofs_json_in_each_mode_that_writes_or_gates(self, flow):
+        steps     = _steps(flow, "run")
+        build     = _index(steps, "Build the run's rules")
+        condition = _if(steps, "Build the run's rules")
+        for mode in ("apply", "gate-plan", "acceptance", "deploy"):
+            assert f"'{mode}'" in condition
+        for mode in ("validate", "recovery", "repair"):
+            assert f"'{mode}'" not in condition
+        script = steps[build]["run"]
+        assert "scripts/tf_state_rules.py" in script and '"$RUNNER_TEMP/tfplan.proof.json"' in script
+        assert "tf-inputs.tfvars.json" not in script
+        assert build > _index(steps, "Decode the gate's plan") and build < _index(steps, "Terraform apply")
+
+
+    def test_the_plan_proof_reads_the_binary_by_name_in_the_gate_acceptance_and_devs_apply(self, flow):
+        steps     = _steps(flow, "run")
+        proof     = _index(steps, "Prove every state the saved plan carries")
+        condition = _if(steps, "Prove every state the saved plan carries")
+        for mode in ("apply", "gate-plan", "acceptance"):
+            assert f"'{mode}'" in condition
+        script = steps[proof]["run"]
+        for argument in (
+            '--plan "$RUNNER_TEMP/tfplan.proof.json"',
+            '--planfile "$RUNNER_TEMP/tfplan"',
+            '--stored "$RUNNER_TEMP/before.json"',
+            "--existing-rules",
+            "--full-rules",
+        ):
+            assert argument in script
+        assert _index(steps, "Build the run's rules") < proof < _index(steps, "Terraform apply")
+        assert proof < _index(steps, "Keep the plan and its manifest")
+
+
+    def test_the_stored_state_is_kept_for_the_proof_and_removed_at_the_end(self, flow):
+        steps = _steps(flow, "run")
+        hold  = steps[_index(steps, "state before the plan")]["run"]
+        assert 'rm -f "$RUNNER_TEMP/before.json"' not in hold
+        assert "scripts/tf_state_extra.py" in hold
+        last = steps[_index(steps, "Remove the pulled states")]
+        assert last["if"] == "always()"
+        assert 'rm -f "$RUNNER_TEMP/before.json"' in last["run"]
+
+
+    def test_the_prod_gate_and_deploy_require_the_last_sealed_record_before_anything_rests_on_the_state(self, flow):
+        steps   = _steps(flow, "run")
+        require = _index(steps, "Require the last proof record")
+        assert _if(steps, "Require the last proof record") == "inputs.mode == 'gate-plan' || inputs.mode == 'deploy'"
+        script = steps[require]["run"]
+        assert "--paginate" in script and 'python3 "$HELPER" record-check' in script
+        assert steps[require]["env"]["TF_MANIFEST_KEY"] == "${{ secrets.TF_MANIFEST_KEY }}"
+        assert _index(steps, "state before the plan") < require < _index(steps, "Terraform plan")
+        assert require < _index(steps, "Keep the plan and its manifest")
+        assert require < _index(steps, "Claim the gate run")
+
+
+    def test_the_proof_after_a_write_takes_the_full_rules_or_the_partial_rule_and_names_its_record(self, flow):
+        steps  = _steps(flow, "run")
+        script = steps[_index(steps, "state proof after")]["run"]
+        assert "state-rules-full.json" in script and "scripts/tf_state_extra.py" in script
+        assert "--partial-plan" in script
+        assert "record=complete" in script and "record=partial" in script and "record=none" in script
+
+
+    def test_a_repair_never_makes_a_record(self, flow):
+        steps  = _steps(flow, "run")
+        script = steps[_index(steps, "state proof after")]["run"]
+        repair = script.split('"$MODE" = repair', 1)[1].split("fi", 1)[0]
+        assert "record=none" in repair
+
+
+    def test_the_record_is_sealed_by_the_environments_job_after_its_proof(self, flow):
+        steps  = _steps(flow, "run")
+        record = _index(steps, "Record the proven state")
+        step   = steps[record]
+        assert "steps.proof.outcome == 'success'" in step["if"] and "steps.certify.outcome == 'success'" in step["if"]
+        assert 'python3 "$HELPER" record-seal' in step["run"]
+        assert step["env"]["TF_MANIFEST_KEY"] == "${{ secrets.TF_MANIFEST_KEY }}"
+        assert "deployments" in step["run"]
+        assert record > _index(steps, "state proof after") and record > _index(steps, "Certify the named state")
+
+
+    def test_the_named_validate_certifies_the_pulled_state_and_skips_the_plan_of_no_changes(self, flow):
+        steps   = _steps(flow, "run")
+        certify = steps[_index(steps, "Certify the named state")]
+        assert certify["if"] == "inputs.mode == 'validate' && inputs.certify_digest != ''"
+        assert "CERTIFY_DIGEST" in certify["env"] and '"$RUNNER_TEMP/before.json"' in certify["run"]
+        assert "exit 1" in certify["run"]
+        quiet = _if(steps, "plan of no changes")
+        assert "inputs.certify_digest == ''" in quiet and "'acceptance'" in quiet
+
+
+    def test_the_header_names_each_script_and_both_rules_files(self, text):
+        header = text.split("name: CD, Terraform run", 1)[0]
+        for name in (
+            "tf_state_rules.py",
+            "tf_state_extra.py",
+            "tf_plan_proof.py",
+            "certify_digest",
+            "state-rules-full.json",
+        ):
+            assert name in header

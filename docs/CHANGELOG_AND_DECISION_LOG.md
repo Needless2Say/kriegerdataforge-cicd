@@ -5487,3 +5487,43 @@ environment on, so this merge changes no run. The terraform repo's scripts named
 contract with that repo. A gate run is consumed by its first deploy, a deploy cut off after its claim included, so a
 rerun takes a new gate.
 
+## D-103. Terraform run, the saved plan read whole, the run's own rules and a sealed record of each proven state
+
+- **Date.** 2026-11-11
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Follows.** D-102, whose reusable workflow this extends, additively, before any caller uses it.
+- **Tier / scope:** Epic · `.github/workflows/terraform-run.yml`, `scripts/terraform_run.py`, the tests and the docs
+
+**Context.** D-102 gave the gate's plan proof the plan's JSON alone, which holds no provider private data, and ran
+one committed rules file at the check before the plan, the gate's proof and the proof after a write. A full rules
+file fails before the plan whenever a release changes a public value or a rotation changes a version, and a
+structural one compares no public value and no version after the write. A structural pass of the stored state also
+never showed that a full proof once passed it, so a value a failed proof or a repair left could ride, unseen, as the
+before value of the next gate's artifact, which a branch's job can fetch.
+
+**Decision.** The plan step writes a second JSON from the binary before the policies' step changes theirs, and a
+deploy decodes the gate's binary with the Terraform its sealed manifest names. The caller's `tf_state_rules.py`
+builds the run's full rules and the stored state's own rules from that JSON, never from the state judged or the
+variables file. The plan proof is given the binary by name, the stored state kept from the check before the plan,
+and both rules files, in the gate, acceptance and DEV's apply. The committed rules stay the structural mode before
+every plan. The caller's `tf_state_extra.py` runs beside every call of the frozen proof. After a completed write the
+state is held to the full rules, after one that stopped partway to the rule that each plain value is the applied
+plan's before or after value, and a repair to the structural rules alone. A passing proof after a write, and the
+owner's `validate` naming a state's digest in the new `certify_digest` input, record the state in a GitHub deployment
+of its own, sealed under `TF_MANIFEST_KEY` by `terraform_run.py record-seal`, binding the repository, environment,
+backend, the state's digest, lineage and serial, the release, the commit and the run. The PROD gate and deploy check
+the newest record across every page with `record-check` and stop on one missing, unsealed or naming another state,
+never falling back to an older one. A repair makes no record.
+
+**Alternatives considered.** *The JSON alone, a known limit.* Declined, the artifact would carry unread private data.
+*The binary found by convention.* Declined, a missing file would fail open or be this decision without its name.
+*Expected public values from a second evaluation of the configuration.* Declined by the owner, `terraform console`
+reaches no resource in a nested module. *A record in the payload unsealed.* Declined, a branch job able to write a
+deployment could certify a state it never proved. *A refusal on every write without a record.* Declined, an apply
+cut off partway could then never finish.
+
+**Consequences.** Still no caller, so this merge changes no run. The terraform repo's next pull request must hold
+`tf_state_rules.py`, `tf_state_extra.py` and the plan proof's new arguments before its move switches an environment
+on. After a repair or a change outside the workflow, the PROD gate waits until the owner runs an ordinary `validate`,
+looks up each address it names, and then names the state's digest.
+

@@ -54,7 +54,7 @@ repo. As KDF grows, this library may also host AI driven agent workflows, an ide
 | `.github/workflows/cd-nextjs-vercel.yml` | Deploy Next.js → Vercel (fitness-app-frontend, tiffanys-space, arthurs-portfolio) |
 | `.github/workflows/cd-python-vercel.yml` | Deploy FastAPI → Vercel + optional Alembic migrations (kriegerdataforge, app backends) |
 | `.github/workflows/cd-terraform.yml` | `terraform plan` + `apply` for Vercel infra (kriegerdataforge-terraform) |
-| `.github/workflows/terraform-run.yml` + `scripts/terraform_run.py` | The one writer of a terraform environment's state, seven modes held to their switch, no secret in a state or a plan, the gate's plan sealed and claimed once (D-102). Beside `cd-terraform.yml` until the terraform repo's move switches it on |
+| `.github/workflows/terraform-run.yml` + `scripts/terraform_run.py` | The one writer of a terraform environment's state, seven modes held to their switch, no secret in a state or a plan, the gate's plan sealed and claimed once (D-102), the saved plan read whole, the run's own rules and a sealed record of each proven state (D-103). Beside `cd-terraform.yml` until the terraform repo's move switches it on |
 | `.github/workflows/bump-version-check.yml` | Validate `VERSION` is exactly +1 semver ahead of `main` |
 | `.github/workflows/create-github-release.yml` | Create GitHub Release + git tag from `VERSION` |
 | `.github/workflows/ci-*.yml` | Reusable per stack CI (python lint/typecheck/tests/security/integration, nextjs build/lint/tests, codeql, npm audit, vercel compactor) |

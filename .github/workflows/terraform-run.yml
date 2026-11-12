@@ -9,7 +9,9 @@
 #               TF_MANIFEST_KEY, the plan and its manifest uploaded for three days. Switch on.
 #   deploy      PROD, the named gate run's plan. The gate checker, the seal first, the Terraform version the manifest
 #               names, the gate run claimed once, the saved plan applied, then the state proof. Switch on.
-#   validate    Plan with refresh, never apply, fails unless a plan of no changes. Switch off.
+#   validate    Plan with refresh, never apply, fails unless a plan of no changes. Switch off. With certify_digest,
+#               the owner's named way back after a repair or an outside change, the pulled state whose digest it names
+#               recorded after its structural proof, no plan of no changes asked, each differing address listed.
 #   recovery    Plan against a scratch schema through TF_STATE_RECOVERY_CONN_STR alone, never apply, the live string
 #               mapped nowhere and dropped from the secrets the caller's code reads, and a backend identity equal to
 #               the live one refused before init. Switch unheld.
@@ -36,15 +38,26 @@
 #
 # The caller's repo holds, at the commit applied, by these names (environment agnostic here, AGENTS.md rule 12):
 #   manifest/manifest.json, or manifest_path     the secrets and their inputs, by resource address
-#   manifest/state_rules.json, or state_rules_path the state proof's rules
+#   manifest/state_rules.json, or state_rules_path the committed rules, the proof's structural mode, run before
+#                             every plan and on a saved plan's prior states
 #   scripts/tf_inputs.py      reads --secrets-file, the inherited secrets less the connection strings, and the
 #                             manifest, checks every secret (the preflight), derives each
 #                             version with tf_versions.py, writes the variables file and each secret's keyed hash,
 #                             printing addresses and versions alone
-#   scripts/tf_state_proof.py the structural proof of a state, names alone
-#   scripts/tf_plan_proof.py  the gate's proof of every state a saved plan carries
+#   scripts/tf_state_proof.py the structural proof of a state, names alone, its bytes frozen
+#   scripts/tf_state_extra.py the supplemental check beside every call of it, private data values and deposed
+#                             plain values, and with --partial-plan the rule for a write that stopped partway
+#   scripts/tf_state_rules.py the run's own rules from the plan it applies, written to the runner's temporary
+#                             folder, state-rules-full.json for the state after a write and
+#                             state-rules-existing.json for the stored state's own inventory, never reading the
+#                             variables file
+#   scripts/tf_plan_proof.py  every state a saved plan carries, read whole from the binary given by name
 #   scripts/tf_repair_import.py one object imported at its manifest address by the shared import, tf_import.py
 #   policy/                   the conftest policies, every deny blocking
+#
+# The proof record (design version 14). A proof that passes after a write, completed or stopped partway, and the
+# owner's named validate record the state's digest in a deployment of its own, sealed under TF_MANIFEST_KEY by this
+# job, and the PROD gate and deploy refuse a stored state that is not the newest record's. A repair makes none.
 
 name: CD, Terraform run (reusable)
 
@@ -141,10 +154,15 @@ on:
         type: string
         default: 'manifest/manifest.json'
       state_rules_path:
-        description: 'The state proof rules'
+        description: 'The committed state proof rules, the structural mode'
         required: false
         type: string
         default: 'manifest/state_rules.json'
+      certify_digest:
+        description: 'validate, the sha256 of the pulled state the owner names to record after a repair'
+        required: false
+        type: string
+        default: ''
     outputs:
       plan_sha256:
         description: 'The sha256 of the plan this run made or applied'
@@ -312,6 +330,12 @@ jobs:
             exit 1
           fi
           echo "the checkout is the resolved commit $head"
+
+      - name: Refuse a certify_digest outside validate
+        if: inputs.certify_digest != '' && inputs.mode != 'validate'
+        run: |
+          echo "::error::certify_digest is the named validate's alone, the $MODE mode takes none"
+          exit 1
 
       - name: Check out the helpers (kriegerdataforge-cicd)
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -495,20 +519,40 @@ jobs:
             echo "::warning::the live state is empty, the repair goes ahead and the proof after it decides"
           fi
           terraform -chdir="$TF_DIR" state pull > "$RUNNER_TEMP/before.json"
-          if ! python3 scripts/tf_state_proof.py --state "$RUNNER_TEMP/before.json" \
-            --schema "$RUNNER_TEMP/schema.json" --rules "$STATE_RULES"; then
+          if ! { python3 scripts/tf_state_proof.py --state "$RUNNER_TEMP/before.json" \
+              --schema "$RUNNER_TEMP/schema.json" --rules "$STATE_RULES" \
+            && python3 scripts/tf_state_extra.py --state "$RUNNER_TEMP/before.json" \
+              --schema "$RUNNER_TEMP/schema.json" --rules "$STATE_RULES"; }; then
             if [ "$MODE" != repair ]; then
               exit 1
             fi
             echo "::warning::the live state fails its proof, which the repair is meant to cure"
           fi
-          # what a later repair's forced push binds to, the live state as this run read it
+          # what a later repair's forced push binds to, the live state as this run read it. The file stays for the
+          # plan proof and the record check, and the last step removes it
           {
             echo "### The $TARGET state before this run"
             echo
             echo "\`$(python3 "$HELPER" state-digest --state "$RUNNER_TEMP/before.json")\`"
           } >> "$GITHUB_STEP_SUMMARY"
-          rm -f "$RUNNER_TEMP/before.json"
+
+      # the PROD gate and deploy rest on the stored state only when the newest sealed record names it, the newest
+      # judged alone, so a forged or broken newer one stops the run and never lets an older one stand in
+      - name: Require the last proof record
+        if: inputs.mode == 'gate-plan' || inputs.mode == 'deploy'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TF_MANIFEST_KEY: ${{ secrets.TF_MANIFEST_KEY }}
+          IDENTITY: ${{ steps.identity.outputs.identity }}
+          RECORDS_JQ: >-
+            .[] | select(.payload.terraform_proof_record != null)
+            | {id: .id, record: .payload.terraform_proof_record}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/deployments?environment=$TARGET&per_page=100" --paginate \
+            --jq "$RECORDS_JQ" > "$RUNNER_TEMP/records.jsonl"
+          python3 "$HELPER" record-check --records "$RUNNER_TEMP/records.jsonl" --state "$RUNNER_TEMP/before.json" \
+            --environment "$TARGET" --identity "$IDENTITY"
 
       # an automatic run older than the release the state last applied stops, GitHub keeping one pending run per
       # group and promising no order
@@ -535,11 +579,35 @@ jobs:
             exit 1
           fi
           terraform -chdir="$TF_DIR" show -json "$RUNNER_TEMP/tfplan" > "$RUNNER_TEMP/tfplan.json"
+          # the proof's and the builder's own copy, written from the binary here before the policies' step changes
+          # theirs (the revision read of version 14, M2)
+          cp "$RUNNER_TEMP/tfplan.json" "$RUNNER_TEMP/tfplan.proof.json"
+
+      # the deploy makes no plan, so the expectations come from the gate's binary it applies, decoded by the
+      # Terraform its sealed manifest names (M4)
+      - name: Decode the gate's plan
+        if: inputs.mode == 'deploy'
+        run: terraform -chdir="$TF_DIR" show -json "$RUNNER_TEMP/tfplan" > "$RUNNER_TEMP/tfplan.proof.json"
 
       - name: Record the plan's digest
         id: digest
         if: inputs.mode != 'repair'
         run: echo "plan_sha256=$(sha256sum "$RUNNER_TEMP/tfplan" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      # the full rules for the state after this run's write and the stored state's own inventory, from the plan it
+      # applies, never from the state judged or the variables file (Round Table 88, L5, L7 and L8)
+      - name: Build the run's rules
+        if: >-
+          inputs.mode == 'apply' || inputs.mode == 'gate-plan' || inputs.mode == 'acceptance'
+          || inputs.mode == 'deploy'
+        env:
+          STATE_RULES: ${{ inputs.state_rules_path }}
+          MANIFEST_PATH: ${{ inputs.manifest_path }}
+        run: |
+          set -euo pipefail
+          python3 scripts/tf_state_rules.py --environment "$TARGET" --manifest "$MANIFEST_PATH" \
+            --base "$STATE_RULES" --plan "$RUNNER_TEMP/tfplan.proof.json" --stored "$RUNNER_TEMP/before.json" \
+            --full-out "$RUNNER_TEMP/state-rules-full.json" --existing-out "$RUNNER_TEMP/state-rules-existing.json"
 
       - name: The policies, every deny blocking
         if: inputs.mode != 'deploy' && inputs.mode != 'repair'
@@ -565,8 +633,36 @@ jobs:
           "$RUNNER_TEMP/conftest" test "$RUNNER_TEMP/tfplan.json" --policy policy --all-namespaces
 
       - name: Hold the plan to a plan of no changes
-        if: inputs.mode == 'validate' || inputs.mode == 'acceptance'
+        if: (inputs.mode == 'validate' && inputs.certify_digest == '') || inputs.mode == 'acceptance'
         run: python3 "$HELPER" no-changes --plan "$RUNNER_TEMP/tfplan.json" --release "v$RELEASE"
+
+      # the owner's named way back after a repair or a change outside the workflow (design version 14). The pulled
+      # state, which passed the structural proof and the supplemental check before the plan, recorded if its digest
+      # is the one named, each address the plan would change listed, no value printed
+      - name: Certify the named state
+        id: certify
+        if: inputs.mode == 'validate' && inputs.certify_digest != ''
+        env:
+          CERTIFY_DIGEST: ${{ inputs.certify_digest }}
+        run: |
+          set -euo pipefail
+          pulled="$(sha256sum "$RUNNER_TEMP/before.json" | cut -d' ' -f1)"
+          if [ "$pulled" != "$CERTIFY_DIGEST" ]; then
+            echo "::error::the pulled state is $pulled, not the $CERTIFY_DIGEST named, nothing is recorded"
+            exit 1
+          fi
+          {
+            echo "### Certifying the $TARGET state $pulled"
+            echo
+            echo "Each address below holds a value other than the configured one, which this record trusts and which"
+            echo "rides as a before value in the next gate's artifact. Each should have been looked up in Vercel or"
+            echo "set back before this digest was named."
+            echo
+            echo '```'
+            python3 "$HELPER" no-changes --plan "$RUNNER_TEMP/tfplan.proof.json" --release "v$RELEASE" || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "record=certified" >> "$GITHUB_OUTPUT"
 
       - name: Report every difference (recovery, never applied)
         if: inputs.mode == 'recovery'
@@ -587,14 +683,16 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           rm -f "$RUNNER_TEMP/candidate.json"
 
-      # ── gate-plan and acceptance, every state the saved plan carries proven, then sealed and kept three days ──────
+      # ── every state the saved plan carries proven, the binary read whole, in the gate, acceptance and DEV's apply
+      #    (Round Table 88, L1 and L14), then the gate's plan sealed and kept three days ──────────────────────────────
       - name: Prove every state the saved plan carries
-        if: inputs.mode == 'gate-plan' || inputs.mode == 'acceptance'
+        if: inputs.mode == 'gate-plan' || inputs.mode == 'acceptance' || inputs.mode == 'apply'
         env:
           STATE_RULES: ${{ inputs.state_rules_path }}
         run: |
-          python3 scripts/tf_plan_proof.py --plan "$RUNNER_TEMP/tfplan.json" --schema "$RUNNER_TEMP/schema.json" \
-            --rules "$STATE_RULES"
+          python3 scripts/tf_plan_proof.py --plan "$RUNNER_TEMP/tfplan.proof.json" --planfile "$RUNNER_TEMP/tfplan" \
+            --stored "$RUNNER_TEMP/before.json" --schema "$RUNNER_TEMP/schema.json" --rules "$STATE_RULES" \
+            --existing-rules "$RUNNER_TEMP/state-rules-existing.json" --full-rules "$RUNNER_TEMP/state-rules-full.json"
 
       - name: Seal the gate's manifest
         if: inputs.mode == 'gate-plan' || inputs.mode == 'acceptance'
@@ -781,6 +879,7 @@ jobs:
           || steps.import.outcome != 'skipped')
         env:
           STATE_RULES: ${{ inputs.state_rules_path }}
+          APPLY: ${{ steps.apply.outcome }}
         run: |
           set -euo pipefail
           if ! terraform -chdir="$TF_DIR" state pull > "$RUNNER_TEMP/after.json"; then
@@ -792,8 +891,52 @@ jobs:
             echo "::error::the state is empty after the change, turn the switch off and repair it"
             exit 1
           fi
-          python3 scripts/tf_state_proof.py --state "$RUNNER_TEMP/after.json" --schema "$RUNNER_TEMP/schema.json" \
-            --rules "$STATE_RULES"
+          after="$RUNNER_TEMP/after.json"
+          schema="$RUNNER_TEMP/schema.json"
+          if [ "$MODE" = repair ]; then
+            # a repair neither needs a record nor makes one, its postcondition its own step's (design version 14)
+            python3 scripts/tf_state_proof.py --state "$after" --schema "$schema" --rules "$STATE_RULES"
+            python3 scripts/tf_state_extra.py --state "$after" --schema "$schema" --rules "$STATE_RULES"
+            echo "record=none" >> "$GITHUB_OUTPUT"
+          elif [ "$APPLY" = success ]; then
+            full="$RUNNER_TEMP/state-rules-full.json"
+            python3 scripts/tf_state_proof.py --state "$after" --schema "$schema" --rules "$full"
+            python3 scripts/tf_state_extra.py --state "$after" --schema "$schema" --rules "$full"
+            echo "record=complete" >> "$GITHUB_OUTPUT"
+          else
+            # a write that stopped partway, recorded when each plain value is the applied plan's before or after
+            # value, both held by that plan's proof, so the next apply finishes the change
+            python3 scripts/tf_state_proof.py --state "$after" --schema "$schema" --rules "$STATE_RULES"
+            python3 scripts/tf_state_extra.py --state "$after" --schema "$schema" --rules "$STATE_RULES" \
+              --partial-plan "$RUNNER_TEMP/tfplan.proof.json"
+            echo "record=partial" >> "$GITHUB_OUTPUT"
+          fi
+
+      # a record of the proven state, sealed under the environment's key by this job alone, after its proof and under
+      # the environment's group. A proof that passed with no record written leaves the next PROD run waiting on a
+      # named validate (design version 14, the second read's H)
+      - name: Record the proven state
+        if: >-
+          always() && ((steps.proof.outcome == 'success' && steps.proof.outputs.record != 'none')
+          || steps.certify.outcome == 'success')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TF_MANIFEST_KEY: ${{ secrets.TF_MANIFEST_KEY }}
+          IDENTITY: ${{ steps.identity.outputs.identity }}
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+          KIND: ${{ steps.certify.outcome == 'success' && 'certified' || steps.proof.outputs.record }}
+        run: |
+          set -euo pipefail
+          if [ "$KIND" = certified ]; then state="$RUNNER_TEMP/before.json"; else state="$RUNNER_TEMP/after.json"; fi
+          python3 "$HELPER" record-seal --state "$state" --environment "$TARGET" --identity "$IDENTITY" \
+            --release "v$RELEASE" --commit "$EXPECTED_COMMIT" --kind "$KIND" --out "$RUNNER_TEMP/record.json"
+          if ! id="$(gh api -X POST "repos/$GITHUB_REPOSITORY/deployments" \
+            --input "$RUNNER_TEMP/record.json" --jq '.id')"; then
+            echo "::error::the proof passed but its record was not written, the next PROD run waits on a named validate"
+            exit 1
+          fi
+          gh api -X POST "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" -f state=success >/dev/null
+          echo "the $KIND record of the proven state is deployment $id"
 
       - name: Summarize what applied
         if: always() && steps.proof.outcome != 'skipped' && steps.proof.outcome != ''
@@ -832,3 +975,7 @@ jobs:
           if [ "$APPLY" = success ] && [ "$PROOF" = success ]; then state=success; else state=failure; fi
           gh api -X POST "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT/statuses" -f state="$state" >/dev/null
           echo "deployment $DEPLOYMENT marked $state"
+
+      - name: Remove the pulled states
+        if: always()
+        run: rm -f "$RUNNER_TEMP/before.json" "$RUNNER_TEMP/after.json" "$RUNNER_TEMP/records.jsonl"
