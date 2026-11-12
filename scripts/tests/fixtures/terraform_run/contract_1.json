@@ -132,5 +132,75 @@
         "fi"
       ]
     }
+  ],
+  "terraform": [
+    {
+      "if": "",
+      "line": "terraform -chdir=\"$TF_DIR\" init -input=false -lockfile=readonly"
+    },
+    {
+      "if": "",
+      "line": "terraform -chdir=\"$TF_DIR\" providers schema -json > \"$RUNNER_TEMP/schema.json\""
+    },
+    {
+      "if": "inputs.mode != 'recovery'",
+      "line": "if [ -z \"$(terraform -chdir=\"$TF_DIR\" state list)\" ]; then"
+    },
+    {
+      "if": "inputs.mode != 'recovery'",
+      "line": "terraform -chdir=\"$TF_DIR\" state pull > \"$RUNNER_TEMP/before.json\""
+    },
+    {
+      "if": "inputs.mode == 'apply' && !inputs.allow_older_release",
+      "line": "applied=\"$(terraform -chdir=\"$TF_DIR\" output -raw release 2>/dev/null || true)\""
+    },
+    {
+      "if": "inputs.mode != 'deploy' && inputs.mode != 'repair'",
+      "line": "terraform -chdir=\"$TF_DIR\" plan -input=false -detailed-exitcode -var-file=\"$RUNNER_TEMP/tf-inputs.tfvars.json\" -var \"release=v$RELEASE\" -out=\"$RUNNER_TEMP/tfplan\" || code=$?"
+    },
+    {
+      "if": "inputs.mode != 'deploy' && inputs.mode != 'repair'",
+      "line": "terraform -chdir=\"$TF_DIR\" show -json \"$RUNNER_TEMP/tfplan\" > \"$RUNNER_TEMP/tfplan.json\""
+    },
+    {
+      "if": "inputs.mode == 'deploy'",
+      "line": "terraform -chdir=\"$TF_DIR\" show -json \"$RUNNER_TEMP/tfplan\" > \"$RUNNER_TEMP/tfplan.proof.json\""
+    },
+    {
+      "if": "inputs.mode == 'recovery'",
+      "line": "terraform -chdir=\"$TF_DIR\" show -no-color \"$RUNNER_TEMP/tfplan\""
+    },
+    {
+      "if": "inputs.mode == 'recovery'",
+      "line": "terraform -chdir=\"$TF_DIR\" state pull > \"$RUNNER_TEMP/candidate.json\""
+    },
+    {
+      "if": "inputs.mode == 'apply' || inputs.mode == 'deploy' || inputs.mode == 'acceptance'",
+      "line": "terraform -chdir=\"$TF_DIR\" apply -input=false -var-file=\"$RUNNER_TEMP/tf-inputs.tfvars.json\" \"$RUNNER_TEMP/tfplan\""
+    },
+    {
+      "if": "inputs.mode == 'repair' && inputs.repair_action == 'push'",
+      "line": "PG_CONN_STR=\"$RECOVERY_CONN_STR\" terraform -chdir=\"$candidate_root\" init -input=false -lockfile=readonly"
+    },
+    {
+      "if": "inputs.mode == 'repair' && inputs.repair_action == 'push'",
+      "line": "PG_CONN_STR=\"$RECOVERY_CONN_STR\" terraform -chdir=\"$candidate_root\" state pull > \"$RUNNER_TEMP/candidate.json\""
+    },
+    {
+      "if": "inputs.mode == 'repair' && inputs.repair_action == 'push'",
+      "line": "terraform -chdir=\"$TF_DIR\" state pull > \"$RUNNER_TEMP/live.json\""
+    },
+    {
+      "if": "inputs.mode == 'repair' && inputs.repair_action == 'push'",
+      "line": "terraform -chdir=\"$TF_DIR\" state push -force \"$RUNNER_TEMP/candidate.json\""
+    },
+    {
+      "if": "always() && (steps.apply.outcome != 'skipped' || steps.push.outcome != 'skipped' || steps.import.outcome != 'skipped')",
+      "line": "if ! terraform -chdir=\"$TF_DIR\" state pull > \"$RUNNER_TEMP/after.json\"; then"
+    },
+    {
+      "if": "always() && (steps.apply.outcome != 'skipped' || steps.push.outcome != 'skipped' || steps.import.outcome != 'skipped')",
+      "line": "if [ -z \"$(terraform -chdir=\"$TF_DIR\" state list)\" ]; then"
+    }
   ]
 }

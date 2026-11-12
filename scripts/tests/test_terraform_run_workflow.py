@@ -40,10 +40,14 @@ RELEASE_NAMES = re.compile(
 # the names the workflow asks of the release's root, each variable it sets, each variables file it passes and each
 # output it reads, however the argument is quoted (Codex's second read of 3b, of e5cdd09, finding 3)
 ROOT_NAMES = (
-    (re.compile(r"-var(?:\s+|=)[\"']?([A-Za-z_][\w-]*)="), "-var {}"),
+    (re.compile(r"-var(?:\s+|=)[\"']?([A-Za-z_][\w-]*)[\"']?="), "-var {}"),
     (re.compile(r"-var-file(?:\s+|=)[\"']?([^\"'\s]+)"), "-var-file {}"),
     (re.compile(r"\boutput(?:\s+-[\w=-]+)*\s+[\"']?([A-Za-z_][\w-]*)"), "output {}"),
 )
+
+# a Terraform call against the release's root, which reads the root's files, variables, outputs and backend, so each
+# is frozen whole with its step's condition (Codex's third read of 3b, of bc1fca8, findings 2 and 3)
+TERRAFORM_CALL = re.compile(r"(?<![\w/.$-])terraform\s+-chdir=")
 
 # the keys of a step and of the job that decide whether a step runs, what it reads and what a failure does
 STEP_KEYS = ("if", "env", "continue-on-error", "shell", "working-directory")
@@ -681,13 +685,15 @@ def release_interface(flow: dict) -> dict:
     What the workflow asks of the release it runs, contract 1's parts. Each step that calls a release script, whole,
     in order, its condition, its variables, whether a failure stops it, its shell and every line it runs but its
     comments and its echoes that only print. Then the job's variables, the release's checkout, the defaults of the
-    caller's file inputs, and every path in the release's checkout and name of its root the job reads (Codex's review
-    of a2bdbd1, finding 1).
+    caller's file inputs, every path in the release's checkout and name of its root the job reads (Codex's review of
+    a2bdbd1, finding 1), and every Terraform call against the root with its step's condition (its third read, of
+    bc1fca8).
     """
     inputs = flow[True]["workflow_call"]["inputs"]
     job    = flow["jobs"]["run"]
-    calls: list[dict] = []
-    names: set[str]   = set()
+    calls:     list[dict]     = []
+    terraform: list[dict] = []
+    names:     set[str]       = set()
     for key in job.get("env") or {}:
         if key.startswith("TF_VAR_"):
             names.add("env " + key)
@@ -696,6 +702,7 @@ def release_interface(flow: dict) -> dict:
         for text in [*lines, *(str(value) for value in (step.get("env") or {}).values())]:
             names.update(_names_in(text))
         names.update("env " + key for key in (step.get("env") or {}) if key.startswith("TF_VAR_"))
+        terraform.extend({"if": str(step.get("if", "")), "line": line} for line in lines if TERRAFORM_CALL.search(line))
         if not any(RELEASE_CALL.search(line) for line in lines):
             continue
         frozen = {key: step[key] for key in STEP_KEYS if key in step}
@@ -712,6 +719,7 @@ def release_interface(flow: dict) -> dict:
         "state_rules_path": inputs["state_rules_path"]["default"],
         "names": sorted(names),
         "calls": calls,
+        "terraform": terraform,
     }
 
 
@@ -766,6 +774,10 @@ class TestTheRunContract:
         ("Terraform plan", "run", '-var "release=v$RELEASE"', '-var "release=v$RELEASE" -var=other_required=1'),
         ("Terraform plan", "run", '-var "release=v$RELEASE"',
          '-var "release=v$RELEASE" -var-file="$RUNNER_TEMP/extra.tfvars.json"'),
+        # a file a Terraform call now needs, and a variable hidden by joined quotes (Codex's third read of 3b, of
+        # bc1fca8, findings 2 and 3)
+        ("Terraform init", "run", "-lockfile=readonly", "-lockfile=readonly -backend-config=backend.hcl"),
+        ("Terraform plan", "run", '-var "release=v$RELEASE"', "-var \"release=v$RELEASE\" -var 'new_required'=true"),
     ])
     def test_the_freeze_sees_each_part_of_the_interface(self, flow, step, field, old, new):
         changed = copy.deepcopy(flow)
@@ -854,6 +866,12 @@ def handoff_faults(flow: dict) -> list[str]:
             faults.append(f"{step['name']} touches the downloaded copy other than to read, verify and apply it")
         if i not in verifies and gate:
             faults.append(f"{step['name']} touches the folder a download fills")
+        # inside a verify, the plan is named only to read the copy and to copy it to the apply's path, that copy its
+        # last line (Codex's third read of 3b, of bc1fca8, finding 1)
+        lines = _shell_lines(step.get("run", ""))
+        if i in verifies and ([line for line in lines if "tfplan" in line] != [GATE_LINES[0], GATE_LINES[2]]
+                              or lines[-1:] != [GATE_LINES[2]]):
+            faults.append(f"{step['name']} names the plan other than to read the copy and apply it last")
     # the verified copy is the plan applied, so between acceptance's verify and the apply stands the claim alone, and
     # nothing there touches the plan (Codex's second read of 3b, of e5cdd09, finding 1)
     apply  = _index(steps, "Terraform apply")
@@ -896,6 +914,8 @@ class TestTheAcceptanceHandoff:
         "the seal keeps a local plan and the claim restores it",
         "a step is put between acceptance's verify and the apply",
         "the apply names another plan",
+        "the verifies end by copying a local plan over the verified one",
+        "the verifies copy a local plan in place from inside the folder",
     ])
     def test_each_way_around_the_download_is_a_fault(self, flow, change):
         # each passed every case before (Codex's review of a2bdbd1, finding 2, and its second read, of e5cdd09,
@@ -920,6 +940,14 @@ class TestTheAcceptanceHandoff:
             claim["run"] = 'cd "$RUNNER_TEMP" && cp local-plan tfplan\n' + claim["run"]
         elif change == "a step is put between acceptance's verify and the apply":
             steps.insert(_index(steps, "Terraform apply"), {"name": "Note the plan", "run": "true\n"})
+        elif change.startswith("the verifies end") or change.startswith("the verifies copy"):
+            swap = (
+                'if [ "$MODE" = acceptance ]; then cp "$RUNNER_TEMP/local-plan" "$RUNNER_TEMP/tfplan"; fi\n'
+                if change.startswith("the verifies end")
+                else 'cd "$RUNNER_TEMP" && cp local-plan tfplan\n'
+            )
+            for name in ("Verify the gate's manifest", "Verify the downloaded copy"):
+                steps[_index(steps, name)]["run"] += swap
         else:
             apply = steps[_index(steps, "Terraform apply")]
             apply["run"] = apply["run"].replace('"$RUNNER_TEMP/tfplan"', '"$RUNNER_TEMP/local-plan"')
