@@ -22,6 +22,9 @@ its floor held by `at-least` here.
   record-seal The deployment body that records a proven state, its fields sealed under TF_MANIFEST_KEY (D-103).
   record-check The PROD gate's and deploy's check that the stored state is the newest sealed record's, the newest
               judged alone and never an older one in its place (D-103).
+  contract    The run contract the release declares in manifest/run_contract.json, read from its checkout before any
+              of its scripts runs, refused by name when missing, malformed or not one this workflow supports, nothing
+              taken from it but its number (design 5.6, Round Table 92, L12, D-106).
 
 Prints names, addresses and digests alone, never a secret. Exit 0 when the check passes, 1 when it finds anything,
 2 on a refusal, an input it will not read.
@@ -38,6 +41,7 @@ import hmac
 import json
 import os
 import re
+import stat
 import sys
 import urllib.parse
 from datetime import datetime, timezone
@@ -79,6 +83,19 @@ RELEASE_OUTPUT: str = "release"
 RECORD_SCHEMA: int             = 1
 RECORD_TYPE:   str             = "terraform_proof_record"
 RECORD_KINDS:  tuple[str, ...] = ("complete", "partial", "certified")
+
+# the run contract, where a release declares it, the contracts this workflow runs, and the most a declaration holds,
+# contract 1 being the interface as merged, each release script's call in every mode, the files read by fixed names
+# and the exit handling, frozen by scripts/tests/fixtures/terraform_run/contract_1.json (D-106)
+CONTRACT_FILE:       str             = "manifest/run_contract.json"
+SUPPORTED_CONTRACTS: tuple[int, ...] = (1,)
+CONTRACT_MAX_BYTES:  int             = 4096
+CONTRACT_SHAPE:      str             = "one JSON object holding one key, contract, a whole number"
+
+# the cause a deploy names when the gate run's attempt is not the one its plan sealed (the design's 5.7, D-106)
+RERUN_CAUSE: str = (
+    ", the gate run was rerun after its plan was sealed, and a gate is never rerun, so dispatch a new one"
+)
 
 
 class Refused(ValueError):
@@ -263,7 +280,8 @@ def verify(
         found.append(f"the manifest's schema is {fields.get('schema')!r}, not {MANIFEST_SCHEMA}")
     for name in COMPARED_FIELDS:
         if fields.get(name) != expected.get(name):
-            found.append(f"the manifest's {name} is not the deploy's own")
+            cause = RERUN_CAUSE if name == "gate_run_attempt" else ""
+            found.append(f"the manifest's {name} is not the deploy's own{cause}")
     created = _parse_time(fields.get("created_at"))
     if created is None:
         found.append("the manifest's created_at is no time")
@@ -592,6 +610,81 @@ def identity(conn: str, schema: str) -> str:
     return f"{parts.hostname.lower()}:{port}/{database}?schema={schema}"
 
 # ======================================================================================================================
+# The run contract (design 5.6, Round Table 92, L12, D-106)
+# ======================================================================================================================
+
+def _no_duplicate_keys(pairs: list[tuple[str, object]]) -> dict:
+    """
+    A JSON object's pairs as a dict, refused when a key is written twice, since json would keep the last silently.
+
+    Args:
+        pairs: The object's pairs in order
+
+    Returns:
+        The object
+
+    Raises:
+        ValueError: When a key is written twice
+    """
+    keys = [key for key, _value in pairs]
+    if len(keys) != len(set(keys)):
+        raise ValueError("a key written twice")
+    return dict(pairs)
+
+
+def read_contract(root: Path, release: str) -> int:
+    """
+    The run contract the release declares, read from its checkout before any of its scripts runs.
+
+    Nothing is taken from the declaration but its number, no command, path or identity, and a refusal never quotes
+    what the file holds. The file must be a regular file inside the checkout, no larger than a declaration.
+
+    Args:
+        root: The release's checkout
+        release: The release's tag, for the refusal's message
+
+    Returns:
+        The contract number, one this workflow supports
+
+    Raises:
+        Refused: When the declaration is missing, malformed or a contract this workflow does not support
+    """
+    path  = Path(root) / CONTRACT_FILE
+    where = f"the release {release}'s {CONTRACT_FILE}"
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        raise Refused(f"the release {release} declares no run contract, {CONTRACT_FILE} is missing") from None
+    except OSError as exc:
+        raise Refused(f"{where} cannot be read, {exc.__class__.__name__}") from None
+    if not stat.S_ISREG(info.st_mode):
+        raise Refused(f"{where} is no regular file")
+    if not path.resolve().is_relative_to(Path(root).resolve()):
+        raise Refused(f"{where} lies outside the release's checkout")
+    if info.st_size > CONTRACT_MAX_BYTES:
+        raise Refused(f"{where} is larger than a declaration, {info.st_size} bytes")
+    try:
+        with open(path, "rb") as handle:
+            data = handle.read(CONTRACT_MAX_BYTES + 1)
+    except OSError as exc:
+        raise Refused(f"{where} cannot be read, {exc.__class__.__name__}") from None
+    if len(data) > CONTRACT_MAX_BYTES:
+        raise Refused(f"{where} is larger than a declaration")
+    try:
+        declared = json.loads(data.decode("utf-8"), object_pairs_hook = _no_duplicate_keys)
+    except (UnicodeDecodeError, ValueError):
+        raise Refused(f"{where} is malformed, {CONTRACT_SHAPE}") from None
+    if not isinstance(declared, dict) or set(declared) != {"contract"} or type(declared["contract"]) is not int:
+        raise Refused(f"{where} is malformed, {CONTRACT_SHAPE}")
+    number = declared["contract"]
+    if number not in SUPPORTED_CONTRACTS:
+        supported = ", ".join(str(n) for n in SUPPORTED_CONTRACTS)
+        raise Refused(
+            f"the release {release} declares run contract {number}, this workflow supports contract {supported}",
+        )
+    return number
+
+# ======================================================================================================================
 # CLI
 # ======================================================================================================================
 
@@ -724,6 +817,10 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     check_cmd.add_argument("--environment", required = True)
     check_cmd.add_argument("--identity", required = True)
     check_cmd.add_argument("--key-env", default = "TF_MANIFEST_KEY")
+
+    contract_cmd = sub.add_parser("contract", help = "hold the release to a run contract this workflow supports")
+    contract_cmd.add_argument("--root", default = ".")
+    contract_cmd.add_argument("--release", required = True)
     return parser.parse_args(argv)
 
 
@@ -839,6 +936,10 @@ def main(argv: list[str] | None = None) -> int:
                 backend_identity = args.identity,
             )
             return _report(found, "Proof record check")
+        if args.command == "contract":
+            number = read_contract(Path(args.root), args.release)
+            print(f"==> the release {args.release} declares run contract {number}, which this workflow supports")
+            return 0
         print(identity(os.environ.get(args.env_var, ""), args.schema))
         return 0
     except Refused as exc:

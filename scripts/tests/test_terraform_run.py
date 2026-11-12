@@ -208,6 +208,7 @@ class TestSeal:
 
     @pytest.mark.parametrize("field, value", [
         ("gate_run_id", "10"),
+        ("gate_run_attempt", "2"),
         ("environment", "dev"),
         ("backend_identity", "other.example.test:5432/terraform?schema=prod"),
         ("commit", "f" * 40),
@@ -219,6 +220,16 @@ class TestSeal:
         found = tr.verify(tr.seal(_fields(), KEY), KEY, _expected(**{field: value}), NOW, floor = "1.17.0")
         assert len(found) == 1
         assert field in found[0]
+
+
+    def test_a_gate_rerun_since_its_plan_was_sealed_is_named_as_the_cause(self):
+        # the manifest seals the attempt that made the plan and the deploy holds it to the run's latest attempt, so a
+        # rerun of a failed lane leaves a green gate unable to deploy (Round Table 92, L4, the design's 5.7)
+        found = tr.verify(tr.seal(_fields(), KEY), KEY, _expected(gate_run_attempt = "2"), NOW, floor = "1.17.0")
+        assert len(found) == 1
+        assert "rerun" in found[0] and "never rerun" in found[0] and "dispatch a new" in found[0]
+        other = tr.verify(tr.seal(_fields(), KEY), KEY, _expected(gate_run_id = "10"), NOW, floor = "1.17.0")
+        assert "rerun" not in other[0]
 
 
     def test_a_plan_older_than_its_limit_is_refused(self):
@@ -256,6 +267,128 @@ class TestSeal:
 
     def test_the_version_verified_is_returned_for_the_install(self):
         assert tr.verified_terraform_version(tr.seal(_fields(), KEY)) == "1.17.1"
+
+# ======================================================================================================================
+# The run contract a release declares (design 5.6, Round Table 92, L12)
+# ======================================================================================================================
+
+def _declare(root, data: str | bytes) -> None:
+    path = root / "manifest" / "run_contract.json"
+    path.parent.mkdir(parents = True, exist_ok = True)
+    path.write_bytes(data if isinstance(data, bytes) else data.encode("utf-8"))
+
+
+class TestRunContract:
+    """
+    The release declares the interface it holds, read from its checkout before any of its scripts runs, refused by
+    name when missing, malformed or not a contract this workflow supports, nothing taken from it but its number.
+    """
+    def test_contract_1_alone_is_supported_at_its_fixed_name(self):
+        assert tr.SUPPORTED_CONTRACTS == (1,)
+        assert tr.CONTRACT_FILE == "manifest/run_contract.json"
+
+
+    def test_a_release_declaring_contract_1_passes(self, tmp_path):
+        _declare(tmp_path, '{"contract": 1}\n')
+        assert tr.read_contract(tmp_path, "v0.12.0") == 1
+
+
+    def test_a_missing_declaration_is_refused_naming_the_release_and_the_file(self, tmp_path):
+        with pytest.raises(Refused) as caught:
+            tr.read_contract(tmp_path, "v0.12.0")
+        assert "v0.12.0" in str(caught.value) and "manifest/run_contract.json" in str(caught.value)
+        assert "no run contract" in str(caught.value)
+
+
+    @pytest.mark.parametrize("data", [
+        "",
+        "not json",
+        "[1]",
+        "1",
+        "{}",
+        '{"contract": "1"}',
+        '{"contract": true}',
+        '{"contract": 1.0}',
+        '{"contract": null}',
+        '{"contract": NaN}',
+        '{"Contract": 1}',
+        '{"contract": 1, "scripts": "tf_inputs.py"}',
+        '{"contract": 2, "contract": 1}',
+        b'\xef\xbb\xbf{"contract": 1}',
+        b'{"contract": 1\xff}',
+    ])
+    def test_a_malformed_declaration_is_refused_naming_the_release(self, tmp_path, data):
+        _declare(tmp_path, data)
+        with pytest.raises(Refused) as caught:
+            tr.read_contract(tmp_path, "v0.12.0")
+        assert "v0.12.0" in str(caught.value) and "malformed" in str(caught.value)
+
+
+    @pytest.mark.parametrize("number", [0, 2, -1, 10])
+    def test_a_contract_this_workflow_does_not_support_is_refused_naming_it(self, tmp_path, number):
+        _declare(tmp_path, json.dumps({"contract": number}))
+        with pytest.raises(Refused) as caught:
+            tr.read_contract(tmp_path, "v0.12.0")
+        message = str(caught.value)
+        assert "v0.12.0" in message and f"run contract {number}," in message and "supports contract 1" in message
+
+
+    def test_a_refusal_never_echoes_what_the_declaration_holds(self, tmp_path):
+        _declare(tmp_path, '{"contract": 1, "note": "kdfmk-made-up-value"}')
+        with pytest.raises(Refused) as caught:
+            tr.read_contract(tmp_path, "v0.12.0")
+        assert "kdfmk" not in str(caught.value)
+
+
+    def test_a_declaration_larger_than_one_is_refused_unread(self, tmp_path):
+        _declare(tmp_path, '{"contract": 1}' + " " * tr.CONTRACT_MAX_BYTES)
+        with pytest.raises(Refused) as caught:
+            tr.read_contract(tmp_path, "v0.12.0")
+        assert "larger" in str(caught.value)
+
+
+    def test_a_declaration_that_is_no_regular_file_is_refused(self, tmp_path):
+        (tmp_path / "manifest" / "run_contract.json").mkdir(parents = True)
+        with pytest.raises(Refused) as caught:
+            tr.read_contract(tmp_path, "v0.12.0")
+        assert "no regular file" in str(caught.value)
+
+
+    def test_a_linked_declaration_is_refused_even_when_it_reads_well(self, tmp_path):
+        target = tmp_path / "elsewhere.json"
+        target.write_text('{"contract": 1}', encoding = "utf-8")
+        link = tmp_path / "manifest" / "run_contract.json"
+        link.parent.mkdir(parents = True)
+        try:
+            link.symlink_to(target)
+        except OSError:
+            pytest.skip("this machine makes no symbolic link")
+        with pytest.raises(Refused):
+            tr.read_contract(tmp_path, "v0.12.0")
+
+
+    def test_a_declaration_reached_through_a_linked_folder_outside_the_checkout_is_refused(self, tmp_path):
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "run_contract.json").write_text('{"contract": 1}', encoding = "utf-8")
+        root = tmp_path / "release"
+        root.mkdir()
+        try:
+            (root / "manifest").symlink_to(outside, target_is_directory = True)
+        except OSError:
+            pytest.skip("this machine makes no symbolic link")
+        with pytest.raises(Refused) as caught:
+            tr.read_contract(root, "v0.12.0")
+        assert "outside" in str(caught.value)
+
+
+    def test_the_cli_passes_contract_1_and_refuses_another_with_two(self, tmp_path, capsys):
+        _declare(tmp_path, '{"contract": 1}')
+        assert tr.main(["contract", "--root", str(tmp_path), "--release", "v0.12.0"]) == 0
+        assert "run contract 1" in capsys.readouterr().out
+        _declare(tmp_path, '{"contract": 2}')
+        assert tr.main(["contract", "--root", str(tmp_path), "--release", "v0.12.0"]) == 2
+        assert "REFUSED" in capsys.readouterr().out
 
 # ======================================================================================================================
 # The backend identity

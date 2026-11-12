@@ -346,7 +346,23 @@ cancellation off and a five hour timeout.
 | `validate` | either | off | plan with refresh, never applied, fails unless a plan of no changes. With `certify_digest`, the pulled state of that digest recorded, each differing address listed |
 | `recovery` | either | unheld | plan against a scratch schema through `TF_STATE_RECOVERY_CONN_STR` alone, never applied |
 | `repair` | either | off | one action, `push` (bound by `bind-push`) or `import` (the caller's shared import), then the structural proof, no record |
-| `acceptance` | `dev` | unheld | the gate's plan and the deploy's verify and apply on the same code, refused unless a plan of no changes |
+| `acceptance` | `dev` | unheld | PROD's gate and deploy in one job on the same code, the newest record held, the plan and its proofs, the seal and the upload, the download back by the run's own id, the deploy's verify of that copy, the claim, the copy applied and the claim marked, refused unless a plan of no changes |
+
+The run contract (D-106). A release floor compares numbers alone, so each release declares the interface it holds in
+`manifest/run_contract.json`, `{"contract": 1}` and nothing else. Every run reads it with `terraform_run.py contract`
+after the checkout is held to the resolved commit and before any of the release's scripts, and refuses by name a
+declaration that is missing, malformed, linked, larger than a declaration or a number this workflow does not support,
+taking nothing from it but its number. Contract 1 is the interface as merged, each release script's call with its
+step's condition and the lines that decide which call runs and what a failure does, the files read by fixed names
+and the root's `release` variable and output, frozen by `scripts/tests/fixtures/terraform_run/contract_1.json`. A
+change to any of them declares contract 2 and keeps contract 1's calls while a release at or above either floor
+declares it.
+
+A PROD gate is never rerun. Its sealed manifest names the attempt that made the plan, and the deploy holds that to the
+run's latest attempt, so a rerun of a failed lane leaves a green gate unable to deploy, and the verify's refusal of the
+attempt says so. A failed gate is dispatched again. Acceptance shows on DEV everything one job can, while the gate
+checker's lookup of a named run and the plan's binding to that run's latest attempt first run on PROD, each failing
+closed before an apply.
 
 The proof record (D-103). A proof that passes after a write, the full rules after a completed one and the partial
 rule after one that stopped, and the owner's named `validate`, record the state in a deployment of its own, sealed
@@ -376,7 +392,8 @@ record's seal failing, so the same three steps follow each rotation before the n
   cicd to declare each tenant's.
 - **Variables read.** `TF_ACTIONS_ON_DEV`, `TF_ACTIONS_ON_PROD`, and the environment's `TF_STATE_SCHEMA` and
   `TF_STATE_IDENTITY`, the live backend's public identity, never read from the release.
-- **The caller's files.** `scripts/tf_inputs.py` (the preflight and the derived versions), `scripts/tf_state_proof.py`,
+- **The caller's files.** `manifest/run_contract.json` (the run contract, D-106), `scripts/tf_inputs.py` (the
+  preflight and the derived versions), `scripts/tf_state_proof.py`,
   `scripts/tf_state_extra.py` (before every proof, D-105), `scripts/tf_state_rules.py` (the run's own rules from the
   plan it applies, and with `--existing-only` a stored or written state's own, D-105), `scripts/tf_plan_proof.py`
   (the binary plan by name, the stored state, both rules files, and the preflight's variables file for its known
@@ -384,8 +401,8 @@ record's seal failing, so the same three steps follow each rotation before the n
   `scripts/tf_repair_import.py`, `policy/`, the manifest and the state rules, by these names at the commit applied, so
   cicd names no tenant (AGENTS.md rule 12).
 - **Helpers.** `scripts/terraform_run.py`, `at-least`, `identity`, `no-changes`, `seal`, `verify`, `state-digest`,
-  `bind-push`, `differences` (each change and drifted address validate lists), `record-seal`, `record-check`, and
-  `check_prod_gate.py --gate-run`.
+  `bind-push`, `differences` (each change and drifted address validate lists), `record-seal`, `record-check`,
+  `contract` (the run contract, D-106), and `check_prod_gate.py --gate-run`.
 - **Outputs.** `plan_sha256`. **Permissions.** `authorize`: `contents: read`. `run`: `contents: read`,
   `actions: read` (the gate's artifact), `deployments: write` (the gate run's claim and the proof records).
 - **Consumer.** `kriegerdataforge-terraform`, from the move on.

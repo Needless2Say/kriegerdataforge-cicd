@@ -8,6 +8,8 @@ is tested as it runs and not as it reads. Nothing here reaches GitHub or Terrafo
 
 from __future__ import annotations
 
+import copy
+import json
 import os
 import re
 import shutil
@@ -15,11 +17,25 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import terraform_run as tr
 import yaml
 
 WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "terraform-run.yml"
 MODES    = ("apply", "gate-plan", "deploy", "validate", "recovery", "repair", "acceptance")
 PINNED   = re.compile(r"[^@\s]+@[0-9a-f]{40}")
+
+# contract 1, the interface as merged, frozen (design 5.6, Round Table 92, L12)
+CONTRACT_1 = Path(__file__).resolve().parent / "fixtures" / "terraform_run" / "contract_1.json"
+
+# a script of the release, by its path in the caller's checkout, never one of cicd's own under _kdf_cicd/
+RELEASE_SCRIPT = re.compile(r"(?<![\w/.$-])scripts/[a-z_]+\.py")
+
+# the other names the workflow reads from the release, its lock file, its policies, and its root's release variable
+# and output
+RELEASE_NAMES = re.compile(r'\.terraform\.lock\.hcl|--policy \S+|-var "\w+=|output -raw \w+')
+
+# a shell line that decides which call runs or what its failure does, kept beside the calls of a step
+CONTROL = re.compile(r"(if|elif|else|fi|case|esac|exit)\b")
 
 
 @pytest.fixture(scope = "module")
@@ -238,7 +254,7 @@ class TestTheRunJob:
         steps = _steps(flow, "run")
         claim = _index(steps, "Claim the gate run")
         assert claim < _index(steps, "Terraform apply")
-        assert steps[claim]["if"] == "inputs.mode == 'deploy'"
+        assert steps[claim]["if"] == "inputs.mode == 'deploy' || inputs.mode == 'acceptance'"
         assert "already consumed" in steps[claim]["run"] and "exit 1" in steps[claim]["run"]
         assert "terraform_gate_run" in steps[claim]["run"]
         mark = steps[_index(steps, "Mark the gate run's deployment")]
@@ -461,9 +477,12 @@ class TestThePlanProofAndTheRecord:
 
 
     def test_the_prod_gate_and_deploy_require_the_last_sealed_record_before_anything_rests_on_the_state(self, flow):
+        # acceptance runs the same check on DEV (Round Table 92, the owner's answers of 2026-11-12)
         steps   = _steps(flow, "run")
         require = _index(steps, "Require the last proof record")
-        assert _if(steps, "Require the last proof record") == "inputs.mode == 'gate-plan' || inputs.mode == 'deploy'"
+        assert _if(steps, "Require the last proof record") == (
+            "inputs.mode == 'gate-plan' || inputs.mode == 'deploy' || inputs.mode == 'acceptance'"
+        )
         script = steps[require]["run"]
         assert "--paginate" in script and 'python3 "$HELPER" record-check' in script
         assert steps[require]["env"]["TF_MANIFEST_KEY"] == "${{ secrets.TF_MANIFEST_KEY }}"
@@ -580,5 +599,196 @@ class TestThePlanProofAndTheRecord:
             "tf_plan_proof.py",
             "certify_digest",
             "state-rules-full.json",
+            "manifest/run_contract.json",
         ):
             assert name in header
+
+# ======================================================================================================================
+# The run contract (design 5.6, Round Table 92, L12, the owner's answers of 2026-11-12)
+# ======================================================================================================================
+
+def _logical_lines(script: str) -> list[str]:
+    """
+    A step's script as its shell reads it, each continued line joined and its spaces made single.
+    """
+    joined = re.sub(r"\\\n[ \t]*", " ", script)
+    return [" ".join(line.split()) for line in joined.splitlines() if line.strip()]
+
+
+def release_interface(flow: dict) -> dict:
+    """
+    What the workflow asks of the release it runs, contract 1's parts. Each step that calls a release script, in
+    order, with its condition, whether a failure stops it, and its calls with the shell lines that decide which call
+    runs and what a failure does, then the files read by fixed names and the root's names. A message the step prints
+    is left out, so changing one declares nothing.
+    """
+    inputs = flow[True]["workflow_call"]["inputs"]
+    job    = flow["jobs"]["run"]
+    calls: list[dict] = []
+    names: set[str]   = set()
+    for step in job["steps"]:
+        lines = _logical_lines(step.get("run", ""))
+        for line in lines:
+            names.update(match.group(0) for match in RELEASE_NAMES.finditer(line))
+        if not any(RELEASE_SCRIPT.search(line) for line in lines):
+            continue
+        calls.append({
+            "if": str(step.get("if", "")),
+            "strict": step.get("run", "").lstrip().startswith("set -euo pipefail"),
+            "lines": [line for line in lines if RELEASE_SCRIPT.search(line) or CONTROL.match(line)],
+        })
+    return {
+        "root": job["env"]["TF_DIR"],
+        "manifest_path": inputs["manifest_path"]["default"],
+        "state_rules_path": inputs["state_rules_path"]["default"],
+        "names": sorted(names),
+        "calls": calls,
+    }
+
+
+class TestTheRunContract:
+    """
+    The release declares the interface it holds, read before any of its scripts runs, and contract 1, the interface
+    as merged, frozen here, so a change to it declares contract 2 and keeps contract 1's calls for a release that
+    declares it.
+    """
+    def test_the_declaration_is_read_after_the_checkouts_hold_and_before_any_release_script(self, flow):
+        steps    = _steps(flow, "run")
+        contract = _index(steps, "run contract")
+        step     = steps[contract]
+        assert "if" not in step and "id" not in step
+        assert step["run"].strip() == 'python3 "$HELPER" contract --root . --release "v$RELEASE"'
+        helpers = next(i for i, s in enumerate(steps) if (s.get("with") or {}).get("path") == "_kdf_cicd")
+        assert _index(steps, "resolved commit") < helpers < contract
+        first = next(i for i, s in enumerate(steps) if RELEASE_SCRIPT.search(s.get("run", "")))
+        assert contract < first
+        assert contract < _index(steps, "Terraform init")
+
+
+    def test_contract_1_is_the_interface_as_merged(self, flow):
+        frozen = json.loads(CONTRACT_1.read_text(encoding = "utf-8"))
+        assert release_interface(flow) == frozen, (
+            "the release's interface changed, a script's call, its condition or its exit handling, or a name the "
+            "release is read by. Such a change declares contract 2 (design 5.6), and contract 1's calls stay for a "
+            "release that declares it"
+        )
+
+
+    @pytest.mark.parametrize("step, field, old, new, part", [
+        ("Map the inputs", "run", "--hashes", "--new --hashes", "calls"),
+        ("Map the inputs", "run", "set -euo pipefail\n", "", "calls"),
+        ("Hold the state before the plan", "run", "&& python3 scripts/tf_state_proof.py",
+         "|| python3 scripts/tf_state_proof.py", "calls"),
+        ("Hold the state before the plan", "run", 'if [ "$MODE" != repair ]; then',
+         'if [ "$MODE" != validate ]; then', "calls"),
+        ("The state proof after", "run", 'elif [ "$APPLY" = success ]', 'elif [ "$APPLY" = failure ]', "calls"),
+        ("Build the run's rules", "if", "inputs.mode == 'apply' || ", "", "calls"),
+        ("The policies", "run", "--policy policy", "--policy rules", "names"),
+        ("Refuse an obsolete run", "run", "output -raw release", "output -raw marker", "names"),
+    ])
+    def test_the_freeze_sees_each_part_of_the_interface(self, flow, step, field, old, new, part):
+        # each kind of change the frozen copy must catch, made to a copy of the workflow, an argument, the exit
+        # handling, a mode's condition and a name the release is read by
+        changed = copy.deepcopy(flow)
+        target  = changed["jobs"]["run"]["steps"][_index(changed["jobs"]["run"]["steps"], step)]
+        assert old in target[field]
+        target[field] = target[field].replace(old, new)
+        assert release_interface(changed)[part] != release_interface(flow)[part]
+
+
+    def test_cicd_keeps_contract_1_at_its_fixed_name(self):
+        assert 1 in tr.SUPPORTED_CONTRACTS
+        assert tr.CONTRACT_FILE == "manifest/run_contract.json"
+
+# ======================================================================================================================
+# The handoff inside acceptance, PROD's gate and deploy run on DEV in one job (Round Table 92)
+# ======================================================================================================================
+
+def _downloads(steps: list[dict]) -> list[int]:
+    return [i for i, step in enumerate(steps) if str(step.get("uses", "")).startswith("actions/download-artifact@")]
+
+
+class TestTheAcceptanceHandoff:
+    """
+    Acceptance runs the gate's upload, the deploy's download by a run's id, its verify of that copy, the record check,
+    the claim and the apply of the copy on the same code, so their plumbing runs on DEV before PROD needs it.
+    """
+    def test_the_seal_writes_a_folder_of_its_own_and_a_download_alone_fills_the_gates(self, flow):
+        steps = _steps(flow, "run")
+        seal  = steps[_index(steps, "Seal the gate's manifest")]["run"]
+        assert '--out "$RUNNER_TEMP/sealed/manifest.json"' in seal
+        assert 'cp "$RUNNER_TEMP/tfplan" "$RUNNER_TEMP/sealed/tfplan"' in seal
+        assert "$RUNNER_TEMP/gate" not in seal
+        upload = steps[_index(steps, "Keep the plan and its manifest")]["with"]["path"].splitlines()
+        assert sorted(line.strip() for line in upload if line.strip()) == [
+            "${{ runner.temp }}/sealed/manifest.json",
+            "${{ runner.temp }}/sealed/tfplan",
+        ]
+        for step in steps:
+            if "$RUNNER_TEMP/gate" in step.get("run", ""):
+                assert 'python3 "$HELPER" verify --manifest "$RUNNER_TEMP/gate/manifest.json"' in step["run"]
+        assert [steps[i]["with"]["path"] for i in _downloads(steps)] == ["${{ runner.temp }}/gate"] * 2
+
+
+    def test_the_upload_keeps_the_gates_and_the_acceptances_plan_after_its_proofs(self, flow):
+        steps = _steps(flow, "run")
+        assert _if(steps, "Keep the plan and its manifest") == (
+            "inputs.mode == 'gate-plan' || inputs.mode == 'acceptance'"
+        )
+        assert _index(steps, "Prove every state the saved plan carries") < _index(steps, "Seal the gate's manifest")
+        assert _index(steps, "Seal the gate's manifest") < _index(steps, "Keep the plan and its manifest")
+
+
+    def test_acceptance_downloads_the_same_artifact_back_by_its_own_run_id(self, flow):
+        steps = _steps(flow, "run")
+        deploy, back = _downloads(steps)
+        assert steps[deploy]["if"] == "inputs.mode == 'deploy'"
+        assert steps[back]["if"] == "inputs.mode == 'acceptance'"
+        assert steps[back]["uses"] == steps[deploy]["uses"]
+        mine, theirs = dict(steps[back]["with"]), dict(steps[deploy]["with"])
+        assert mine.pop("run-id") == "${{ github.run_id }}"
+        assert theirs.pop("run-id") == "${{ inputs.gate_run_id }}"
+        assert mine == theirs
+        assert back > _index(steps, "Keep the plan and its manifest")
+
+
+    def test_acceptance_verifies_that_copy_with_the_deploys_own_script_against_its_own_values(self, flow):
+        steps  = _steps(flow, "run")
+        deploy = steps[_index(steps, "Verify the gate's manifest")]
+        place  = _index(steps, "Verify the downloaded copy")
+        back   = steps[place]
+        assert back["if"] == "inputs.mode == 'acceptance'"
+        assert back["run"] == deploy["run"]
+        assert back["env"]["GATE_RUN_ID"] == "${{ github.run_id }}"
+        assert back["env"]["GATE_RUN_ATTEMPT"] == "${{ github.run_attempt }}"
+        own = ("GATE_RUN_ID", "GATE_RUN_ATTEMPT")
+        assert {k: v for k, v in back["env"].items() if k not in own} == {
+            k: v for k, v in deploy["env"].items() if k not in own
+        }
+        assert _downloads(steps)[1] < place < _index(steps, "Claim the gate run")
+        assert 'cp "$RUNNER_TEMP/gate/tfplan" "$RUNNER_TEMP/tfplan"' in back["run"]
+        verifies = [s for s in steps if 'python3 "$HELPER" verify' in s.get("run", "")]
+        assert len(verifies) == 2
+
+
+    def test_acceptance_claims_its_own_run_then_applies_the_copy_and_marks_the_claim(self, flow):
+        steps = _steps(flow, "run")
+        claim = steps[_index(steps, "Claim the gate run")]
+        assert claim["env"]["GATE_RUN_ID"] == (
+            "${{ inputs.mode == 'acceptance' && github.run_id || steps.gate.outputs.gate_run_id }}"
+        )
+        assert "terraform_gate_run" in claim["run"]
+        assert _index(steps, "Verify the downloaded copy") < _index(steps, "Claim the gate run")
+        assert _index(steps, "Claim the gate run") < _index(steps, "Terraform apply")
+        assert '"$RUNNER_TEMP/tfplan"' in steps[_index(steps, "Terraform apply")]["run"]
+        assert _if(steps, "Mark the gate run's deployment") == "always() && steps.claim.outcome == 'success'"
+
+
+    def test_the_deploy_keeps_its_own_values(self, flow):
+        # nothing of the deploy changes, its run, attempt and artifact the named gate's
+        steps  = _steps(flow, "run")
+        verify = steps[_index(steps, "Verify the gate's manifest")]
+        assert verify["if"] == "inputs.mode == 'deploy'"
+        assert verify["env"]["GATE_RUN_ID"] == "${{ steps.gate.outputs.gate_run_id }}"
+        assert verify["env"]["GATE_RUN_ATTEMPT"] == "${{ steps.gate.outputs.gate_run_attempt }}"
+        assert _index(steps, "Verify the gate's manifest") < _index(steps, "Set up Terraform for the deploy")

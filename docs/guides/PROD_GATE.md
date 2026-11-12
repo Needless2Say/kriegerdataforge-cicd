@@ -87,6 +87,12 @@ id and the plan's digest. The PROD deploy names that run, and `terraform-run.yml
 verifies the seal before installing the Terraform version the manifest names, claims the run once and applies that
 saved plan. A gate whose plan is older than 72 hours, or already consumed, takes a new gate.
 
+**A terraform gate is never rerun.** Its sealed manifest names the attempt that made the plan, and the deploy holds
+that to the run's latest attempt, so a rerun of a failed lane, which raises the attempt, leaves a green gate that can
+never deploy, found only once its plan was read. The gate's last job, `PROD Gate v<version>`, fails on any attempt
+after the first, so a rerun gate never shows green, and the deploy's refusal of the attempt names the rerun. Dispatch
+a new gate instead (D-106).
+
 ## When the gate is red
 
 Open the run. The `PROD Gate v<version>` job's summary names the lanes that did not pass.
