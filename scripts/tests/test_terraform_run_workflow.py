@@ -509,6 +509,14 @@ class TestThePlanProofAndTheRecord:
         assert extra and len(extra) == len(proof)
         for e, p in zip(extra, proof):
             assert e < p
+        # a refusal stops the step before the frozen proof, by && before the plan and by set -e after a write, and
+        # the order alone would not hold that (Codex's review of 9b71366)
+        if step == "state before the plan":
+            between = script[extra[0]:proof[0]]
+            assert "&& python3 scripts/tf_state_proof.py" in script and ";" not in between
+        else:
+            assert script.lstrip().startswith("set -euo pipefail")
+            assert "|| true" not in script
 
 
     def test_a_repair_never_makes_a_record(self, flow):
