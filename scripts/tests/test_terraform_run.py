@@ -28,6 +28,9 @@ BUNDLE = {
 }
 DROPS  = ["TF_STATE_PG_CONN_STR", "TF_STATE_RECOVERY_CONN_STR", "github_token"]
 
+# a backend identity the proof records bind, made up
+IDENTITY = "db.example.test:5432/terraform?schema=dev"
+
 # ======================================================================================================================
 # Versions
 # ======================================================================================================================
@@ -58,6 +61,36 @@ def _plan(resources: list[tuple[str, list[str]]], outputs: dict[str, dict] | Non
 
 def _marker(before: str, after: str, actions: list[str] | None = None) -> dict:
     return {"release": {"actions": actions or ["update"], "before": before, "after": after}}
+
+
+class TestDifferences:
+    """
+    What validate lists for the owner, every planned change and every address a refresh found drifted from the
+    stored state, since certifying records the stored bytes (Codex's review of f05c870).
+    """
+    def test_a_drifted_address_with_a_no_op_change_is_listed(self, capsys):
+        plan = _plan([("vercel_project_environment_variable.plain[\"A\"]", ["no-op"])])
+        plan["resource_drift"] = [
+            {"address": "vercel_project_environment_variable.plain[\"A\"]", "change": {"actions": ["update"]}},
+        ]
+        assert tr.no_change_findings(plan, "v0.11.0") == []
+        found = tr.differences(plan, "v0.11.0")
+        assert any("plain[\"A\"]" in line and "drift" in line for line in found)
+
+
+    def test_planned_changes_are_listed_too_and_nothing_for_a_quiet_plan(self):
+        assert tr.differences(_plan([("a.b", ["update"])]), "v0.11.0") == ["a.b plans ['update']"]
+        assert tr.differences(_plan([("a.b", ["no-op"])], _marker("v0.10.0", "v0.11.0")), "v0.11.0") == []
+
+
+    def test_the_cli_lists_and_always_exits_zero(self, tmp_path, capsys):
+        plan = _plan([("a.b", ["update"])])
+        plan["resource_drift"] = [{"address": "c.d", "change": {"actions": ["update"]}}]
+        path = tmp_path / "plan.json"
+        path.write_text(json.dumps(plan), encoding = "utf-8")
+        assert tr.main(["differences", "--plan", str(path), "--release", "v0.11.0"]) == 0
+        out = capsys.readouterr().out
+        assert "a.b" in out and "c.d" in out
 
 
 class TestNoChanges:
@@ -483,3 +516,158 @@ class TestCli:
     def test_a_refusal_exits_two(self, monkeypatch):
         monkeypatch.setenv("TF_STATE_PG_CONN_STR", "mysql://u:p@db.example.test/terraform")
         assert tr.main(["identity", "--env-var", "TF_STATE_PG_CONN_STR", "--schema", "dev"]) == 2
+
+# ======================================================================================================================
+# The proof record (design version 14, 5.6 item 6, the second read's H)
+# ======================================================================================================================
+
+def _record_fields(state: bytes, **overrides) -> dict:
+    fields = tr.record_fields(
+        state,
+        repository = "owner/terraform",
+        environment = "dev",
+        backend_identity = IDENTITY,
+        release = "v0.11.0",
+        commit = "a" * 40,
+        kind = "complete",
+        run_id = "101",
+        run_attempt = "1",
+        now = NOW,
+    )
+    fields.update(overrides)
+    return fields
+
+
+def _records(*sealed: tuple[int, dict]) -> list[dict]:
+    return [{"id": deployment, "record": record} for deployment, record in sealed]
+
+
+def _findings(records: list[dict], state: bytes, key: str = KEY, **overrides) -> list[str]:
+    bound = {"repository": "owner/terraform", "environment": "dev", "backend_identity": IDENTITY}
+    bound.update(overrides)
+    return tr.record_findings(records, key, state_data = state, **bound)
+
+
+class TestProofRecord:
+    """
+    A record of a proven state, sealed under the environment's key by its own job, which the PROD gate and deploy
+    require of the stored state, the newest record judged alone and never a fallback.
+    """
+    def test_a_record_binds_the_state_its_repository_environment_backend_and_run(self):
+        state  = _state()
+        fields = _record_fields(state)
+        assert fields["type"] == "terraform_proof_record"
+        assert fields["state_sha256"] == _sha(state)
+        assert (fields["lineage"], fields["serial"]) == ("lineage-1", 7)
+        for name in (
+            "repository",
+            "environment",
+            "backend_identity",
+            "release",
+            "commit",
+            "kind",
+            "run_id",
+            "run_attempt",
+            "created_at",
+        ):
+            assert fields[name]
+
+
+    def test_an_unknown_kind_is_refused(self):
+        with pytest.raises(Refused):
+            tr.record_fields(
+                _state(),
+                repository = "o/t",
+                environment = "dev",
+                backend_identity = IDENTITY,
+                release = "v0.11.0",
+                commit = "a" * 40,
+                kind = "anything",
+                run_id = "1",
+                run_attempt = "1",
+                now = NOW,
+            )
+
+
+    def test_the_newest_sealed_record_of_this_state_passes(self):
+        state = _state()
+        assert _findings(_records((5, tr.seal(_record_fields(state), KEY))), state) == []
+
+
+    def test_no_record_is_refused(self):
+        assert _findings([], _state())
+
+
+    def test_a_record_of_another_state_is_refused(self):
+        sealed = tr.seal(_record_fields(_state(serial = 6)), KEY)
+        assert any("state_sha256" in f for f in _findings(_records((5, sealed)), _state()))
+
+
+    def test_a_newer_unsealed_record_is_refused_and_an_older_good_one_never_used(self):
+        state  = _state()
+        good   = tr.seal(_record_fields(state), KEY)
+        forged = {"fields": _record_fields(state), "seal": "0" * 64}
+        assert _findings(_records((5, good), (9, forged)), state)
+
+
+    def test_a_record_sealed_with_another_environments_key_is_refused(self):
+        state = _state()
+        assert _findings(_records((5, tr.seal(_record_fields(state), "kdfmk-other-key"))), state)
+
+
+    @pytest.mark.parametrize("name, value", [
+        ("repository", "owner/other"),
+        ("environment", "prod"),
+        ("backend_identity", "db.example.test:5432/terraform?schema=prod"),
+    ])
+    def test_a_record_bound_to_another_place_is_refused(self, name, value):
+        state = _state()
+        found = _findings(_records((5, tr.seal(_record_fields(state), KEY))), state, **{name: value})
+        assert any(name in f for f in found)
+
+
+    def test_a_changed_bound_field_breaks_the_seal(self):
+        state  = _state()
+        sealed = tr.seal(_record_fields(state), KEY)
+        sealed["fields"]["serial"] = 8
+        assert any("seal" in f for f in _findings(_records((5, sealed)), state))
+
+
+    def test_a_record_with_no_fields_or_seal_is_refused(self):
+        assert _findings(_records((5, {"seal": "x"})), _state())
+        assert _findings(_records((5, "not an object")), _state())
+
+
+    def test_the_cli_writes_a_deployment_body_and_checks_it_back(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("TF_MANIFEST_KEY", KEY)
+        monkeypatch.setenv("GITHUB_REPOSITORY", "owner/terraform")
+        monkeypatch.setenv("GITHUB_RUN_ID", "101")
+        monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
+        state = tmp_path / "after.json"
+        state.write_bytes(_state())
+        body = tmp_path / "body.json"
+        assert tr.main(["record-seal", "--state", str(state), "--environment", "dev", "--identity", IDENTITY,
+                        "--release", "v0.11.0", "--commit", "a" * 40, "--kind", "partial", "--out", str(body)]) == 0
+        written = json.loads(body.read_text(encoding = "utf-8"))
+        assert written["environment"] == "dev" and written["ref"] == "a" * 40
+        assert written["payload"]["terraform_proof_record"]["fields"]["kind"] == "partial"
+        assert "kdfmk" not in json.dumps(written)
+        records = tmp_path / "records.jsonl"
+        line    = json.dumps({"id": 12, "record": written["payload"]["terraform_proof_record"]})
+        records.write_text(line + "\n", encoding = "utf-8")
+        assert tr.main(["record-check", "--records", str(records), "--state", str(state), "--environment", "dev",
+                        "--identity", IDENTITY]) == 0
+        state.write_bytes(_state(serial = 8))
+        assert tr.main(["record-check", "--records", str(records), "--state", str(state), "--environment", "dev",
+                        "--identity", IDENTITY]) == 1
+
+
+    def test_the_cli_refuses_a_records_file_that_is_not_json_lines(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("TF_MANIFEST_KEY", KEY)
+        monkeypatch.setenv("GITHUB_REPOSITORY", "owner/terraform")
+        state = tmp_path / "s.json"
+        state.write_bytes(_state())
+        records = tmp_path / "records.jsonl"
+        records.write_text("{not json\n", encoding = "utf-8")
+        assert tr.main(["record-check", "--records", str(records), "--state", str(state), "--environment", "dev",
+                        "--identity", IDENTITY]) == 2

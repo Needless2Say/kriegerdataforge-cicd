@@ -18,6 +18,10 @@ its floor held by `at-least` here.
               the supported floor, and an automatic run's release against the one the state last applied.
   identity    A backend's identity from its connection string, host, port, database and schema, never the role or
               its password, read from a named environment variable so the string never reaches a process's argv.
+  differences Each change and each address a refresh found drifted, what validate lists for the owner (D-103).
+  record-seal The deployment body that records a proven state, its fields sealed under TF_MANIFEST_KEY (D-103).
+  record-check The PROD gate's and deploy's check that the stored state is the newest sealed record's, the newest
+              judged alone and never an older one in its place (D-103).
 
 Prints names, addresses and digests alone, never a secret. Exit 0 when the check passes, 1 when it finds anything,
 2 on a refusal, an input it will not read.
@@ -70,6 +74,11 @@ QUIET_ACTIONS: tuple[list[str], ...] = (["no-op"], ["read"])
 
 # the release marker's output (D-018 in the terraform repo)
 RELEASE_OUTPUT: str = "release"
+
+# the proof record, a type of its own beside the gate's claim, and the three ways one is made (design version 14)
+RECORD_SCHEMA: int             = 1
+RECORD_TYPE:   str             = "terraform_proof_record"
+RECORD_KINDS:  tuple[str, ...] = ("complete", "partial", "certified")
 
 
 class Refused(ValueError):
@@ -128,6 +137,25 @@ def no_change_findings(plan: dict, release: str) -> list[str]:
         if name == RELEASE_OUTPUT and actions in (["update"], ["create"]) and change.get("after") == release:
             continue
         found.append(f"output {name} plans {actions}, only {RELEASE_OUTPUT} may move, and only to {release}")
+    return found
+
+
+def differences(plan: dict, release: str) -> list[str]:
+    """
+    What validate lists for the owner, every change beyond the release marker's move and every address a refresh
+    found drifted from the stored state, which a no-op change hides and a certify would record (D-103).
+
+    Args:
+        plan: The plan as `terraform show -json` writes it
+        release: The run's release, the tag's name
+
+    Returns:
+        One line per change or drifted address, names alone
+    """
+    found = no_change_findings(plan, release)
+    for drift in plan.get("resource_drift") or []:
+        actions = (drift.get("change") or {}).get("actions")
+        found.append(f"{drift.get('address')} drifted from the stored state, {actions}")
     return found
 
 # ======================================================================================================================
@@ -265,6 +293,152 @@ def verified_terraform_version(manifest: dict) -> str:
     version = manifest["fields"]["terraform_version"]
     version_tuple(version)
     return version
+
+# ======================================================================================================================
+# The proof record (design version 14, 5.6 item 6, the revision reads' H1 and H)
+# ======================================================================================================================
+
+def record_fields(
+    state_data: bytes,
+    *,
+    repository: str,
+    environment: str,
+    backend_identity: str,
+    release: str,
+    commit: str,
+    kind: str,
+    run_id: str,
+    run_attempt: str,
+    now: datetime,
+) -> dict:
+    """
+    The fields of a record that a state passed its proof, bound to where and by which run, names and digests alone.
+
+    Args:
+        state_data: The bytes `terraform state pull` wrote of the proven state
+        repository: The caller's repository, owner/name
+        environment: dev or prod
+        backend_identity: The backend's identity the run held
+        release: The release applied or validated, its tag
+        commit: The commit the release resolved to
+        kind: complete, partial or certified, which of the three ways made it
+        run_id: The run that proved it
+        run_attempt: Its attempt
+        now: The record's time
+
+    Returns:
+        The fields to seal
+
+    Raises:
+        Refused: When the kind is unknown or the bytes are no state
+    """
+    if kind not in RECORD_KINDS:
+        raise Refused(f"{kind!r} is no record kind, {', '.join(RECORD_KINDS)}")
+    state = _state_of(state_data, "state")
+    return {
+        "schema": RECORD_SCHEMA,
+        "type": RECORD_TYPE,
+        "repository": repository,
+        "environment": environment,
+        "backend_identity": backend_identity,
+        "state_sha256": hashlib.sha256(state_data).hexdigest(),
+        "lineage": state["lineage"],
+        "serial": state["serial"],
+        "release": release,
+        "commit": commit,
+        "kind": kind,
+        "run_id": run_id,
+        "run_attempt": run_attempt,
+        "created_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+
+def record_findings(
+    records: list,
+    key: str,
+    *,
+    state_data: bytes,
+    repository: str,
+    environment: str,
+    backend_identity: str,
+) -> list[str]:
+    """
+    The PROD gate's and deploy's check that the stored state is the one the newest sealed record names.
+
+    The newest record alone is judged, so a newer record that fails never lets an older one stand in for it.
+
+    Args:
+        records: Each ``{"id": deployment id, "record": sealed record}`` the environment's deployments hold
+        key: TF_MANIFEST_KEY
+        state_data: The bytes `terraform state pull` wrote of the stored state
+        repository: The caller's repository
+        environment: dev or prod
+        backend_identity: The backend's identity the run held
+
+    Returns:
+        One finding per failed check, empty when the state is the newest record's
+    """
+    held = [item for item in records if isinstance(item, dict) and type(item.get("id")) is int]
+    if not held:
+        return ["no proof record is held for this environment, a named validate makes one"]
+    newest = max(held, key = lambda item: item["id"])
+    label  = f"the newest proof record, deployment {newest['id']},"
+    sealed = newest.get("record")
+    fields = sealed.get("fields") if isinstance(sealed, dict) else None
+    given  = sealed.get("seal") if isinstance(sealed, dict) else None
+    if not isinstance(fields, dict) or not isinstance(given, str) or not given:
+        return [f"{label} holds no fields or no seal"]
+    if not hmac.compare_digest(_mac(fields, key), given):
+        return [f"{label} has a seal that does not hold"]
+    found: list[str] = []
+    if fields.get("schema") != RECORD_SCHEMA or fields.get("type") != RECORD_TYPE:
+        found.append(f"{label} is of another schema or type")
+    if fields.get("kind") not in RECORD_KINDS:
+        found.append(f"{label} names no known kind")
+    state    = _state_of(state_data, "stored state")
+    expected = {
+        "repository": repository,
+        "environment": environment,
+        "backend_identity": backend_identity,
+        "state_sha256": hashlib.sha256(state_data).hexdigest(),
+        "lineage": state["lineage"],
+        "serial": state["serial"],
+    }
+    for name, value in expected.items():
+        if fields.get(name) != value:
+            found.append(f"{label} {name} is not this run's")
+    return found
+
+
+def _read_records(path: str) -> list:
+    """
+    The records a workflow listed, one JSON object a line.
+
+    Args:
+        path: The file
+
+    Returns:
+        The objects
+
+    Raises:
+        Refused: When a line is no JSON object
+    """
+    records: list = []
+    try:
+        lines = Path(path).read_text(encoding = "utf-8").splitlines()
+    except OSError as exc:
+        raise Refused(f"{path} cannot be read, {exc.__class__.__name__}") from None
+    for number, line in enumerate(lines, 1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            raise Refused(f"{path} line {number} is no JSON") from None
+        if not isinstance(record, dict):
+            raise Refused(f"{path} line {number} holds no JSON object")
+        records.append(record)
+    return records
 
 # ======================================================================================================================
 # A repair's forced push
@@ -492,6 +666,10 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     quiet_cmd.add_argument("--plan", required = True)
     quiet_cmd.add_argument("--release", required = True)
 
+    diff_cmd = sub.add_parser("differences", help = "list each change and drifted address, names alone")
+    diff_cmd.add_argument("--plan", required = True)
+    diff_cmd.add_argument("--release", required = True)
+
     seal_cmd = sub.add_parser("seal", help = "seal the gate's plan manifest")
     seal_cmd.add_argument("--fields", required = True)
     seal_cmd.add_argument("--out", required = True)
@@ -529,6 +707,23 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     digest_cmd = sub.add_parser("state-digest", help = "print a pulled state's sha256, lineage and serial")
     digest_cmd.add_argument("--state", required = True)
+
+    record_cmd = sub.add_parser("record-seal", help = "write the deployment that records a proven state, sealed")
+    record_cmd.add_argument("--state", required = True)
+    record_cmd.add_argument("--environment", required = True)
+    record_cmd.add_argument("--identity", required = True)
+    record_cmd.add_argument("--release", required = True)
+    record_cmd.add_argument("--commit", required = True)
+    record_cmd.add_argument("--kind", required = True)
+    record_cmd.add_argument("--out", required = True)
+    record_cmd.add_argument("--key-env", default = "TF_MANIFEST_KEY")
+
+    check_cmd = sub.add_parser("record-check", help = "check the stored state is the newest sealed record's")
+    check_cmd.add_argument("--records", required = True)
+    check_cmd.add_argument("--state", required = True)
+    check_cmd.add_argument("--environment", required = True)
+    check_cmd.add_argument("--identity", required = True)
+    check_cmd.add_argument("--key-env", default = "TF_MANIFEST_KEY")
     return parser.parse_args(argv)
 
 
@@ -546,6 +741,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "no-changes":
             return _report(no_change_findings(_read_json(args.plan), args.release), "Plan of no changes")
+        if args.command == "differences":
+            listed = differences(_read_json(args.plan), args.release)
+            for line in listed:
+                print(line)
+            print(f"==> {len(listed)} differences from the stored state and the configuration")
+            return 0
         if args.command == "seal":
             sealed = seal(_read_json(args.fields), os.environ.get(args.key_env, ""))
             Path(args.out).write_text(json.dumps(sealed, indent = 2, sort_keys = True) + "\n", encoding = "utf-8")
@@ -603,6 +804,41 @@ def main(argv: list[str] | None = None) -> int:
             state = _state_of(data, "state")
             print(f"sha256 {hashlib.sha256(data).hexdigest()} lineage {state['lineage']} serial {state['serial']}")
             return 0
+        if args.command == "record-seal":
+            fields = record_fields(
+                Path(args.state).read_bytes(),
+                repository = os.environ.get("GITHUB_REPOSITORY", ""),
+                environment = args.environment,
+                backend_identity = args.identity,
+                release = args.release,
+                commit = args.commit,
+                kind = args.kind,
+                run_id = os.environ.get("GITHUB_RUN_ID", ""),
+                run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", ""),
+                now = datetime.now(timezone.utc),
+            )
+            body   = {
+                "ref": args.commit,
+                "environment": args.environment,
+                "auto_merge": False,
+                "required_contexts": [],
+                "production_environment": args.environment == "prod",
+                "description": f"terraform proof record, {args.kind}, serial {fields['serial']}",
+                "payload": {RECORD_TYPE: seal(fields, os.environ.get(args.key_env, ""))},
+            }
+            Path(args.out).write_text(json.dumps(body, sort_keys = True) + "\n", encoding = "utf-8")
+            print(f"==> Proof record sealed, {args.kind}, sha256 {fields['state_sha256']} serial {fields['serial']}")
+            return 0
+        if args.command == "record-check":
+            found = record_findings(
+                _read_records(args.records),
+                os.environ.get(args.key_env, ""),
+                state_data = Path(args.state).read_bytes(),
+                repository = os.environ.get("GITHUB_REPOSITORY", ""),
+                environment = args.environment,
+                backend_identity = args.identity,
+            )
+            return _report(found, "Proof record check")
         print(identity(os.environ.get(args.env_var, ""), args.schema))
         return 0
     except Refused as exc:
