@@ -441,6 +441,15 @@ class TestThePlanProofAndTheRecord:
         assert proof < _index(steps, "Keep the plan and its manifest")
 
 
+    def test_the_plan_proof_searches_for_every_value_the_preflight_wrote(self, flow, text):
+        # the known search beside the structural proof (Round Table 88, L1, the owner's answer of 2026-11-12)
+        steps  = _steps(flow, "run")
+        script = steps[_index(steps, "Prove every state the saved plan carries")]["run"]
+        assert '--var-file "$RUNNER_TEMP/tf-inputs.tfvars.json"' in script
+        assert _index(steps, "Map the inputs") < _index(steps, "Prove every state the saved plan carries")
+        assert "known search" in text.split("name: CD, Terraform run", 1)[0]
+
+
     def test_the_stored_state_is_kept_for_the_proof_and_removed_at_the_end(self, flow):
         steps = _steps(flow, "run")
         hold  = steps[_index(steps, "state before the plan")]["run"]

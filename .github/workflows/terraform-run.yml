@@ -51,7 +51,9 @@
 #                             folder, state-rules-full.json for the state after a write and
 #                             state-rules-existing.json for the stored state's own inventory, never reading the
 #                             variables file
-#   scripts/tf_plan_proof.py  every state a saved plan carries, read whole from the binary given by name
+#   scripts/tf_plan_proof.py  every state a saved plan carries, read whole from the binary given by name, and the
+#                             known search, each value in the preflight's variables file looked for in every
+#                             member and the JSON, names alone, beside the structural proof (D-104)
 #   scripts/tf_repair_import.py one object imported at its manifest address by the shared import, tf_import.py
 #   policy/                   the conftest policies, every deny blocking
 #
@@ -706,7 +708,8 @@ jobs:
         run: |
           python3 scripts/tf_plan_proof.py --plan "$RUNNER_TEMP/tfplan.proof.json" --planfile "$RUNNER_TEMP/tfplan" \
             --stored "$RUNNER_TEMP/before.json" --schema "$RUNNER_TEMP/schema.json" --rules "$STATE_RULES" \
-            --existing-rules "$RUNNER_TEMP/state-rules-existing.json" --full-rules "$RUNNER_TEMP/state-rules-full.json"
+            --existing-rules "$RUNNER_TEMP/state-rules-existing.json" --full-rules "$RUNNER_TEMP/state-rules-full.json" \
+            --var-file "$RUNNER_TEMP/tf-inputs.tfvars.json"
 
       - name: Seal the gate's manifest
         if: inputs.mode == 'gate-plan' || inputs.mode == 'acceptance'
