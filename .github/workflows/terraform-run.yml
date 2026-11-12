@@ -45,12 +45,13 @@
 #                             version with tf_versions.py, writes the variables file and each secret's keyed hash,
 #                             printing addresses and versions alone
 #   scripts/tf_state_proof.py the structural proof of a state, names alone, its bytes frozen
-#   scripts/tf_state_extra.py the supplemental check beside every call of it, private data values and deposed
-#                             plain values, and with --partial-plan the rule for a write that stopped partway
+#   scripts/tf_state_extra.py the supplemental check before every call of it (D-105), private data values and
+#                             deposed plain values, and with --partial-plan the rule for a write that stopped partway
 #   scripts/tf_state_rules.py the run's own rules from the plan it applies, written to the runner's temporary
 #                             folder, state-rules-full.json for the state after a write and
 #                             state-rules-existing.json for the stored state's own inventory, never reading the
-#                             variables file
+#                             variables file, and with --existing-only the rules of a stored or written state alone,
+#                             each address holding a write only version kept secret, for every other check (D-105)
 #   scripts/tf_plan_proof.py  every state a saved plan carries, read whole from the binary given by name, and the
 #                             known search, each value in the preflight's variables file looked for in every
 #                             member and the JSON, names alone, beside the structural proof (D-104)
@@ -521,10 +522,16 @@ jobs:
             echo "::warning::the live state is empty, the repair goes ahead and the proof after it decides"
           fi
           terraform -chdir="$TF_DIR" state pull > "$RUNNER_TEMP/before.json"
-          if ! { python3 scripts/tf_state_proof.py --state "$RUNNER_TEMP/before.json" \
-              --schema "$RUNNER_TEMP/schema.json" --rules "$STATE_RULES" \
+          # the committed rules with every address the stored state holds a write only version at kept secret, so a
+          # secret a release moves is held at its old address too, then the supplemental check first, which refuses
+          # private data no schema holds by count, so the frozen proof, which names such a key, the payload's own
+          # bytes, runs only on a state holding none (D-105)
+          if ! { python3 scripts/tf_state_rules.py --existing-only --base "$STATE_RULES" \
+              --stored "$RUNNER_TEMP/before.json" --existing-out "$RUNNER_TEMP/state-rules-stored.json" \
             && python3 scripts/tf_state_extra.py --state "$RUNNER_TEMP/before.json" \
-              --schema "$RUNNER_TEMP/schema.json" --rules "$STATE_RULES"; }; then
+              --schema "$RUNNER_TEMP/schema.json" --rules "$RUNNER_TEMP/state-rules-stored.json" \
+            && python3 scripts/tf_state_proof.py --state "$RUNNER_TEMP/before.json" \
+              --schema "$RUNNER_TEMP/schema.json" --rules "$RUNNER_TEMP/state-rules-stored.json"; }; then
             if [ "$MODE" != repair ]; then
               exit 1
             fi
@@ -910,22 +917,29 @@ jobs:
           fi
           after="$RUNNER_TEMP/after.json"
           schema="$RUNNER_TEMP/schema.json"
+          # in each branch the supplemental check first, so the frozen proof never names a private key, and a repair's
+          # or a partial write's rules built from the written state, a moved secret's old address kept secret (D-105)
+          written="$RUNNER_TEMP/state-rules-written.json"
           if [ "$MODE" = repair ]; then
             # a repair neither needs a record nor makes one, its postcondition its own step's (design version 14)
-            python3 scripts/tf_state_proof.py --state "$after" --schema "$schema" --rules "$STATE_RULES"
-            python3 scripts/tf_state_extra.py --state "$after" --schema "$schema" --rules "$STATE_RULES"
+            python3 scripts/tf_state_rules.py --existing-only --base "$STATE_RULES" --stored "$after" \
+              --existing-out "$written"
+            python3 scripts/tf_state_extra.py --state "$after" --schema "$schema" --rules "$written"
+            python3 scripts/tf_state_proof.py --state "$after" --schema "$schema" --rules "$written"
             echo "record=none" >> "$GITHUB_OUTPUT"
           elif [ "$APPLY" = success ]; then
             full="$RUNNER_TEMP/state-rules-full.json"
-            python3 scripts/tf_state_proof.py --state "$after" --schema "$schema" --rules "$full"
             python3 scripts/tf_state_extra.py --state "$after" --schema "$schema" --rules "$full"
+            python3 scripts/tf_state_proof.py --state "$after" --schema "$schema" --rules "$full"
             echo "record=complete" >> "$GITHUB_OUTPUT"
           else
             # a write that stopped partway, recorded when each plain value is the applied plan's before or after
             # value, both held by that plan's proof, so the next apply finishes the change
-            python3 scripts/tf_state_proof.py --state "$after" --schema "$schema" --rules "$STATE_RULES"
-            python3 scripts/tf_state_extra.py --state "$after" --schema "$schema" --rules "$STATE_RULES" \
+            python3 scripts/tf_state_rules.py --existing-only --base "$STATE_RULES" --stored "$after" \
+              --existing-out "$written"
+            python3 scripts/tf_state_extra.py --state "$after" --schema "$schema" --rules "$written" \
               --partial-plan "$RUNNER_TEMP/tfplan.proof.json"
+            python3 scripts/tf_state_proof.py --state "$after" --schema "$schema" --rules "$written"
             echo "record=partial" >> "$GITHUB_OUTPUT"
           fi
 

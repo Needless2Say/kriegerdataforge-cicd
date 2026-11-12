@@ -498,6 +498,52 @@ class TestThePlanProofAndTheRecord:
         assert "no-changes" not in steps[_index(steps, "Certify the named state")]["run"]
 
 
+    @pytest.mark.parametrize("step", ["state before the plan", "state proof after"])
+    def test_the_supplemental_check_runs_before_the_frozen_proof(self, flow, step):
+        # the frozen proof names a private data key it does not hold, the payload's own bytes, and the supplemental
+        # check refuses such data by count, so it runs first and the frozen proof never sees it (D-105)
+        steps  = _steps(flow, "run")
+        script = steps[_index(steps, step)]["run"]
+        extra  = [i for i in range(len(script)) if script.startswith("scripts/tf_state_extra.py", i)]
+        proof  = [i for i in range(len(script)) if script.startswith("scripts/tf_state_proof.py", i)]
+        assert extra and len(extra) == len(proof)
+        for e, p in zip(extra, proof):
+            assert e < p
+        # a refusal stops the step before the frozen proof, by && before the plan and by set -e after a write, and
+        # the order alone would not hold that (Codex's review of 9b71366)
+        if step == "state before the plan":
+            between = script[extra[0]:proof[0]]
+            assert "&& python3 scripts/tf_state_proof.py" in script and ";" not in between
+        else:
+            assert script.lstrip().startswith("set -euo pipefail")
+            assert "|| true" not in script
+
+
+    def test_the_check_before_the_plan_takes_rules_built_from_the_stored_state(self, flow):
+        # a release that moves a secret leaves it at its old address in the stored state, which the committed rules
+        # alone would refuse, so the caller adds every address holding a write only version (D-105, the owner's
+        # choice of 2026-11-12)
+        steps  = _steps(flow, "run")
+        script = steps[_index(steps, "state before the plan")]["run"]
+        build  = script.index("scripts/tf_state_rules.py --existing-only")
+        assert build < script.index("scripts/tf_state_extra.py")
+        assert '--stored "$RUNNER_TEMP/before.json"' in script
+        assert script.count('--rules "$RUNNER_TEMP/state-rules-stored.json"') == 2
+        assert '--rules "$STATE_RULES"' not in script.split("scripts/tf_state_rules.py", 1)[1]
+
+
+    def test_a_repair_and_a_partial_write_take_rules_built_from_the_written_state(self, flow):
+        steps  = _steps(flow, "run")
+        script = steps[_index(steps, "state proof after")]["run"]
+        assert "scripts/tf_state_rules.py --existing-only" in script
+        assert '--stored "$after"' in script
+        for branch in (
+            script.split('if [ "$MODE" = repair ]; then', 1)[1].split("elif", 1)[0],
+            script.split('elif [ "$APPLY" = success ]; then', 1)[1].split("else", 1)[1],
+        ):
+            assert '--rules "$written"' in branch and '--rules "$STATE_RULES"' not in branch
+
+
     def test_a_repair_never_makes_a_record(self, flow):
         steps  = _steps(flow, "run")
         script = steps[_index(steps, "state proof after")]["run"]
