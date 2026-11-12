@@ -19,9 +19,10 @@
   "state_rules_path": "manifest/state_rules.json",
   "names": [
     "--policy policy",
-    "-var \"release=",
+    "-var release",
+    "-var-file $RUNNER_TEMP/tf-inputs.tfvars.json",
     ".terraform.lock.hcl",
-    "output -raw release",
+    "output release",
     "scripts/tf_inputs.py",
     "scripts/tf_plan_proof.py",
     "scripts/tf_repair_import.py",

@@ -31,11 +31,18 @@ CONTRACT_1 = Path(__file__).resolve().parent / "fixtures" / "terraform_run" / "c
 # _kdf_cicd/, so a message naming a script is no call
 RELEASE_CALL = re.compile(r"(?<![\w/.$-])python3 scripts/[a-z_]+\.py")
 
-# the names the workflow reads from the release, a path in its checkout, its lock file, its policies, and its root's
-# variables and outputs
+# the names the workflow reads from the release, a path in its checkout, its lock file and its policies
 RELEASE_NAMES = re.compile(
     r"(?<![\w/.$-])(?:manifest|scripts|environments|modules|policy)/[\w.-]+(?:/[\w.-]+)*"
-    r'|\.terraform\.lock\.hcl|--policy \S+|-var "\w+=|output -raw \w+'
+    r"|\.terraform\.lock\.hcl|--policy \S+"
+)
+
+# the names the workflow asks of the release's root, each variable it sets, each variables file it passes and each
+# output it reads, however the argument is quoted (Codex's second read of 3b, of e5cdd09, finding 3)
+ROOT_NAMES = (
+    (re.compile(r"-var(?:\s+|=)[\"']?([A-Za-z_][\w-]*)="), "-var {}"),
+    (re.compile(r"-var-file(?:\s+|=)[\"']?([^\"'\s]+)"), "-var-file {}"),
+    (re.compile(r"\boutput(?:\s+-[\w=-]+)*\s+[\"']?([A-Za-z_][\w-]*)"), "output {}"),
 )
 
 # the keys of a step and of the job that decide whether a step runs, what it reads and what a failure does
@@ -52,6 +59,15 @@ GATE_LINES  = [
     "plan_sha=\"$(sha256sum \"$RUNNER_TEMP/gate/tfplan\" | cut -d' ' -f1)\"",
     GATE_VERIFY,
     'cp "$RUNNER_TEMP/gate/tfplan" "$RUNNER_TEMP/tfplan"',
+]
+
+# the apply's own lines, the verified plan at its fixed path and nothing else applied
+APPLY_LINES = [
+    "set -euo pipefail",
+    " ".join([
+        'terraform -chdir="$TF_DIR" apply -input=false -var-file="$RUNNER_TEMP/tf-inputs.tfvars.json"',
+        '"$RUNNER_TEMP/tfplan"',
+    ]),
 ]
 
 
@@ -635,10 +651,21 @@ def _shell_lines(script: str) -> list[str]:
 
 def _prints_only(line: str) -> bool:
     """
-    Whether a shell line only prints, an echo with no redirect, no command run inside it and nothing chained to it.
+    Whether a shell line only prints, an echo with no redirect either way, no command run inside it and nothing
+    chained to it or run beside it (Codex's second read of 3b, of e5cdd09, finding 2).
     """
     is_echo = line == "echo" or line.startswith("echo ")
-    return is_echo and not any(mark in line for mark in (">", "$(", "`", "|", ";", "&&"))
+    return is_echo and not any(mark in line for mark in (">", "<", "$(", "`", "|", ";", "&"))
+
+
+def _names_in(text: str) -> set[str]:
+    """
+    Every name the release is read by that a line or a variable's value holds.
+    """
+    names = {match.group(0) for match in RELEASE_NAMES.finditer(text)}
+    for pattern, shape in ROOT_NAMES:
+        names.update(shape.format(match.group(1)) for match in pattern.finditer(text))
+    return names
 
 
 def _logical_lines(script: str) -> list[str]:
@@ -661,10 +688,14 @@ def release_interface(flow: dict) -> dict:
     job    = flow["jobs"]["run"]
     calls: list[dict] = []
     names: set[str]   = set()
+    for key in job.get("env") or {}:
+        if key.startswith("TF_VAR_"):
+            names.add("env " + key)
     for step in job["steps"]:
         lines = _logical_lines(step.get("run", ""))
         for text in [*lines, *(str(value) for value in (step.get("env") or {}).values())]:
-            names.update(match.group(0) for match in RELEASE_NAMES.finditer(text))
+            names.update(_names_in(text))
+        names.update("env " + key for key in (step.get("env") or {}) if key.startswith("TF_VAR_"))
         if not any(RELEASE_CALL.search(line) for line in lines):
             continue
         frozen = {key: step[key] for key in STEP_KEYS if key in step}
@@ -727,6 +758,14 @@ class TestTheRunContract:
         ("The policies", "run", "--policy policy", "--policy rules"),
         ("The policies", "run", "--policy policy", "--policy policy --data manifest/new-policy.json"),
         ("Refuse an obsolete run", "run", "output -raw release", "output -raw marker"),
+        # a file read by an echo, and a variable or variables file the root must take, however quoted (Codex's second
+        # read of 3b, of e5cdd09, findings 2 and 3)
+        ("Map the inputs", "run", "set -euo pipefail\n",
+         'set -euo pipefail\necho "starting preflight" < manifest/required.json\n'),
+        ("Terraform plan", "run", '-var "release=v$RELEASE"', "-var \"release=v$RELEASE\" -var 'new_required=true'"),
+        ("Terraform plan", "run", '-var "release=v$RELEASE"', '-var "release=v$RELEASE" -var=other_required=1'),
+        ("Terraform plan", "run", '-var "release=v$RELEASE"',
+         '-var "release=v$RELEASE" -var-file="$RUNNER_TEMP/extra.tfvars.json"'),
     ])
     def test_the_freeze_sees_each_part_of_the_interface(self, flow, step, field, old, new):
         changed = copy.deepcopy(flow)
@@ -756,6 +795,10 @@ class TestTheRunContract:
         rooted = copy.deepcopy(flow)
         rooted["jobs"]["run"]["env"]["TF_DIR"] = "roots/${{ inputs.environment }}"
         changes.append(rooted)
+        variable = copy.deepcopy(flow)
+        plan     = _steps(variable, "run")[_index(_steps(variable, "run"), "Terraform plan")]
+        plan.setdefault("env", {})["TF_VAR_new_required"] = "1"
+        changes.append(variable)
         moved_checkout = copy.deepcopy(flow)
         next(s for s in _steps(moved_checkout, "run") if str(s.get("uses", "")).startswith("actions/checkout@")
              and "repository" not in s["with"])["with"]["path"] = "release"
@@ -811,6 +854,17 @@ def handoff_faults(flow: dict) -> list[str]:
             faults.append(f"{step['name']} touches the downloaded copy other than to read, verify and apply it")
         if i not in verifies and gate:
             faults.append(f"{step['name']} touches the folder a download fills")
+    # the verified copy is the plan applied, so between acceptance's verify and the apply stands the claim alone, and
+    # nothing there touches the plan (Codex's second read of 3b, of e5cdd09, finding 1)
+    apply  = _index(steps, "Terraform apply")
+    window = range(verifies[1] + 1, apply)
+    if [steps[i]["name"] for i in window] != ["Claim the gate run"]:
+        faults.append("a step other than the claim stands between acceptance's verify and the apply")
+    for i in window:
+        if "tfplan" in json.dumps({key: value for key, value in steps[i].items() if key != "name"}):
+            faults.append(f"{steps[i]['name']} touches the plan between acceptance's verify and the apply")
+    if _shell_lines(steps[apply].get("run", "")) != APPLY_LINES:
+        faults.append("the apply applies something other than the plan at its fixed path")
     return faults
 
 
@@ -839,11 +893,16 @@ class TestTheAcceptanceHandoff:
         "the seal skips acceptance",
         "the upload skips acceptance",
         "a later step copies the sealed plan to the apply's path",
+        "the seal keeps a local plan and the claim restores it",
+        "a step is put between acceptance's verify and the apply",
+        "the apply names another plan",
     ])
     def test_each_way_around_the_download_is_a_fault(self, flow, change):
-        # each passed every case before (Codex's review of a2bdbd1, finding 2)
+        # each passed every case before (Codex's review of a2bdbd1, finding 2, and its second read, of e5cdd09,
+        # finding 1)
         changed = copy.deepcopy(flow)
         steps   = _steps(changed, "run")
+        claim   = steps[_index(steps, "Claim the gate run")]
         if change.startswith("the verifies"):
             filled = 'if [ -d "$RUNNER_TEMP/sealed" ]; then cp "$RUNNER_TEMP/sealed/"* "$RUNNER_TEMP/gate/"; fi\n'
             for name in ("Verify the gate's manifest", "Verify the downloaded copy"):
@@ -853,9 +912,17 @@ class TestTheAcceptanceHandoff:
             steps[_index(steps, "Seal the gate's manifest")]["if"] = "inputs.mode == 'gate-plan'"
         elif change == "the upload skips acceptance":
             steps[_index(steps, "Keep the plan and its manifest")]["if"] = "inputs.mode == 'gate-plan'"
-        else:
-            claim = steps[_index(steps, "Claim the gate run")]
+        elif change == "a later step copies the sealed plan to the apply's path":
             claim["run"] = 'cp "$RUNNER_TEMP/sealed/tfplan" "$RUNNER_TEMP/tfplan"\n' + claim["run"]
+        elif change == "the seal keeps a local plan and the claim restores it":
+            seal = steps[_index(steps, "Seal the gate's manifest")]
+            seal["run"] += 'cp "$RUNNER_TEMP/tfplan" "$RUNNER_TEMP/local-plan"\n'
+            claim["run"] = 'cd "$RUNNER_TEMP" && cp local-plan tfplan\n' + claim["run"]
+        elif change == "a step is put between acceptance's verify and the apply":
+            steps.insert(_index(steps, "Terraform apply"), {"name": "Note the plan", "run": "true\n"})
+        else:
+            apply = steps[_index(steps, "Terraform apply")]
+            apply["run"] = apply["run"].replace('"$RUNNER_TEMP/tfplan"', '"$RUNNER_TEMP/local-plan"')
         assert handoff_faults(changed)
 
 
