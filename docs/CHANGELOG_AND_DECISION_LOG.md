@@ -5528,3 +5528,26 @@ on. After a repair, a change outside the workflow or a rotation of `TF_MANIFEST_
 seal failing, the PROD gate waits until the owner runs an ordinary `validate`, looks up each address it names, and
 then names the state's digest.
 
+## D-104. Terraform run, the plan proof's known search
+
+- **Date.** 2026-11-12
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Follows.** D-103, whose plan proof call this extends by one argument.
+- **Tier / scope:** Standard · `.github/workflows/terraform-run.yml`, its contract test and `WORKFLOWS.md`
+
+**Context.** The terraform design keeps a known search beside the structural proof, the saved plan searched for
+every secret value the run holds, names alone. A search for today's values cannot find an older one, which the
+structural proof is for, but it catches a value of this run in any member, the protobuf among them. D-103's call
+handed the plan proof no values, so nothing ran the search.
+
+**Decision.** The plan proof call passes the preflight's variables file, `$RUNNER_TEMP/tf-inputs.tfvars.json`, which
+the caller's `tf_plan_proof.py` reads for its known search, every archive member and the JSON searched for each value,
+names printed alone.
+
+**Alternatives considered.** *The caller finding the file by convention.* Declined, as D-103 declined the binary
+found so. *Dropping the search.* Declined by the owner, it is cheap coverage the structural proof does not give for
+this run's own values.
+
+**Consequences.** Still no caller. The caller's plan proof takes `--var-file`, the file already in the job beside the
+caller's code since D-102's preflight wrote it.
+
