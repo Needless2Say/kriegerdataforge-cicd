@@ -5551,7 +5551,7 @@ this run's own values.
 **Consequences.** Still no caller. The caller's plan proof takes `--var-file`, the file already in the job beside the
 caller's code since D-102's preflight wrote it.
 
-## D-105. Terraform run, the supplemental check before the frozen proof
+## D-105. Terraform run, the supplemental check before the frozen proof, and a stored state's own rules
 
 - **Date.** 2026-11-12
 - **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
@@ -5564,7 +5564,11 @@ job's log. The caller's `tf_state_extra.py` refuses private data no schema holds
 
 **Decision.** Each check of a state runs the supplemental check first and the frozen proof after it, before the plan
 and in every branch after a write, so the frozen proof runs only on a state holding no private data its schema does
-not hold.
+not hold. And each check of a stored or written state, before the plan and after a repair or a write that stopped
+partway, runs the committed rules with every address that state holds a write only version at kept secret, built by
+the caller's `tf_state_rules.py --existing-only`, so a release that moves a secret is not refused at its old address,
+the owner's choice of 2026-11-12 over keeping old addresses in the committed rules. A completed write keeps the full
+rules built from its plan.
 
 **Alternatives considered.** *Changing the frozen proof.* Declined, its bytes are pinned by the caller's design.
 *Filtering the proof's output.* Declined, a filter reads a key's text to hide it, and an order needs none.

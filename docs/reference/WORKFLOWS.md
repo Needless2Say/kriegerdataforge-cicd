@@ -378,8 +378,9 @@ record's seal failing, so the same three steps follow each rotation before the n
   `TF_STATE_IDENTITY`, the live backend's public identity, never read from the release.
 - **The caller's files.** `scripts/tf_inputs.py` (the preflight and the derived versions), `scripts/tf_state_proof.py`,
   `scripts/tf_state_extra.py` (before every proof, D-105), `scripts/tf_state_rules.py` (the run's own rules from the
-  plan it applies), `scripts/tf_plan_proof.py` (the binary plan by name, the stored state, both rules files, and the
-  preflight's variables file for its known search, D-104),
+  plan it applies, and with `--existing-only` a stored or written state's own, D-105), `scripts/tf_plan_proof.py`
+  (the binary plan by name, the stored state, both rules files, and the preflight's variables file for its known
+  search, D-104),
   `scripts/tf_repair_import.py`, `policy/`, the manifest and the state rules, by these names at the commit applied, so
   cicd names no tenant (AGENTS.md rule 12).
 - **Helpers.** `scripts/terraform_run.py`, `at-least`, `identity`, `no-changes`, `seal`, `verify`, `state-digest`,

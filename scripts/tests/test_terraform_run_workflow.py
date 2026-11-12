@@ -519,6 +519,31 @@ class TestThePlanProofAndTheRecord:
             assert "|| true" not in script
 
 
+    def test_the_check_before_the_plan_takes_rules_built_from_the_stored_state(self, flow):
+        # a release that moves a secret leaves it at its old address in the stored state, which the committed rules
+        # alone would refuse, so the caller adds every address holding a write only version (D-105, the owner's
+        # choice of 2026-11-12)
+        steps  = _steps(flow, "run")
+        script = steps[_index(steps, "state before the plan")]["run"]
+        build  = script.index("scripts/tf_state_rules.py --existing-only")
+        assert build < script.index("scripts/tf_state_extra.py")
+        assert '--stored "$RUNNER_TEMP/before.json"' in script
+        assert script.count('--rules "$RUNNER_TEMP/state-rules-stored.json"') == 2
+        assert '--rules "$STATE_RULES"' not in script.split("scripts/tf_state_rules.py", 1)[1]
+
+
+    def test_a_repair_and_a_partial_write_take_rules_built_from_the_written_state(self, flow):
+        steps  = _steps(flow, "run")
+        script = steps[_index(steps, "state proof after")]["run"]
+        assert "scripts/tf_state_rules.py --existing-only" in script
+        assert '--stored "$after"' in script
+        for branch in (
+            script.split('if [ "$MODE" = repair ]; then', 1)[1].split("elif", 1)[0],
+            script.split('elif [ "$APPLY" = success ]; then', 1)[1].split("else", 1)[1],
+        ):
+            assert '--rules "$written"' in branch and '--rules "$STATE_RULES"' not in branch
+
+
     def test_a_repair_never_makes_a_record(self, flow):
         steps  = _steps(flow, "run")
         script = steps[_index(steps, "state proof after")]["run"]
