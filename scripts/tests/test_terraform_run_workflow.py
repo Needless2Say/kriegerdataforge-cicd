@@ -725,9 +725,12 @@ def release_interface(flow: dict) -> dict:
 
 class TestTheRunContract:
     """
-    The release declares the interface it holds, read before any of its scripts runs, and contract 1, the interface
-    as merged, frozen here, so a change to it declares contract 2 and keeps contract 1's calls for a release that
-    declares it.
+    The release declares the interface it holds, read before any of its scripts runs, and contract 1 is frozen here
+    wider than the interface itself, a tripwire. A change it catches that every contract 1 release still meets updates
+    the frozen copy in its pull request, the decision log naming why no script argument, release file, root name or
+    exit handling changed. A change a contract 1 release cannot meet declares contract 2, in order, a terraform release
+    declaring 2, its floors raised, then cicd moved to 2, every run between refused by the reader, so no workflow runs
+    two contracts (D-106, the owner's answer of 2026-11-12).
     """
     def test_the_declaration_is_read_after_the_checkouts_hold_and_before_any_release_script(self, flow):
         steps    = _steps(flow, "run")
@@ -745,9 +748,10 @@ class TestTheRunContract:
     def test_contract_1_is_the_interface_as_merged(self, flow):
         frozen = json.loads(CONTRACT_1.read_text(encoding = "utf-8"))
         assert release_interface(flow) == frozen, (
-            "the release's interface changed, a script's call, its condition or its exit handling, or a name the "
-            "release is read by. Such a change declares contract 2 (design 5.6), and contract 1's calls stay for a "
-            "release that declares it"
+            "the frozen copy of contract 1 changed. If every release declaring contract 1 still meets the change, "
+            "update scripts/tests/fixtures/terraform_run/contract_1.json in this pull request, its decision log line "
+            "naming why no script argument, release file, root name or exit handling changed. Else it declares "
+            "contract 2, in order, a terraform release declaring 2, its floors raised, then cicd moved to 2 (D-106)"
         )
 
 

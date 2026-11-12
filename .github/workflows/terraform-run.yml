@@ -42,8 +42,9 @@
 # The caller's repo holds, at the commit applied, by these names (environment agnostic here, AGENTS.md rule 12):
 #   manifest/run_contract.json the run contract the release declares, {"contract": 1}, read before any of its scripts
 #                             and refused when missing, malformed or another number (D-106). Contract 1 is every
-#                             name below and each script's call in every mode, frozen by this repo's
-#                             scripts/tests/fixtures/terraform_run/contract_1.json, so a change declares contract 2
+#                             name below and each script's call in every mode, frozen wider by this repo's
+#                             scripts/tests/fixtures/terraform_run/contract_1.json, a change every contract 1
+#                             release still meets updating that copy with its reasons, any other declaring contract 2
 #   manifest/manifest.json, or manifest_path     the secrets and their inputs, by resource address
 #   manifest/state_rules.json, or state_rules_path the committed rules, the proof's structural mode, run before
 #                             every plan and on a saved plan's prior states

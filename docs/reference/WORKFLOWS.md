@@ -352,11 +352,15 @@ The run contract (D-106). A release floor compares numbers alone, so each releas
 `manifest/run_contract.json`, `{"contract": 1}` and nothing else. Every run reads it with `terraform_run.py contract`
 after the checkout is held to the resolved commit and before any of the release's scripts, and refuses by name a
 declaration that is missing, malformed, linked, larger than a declaration or a number this workflow does not support,
-taking nothing from it but its number. Contract 1 is the interface as merged, each release script's call with its
-step's condition and the lines that decide which call runs and what a failure does, the files read by fixed names
-and the root's `release` variable and output, frozen by `scripts/tests/fixtures/terraform_run/contract_1.json`. A
-change to any of them declares contract 2 and keeps contract 1's calls while a release at or above either floor
-declares it.
+taking nothing from it but its number. Contract 1 is the interface as merged, each release script's arguments, the
+files read and written by fixed names and the exit handling, and `scripts/tests/fixtures/terraform_run/contract_1.json`
+freezes it wider as a tripwire, each step that calls a release script whole, every Terraform call against the root
+with its step's condition, the job's variables, the release's checkout, and every release path and root name the job
+reads. A change the freeze catches that every contract 1 release still meets updates that copy in its pull request,
+its decision log line naming why no script argument, release file, root name or exit handling changed. A change a
+contract 1 release cannot meet declares contract 2, in order, a terraform release declaring 2, its floors raised in
+each environment, then cicd moved to 2, every run between refused by the reader, so no workflow runs two contracts
+(the owner's answer of 2026-11-12).
 
 A PROD gate is never rerun. Its sealed manifest names the attempt that made the plan, and the deploy holds that to the
 run's latest attempt, so a rerun of a failed lane leaves a green gate unable to deploy, and the verify's refusal of the

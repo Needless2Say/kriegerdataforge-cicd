@@ -5595,10 +5595,16 @@ the run's latest, so its deploy is refused once the plan was read, the refusal n
 nothing else. A step after the checkout is held to the resolved commit and the floors, before any release script,
 reads it with `terraform_run.py contract` and refuses by name a declaration that is missing, malformed, linked or
 outside the checkout, larger than a declaration, or a number this workflow does not support, taking nothing from it
-but its number. Contract 1 is the interface as merged, each release script's call with its step's condition, whether
-a failure stops it, the shell lines that decide which call runs and what a failure does, the files read by fixed names
-and the root's `release` variable and output, frozen by `scripts/tests/fixtures/terraform_run/contract_1.json`, which
-was written from `main` before this change and holds after it. The acceptance mode now runs the gate's upload, the
+but its number. Contract 1 is the interface as merged, each release script's arguments, the files read and written by
+fixed names and the exit handling, and `scripts/tests/fixtures/terraform_run/contract_1.json` freezes it wider as a
+tripwire, each step that calls a release script whole but its comments and the echoes that only print, every
+Terraform call against the root with its step's condition, the job's variables, the release's checkout, and every
+release path and root name the job reads, the copy written from `main` before this change and holding after it. A
+change the freeze catches that every contract 1 release still meets updates the copy in its pull request, its
+decision log line naming why no script argument, release file, root name or exit handling changed. A change a
+contract 1 release cannot meet declares contract 2, in order, a terraform release declaring 2, its floors raised, then
+cicd moved to 2, every run between refused by the reader, so no workflow runs two contracts (the owner's answer of
+2026-11-12). The acceptance mode now runs the gate's upload, the
 download of that artifact back by its own run id, the deploy's verify script word for word on that copy against the
 values its own job computed, the newest record's check, the claim naming its own run id, the apply of the copy, and the
 claim's mark, the seal writing a folder of its own so the folder the verify reads is filled by the download alone. Its
@@ -5613,7 +5619,8 @@ after the first in its last job.
 
 **Consequences.** Still no caller, so this merge changes no run. Every terraform release from the move on declares
 contract 1, its first release at either floor among them, so the move's step 8 needs both pull requests merged. A
-change to the frozen interface declares contract 2, and cicd keeps contract 1 while a release at or above either floor
-declares it. What one job cannot show, the gate checker's lookup of a named run and the plan's binding to that run's
-latest attempt, first runs on PROD, each failing closed before an apply.
+harmless fix the tripwire catches, a new flag on a Terraform call among them, costs an updated copy and its reasons,
+never a second contract. cicd keeps contract 1 while a release at or above either floor declares it, and moves to 2
+only once the floors stand at a release declaring it. What one job cannot show, the gate checker's lookup of a named
+run and the plan's binding to that run's latest attempt, first runs on PROD, each failing closed before an apply.
 
