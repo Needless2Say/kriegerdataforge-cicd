@@ -352,7 +352,8 @@ The proof record (D-103). A proof that passes after a write, the full rules afte
 rule after one that stopped, and the owner's named `validate`, record the state in a deployment of its own, sealed
 under `TF_MANIFEST_KEY` by this job. The PROD gate and deploy stop unless the stored state is the newest record's.
 Before naming a digest, the owner runs an ordinary `validate`, which names each address that differs, and looks each
-up in Vercel or sets it back, since the record trusts those values.
+up in Vercel or sets it back, since the record trusts those values. A rotation of `TF_MANIFEST_KEY` leaves every
+record's seal failing, so the same three steps follow each rotation before the next PROD gate.
 
 | Input | Type | Default | Required |
 |---|---|---|---|

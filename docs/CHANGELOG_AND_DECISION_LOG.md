@@ -5524,6 +5524,7 @@ cut off partway could then never finish.
 
 **Consequences.** Still no caller, so this merge changes no run. The terraform repo's next pull request must hold
 `tf_state_rules.py`, `tf_state_extra.py` and the plan proof's new arguments before its move switches an environment
-on. After a repair or a change outside the workflow, the PROD gate waits until the owner runs an ordinary `validate`,
-looks up each address it names, and then names the state's digest.
+on. After a repair, a change outside the workflow or a rotation of `TF_MANIFEST_KEY`, which leaves every record's
+seal failing, the PROD gate waits until the owner runs an ordinary `validate`, looks up each address it names, and
+then names the state's digest.
 
