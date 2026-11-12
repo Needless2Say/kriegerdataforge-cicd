@@ -498,6 +498,19 @@ class TestThePlanProofAndTheRecord:
         assert "no-changes" not in steps[_index(steps, "Certify the named state")]["run"]
 
 
+    @pytest.mark.parametrize("step", ["state before the plan", "state proof after"])
+    def test_the_supplemental_check_runs_before_the_frozen_proof(self, flow, step):
+        # the frozen proof names a private data key it does not hold, the payload's own bytes, and the supplemental
+        # check refuses such data by count, so it runs first and the frozen proof never sees it (D-105)
+        steps  = _steps(flow, "run")
+        script = steps[_index(steps, step)]["run"]
+        extra  = [i for i in range(len(script)) if script.startswith("scripts/tf_state_extra.py", i)]
+        proof  = [i for i in range(len(script)) if script.startswith("scripts/tf_state_proof.py", i)]
+        assert extra and len(extra) == len(proof)
+        for e, p in zip(extra, proof):
+            assert e < p
+
+
     def test_a_repair_never_makes_a_record(self, flow):
         steps  = _steps(flow, "run")
         script = steps[_index(steps, "state proof after")]["run"]

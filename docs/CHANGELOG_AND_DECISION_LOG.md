@@ -5551,3 +5551,23 @@ this run's own values.
 **Consequences.** Still no caller. The caller's plan proof takes `--var-file`, the file already in the job beside the
 caller's code since D-102's preflight wrote it.
 
+## D-105. Terraform run, the supplemental check before the frozen proof
+
+- **Date.** 2026-11-12
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Follows.** D-103, which ran the caller's supplemental check after the frozen structural proof.
+- **Tier / scope:** Standard · `.github/workflows/terraform-run.yml`, its contract test and `WORKFLOWS.md`
+
+**Context.** The caller's frozen `tf_state_proof.py`, its bytes pinned by digest, names a private data key it does
+not hold in its finding, and a key is the provider's payload's own bytes, which could carry an older value into the
+job's log. The caller's `tf_state_extra.py` refuses private data no schema holds and names no key, counting them.
+
+**Decision.** Each check of a state runs the supplemental check first and the frozen proof after it, before the plan
+and in every branch after a write, so the frozen proof runs only on a state holding no private data its schema does
+not hold.
+
+**Alternatives considered.** *Changing the frozen proof.* Declined, its bytes are pinned by the caller's design.
+*Filtering the proof's output.* Declined, a filter reads a key's text to hide it, and an order needs none.
+
+**Consequences.** Still no caller. The order is the caller's contract, which its own pull request plan keeps too.
+
