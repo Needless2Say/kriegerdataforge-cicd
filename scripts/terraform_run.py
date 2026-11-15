@@ -22,6 +22,8 @@ its floor held by `at-least` here.
   record-seal The deployment body that records a proven state, its fields sealed under TF_MANIFEST_KEY (D-103).
   record-check The PROD gate's and deploy's check that the stored state is the newest sealed record's, the newest
               judged alone and never an older one in its place (D-103).
+  state-digest A pulled state's digest, lineage and serial, the digest the sha256 of the state's canonical JSON, one
+              for every pull of one stored state, held by --expect to a digest the owner names (D-107).
   contract    The run contract the release declares in manifest/run_contract.json, read from its checkout before any
               of its scripts runs, refused by name when missing, malformed or not one this workflow supports, nothing
               taken from it but its number (design 5.6, Round Table 92, L12, D-106).
@@ -45,6 +47,7 @@ import stat
 import sys
 import urllib.parse
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 
 # ======================================================================================================================
@@ -56,6 +59,9 @@ VERSION: re.Pattern[str] = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-
 
 # a backend schema's name, a Postgres identifier the backend block commits
 SCHEMA: re.Pattern[str] = re.compile(r"[a-z_][a-z0-9_]{0,62}")
+
+# a sha256 as the helper prints one, 64 lower case hex digits
+SHA256: re.Pattern[str] = re.compile(r"[0-9a-f]{64}")
 
 # the manifest's schema, and how long a gate's plan stays good unless the owner sets another limit
 MANIFEST_SCHEMA:       int = 1
@@ -79,8 +85,9 @@ QUIET_ACTIONS: tuple[list[str], ...] = (["no-op"], ["read"])
 # the release marker's output (D-018 in the terraform repo)
 RELEASE_OUTPUT: str = "release"
 
-# the proof record, a type of its own beside the gate's claim, and the three ways one is made (design version 14)
-RECORD_SCHEMA: int             = 1
+# the proof record, a type of its own beside the gate's claim, and the three ways one is made (design version 14),
+# schema 2 binding the state's canonical digest, where schema 1 bound the pulled bytes' sha256 (D-107)
+RECORD_SCHEMA: int             = 2
 RECORD_TYPE:   str             = "terraform_proof_record"
 RECORD_KINDS:  tuple[str, ...] = ("complete", "partial", "certified")
 
@@ -313,6 +320,132 @@ def verified_terraform_version(manifest: dict) -> str:
     return version
 
 # ======================================================================================================================
+# A state's digest (D-107)
+# ======================================================================================================================
+
+def _unique_members(pairs: list[tuple[str, object]]) -> dict:
+    """
+    A JSON object's members, refused when one key comes twice, since two readers of it may keep different values.
+
+    Args:
+        pairs: The members in the order written
+
+    Returns:
+        The object
+
+    Raises:
+        Refused: When a key comes twice, the key never named
+    """
+    members: dict = {}
+    for name, value in pairs:
+        if name in members:
+            raise Refused("holds one key twice in an object")
+        members[name] = value
+    return members
+
+
+def _no_constant(name: str) -> None:
+    """
+    Refuse NaN and the infinities, which Python's reader takes and JSON has no number for.
+
+    Args:
+        name: The constant read
+
+    Raises:
+        Refused: Always, the constant never named
+    """
+    raise Refused("holds NaN or an infinity, which is no JSON number")
+
+
+def _state_json(value: object) -> str:
+    """
+    A state or a part of one as canonical JSON, every object's keys sorted, no spaces and ASCII alone, each fraction
+    written with the digits it was read with, since a binary float would round the last ones of a long fraction and
+    Terraform's numbers are exact (Codex's review of 6e74666). For a part with no fraction it writes what `canonical`
+    writes.
+
+    Args:
+        value: A JSON value as `_state_of` reads it, each fraction a Decimal
+
+    Returns:
+        The canonical JSON
+    """
+    if isinstance(value, dict):
+        return "{" + ",".join(f"{json.dumps(name)}:{_state_json(value[name])}" for name in sorted(value)) + "}"
+    if isinstance(value, list):
+        return "[" + ",".join(_state_json(item) for item in value) + "]"
+    if isinstance(value, Decimal):
+        return str(value)
+    return json.dumps(value, ensure_ascii = True)
+
+
+def _checks_in_order(state: dict) -> dict:
+    """
+    A state with its check results and each result's objects in order, each list sorted by its entries' own canonical
+    JSON, the two lists Terraform writes in Go's map order, which differs from one write to the next. Every other list
+    stays as Terraform wrote it.
+
+    Args:
+        state: A pulled state
+
+    Returns:
+        The same state, its check results in order
+    """
+    results = state.get("check_results")
+    if not isinstance(results, list):
+        return state
+    ordered: list = []
+    for result in results:
+        if isinstance(result, dict) and isinstance(result.get("objects"), list):
+            result = {**result, "objects": sorted(result["objects"], key = _state_json)}
+        ordered.append(result)
+    return {**state, "check_results": sorted(ordered, key = _state_json)}
+
+
+def state_digest(data: bytes) -> str:
+    """
+    A pulled state's digest, the sha256 of its canonical JSON, the same for every pull of one stored state.
+
+    `terraform state pull` writes the stored state anew, its check results in Go's map order, so two pulls of one
+    stored state can differ in their bytes. The canonical JSON puts the check results and each result's objects in
+    order, sorts every object's keys, writes each fraction with its digits as read, and writes no spaces and ASCII
+    alone, so the digest names the state and not one writing of it. Any other change of the state, an order of another
+    list or a fraction's last digit among them, moves it.
+
+    Args:
+        data: The bytes `terraform state pull` wrote
+
+    Returns:
+        The digest in hex
+
+    Raises:
+        Refused: When the bytes are no state, or a key comes twice in one of its objects
+    """
+    return hashlib.sha256(_state_json(_checks_in_order(_state_of(data, "state"))).encode("ascii")).hexdigest()
+
+
+def named_digest_findings(data: bytes, named: str) -> list[str]:
+    """
+    The named validate's check that the pulled state is the one whose digest the owner names.
+
+    Args:
+        data: The bytes `terraform state pull` wrote
+        named: The digest the dispatch names, untrusted until it is a sha256
+
+    Returns:
+        One finding when the state's digest is another, empty when it is the one named
+
+    Raises:
+        Refused: When the named value is no sha256, before anything prints it, or the bytes are no state
+    """
+    if not SHA256.fullmatch(named or ""):
+        raise Refused("the digest named is no sha256, 64 lower case hex digits")
+    digest = state_digest(data)
+    if digest != named:
+        return [f"the pulled state is {digest}, not the {named} named, nothing is recorded"]
+    return []
+
+# ======================================================================================================================
 # The proof record (design version 14, 5.6 item 6, the revision reads' H1 and H)
 # ======================================================================================================================
 
@@ -359,7 +492,7 @@ def record_fields(
         "repository": repository,
         "environment": environment,
         "backend_identity": backend_identity,
-        "state_sha256": hashlib.sha256(state_data).hexdigest(),
+        "state_sha256": state_digest(state_data),
         "lineage": state["lineage"],
         "serial": state["serial"],
         "release": release,
@@ -408,9 +541,12 @@ def record_findings(
         return [f"{label} holds no fields or no seal"]
     if not hmac.compare_digest(_mac(fields, key), given):
         return [f"{label} has a seal that does not hold"]
-    found: list[str] = []
+    # a record of another schema or type binds its fields otherwise, schema 1 the pulled bytes' sha256, so it is judged
+    # by that alone (D-107)
     if fields.get("schema") != RECORD_SCHEMA or fields.get("type") != RECORD_TYPE:
-        found.append(f"{label} is of another schema or type")
+        return [f"{label} is of another schema or type than {RECORD_TYPE} schema {RECORD_SCHEMA}, a named validate "
+                "makes one"]
+    found: list[str] = []
     if fields.get("kind") not in RECORD_KINDS:
         found.append(f"{label} names no known kind")
     state    = _state_of(state_data, "stored state")
@@ -418,7 +554,7 @@ def record_findings(
         "repository": repository,
         "environment": environment,
         "backend_identity": backend_identity,
-        "state_sha256": hashlib.sha256(state_data).hexdigest(),
+        "state_sha256": state_digest(state_data),
         "lineage": state["lineage"],
         "serial": state["serial"],
     }
@@ -474,10 +610,18 @@ def _state_of(data: bytes, what: str) -> dict:
         The state
 
     Raises:
-        Refused: When the bytes are no state
+        Refused: When the bytes are no state, a key comes twice in one of its objects, or it holds NaN or an infinity
     """
     try:
-        state = json.loads(data.decode("utf-8"))
+        # each fraction read exactly, so no two numbers a binary float cannot tell apart are read as one
+        state = json.loads(
+            data.decode("utf-8"),
+            object_pairs_hook = _unique_members,
+            parse_float = Decimal,
+            parse_constant = _no_constant,
+        )
+    except Refused as exc:
+        raise Refused(f"the {what} {exc}") from None
     except (UnicodeDecodeError, ValueError):
         raise Refused(f"the {what} is no state JSON") from None
     if not isinstance(state, dict) or "lineage" not in state or "serial" not in state:
@@ -535,16 +679,17 @@ def bind_push_findings(
         Refused: When a binding is malformed or a state is no state
     """
     for name, digest in (("candidate_sha256", candidate_sha256), ("live_sha256", live_sha256)):
-        if not re.fullmatch(r"[0-9a-f]{64}", digest or ""):
+        if not SHA256.fullmatch(digest or ""):
             raise Refused(f"{name} is no sha256")
     if not lineage or not re.fullmatch(r"[0-9]+", serial or ""):
         raise Refused("the live lineage or serial is missing or malformed")
     candidate_state = _state_of(candidate, "candidate")
     live_state      = _state_of(live, "live state")
     found: list[str] = []
-    if hashlib.sha256(candidate).hexdigest() != candidate_sha256:
+    # both pulled again here, so both are held by the canonical digest the recovery mode and the live read printed
+    if state_digest(candidate) != candidate_sha256:
         found.append("the candidate is not the one the recovery mode recorded")
-    if hashlib.sha256(live).hexdigest() != live_sha256:
+    if state_digest(live) != live_sha256:
         found.append("the live state changed since it was read, the repair goes back to the recovery mode")
     if live_state.get("lineage") != lineage or str(live_state.get("serial")) != serial:
         found.append("the live state's lineage or serial is not the one reviewed")
@@ -798,8 +943,9 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     secrets_cmd.add_argument("--out", required = True)
     secrets_cmd.add_argument("--drop", action = "append", default = [])
 
-    digest_cmd = sub.add_parser("state-digest", help = "print a pulled state's sha256, lineage and serial")
+    digest_cmd = sub.add_parser("state-digest", help = "print a pulled state's canonical sha256, lineage and serial")
     digest_cmd.add_argument("--state", required = True)
+    digest_cmd.add_argument("--expect", default = None)
 
     record_cmd = sub.add_parser("record-seal", help = "write the deployment that records a proven state, sealed")
     record_cmd.add_argument("--state", required = True)
@@ -897,10 +1043,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"==> {len(kept)} secrets handed on, dropped {', '.join(dropped) or 'none'}")
             return 0
         if args.command == "state-digest":
+            # the named digest is the dispatch's input, so it is checked before anything prints
             data  = Path(args.state).read_bytes()
+            found = None if args.expect is None else named_digest_findings(data, args.expect)
             state = _state_of(data, "state")
-            print(f"sha256 {hashlib.sha256(data).hexdigest()} lineage {state['lineage']} serial {state['serial']}")
-            return 0
+            print(f"sha256 {state_digest(data)} lineage {state['lineage']} serial {state['serial']}")
+            return 0 if found is None else _report(found, "Named digest check")
         if args.command == "record-seal":
             fields = record_fields(
                 Path(args.state).read_bytes(),

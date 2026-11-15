@@ -375,6 +375,13 @@ Before naming a digest, the owner runs an ordinary `validate`, which names each 
 up in Vercel or sets it back, since the record trusts those values. A rotation of `TF_MANIFEST_KEY` leaves every
 record's seal failing, so the same three steps follow each rotation before the next PROD gate.
 
+A state's digest (D-107). `terraform state pull` writes the stored state anew each time, its check results in Go's map
+order, so two pulls of one state can differ in their bytes. Every digest of a state the workflow prints, binds or
+compares is `state-digest`'s, the sha256 of the state's canonical JSON, the check results and each result's objects
+in order, every object's keys sorted, each fraction's digits as read, no spaces and ASCII alone. A record binds it
+from schema 2, and a record of schema 1, which bound the pulled bytes' sha256, is refused by its schema, so the three
+steps above follow once.
+
 | Input | Type | Default | Required |
 |---|---|---|---|
 | `mode`, `environment` | string | — | **yes** |
@@ -386,7 +393,7 @@ record's seal failing, so the same three steps follow each rotation before the n
 | `gate_run_id`, `max_plan_age_hours` | string, number | `''`, `72` | `deploy` |
 | `repair_action`, `repair_address`, `repair_object_id`, `repair_candidate_sha256`, `repair_live_sha256`, `repair_live_lineage`, `repair_live_serial`, `repair_named_release` | string | `''` | `repair` |
 | `manifest_path`, `state_rules_path` | string | `manifest/manifest.json`, `manifest/state_rules.json` | no. The rules in the proof's structural mode |
-| `certify_digest` | string | `''` | `validate` alone, the sha256 of the pulled state the owner names to record |
+| `certify_digest` | string | `''` | `validate` alone, the state digest a run's summary printed of the state the owner names to record (D-107) |
 
 - **Secrets read (via `inherit`).** `TF_STATE_PG_CONN_STR` mapped to `PG_CONN_STR`, the backend's channel, for
   the whole job in the writing modes, `TF_STATE_RECOVERY_CONN_STR` in `recovery` and a `repair` push's candidate
@@ -404,9 +411,10 @@ record's seal failing, so the same three steps follow each rotation before the n
   search, D-104),
   `scripts/tf_repair_import.py`, `policy/`, the manifest and the state rules, by these names at the commit applied, so
   cicd names no tenant (AGENTS.md rule 12).
-- **Helpers.** `scripts/terraform_run.py`, `at-least`, `identity`, `no-changes`, `seal`, `verify`, `state-digest`,
-  `bind-push`, `differences` (each change and drifted address validate lists), `record-seal`, `record-check`,
-  `contract` (the run contract, D-106), and `check_prod_gate.py --gate-run`.
+- **Helpers.** `scripts/terraform_run.py`, `at-least`, `identity`, `no-changes`, `seal`, `verify`, `state-digest`
+  (the canonical digest, with `--expect` the named validate's check, D-107), `bind-push`, `differences` (each change
+  and drifted address validate lists), `record-seal`, `record-check`, `contract` (the run contract, D-106), and
+  `check_prod_gate.py --gate-run`.
 - **Outputs.** `plan_sha256`. **Permissions.** `authorize`: `contents: read`. `run`: `contents: read`,
   `actions: read` (the gate's artifact), `deployments: write` (the gate run's claim and the proof records).
 - **Consumer.** `kriegerdataforge-terraform`, from the move on.
