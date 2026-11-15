@@ -505,7 +505,8 @@ class TestStateDigest:
 
     def test_the_digest_is_the_sha256_of_the_canonical_json(self):
         # the check results and each result's objects in order by their own canonical JSON, every object's keys
-        # sorted, no spaces and ASCII alone, written out here so a second reader of a state can match it
+        # sorted, each fraction's digits as read, no spaces and ASCII alone, written out here so a second reader of a
+        # state can match it
         import hashlib
         pulled    = (
             b'{\n  "version": 4,\n  "serial": 7,\n  "lineage": "l",\n  "outputs": {"n": {"value": "caf\xc3\xa9"}},\n'
@@ -518,6 +519,42 @@ class TestStateDigest:
             b'"version":4}'
         )
         assert tr.state_digest(pulled) == hashlib.sha256(canonical).hexdigest()
+
+
+    def test_a_fraction_keeps_its_digits_as_written(self):
+        # a binary float would write 0.1 for 0.10 and round the last digits of a long one (Codex's review of 6e74666)
+        import hashlib
+        pulled    = b'{"version": 4, "serial": 7, "lineage": "l", "x": [0.10, -0.0, 0.123456789012345678, 2]}'
+        canonical = b'{"lineage":"l","serial":7,"version":4,"x":[0.10,-0.0,0.123456789012345678,2]}'
+        assert tr.state_digest(pulled) == hashlib.sha256(canonical).hexdigest()
+
+
+    def test_two_numbers_one_float_cannot_tell_apart_have_two_digests(self):
+        # the numbers Terraform writes are exact, so two states a binary float reads as one are two states
+        first  = b'{"version": 4, "serial": 7, "lineage": "l", "outputs": {"n": {"value": 0.123456789012345678}}}'
+        second = b'{"version": 4, "serial": 7, "lineage": "l", "outputs": {"n": {"value": 0.123456789012345679}}}'
+        assert json.loads(first) == json.loads(second)
+        assert tr.state_digest(first) != tr.state_digest(second)
+        assert tr.named_digest_findings(second, tr.state_digest(first))
+        sealed = tr.seal(_record_fields(first), KEY)
+        assert any("state_sha256" in f for f in _findings(_records((5, sealed)), second))
+        digest = tr.state_digest(first)
+        found  = tr.bind_push_findings(
+            second,
+            first,
+            candidate_sha256 = digest,
+            live_sha256 = digest,
+            lineage = "l",
+            serial = "7",
+            named_release = "",
+        )
+        assert any("candidate" in line for line in found)
+
+
+    def test_a_number_and_its_text_have_two_digests(self):
+        number = b'{"version": 4, "serial": 7, "lineage": "l", "x": 0.5}'
+        text   = b'{"version": 4, "serial": 7, "lineage": "l", "x": "0.5"}'
+        assert tr.state_digest(number) != tr.state_digest(text)
 
 
     @pytest.mark.parametrize("changed", [
@@ -549,7 +586,14 @@ class TestStateDigest:
             tr.state_digest(b'{"lineage": "l", "serial": 7, "serial": 8}')
 
 
-    @pytest.mark.parametrize("data", [b"not json", b"[]", b'{"serial": 7}', b"\xff"])
+    @pytest.mark.parametrize("data", [
+        b"not json",
+        b"[]",
+        b'{"serial": 7}',
+        b"\xff",
+        b'{"lineage": "l", "serial": 7, "x": NaN}',
+        b'{"lineage": "l", "serial": 7, "x": -Infinity}',
+    ])
     def test_bytes_that_are_no_state_are_refused(self, data):
         with pytest.raises(Refused):
             tr.state_digest(data)

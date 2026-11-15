@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -211,6 +212,49 @@ def _switch(flow: dict, mode: str, target: str, dev: str, prod: str, tmp_path: P
         capture_output = True,
         check = False,
     ).returncode
+
+
+def _run_certify(flow: dict, tmp_path: Path, state: bytes, named: str) -> tuple[subprocess.CompletedProcess, Path]:
+    """
+    The validate's certify step run in bash on a pulled state with a named digest, the real helper reached through a
+    python3 on the path, and the runner's folder holding its summary and outputs.
+    """
+    shell = _bash()
+    if shell is None:
+        pytest.skip("no bash to run the step's shell")
+    steps  = _steps(flow, "run")
+    script = steps[_index(steps, "Certify the named state")]["run"]
+    (tmp_path / "step.sh").write_text(script, encoding = "utf-8", newline = "\n")
+    programs = tmp_path / "bin"
+    programs.mkdir()
+    python = programs / "python3"
+    python.write_text('#!/usr/bin/env bash\nexec "$FAKE_PY" "$@"\n', encoding = "utf-8", newline = "\n")
+    python.chmod(0o755)
+    runner = tmp_path / "runner"
+    runner.mkdir()
+    (runner / "before.json").write_bytes(state)
+    (runner / "tfplan.proof.json").write_text(json.dumps({"resource_changes": []}), encoding = "utf-8")
+    env = {
+        **os.environ,
+        "PATH": os.pathsep.join([programs.as_posix(), os.environ.get("PATH", "")]),
+        "FAKE_PY": Path(sys.executable).as_posix(),
+        "HELPER": Path(tr.__file__).as_posix(),
+        "RUNNER_TEMP": runner.as_posix(),
+        "TARGET": "dev",
+        "RELEASE": "0.11.0",
+        "CERTIFY_DIGEST": named,
+        "GITHUB_STEP_SUMMARY": (runner / "summary.md").as_posix(),
+        "GITHUB_OUTPUT": (runner / "output").as_posix(),
+    }
+    run = subprocess.run(
+        [shell, "--noprofile", "--norc", "step.sh"],
+        cwd = tmp_path,
+        env = env,
+        capture_output = True,
+        text = True,
+        check = False,
+    )
+    return run, runner
 
 
 class TestTheSwitch:
@@ -631,6 +675,31 @@ class TestThePlanProofAndTheRecord:
         assert "sha256sum" not in certify["run"]
         quiet = _if(steps, "plan of no changes")
         assert "inputs.certify_digest == ''" in quiet and "'acceptance'" in quiet
+
+
+    @pytest.mark.parametrize("named, certified", [("same", True), ("other", False), ("forged", False)])
+    def test_the_certify_step_records_the_named_state_alone(self, flow, tmp_path, named, certified):
+        # the step run as a shell with the real helper, so a mismatch is shown to stop it before anything is recorded,
+        # not read from its text (Codex's review of 6e74666)
+        state = (
+            b'{"version": 4, "serial": 7, "lineage": "l",'
+            b' "check_results": [{"config_addr": "b"}, {"config_addr": "a"}]}'
+        )
+        other = b'{"version": 4, "serial": 8, "lineage": "l"}'
+        given = {
+            "same": tr.state_digest(state.replace(b'"b"}, {"config_addr": "a"', b'"a"}, {"config_addr": "b"')),
+            "other": tr.state_digest(other),
+            "forged": tr.state_digest(state) + "\n::error::forged",
+        }[named]
+        run, runner = _run_certify(flow, tmp_path, state, given)
+        output  = (runner / "output").read_text(encoding = "utf-8") if (runner / "output").exists() else ""
+        summary = (runner / "summary.md").read_text(encoding = "utf-8") if (runner / "summary.md").exists() else ""
+        if certified:
+            assert run.returncode == 0 and "record=certified" in output
+            assert f"Certifying the dev state {given}" in summary
+        else:
+            assert run.returncode != 0 and "record=certified" not in output and "Certifying" not in summary
+            assert "::error::forged" not in run.stdout
 
 
     def test_no_state_is_hashed_by_its_bytes(self, text):
