@@ -600,9 +600,11 @@ class TestCli:
 
 
     def test_seal_and_verify_read_the_key_from_the_environment(self, tmp_path, monkeypatch):
+        # the command judges the plan's age by the real clock, so the gate's time is the test's own, never NOW
         monkeypatch.setenv("TF_MANIFEST_KEY", KEY)
-        fields = tmp_path / "fields.json"
-        fields.write_text(json.dumps(_fields(created_at = NOW.strftime("%Y-%m-%dT%H:%M:%SZ"))), encoding = "utf-8")
+        created = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        fields  = tmp_path / "fields.json"
+        fields.write_text(json.dumps(_fields(created_at = created)), encoding = "utf-8")
         expected = tmp_path / "expected.json"
         expected.write_text(json.dumps(_expected()), encoding = "utf-8")
         manifest = tmp_path / "manifest.json"
@@ -624,8 +626,9 @@ class TestCli:
         out = tmp_path / "out"
         out.write_text("", encoding = "utf-8")
         monkeypatch.setenv("GITHUB_OUTPUT", str(out))
+        # the real clock again, as the command reads it
         manifest = tmp_path / "manifest.json"
-        fields   = _fields(created_at = NOW.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        fields   = _fields(created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
         manifest.write_text(json.dumps(tr.seal(fields, KEY)), encoding = "utf-8")
         expected = tmp_path / "expected.json"
         expected.write_text(json.dumps(_expected()), encoding = "utf-8")
