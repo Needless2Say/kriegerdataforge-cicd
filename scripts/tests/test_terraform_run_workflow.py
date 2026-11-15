@@ -622,10 +622,22 @@ class TestThePlanProofAndTheRecord:
         steps   = _steps(flow, "run")
         certify = steps[_index(steps, "Certify the named state")]
         assert certify["if"] == "inputs.mode == 'validate' && inputs.certify_digest != ''"
-        assert "CERTIFY_DIGEST" in certify["env"] and '"$RUNNER_TEMP/before.json"' in certify["run"]
-        assert "exit 1" in certify["run"]
+        assert "CERTIFY_DIGEST" in certify["env"]
+        # the helper's canonical digest held to the named one, a mismatch failing the step by set -e (D-107)
+        assert certify["run"].lstrip().startswith("set -euo pipefail")
+        assert 'python3 "$HELPER" state-digest --state "$RUNNER_TEMP/before.json" --expect "$CERTIFY_DIGEST"' in (
+            certify["run"]
+        )
+        assert "sha256sum" not in certify["run"]
         quiet = _if(steps, "plan of no changes")
         assert "inputs.certify_digest == ''" in quiet and "'acceptance'" in quiet
+
+
+    def test_no_state_is_hashed_by_its_bytes(self, text):
+        # a pull writes one stored state in many byte strings, its check results in Go's map order, so every digest
+        # of a state is the helper's canonical one, and sha256sum hashes the plan, the lock file and the tools alone
+        assert not re.findall(r"sha256sum[^\n]*\.json", text)
+        assert not re.findall(r"sha256sum[^\n]*(?:before|after|candidate|live)\b", text)
 
 
     def test_the_header_names_each_script_and_both_rules_files(self, text):

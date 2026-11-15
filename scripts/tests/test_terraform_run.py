@@ -66,7 +66,7 @@ def _marker(before: str, after: str, actions: list[str] | None = None) -> dict:
 class TestDifferences:
     """
     What validate lists for the owner, every planned change and every address a refresh found drifted from the
-    stored state, since certifying records the stored bytes (Codex's review of f05c870).
+    stored state, since certifying records the stored state (Codex's review of f05c870).
     """
     def test_a_drifted_address_with_a_no_op_change_is_listed(self, capsys):
         plan = _plan([("vercel_project_environment_variable.plain[\"A\"]", ["no-op"])])
@@ -453,14 +453,138 @@ def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _checked_state(order: int = 0, serial: int = 7, status: str = "pass") -> bytes:
+    """
+    One stored state as a pull writes it, Terraform's check results and each result's objects in Go's map order, which
+    differs from one write to the next, the first order or the reverse, and every other part as Terraform writes it.
+    """
+    results = [
+        {
+            "object_kind": "resource",
+            "config_addr": "module.a.vercel_project.this",
+            "status": status,
+            "objects": [
+                {"object_addr": "module.a.vercel_project.this[\"x\"]", "status": status},
+                {"object_addr": "module.a.vercel_project.this[\"y\"]", "status": "pass"},
+            ],
+        },
+        {
+            "object_kind": "output",
+            "config_addr": "output.release",
+            "status": "pass",
+            "objects": [{"object_addr": "output.release", "status": "pass"}],
+        },
+    ]
+    if order:
+        results = [{**result, "objects": result["objects"][::-1]} for result in results[::-1]]
+    state = {
+        "version": 4,
+        "terraform_version": "1.17.1",
+        "serial": serial,
+        "lineage": "lineage-1",
+        "outputs": {"release": {"value": "v0.11.0", "type": "string"}},
+        "resources": [
+            {"mode": "managed", "type": "vercel_project", "name": "a", "instances": [{"attributes": {"name": "a"}}]},
+            {"mode": "managed", "type": "vercel_project", "name": "b", "instances": [{"attributes": {"name": "b"}}]},
+        ],
+        "check_results": results,
+    }
+    return (json.dumps(state, indent = 2) + "\n").encode("utf-8")
+
+
+class TestStateDigest:
+    """
+    A state's digest, the sha256 of its canonical JSON, one digest for every pull of one stored state, since Terraform
+    writes its check results in Go's map order, which differs from one write to the next (D-107).
+    """
+    def test_two_pulls_of_one_stored_state_have_one_digest(self):
+        first, second = _checked_state(), _checked_state(order = 1)
+        assert first != second and _sha(first) != _sha(second)
+        assert tr.state_digest(first) == tr.state_digest(second)
+
+
+    def test_the_digest_is_the_sha256_of_the_canonical_json(self):
+        # the check results and each result's objects in order by their own canonical JSON, every object's keys
+        # sorted, no spaces and ASCII alone, written out here so a second reader of a state can match it
+        import hashlib
+        pulled    = (
+            b'{\n  "version": 4,\n  "serial": 7,\n  "lineage": "l",\n  "outputs": {"n": {"value": "caf\xc3\xa9"}},\n'
+            b'  "check_results": [\n    {"config_addr": "b", "objects": null},\n'
+            b'    {"config_addr": "a", "objects": [{"object_addr": "z"}, {"object_addr": "y"}]}\n  ]\n}\n'
+        )
+        canonical = (
+            b'{"check_results":[{"config_addr":"a","objects":[{"object_addr":"y"},{"object_addr":"z"}]},'
+            b'{"config_addr":"b","objects":null}],"lineage":"l","outputs":{"n":{"value":"caf\\u00e9"}},"serial":7,'
+            b'"version":4}'
+        )
+        assert tr.state_digest(pulled) == hashlib.sha256(canonical).hexdigest()
+
+
+    @pytest.mark.parametrize("changed", [
+        _checked_state(serial = 8),
+        _checked_state(status = "fail"),
+        _checked_state().replace(b'"name": "a"\n', b'"name": "c"\n'),
+    ])
+    def test_any_other_change_of_the_state_moves_the_digest(self, changed):
+        assert changed != _checked_state()
+        assert tr.state_digest(changed) != tr.state_digest(_checked_state())
+
+
+    def test_only_the_check_results_are_put_in_order(self):
+        # the resources Terraform sorts itself, so another order of them is no pull of the same state and moves it
+        state     = json.loads(_checked_state())
+        reordered = {**state, "resources": state["resources"][::-1]}
+        assert tr.state_digest(json.dumps(reordered).encode("utf-8")) != tr.state_digest(_checked_state())
+
+
+    @pytest.mark.parametrize("results", ["", ', "check_results": null'])
+    def test_a_state_with_no_check_results_has_a_digest(self, results):
+        data = ('{"version": 4, "serial": 7, "lineage": "l"' + results + "}").encode("utf-8")
+        assert len(tr.state_digest(data)) == 64
+
+
+    def test_a_key_twice_in_one_object_is_refused(self):
+        # two readers of such a state may keep different values, so it has no one digest
+        with pytest.raises(Refused):
+            tr.state_digest(b'{"lineage": "l", "serial": 7, "serial": 8}')
+
+
+    @pytest.mark.parametrize("data", [b"not json", b"[]", b'{"serial": 7}', b"\xff"])
+    def test_bytes_that_are_no_state_are_refused(self, data):
+        with pytest.raises(Refused):
+            tr.state_digest(data)
+
+
+    def test_the_cli_holds_the_pulled_state_to_a_named_digest(self, tmp_path, capsys):
+        state = tmp_path / "before.json"
+        state.write_bytes(_checked_state(order = 1))
+        named = tr.state_digest(_checked_state())
+        assert tr.main(["state-digest", "--state", str(state), "--expect", named]) == 0
+        printed = capsys.readouterr().out.splitlines()
+        assert printed == [f"sha256 {named} lineage lineage-1 serial 7", "==> Named digest check PASSED"]
+        other = tr.state_digest(_checked_state(serial = 8))
+        assert tr.main(["state-digest", "--state", str(state), "--expect", other]) == 1
+        printed = capsys.readouterr().out
+        assert named in printed and other in printed and "nothing is recorded" in printed
+
+
+    @pytest.mark.parametrize("named", ["", "not a digest", "A" * 64, "a" * 63, "a" * 64 + "\n::error::x"])
+    def test_a_named_digest_that_is_no_sha256_is_refused_and_never_printed(self, tmp_path, capsys, named):
+        state = tmp_path / "before.json"
+        state.write_bytes(_checked_state())
+        assert tr.main(["state-digest", "--state", str(state), "--expect", named]) == 2
+        printed = capsys.readouterr().out
+        assert "REFUSED" in printed and (not named or named not in printed)
+
+
 class TestBindPush:
     """
     A forced push skips Terraform's own refusal, so the candidate and the live state must be the ones reviewed.
     """
     def _bind(self, candidate: bytes, live: bytes, **overrides) -> list[str]:
         args = {
-            "candidate_sha256": _sha(candidate),
-            "live_sha256": _sha(live),
+            "candidate_sha256": tr.state_digest(candidate),
+            "live_sha256": tr.state_digest(live),
             "lineage": "lineage-1",
             "serial": "7",
             "named_release": "",
@@ -479,8 +603,19 @@ class TestBindPush:
 
 
     def test_a_live_state_that_changed_since_sends_it_back_to_recovery(self):
-        found = self._bind(_state(serial = 5), _state(serial = 8), live_sha256 = _sha(_state()))
+        found = self._bind(_state(serial = 5), _state(serial = 8), live_sha256 = tr.state_digest(_state()))
         assert any("recovery" in line for line in found)
+
+
+    def test_the_reviewed_states_pulled_again_in_another_check_order_pass(self):
+        # the push pulls both again, and Terraform may write their check results in another order each time (D-107)
+        found = self._bind(
+            _checked_state(order = 1, serial = 5),
+            _checked_state(order = 1),
+            candidate_sha256 = tr.state_digest(_checked_state(serial = 5)),
+            live_sha256 = tr.state_digest(_checked_state()),
+        )
+        assert found == []
 
 
     def test_another_lineage_or_serial_is_refused(self):
@@ -521,7 +656,7 @@ class TestBindPush:
         live = tmp_path / "live.json"
         live.write_bytes(_state())
         assert tr.main(["state-digest", "--state", str(live)]) == 0
-        assert capsys.readouterr().out.strip() == f"sha256 {_sha(_state())} lineage lineage-1 serial 7"
+        assert capsys.readouterr().out.strip() == f"sha256 {tr.state_digest(_state())} lineage lineage-1 serial 7"
         args = [
             "bind-push",
             "--candidate",
@@ -529,9 +664,9 @@ class TestBindPush:
             "--live",
             str(live),
             "--candidate-sha256",
-            _sha(_state(serial = 5)),
+            tr.state_digest(_state(serial = 5)),
             "--live-sha256",
-            _sha(_state()),
+            tr.state_digest(_state()),
             "--lineage",
             "lineage-1",
             "--serial",
@@ -693,7 +828,8 @@ class TestProofRecord:
         state  = _state()
         fields = _record_fields(state)
         assert fields["type"] == "terraform_proof_record"
-        assert fields["state_sha256"] == _sha(state)
+        assert fields["schema"] == 2
+        assert fields["state_sha256"] == tr.state_digest(state)
         assert (fields["lineage"], fields["serial"]) == ("lineage-1", 7)
         for name in (
             "repository",
@@ -728,6 +864,21 @@ class TestProofRecord:
     def test_the_newest_sealed_record_of_this_state_passes(self):
         state = _state()
         assert _findings(_records((5, tr.seal(_record_fields(state), KEY))), state) == []
+
+
+    def test_another_pull_of_the_recorded_state_passes(self):
+        # the record's digest and the check's are of two pulls of one stored state, its check results written in
+        # another order by each (D-107)
+        sealed = tr.seal(_record_fields(_checked_state()), KEY)
+        assert _findings(_records((5, sealed)), _checked_state(order = 1)) == []
+
+
+    def test_a_record_of_the_first_schema_is_refused_by_its_schema_alone(self):
+        # schema 1 bound the pulled bytes' sha256, which no later pull need repeat, so a named validate makes one anew
+        state  = _checked_state()
+        sealed = tr.seal(_record_fields(state, schema = 1, state_sha256 = _sha(state)), KEY)
+        found  = _findings(_records((5, sealed)), state)
+        assert len(found) == 1 and "schema" in found[0] and "named validate" in found[0]
 
 
     def test_no_record_is_refused(self):
