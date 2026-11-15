@@ -11,7 +11,8 @@
 #               names, the gate run claimed once, the saved plan applied, then the state proof. Switch on.
 #   validate    Plan with refresh, never apply, fails unless a plan of no changes. Switch off. With certify_digest,
 #               the owner's named way back after a repair or an outside change, the pulled state whose digest it names
-#               recorded after its structural proof, no plan of no changes asked, each differing address listed.
+#               recorded after its structural proof, no plan of no changes asked, each differing address listed. Every
+#               digest of a state here is the helper's state-digest, the sha256 of its canonical JSON (D-107).
 #   recovery    Plan against a scratch schema through TF_STATE_RECOVERY_CONN_STR alone, never apply, the live string
 #               mapped nowhere and dropped from the secrets the caller's code reads, and a backend identity equal to
 #               the live one refused before init. Switch unheld.
@@ -170,7 +171,7 @@ on:
         type: string
         default: 'manifest/state_rules.json'
       certify_digest:
-        description: 'validate, the sha256 of the pulled state the owner names to record after a repair'
+        description: 'validate, the state digest a run summary printed of the state the owner names to record'
         required: false
         type: string
         default: ''
@@ -684,13 +685,14 @@ jobs:
           CERTIFY_DIGEST: ${{ inputs.certify_digest }}
         run: |
           set -euo pipefail
-          pulled="$(sha256sum "$RUNNER_TEMP/before.json" | cut -d' ' -f1)"
-          if [ "$pulled" != "$CERTIFY_DIGEST" ]; then
-            echo "::error::the pulled state is $pulled, not the $CERTIFY_DIGEST named, nothing is recorded"
+          # the state's canonical digest, one for every pull of it, since a pull writes its check results in Go's map
+          # order (D-107), refusing a named value that is no sha256 before it prints it
+          if ! python3 "$HELPER" state-digest --state "$RUNNER_TEMP/before.json" --expect "$CERTIFY_DIGEST"; then
+            echo "::error::the pulled state is not the one named, nothing is recorded"
             exit 1
           fi
           {
-            echo "### Certifying the $TARGET state $pulled"
+            echo "### Certifying the $TARGET state $CERTIFY_DIGEST"
             echo
             echo "Each address below holds a value other than the configured one, which this record trusts and which"
             echo "rides as a before value in the next gate's artifact. Each should have been looked up in Vercel or"

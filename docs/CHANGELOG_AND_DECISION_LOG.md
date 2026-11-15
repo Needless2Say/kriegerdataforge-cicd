@@ -5624,3 +5624,44 @@ never a second contract. cicd keeps contract 1 while a release at or above eithe
 only once the floors stand at a release declaring it. What one job cannot show, the gate checker's lookup of a named
 run and the plan's binding to that run's latest attempt, first runs on PROD, each failing closed before an apply.
 
+## D-107. Terraform run, a state's canonical digest, the proof record's schema 2
+
+- **Date.** 2026-11-15
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Follows.** D-103, whose record bound the sha256 of the bytes `terraform state pull` wrote, and D-102's repair push.
+- **Tier / scope:** Standard · `scripts/terraform_run.py`, `.github/workflows/terraform-run.yml`, the tests and
+  `WORKFLOWS.md`
+
+**Context.** The terraform repo's first acceptance run on DEV applied no change, proved the state after it and sealed
+a record of its digest. The next validate pulled the same stored state, with no write between, and read another
+digest. `terraform state pull` does not hand back the stored bytes. It decodes the state and writes it anew, and
+Terraform 1.17.1's `encodeCheckResultsV4` in `internal/states/statefile/version4.go` ranges over the check results'
+`Elems`, a Go map, with no sort, for the results and for each result's objects, so their order differs from one write
+to the next. A state with no check results, as one migrated from a local file holds, pulls to the same bytes each
+time, which is why the earlier runs agreed. Every check failing closed, nothing was harmed, but each check binding a
+pulled state's bytes would refuse at random once an apply writes check results, the record check of acceptance and of
+PROD's gate and deploy, the named validate's match, and a repair push's binding of its candidate and live state.
+
+**Decision.** Every digest of a state the workflow prints, binds or compares is the helper's `state_digest`, the
+sha256 of the state's canonical JSON. That puts the check results and each result's objects in order, each list
+sorted by its entries' own canonical JSON, keeps every other list as Terraform wrote it, sorts every object's keys,
+and writes no spaces and ASCII alone, the same canonical form the manifest's seal is taken over. A state holding a key
+twice in one object is refused, since two readers of it may keep different values. The record binds it from schema 2,
+and `record-check` refuses a record of any other schema or type by that alone, naming the named validate that makes
+one. `bind-push` holds the candidate and the live state by it, as the recovery mode's summary and the live read print
+it. The named validate's step calls `state-digest --expect`, which refuses a named value that is no sha256 before
+printing it and fails on a mismatch, so no state is hashed by its bytes anywhere in the workflow, which a test holds.
+
+**Alternatives considered.** *Leaving the check results out of the digest.* Declined, the digest would then bind less
+of the state than it can. *Hashing the stored row in the backend.* Declined, the run reads the state through Terraform
+alone and holds no query of the backend's tables. *Pinning a Terraform that sorts them.* Declined, no release does,
+and a later one could change the encoding again, where the canonical form names the state's content. *Keeping schema
+1 records readable.* Declined, a schema 1 digest can never be matched again by a pull, so it is refused by name.
+
+**Consequences.** The terraform repo's DEV holds schema 1 records, so its next acceptance, or a PROD gate, waits until
+the owner runs an ordinary `validate`, reads the canonical digest its summary prints, and names it in a `validate`,
+once. Any other reader that matches a state's digest with the workflow's, the terraform repo's own move helpers among
+them, computes the same canonical form, which `test_the_digest_is_the_sha256_of_the_canonical_json` writes out. A list
+other than the check results that Terraform came to write in a random order would still fail closed, as a digest
+that differs.
+
