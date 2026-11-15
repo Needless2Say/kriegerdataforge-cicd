@@ -378,8 +378,9 @@ record's seal failing, so the same three steps follow each rotation before the n
 A state's digest (D-107). `terraform state pull` writes the stored state anew each time, its check results in Go's map
 order, so two pulls of one state can differ in their bytes. Every digest of a state the workflow prints, binds or
 compares is `state-digest`'s, the sha256 of the state's canonical JSON, the check results and each result's objects
-in order, every object's keys sorted, no spaces and ASCII alone. A record binds it from schema 2, and a record of
-schema 1, which bound the pulled bytes' sha256, is refused by its schema, so the three steps above follow once.
+in order, every object's keys sorted, each fraction's digits as read, no spaces and ASCII alone. A record binds it
+from schema 2, and a record of schema 1, which bound the pulled bytes' sha256, is refused by its schema, so the three
+steps above follow once.
 
 | Input | Type | Default | Required |
 |---|---|---|---|

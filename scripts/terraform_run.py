@@ -47,6 +47,7 @@ import stat
 import sys
 import urllib.parse
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 
 # ======================================================================================================================
@@ -185,12 +186,12 @@ def differences(plan: dict, release: str) -> list[str]:
 # The sealed plan manifest
 # ======================================================================================================================
 
-def canonical(fields: object) -> bytes:
+def canonical(fields: dict) -> bytes:
     """
-    A JSON value as the bytes a seal or a state's digest is taken over, sorted keys, no spaces, ASCII.
+    The manifest's fields as the bytes the seal is taken over, sorted keys, no spaces, ASCII.
 
     Args:
-        fields: The manifest's or a record's fields, a state, or a part of one
+        fields: The manifest's fields
 
     Returns:
         The canonical JSON's bytes
@@ -343,6 +344,41 @@ def _unique_members(pairs: list[tuple[str, object]]) -> dict:
     return members
 
 
+def _no_constant(name: str) -> None:
+    """
+    Refuse NaN and the infinities, which Python's reader takes and JSON has no number for.
+
+    Args:
+        name: The constant read
+
+    Raises:
+        Refused: Always, the constant never named
+    """
+    raise Refused("holds NaN or an infinity, which is no JSON number")
+
+
+def _state_json(value: object) -> str:
+    """
+    A state or a part of one as canonical JSON, every object's keys sorted, no spaces and ASCII alone, each fraction
+    written with the digits it was read with, since a binary float would round the last ones of a long fraction and
+    Terraform's numbers are exact (Codex's review of 6e74666). For a part with no fraction it writes what `canonical`
+    writes.
+
+    Args:
+        value: A JSON value as `_state_of` reads it, each fraction a Decimal
+
+    Returns:
+        The canonical JSON
+    """
+    if isinstance(value, dict):
+        return "{" + ",".join(f"{json.dumps(name)}:{_state_json(value[name])}" for name in sorted(value)) + "}"
+    if isinstance(value, list):
+        return "[" + ",".join(_state_json(item) for item in value) + "]"
+    if isinstance(value, Decimal):
+        return str(value)
+    return json.dumps(value, ensure_ascii = True)
+
+
 def _checks_in_order(state: dict) -> dict:
     """
     A state with its check results and each result's objects in order, each list sorted by its entries' own canonical
@@ -361,9 +397,9 @@ def _checks_in_order(state: dict) -> dict:
     ordered: list = []
     for result in results:
         if isinstance(result, dict) and isinstance(result.get("objects"), list):
-            result = {**result, "objects": sorted(result["objects"], key = canonical)}
+            result = {**result, "objects": sorted(result["objects"], key = _state_json)}
         ordered.append(result)
-    return {**state, "check_results": sorted(ordered, key = canonical)}
+    return {**state, "check_results": sorted(ordered, key = _state_json)}
 
 
 def state_digest(data: bytes) -> str:
@@ -372,8 +408,9 @@ def state_digest(data: bytes) -> str:
 
     `terraform state pull` writes the stored state anew, its check results in Go's map order, so two pulls of one
     stored state can differ in their bytes. The canonical JSON puts the check results and each result's objects in
-    order, sorts every object's keys, and writes no spaces and ASCII alone, so the digest names the state and not one
-    writing of it. Any other change of the state, an order of another list among them, moves it.
+    order, sorts every object's keys, writes each fraction with its digits as read, and writes no spaces and ASCII
+    alone, so the digest names the state and not one writing of it. Any other change of the state, an order of another
+    list or a fraction's last digit among them, moves it.
 
     Args:
         data: The bytes `terraform state pull` wrote
@@ -384,7 +421,7 @@ def state_digest(data: bytes) -> str:
     Raises:
         Refused: When the bytes are no state, or a key comes twice in one of its objects
     """
-    return hashlib.sha256(canonical(_checks_in_order(_state_of(data, "state")))).hexdigest()
+    return hashlib.sha256(_state_json(_checks_in_order(_state_of(data, "state"))).encode("ascii")).hexdigest()
 
 
 def named_digest_findings(data: bytes, named: str) -> list[str]:
@@ -573,10 +610,16 @@ def _state_of(data: bytes, what: str) -> dict:
         The state
 
     Raises:
-        Refused: When the bytes are no state, or a key comes twice in one of its objects
+        Refused: When the bytes are no state, a key comes twice in one of its objects, or it holds NaN or an infinity
     """
     try:
-        state = json.loads(data.decode("utf-8"), object_pairs_hook = _unique_members)
+        # each fraction read exactly, so no two numbers a binary float cannot tell apart are read as one
+        state = json.loads(
+            data.decode("utf-8"),
+            object_pairs_hook = _unique_members,
+            parse_float = Decimal,
+            parse_constant = _no_constant,
+        )
     except Refused as exc:
         raise Refused(f"the {what} {exc}") from None
     except (UnicodeDecodeError, ValueError):

@@ -5645,12 +5645,15 @@ PROD's gate and deploy, the named validate's match, and a repair push's binding 
 **Decision.** Every digest of a state the workflow prints, binds or compares is the helper's `state_digest`, the
 sha256 of the state's canonical JSON. That puts the check results and each result's objects in order, each list
 sorted by its entries' own canonical JSON, keeps every other list as Terraform wrote it, sorts every object's keys,
-and writes no spaces and ASCII alone, the same canonical form the manifest's seal is taken over. A state holding a key
-twice in one object is refused, since two readers of it may keep different values. The record binds it from schema 2,
-and `record-check` refuses a record of any other schema or type by that alone, naming the named validate that makes
-one. `bind-push` holds the candidate and the live state by it, as the recovery mode's summary and the live read print
-it. The named validate's step calls `state-digest --expect`, which refuses a named value that is no sha256 before
-printing it and fails on a mismatch, so no state is hashed by its bytes anywhere in the workflow, which a test holds.
+writes each fraction with the digits it was read with, and writes no spaces and ASCII alone. A fraction is read as a
+decimal and never a binary float, since Terraform's numbers are exact and a float would read two long fractions that
+differ in a last digit as one (Codex's review of the first commit). A state holding a key twice in one object, NaN or
+an infinity is refused, since two readers of it may keep different values or JSON has no number for it. The record
+binds the digest from schema 2, and `record-check` refuses a record of any other schema or type by that alone, naming
+the named validate that makes one. `bind-push` holds the candidate and the live state by it, as the recovery mode's
+summary and the live read print it. The named validate's step calls `state-digest --expect`, which refuses a named
+value that is no sha256 before printing it and fails on a mismatch, so no state is hashed by its bytes anywhere in the
+workflow, which a test holds, and the step run as a shell shows a mismatch stops it before anything is recorded.
 
 **Alternatives considered.** *Leaving the check results out of the digest.* Declined, the digest would then bind less
 of the state than it can. *Hashing the stored row in the backend.* Declined, the run reads the state through Terraform
@@ -5661,7 +5664,7 @@ and a later one could change the encoding again, where the canonical form names 
 **Consequences.** The terraform repo's DEV holds schema 1 records, so its next acceptance, or a PROD gate, waits until
 the owner runs an ordinary `validate`, reads the canonical digest its summary prints, and names it in a `validate`,
 once. Any other reader that matches a state's digest with the workflow's, the terraform repo's own move helpers among
-them, computes the same canonical form, which `test_the_digest_is_the_sha256_of_the_canonical_json` writes out. A list
-other than the check results that Terraform came to write in a random order would still fail closed, as a digest
-that differs.
+them, computes the same canonical form, which `test_the_digest_is_the_sha256_of_the_canonical_json` and
+`test_a_fraction_keeps_its_digits_as_written` write out. A list other than the check results that Terraform came to
+write in a random order would still fail closed, as a digest that differs.
 
