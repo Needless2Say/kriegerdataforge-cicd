@@ -345,7 +345,7 @@ cancellation off and a five hour timeout.
 | `deploy` | `prod` | on | the named gate run checked, the seal verified, its Terraform installed, the newest record held, the gate's binary decoded and its rules built, the run claimed once, the saved plan applied, the state proof, the record |
 | `validate` | either | off | plan with refresh, never applied, fails unless a plan of no changes. With `certify_digest`, the pulled state of that digest recorded, each differing address listed |
 | `recovery` | either | unheld | plan against a scratch schema through `TF_STATE_RECOVERY_CONN_STR` alone, never applied |
-| `repair` | either | off | one action, `push` (bound by `bind-push`) or `import` (the caller's shared import), then the structural proof, no record |
+| `repair` | either | off | one action, `push` (bound by `bind-push`, its candidate read in the root with a `TF_DATA_DIR` of the runner's own, D-108) or `import` (the caller's shared import), then the structural proof, no record |
 | `acceptance` | `dev` | unheld | PROD's gate and deploy in one job on the same code, the newest record held, the plan and its proofs, the seal and the upload, the download back by the run's own id, the deploy's verify of that copy, the claim, the copy applied and the claim marked, refused unless a plan of no changes |
 
 The run contract (D-106). A release floor compares numbers alone, so each release declares the interface it holds in

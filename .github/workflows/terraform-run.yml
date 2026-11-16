@@ -17,8 +17,9 @@
 #               mapped nowhere and dropped from the secrets the caller's code reads, and a backend identity equal to
 #               the live one refused before init. Switch unheld.
 #   repair      One named thing, a version the recovery mode planned pushed with state push -force, bound to the two
-#               digests and the live lineage and serial it was reviewed against, or one object imported at its
-#               manifest address by the caller's one import, then the state proof. Switch off.
+#               digests and the live lineage and serial it was reviewed against, the candidate read in the root with a
+#               data folder of its own (D-108), or one object imported at its manifest address by the caller's one
+#               import, then the state proof. Switch off.
 #   acceptance  DEV, PROD's gate and deploy in one job on the same code, the plan and its proofs, the seal and the
 #               upload, the download back by the run's own id and the verify of that copy, the record check, the claim,
 #               the apply of the copy and the claim marked, refused in this workflow unless the plan is a plan of no
@@ -901,13 +902,15 @@ jobs:
           NAMED_RELEASE: ${{ inputs.repair_named_release }}
         run: |
           set -euo pipefail
-          # the candidate read from the scratch schema in a copy of the root, the live state read again once the
-          # environment's group is held, both bound to what the recovery mode recorded before the push
-          cp -r "$TF_DIR" "$RUNNER_TEMP/candidate-root"
-          rm -rf "$RUNNER_TEMP/candidate-root/.terraform"
-          candidate_root="$RUNNER_TEMP/candidate-root"
-          PG_CONN_STR="$RECOVERY_CONN_STR" terraform -chdir="$candidate_root" init -input=false -lockfile=readonly
-          PG_CONN_STR="$RECOVERY_CONN_STR" terraform -chdir="$candidate_root" state pull > "$RUNNER_TEMP/candidate.json"
+          # the candidate read from the scratch schema in the root itself, a data folder of the runner's own keeping
+          # that backend apart from the root's .terraform, so every path the root reaches outside it resolves, which a
+          # copy of the root alone lost (D-108). The live state read again once the environment's group is held, both
+          # bound to what the recovery mode recorded before the push
+          candidate_data="$RUNNER_TEMP/candidate-data"
+          TF_DATA_DIR="$candidate_data" PG_CONN_STR="$RECOVERY_CONN_STR" \
+            terraform -chdir="$TF_DIR" init -input=false -lockfile=readonly
+          TF_DATA_DIR="$candidate_data" PG_CONN_STR="$RECOVERY_CONN_STR" \
+            terraform -chdir="$TF_DIR" state pull > "$RUNNER_TEMP/candidate.json"
           terraform -chdir="$TF_DIR" state pull > "$RUNNER_TEMP/live.json"
           python3 "$HELPER" bind-push --candidate "$RUNNER_TEMP/candidate.json" \
             --live "$RUNNER_TEMP/live.json" --candidate-sha256 "$CANDIDATE_SHA" --live-sha256 "$LIVE_SHA" \
