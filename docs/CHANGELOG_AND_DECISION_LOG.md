@@ -5668,3 +5668,42 @@ them, computes the same canonical form, which `test_the_digest_is_the_sha256_of_
 `test_a_fraction_keeps_its_digits_as_written` write out. A list other than the check results that Terraform came to
 write in a random order would still fail closed, as a digest that differs.
 
+## D-108. Terraform run, the repair push reads its candidate in the root with a data folder of its own
+
+- **Date.** 2026-11-15
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Follows.** D-102, whose repair push read the candidate in a copy of the root, and D-106, whose frozen copy of
+  contract 1 holds the two lines this changes.
+- **Tier / scope:** Standard · `.github/workflows/terraform-run.yml`, its contract test, the frozen copy of contract 1
+  and `WORKFLOWS.md`
+
+**Context.** The repair push reads two states at once, the candidate from the scratch through
+`TF_STATE_RECOVERY_CONN_STR` and the live one through the backend's own string, so the candidate's `terraform init`
+ran in a copy of the root under the runner's temporary folder, keeping the scratch's backend apart from the root's
+`.terraform`. The terraform repo's rehearsal of the recovery and repair modes on DEV ran it for the first time. Its
+root reads `../../manifest/manifest.json` and its modules from `../../modules/`, paths that reach outside the root and
+do not exist beside a copy of it, so the copy's `init` stopped on "no file exists" before `bind-push` and before
+`state push -force`. Nothing was pushed, and the proof after the step read the live state clean. No test ran the step
+against a root that reaches outside itself.
+
+**Decision.** The candidate's `init` and `state pull` run in the root itself, `-chdir="$TF_DIR"`, with `TF_DATA_DIR`
+set to a folder of the runner's own, Terraform's own setting for where a working directory keeps its backend's data,
+modules and providers, so every relative path resolves as it does for the live calls and the scratch's backend never
+touches the root's `.terraform`. The live pull and the push keep the root's own data. A test runs the step as a shell
+in a checkout whose root reads `../../manifest`, the real `bind-push` between a fake Terraform's pulls, and holds the
+candidate's calls to the root and a data folder under the runner's temporary folder, the live calls to none, the push
+to the candidate's file, and a binding that does not hold to no push. The step copies no root.
+
+The frozen copy of contract 1 changes in its two candidate lines alone, which every contract 1 release still meets.
+No release script's arguments, no release file, no root name and no exit handling changed. The calls run in the same
+root the job's other calls use, `$TF_DIR`, and a release that reaches outside its root, as the terraform repo's does,
+meets the step only now.
+
+**Alternatives considered.** *A copy of the whole checkout.* Declined, it copies every file to reach a few and still
+reads a tree other than the one the live calls read. *The candidate read in the root with no data folder of its
+own.* Declined, a second backend's `init` would share the root's `.terraform` with the live calls, which the copy was
+made to avoid.
+
+**Consequences.** The repair push now runs for a root whose paths reach outside it. The terraform repo's rehearsal
+dispatches its push again once this merges, the recovery candidate read again if DEV moved since.
+
