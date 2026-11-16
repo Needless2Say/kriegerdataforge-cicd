@@ -180,11 +180,11 @@
     },
     {
       "if": "inputs.mode == 'repair' && inputs.repair_action == 'push'",
-      "line": "PG_CONN_STR=\"$RECOVERY_CONN_STR\" terraform -chdir=\"$candidate_root\" init -input=false -lockfile=readonly"
+      "line": "TF_DATA_DIR=\"$candidate_data\" PG_CONN_STR=\"$RECOVERY_CONN_STR\" terraform -chdir=\"$TF_DIR\" init -input=false -lockfile=readonly"
     },
     {
       "if": "inputs.mode == 'repair' && inputs.repair_action == 'push'",
-      "line": "PG_CONN_STR=\"$RECOVERY_CONN_STR\" terraform -chdir=\"$candidate_root\" state pull > \"$RUNNER_TEMP/candidate.json\""
+      "line": "TF_DATA_DIR=\"$candidate_data\" PG_CONN_STR=\"$RECOVERY_CONN_STR\" terraform -chdir=\"$TF_DIR\" state pull > \"$RUNNER_TEMP/candidate.json\""
     },
     {
       "if": "inputs.mode == 'repair' && inputs.repair_action == 'push'",

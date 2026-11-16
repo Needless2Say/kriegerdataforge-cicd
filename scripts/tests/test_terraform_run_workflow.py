@@ -75,6 +75,27 @@ APPLY_LINES = [
     ]),
 ]
 
+# a Terraform for the repair push's step run as a shell, failing as the real one did when the root's own relative path
+# is not there beside the folder it runs in, and recording each call's folder, data folder and backend string (D-108)
+FAKE_TERRAFORM = """
+import json, os, sys
+args  = sys.argv[1:]
+chdir = next(a.split("=", 1)[1] for a in args if a.startswith("-chdir="))
+rest  = [a for a in args if not a.startswith("-chdir=")]
+conn  = os.environ.get("PG_CONN_STR")
+call  = {"chdir": chdir, "args": rest, "data_dir": os.environ.get("TF_DATA_DIR"), "conn": conn}
+with open(os.environ["FAKE_TF_LOG"], "a", encoding = "utf-8") as log:
+    log.write(json.dumps(call) + "\\n")
+if not os.path.exists(os.path.join(chdir, "..", "..", "manifest", "manifest.json")):
+    print("Error: Invalid function argument, no file exists at ./../../manifest/manifest.json")
+    sys.exit(1)
+if rest[:2] == ["state", "pull"]:
+    which = "FAKE_CANDIDATE" if conn == os.environ["FAKE_RECOVERY"] else "FAKE_LIVE"
+    with open(os.environ[which], encoding = "utf-8") as fh:
+        sys.stdout.write(fh.read())
+sys.exit(0)
+"""
+
 
 @pytest.fixture(scope = "module")
 def text() -> str:
@@ -255,6 +276,69 @@ def _run_certify(flow: dict, tmp_path: Path, state: bytes, named: str) -> tuple[
         check = False,
     )
     return run, runner
+
+
+def _run_push(flow: dict, tmp_path: Path, live_sha: str | None = None) -> tuple[subprocess.CompletedProcess, list]:
+    """
+    The repair's push step run in bash in a made up checkout whose root reads ../../manifest, as the terraform repo's
+    does, the real helper's bind-push between a fake Terraform's pulls, and each Terraform call it made.
+    """
+    shell = _bash()
+    if shell is None:
+        pytest.skip("no bash to run the step's shell")
+    steps  = _steps(flow, "run")
+    script = steps[_index(steps, "Repair, push the candidate")]["run"]
+    repo   = tmp_path / "repo"
+    (repo / "environments" / "dev").mkdir(parents = True)
+    (repo / "manifest").mkdir()
+    (repo / "manifest" / "manifest.json").write_text("{}", encoding = "utf-8")
+    (repo / "step.sh").write_text(script, encoding = "utf-8", newline = "\n")
+    programs = tmp_path / "bin"
+    programs.mkdir()
+    fake = tmp_path / "fake_terraform.py"
+    fake.write_text(FAKE_TERRAFORM, encoding = "utf-8")
+    for name, target in (("python3", '"$@"'), ("terraform", '"$FAKE_TF" "$@"')):
+        program = programs / name
+        program.write_text(f'#!/usr/bin/env bash\nexec "$FAKE_PY" {target}\n', encoding = "utf-8", newline = "\n")
+        program.chmod(0o755)
+    runner = tmp_path / "runner"
+    runner.mkdir()
+    state = b'{"version": 4, "serial": 5, "lineage": "l", "outputs": {}}'
+    (tmp_path / "candidate.json").write_bytes(state)
+    (tmp_path / "live.json").write_bytes(state)
+    digest = tr.state_digest(state)
+    env    = {
+        **os.environ,
+        "PATH": os.pathsep.join([programs.as_posix(), os.environ.get("PATH", "")]),
+        "FAKE_PY": Path(sys.executable).as_posix(),
+        "FAKE_TF": fake.as_posix(),
+        "FAKE_TF_LOG": (tmp_path / "calls.jsonl").as_posix(),
+        "FAKE_RECOVERY": "postgresql://r:kdfmk-scratch-made-up@db.example.test/scratch",
+        "FAKE_CANDIDATE": (tmp_path / "candidate.json").as_posix(),
+        "FAKE_LIVE": (tmp_path / "live.json").as_posix(),
+        "HELPER": Path(tr.__file__).as_posix(),
+        "RUNNER_TEMP": runner.as_posix(),
+        "TF_DIR": "environments/dev",
+        "PG_CONN_STR": "postgresql://w:kdfmk-live-made-up@db.example.test/terraform",
+        "RECOVERY_CONN_STR": "postgresql://r:kdfmk-scratch-made-up@db.example.test/scratch",
+        "CANDIDATE_SHA": digest,
+        "LIVE_SHA": live_sha or digest,
+        "LIVE_LINEAGE": "l",
+        "LIVE_SERIAL": "5",
+        "NAMED_RELEASE": "",
+    }
+    env.pop("TF_DATA_DIR", None)
+    run   = subprocess.run(
+        [shell, "--noprofile", "--norc", "step.sh"],
+        cwd = repo,
+        env = env,
+        capture_output = True,
+        text = True,
+        check = False,
+    )
+    log   = tmp_path / "calls.jsonl"
+    calls = [json.loads(line) for line in log.read_text(encoding = "utf-8").splitlines()] if log.exists() else []
+    return run, calls
 
 
 class TestTheSwitch:
@@ -720,6 +804,43 @@ class TestThePlanProofAndTheRecord:
             "manifest/run_contract.json",
         ):
             assert name in header
+
+# ======================================================================================================================
+# The repair's push, its candidate read in the root itself (D-108)
+# ======================================================================================================================
+
+class TestTheRepairPush:
+    """
+    The push reads its candidate from the scratch in the root itself, a data folder of its own keeping that backend
+    apart, since a copy of the root alone loses every path the root reaches outside it (the rehearsal of 2026-11-15).
+    """
+    def test_the_candidate_is_read_in_the_root_with_a_data_folder_of_its_own_and_pushed(self, flow, tmp_path):
+        run, calls = _run_push(flow, tmp_path)
+        assert run.returncode == 0, run.stdout + run.stderr
+        recovery  = "postgresql://r:kdfmk-scratch-made-up@db.example.test/scratch"
+        candidate = [call for call in calls if call["conn"] == recovery]
+        live      = [call for call in calls if call["conn"] != recovery]
+        assert [call["args"][:2] for call in candidate] == [["init", "-input=false"], ["state", "pull"]]
+        for call in candidate:
+            assert call["chdir"] == "environments/dev"
+            assert call["data_dir"] and Path(call["data_dir"]).is_absolute()
+            assert Path(call["data_dir"]).as_posix().startswith((tmp_path / "runner").as_posix())
+        # the live state's own calls keep the root's .terraform, the scratch's data never in it
+        assert [call["args"][:2] for call in live] == [["state", "pull"], ["state", "push"]]
+        assert all(call["data_dir"] is None and call["chdir"] == "environments/dev" for call in live)
+        assert live[1]["args"] == ["state", "push", "-force", (tmp_path / "runner" / "candidate.json").as_posix()]
+
+
+    def test_a_binding_that_does_not_hold_pushes_nothing(self, flow, tmp_path):
+        run, calls = _run_push(flow, tmp_path, live_sha = "0" * 64)
+        assert run.returncode != 0
+        assert not any(call["args"][:2] == ["state", "push"] for call in calls)
+
+
+    def test_the_step_copies_no_root(self, flow):
+        steps  = _steps(flow, "run")
+        script = steps[_index(steps, "Repair, push the candidate")]["run"]
+        assert "cp -r" not in script and "candidate-root" not in script
 
 # ======================================================================================================================
 # The run contract (design 5.6, Round Table 92, L12, the owner's answers of 2026-11-12)
