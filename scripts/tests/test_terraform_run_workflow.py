@@ -303,11 +303,12 @@ def _run_push(flow: dict, tmp_path: Path, live_sha: str | None = None) -> tuple[
         program.chmod(0o755)
     runner = tmp_path / "runner"
     runner.mkdir()
-    state = b'{"version": 4, "serial": 5, "lineage": "l", "outputs": {}}'
-    (tmp_path / "candidate.json").write_bytes(state)
-    (tmp_path / "live.json").write_bytes(state)
-    digest = tr.state_digest(state)
-    env    = {
+    # two states of one lineage and serial that differ, so a read of one through the other's string breaks the binding
+    candidate = b'{"version": 4, "serial": 5, "lineage": "l", "outputs": {"from": {"value": "scratch"}}}'
+    live      = b'{"version": 4, "serial": 5, "lineage": "l", "outputs": {"from": {"value": "live"}}}'
+    (tmp_path / "candidate.json").write_bytes(candidate)
+    (tmp_path / "live.json").write_bytes(live)
+    env = {
         **os.environ,
         "PATH": os.pathsep.join([programs.as_posix(), os.environ.get("PATH", "")]),
         "FAKE_PY": Path(sys.executable).as_posix(),
@@ -321,8 +322,8 @@ def _run_push(flow: dict, tmp_path: Path, live_sha: str | None = None) -> tuple[
         "TF_DIR": "environments/dev",
         "PG_CONN_STR": "postgresql://w:kdfmk-live-made-up@db.example.test/terraform",
         "RECOVERY_CONN_STR": "postgresql://r:kdfmk-scratch-made-up@db.example.test/scratch",
-        "CANDIDATE_SHA": digest,
-        "LIVE_SHA": live_sha or digest,
+        "CANDIDATE_SHA": tr.state_digest(candidate),
+        "LIVE_SHA": live_sha or tr.state_digest(live),
         "LIVE_LINEAGE": "l",
         "LIVE_SERIAL": "5",
         "NAMED_RELEASE": "",
@@ -817,7 +818,9 @@ class TestTheRepairPush:
     def test_the_candidate_is_read_in_the_root_with_a_data_folder_of_its_own_and_pushed(self, flow, tmp_path):
         run, calls = _run_push(flow, tmp_path)
         assert run.returncode == 0, run.stdout + run.stderr
+        assert "Forced push binding PASSED" in run.stdout
         recovery  = "postgresql://r:kdfmk-scratch-made-up@db.example.test/scratch"
+        live_conn = "postgresql://w:kdfmk-live-made-up@db.example.test/terraform"
         candidate = [call for call in calls if call["conn"] == recovery]
         live      = [call for call in calls if call["conn"] != recovery]
         assert [call["args"][:2] for call in candidate] == [["init", "-input=false"], ["state", "pull"]]
@@ -825,8 +828,11 @@ class TestTheRepairPush:
             assert call["chdir"] == "environments/dev"
             assert call["data_dir"] and Path(call["data_dir"]).is_absolute()
             assert Path(call["data_dir"]).as_posix().startswith((tmp_path / "runner").as_posix())
-        # the live state's own calls keep the root's .terraform, the scratch's data never in it
+        # the candidate's init and pull share one data folder, so the pull reads the backend the init set
+        assert candidate[0]["data_dir"] == candidate[1]["data_dir"]
+        # the live state's own calls keep the job's string and the root's .terraform, the scratch's data never in it
         assert [call["args"][:2] for call in live] == [["state", "pull"], ["state", "push"]]
+        assert all(call["conn"] == live_conn for call in live)
         assert all(call["data_dir"] is None and call["chdir"] == "environments/dev" for call in live)
         assert live[1]["args"] == ["state", "push", "-force", (tmp_path / "runner" / "candidate.json").as_posix()]
 
@@ -834,6 +840,7 @@ class TestTheRepairPush:
     def test_a_binding_that_does_not_hold_pushes_nothing(self, flow, tmp_path):
         run, calls = _run_push(flow, tmp_path, live_sha = "0" * 64)
         assert run.returncode != 0
+        assert "Forced push binding FAILED" in run.stdout and "the live state changed since it was read" in run.stdout
         assert not any(call["args"][:2] == ["state", "push"] for call in calls)
 
 
