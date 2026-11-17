@@ -5707,3 +5707,35 @@ made to avoid.
 **Consequences.** The repair push now runs for a root whose paths reach outside it. The terraform repo's rehearsal
 dispatches its push again once this merges, the recovery candidate read again if DEV moved since.
 
+## D-109. Terraform run, `cd-terraform.yml` retired
+
+- **Date.** 2026-11-17
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Follows.** D-102, which put `terraform-run.yml` beside `cd-terraform.yml` until the terraform repo's move switched
+  the new one on, the additive rule.
+- **Tier / scope:** Standard · `.github/workflows/cd-terraform.yml` removed, the pages and lists that named it, one
+  test's parameter, the terraform lines of the kit's `skills.md` and kit v1.29.1
+
+**Context.** The terraform repo's move is done. Both its environments run through `terraform-run.yml`, each switch
+on, and its own local route to a plan or an apply is retired, the terraform repo's D-023. `cd-terraform.yml` never
+ran, and no repo's workflow calls it, the terraform repo's one mention a comment. It mapped every secret by a name
+cicd held, against rule 12, made its policy gate advisory, and expected a remote backend no root had. The kit's
+`skills.md` still told a terraform user to keep secrets in a gitignored `*.secrets.auto.tfvars` and to run
+`make env-audit && make check-invariants` before an apply, a route and a target that no longer exist.
+
+**Decision.** `cd-terraform.yml` is removed. Every list that named it names `terraform-run.yml` in its place, the
+deployer gate's script and registry, the catalogs and module maps, the permissions tables and the security page's
+references, and the security page's call out that the terraform policy gate is advisory now says a `deny` blocks.
+The release check's test holds `terraform-run.yml` to the rerun guard in its place. The kit's `skills.md` keeps a
+secret's value in a gitignored file or GitHub's secrets, a terraform secret in its GitHub environment alone, set
+there and never in Vercel's dashboard, every plan and apply in Actions through `terraform-run.yml`, and
+`make audit-all` before a pull request. The kit moves to v1.29.1, its three markers together.
+
+**Alternatives considered.** *Keeping it as a fallback.* Declined, a second writer of a state with an advisory
+policy gate, no proof and no record would step around every check `terraform-run.yml` holds. *A deprecation notice
+first.* Declined, with no caller there is nothing to move.
+
+**Consequences.** Removing a reusable workflow is a breaking change under `CONTRIBUTING.md`, and no consumer calls
+this one, so no run changes. A caller that still named it would fail to resolve it at its next run and run nothing.
+The kit's lines reach each repo at its next Distribute. VERSION 0.10.0.
+

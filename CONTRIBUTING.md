@@ -39,7 +39,7 @@ is a thin caller. All deploy logic lives in this repo.
 
 | Thing | Here (`kriegerdataforge-cicd`) | Tenant repo |
 | --- | --- | --- |
-| Reusable deploy logic | `cd-nextjs-vercel.yml`, `cd-python-vercel.yml`, `cd-terraform.yml` | — |
+| Reusable deploy logic | `cd-nextjs-vercel.yml`, `cd-python-vercel.yml`, `terraform-run.yml` | — |
 | Version bump validation | `bump-version-check.yml` | — |
 | Release tag + GitHub Release | `create-github-release.yml` | — |
 | Internal platform automation | `issue-create-repo.yml`, `rotate-vercel-tokens.yml` | — |

@@ -82,7 +82,7 @@ environment names in use, and the keys the deployer registry is keyed on, are:
 | `github-pages` | Owner (`arthurs-portfolio` and `kriegerdataforge-portfolio`, self contained Pages deploys, `MANUAL_SETUP.md` Phase 4 "For arthurs-portfolio") | GitHub Pages (no `dev`/`prod`) |
 
 > **There is no `infra` / `infrastructure` / `development` / `production` environment.** The Terraform
-> CD workflow deploys to `dev`/`prod` like the others (`cd-terraform.yml:99`, `deployer_registry.json`
+> run writes `dev`/`prod` like the others (`terraform-run.yml`'s `environment` input, `deployer_registry.json`
 > `kriegerdataforge-terraform` → `{dev, prod}`, `MANUAL_SETUP.md` Phase 4 "For repo 6"). Use the short
 > names `dev` / `prod` / `github-pages` exactly (AGENTS.md rule 9).
 >
@@ -107,8 +107,8 @@ workflow runs a **deployer authorization gate** as its first job.
 
 **How it works:**
 
-1. `cd-nextjs-vercel.yml`, `cd-python-vercel.yml`, and `cd-terraform.yml` each start with an
-   `authorize` job that the `deploy`/`apply` job `needs:`. (`arthurs-portfolio`'s self contained
+1. `cd-nextjs-vercel.yml`, `cd-python-vercel.yml`, and `terraform-run.yml` each start with an
+   `authorize` job that the `deploy`/`run` job `needs:`. (`arthurs-portfolio`'s self contained
    `cd.yml` runs the same gate before its build.)
 2. `authorize` sparse checks out this repo's `scripts/` and runs
    [`scripts/check_deployer.py`](../../scripts/check_deployer.py) (`cd-nextjs-vercel.yml:47-70`).
@@ -283,60 +283,12 @@ jobs:
     secrets: inherit
 ```
 
-#### `cd-terraform.yml`
-
-`terraform init` → `validate` → `plan -detailed-exitcode` → advisory conftest policy gate → `apply`
-(only when the plan reports changes, exit code 2). Runs every command with
-`-chdir=environments/${{ inputs.environment }}` (directory per environment, no workspaces).
-
-| Input | Type | Default | Required |
-|---|---|---|---|
-| `environment` | string | — | **yes.** `dev` or `prod`. Selects `environments/<env>/` **and** the Environment gate (`:98-101`) |
-| `version` | string | — | **yes.** Tag to deploy. Note rolling back reverts config, not state (`:102-105`) |
-
-- **Secrets read (via `inherit`).** Injected as `TF_VAR_*` env (`:153-201`):
-
-  | Secret | → Terraform var |
-  |---|---|
-  | `VERCEL_DEPLOYMENT_TOKEN` | `vercel_api_token` |
-  | `BACKEND_AUTH_PRIVATE_KEY` / `_PUBLIC_KEY` / `FRONTEND_AUTH_PUBLIC_KEY` | `backend_auth_private_key` / `_public_key` / `frontend_auth_public_key` |
-  | `BACKEND_AUTH_ADMIN_EMAIL` / `_PASSWORD` | `backend_auth_admin_email` / `_password` |
-  | `KDF_AUTH_DB_DATABASE_URL`, `FITNESS_APP_BACKEND_DB_DATABASE_URL`, `TIFFANYS_SPACE_BACKEND_DB_DATABASE_URL` | matching `*_db_database_url` |
-  | `FITNESS_APP_SERVICE_KEY`, `TIFFANYS_SPACE_SERVICE_KEY`, `KDF_AUTH_UI_SERVICE_KEY` | matching `*_service_key` |
-  | `FITNESS_OIDC_CLIENT_SECRET`, `TIFFANYS_SPACE_OIDC_CLIENT_SECRET` | matching `*_oidc_client_secret` |
-  | *Optional.* `TIFFANYS_SPACE_CRON_SECRET`, `BACKEND_STRIPE_SECRET_KEY`, `BACKEND_STRIPE_WEBHOOK_SECRET`, `TF_TOKEN_APP_TERRAFORM_IO` | matching vars / TF Cloud auth |
-
-- **Non-secret vars read (`vars.*` → `TF_VAR_*`, `:177-199`):** `BACKEND_URL`,
-  `FITNESS_APP_BACKEND_URL`, `TIFFANYS_SPACE_BACKEND_URL`, `KDF_AUTH_SERVICE_PROJECT_NAME`,
-  `FITNESS_APP_PROJECT_NAME`, `FITNESS_APP_BACKEND_PROJECT_NAME`, `TIFFANYS_SPACE_PROJECT_NAME`,
-  `TIFFANYS_SPACE_BACKEND_PROJECT_NAME`, `KDF_AUTH_UI_URL`, `FITNESS_OIDC_CLIENT_ID`,
-  `FITNESS_OIDC_REDIRECT_URI`, `TIFFANYS_SPACE_OIDC_CLIENT_ID`, `TIFFANYS_SPACE_OIDC_REDIRECT_URI`,
-  optional `KDF_AUTH_CORS_ORIGINS`, `FITNESS_APP_BACKEND_CORS_ORIGINS`,
-  `TIFFANYS_SPACE_BACKEND_CORS_ORIGINS`. Non-secret shared values (`vercel_team_id`, JWT issuer/aud,
-  TTLs, feature flags) come from the committed `environments/<env>/common.auto.tfvars`, **not** injected.
-- **Outputs.** None. **Permissions.** `apply` job. `contents: read` (no `id-token`) (`:147-148`).
-- **Consumer.** `kriegerdataforge-terraform`.
-
-> **State.** `terraform init` in CI starts with empty local state. A remote backend must be configured
-> in `environments/<env>/providers.tf` before running live (`:88-91`). The conftest gate is currently
-> **advisory** (`continue-on-error: true`, `:245-246`).
-
-```yaml
-jobs:
-  apply:
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/cd-terraform.yml@main
-    with:
-      environment: ${{ inputs.environment }}   # dev | prod
-      version: ${{ inputs.version }}
-    secrets: inherit
-```
-
 #### `terraform-run.yml`
 
-The one writer of a terraform environment's state, beside `cd-terraform.yml`, which its caller keeps until the
-move switches this on (D-102). One mode per call, each held to its home environment and that environment's
-switch here as well as in the caller, then one job in the environment under the group `terraform-<env>` with
-cancellation off and a five hour timeout.
+The one writer of a terraform environment's state (D-102), the terraform repo's one route to a plan or an apply
+since its move, `cd-terraform.yml` before it retired (D-109). One mode per call, each held to its home environment
+and that environment's switch here as well as in the caller, then one job in the environment under the group
+`terraform-<env>` with cancellation off and a five hour timeout.
 
 | Mode | Home | Switch | What it does |
 |---|---|---|---|
@@ -1043,7 +995,6 @@ shown where it differs from top level):
 |---|---|
 | `cd-nextjs-vercel.yml` | `authorize`: `contents:read`, `deploy`: `contents:read` |
 | `cd-python-vercel.yml` | `authorize`: `contents:read`, `deploy`: `contents:read` |
-| `cd-terraform.yml` | `authorize`: `contents:read`, `apply`: `contents:read` |
 | `terraform-run.yml` | `authorize`: `contents:read`, `run`: `contents:read` + `actions:read` + `deployments:write` |
 | `bump-version-check.yml` | job: `contents:read` |
 | `create-github-release.yml` | job: `contents:write` (caller must grant) |
@@ -1057,7 +1008,7 @@ shown where it differs from top level):
 
 ## Repo internal event triggered workflows
 
-The remaining twenty two `.github/workflows/*.yml` (of 51 total, 29 `workflow_call` and these 22) are
+The remaining twenty two `.github/workflows/*.yml` (of 52 total, 30 `workflow_call` and these 22) are
 **not** `workflow_call`, so they cannot be `uses:`-d by a tenant. They run inside `kriegerdataforge-cicd` on schedules / issues / dispatch, and the ops ones are
 owner gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for completeness of the
 `.github/workflows/` enumeration.
@@ -1254,7 +1205,7 @@ The authoritative allow list is [`scripts/deployer_registry.json`](../../scripts
 | `fitness-app-backend` | `dev`, `prod` | `cd-python-vercel.yml` |
 | `tiffanys-space` | `dev`, `prod` | `cd-nextjs-vercel.yml` |
 | `tiffanys-space-backend` | `dev`, `prod` | `cd-python-vercel.yml` |
-| `kriegerdataforge-terraform` | `dev`, `prod` | `cd-terraform.yml`, then `terraform-run.yml` once the move switches it on |
+| `kriegerdataforge-terraform` | `dev`, `prod` | `terraform-run.yml`, its modes called by the repo's own workflows |
 | `arthurs-portfolio` | `github-pages` | self contained `cd.yml` → GitHub Pages (runs the gate) |
 | `kriegerdataforge-portfolio` | `github-pages` | self contained `cd.yml` → GitHub Pages (runs the gate) |
 | `kriegerdataforge-template-nextjs` | `dev`, `prod` | `cd-nextjs-vercel.yml` (prepared files placeholder) |

@@ -117,7 +117,7 @@ workflow interface change → major.
 | --- | --- |
 | `.github/workflows/cd-nextjs-vercel.yml` | Deploy Next.js → Vercel (fitness-app-frontend, tiffanys-space, arthurs-portfolio) |
 | `.github/workflows/cd-python-vercel.yml` | Deploy FastAPI → Vercel + optional Alembic migrations |
-| `.github/workflows/cd-terraform.yml` | `terraform plan` + `apply` for Vercel infra |
+| `.github/workflows/terraform-run.yml` | Every `terraform plan` and `apply` for Vercel infra, the one writer of each environment's state |
 | `.github/workflows/ci-*.yml` | Reusable per stack CI (python lint/format/typecheck/tests/security, nextjs build/lint/tests, codeql, npm audit, vercel compactor) |
 | `.github/workflows/bump-version-check.yml` | Validate `VERSION` is exactly +1 semver ahead of `main` |
 | `.github/workflows/create-github-release.yml` | Create a GitHub Release + git tag from `VERSION` |

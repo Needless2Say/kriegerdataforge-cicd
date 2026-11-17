@@ -30,9 +30,9 @@ security audit (`PL-###` findings). The canonical audit lives in the `kriegerdat
 
 ## Scenario. Secrets, environment & config  *(every repo)*
 
-- Real secret **values** live ONLY in gitignored files (`*.secrets.auto.tfvars`, `.env.local`, `.env.kdf`,
-  `.env.test`, `.env.dev`, `.env.prod`, `*.pem`). Never commit them. The tracked `*.example` files hold `""` /
-  placeholders.
+- Real secret **values** live ONLY in gitignored files (`.env.local`, `.env.kdf`, `.env.test`, `.env.dev`,
+  `.env.prod`, `*.pem`) or in GitHub's secrets, a terraform secret in its GitHub environment alone. Never commit
+  them. The tracked `*.example` files hold `""` / placeholders.
 - **Local env files, the standard** (cicd ADR D-030). A repo keeps its local settings in two gitignored files, each
   with a tracked `.example` that holds the names and placeholders.
   - `.env.local`, every value that works only on this machine, the local database and MinIO passwords, local signing
@@ -187,11 +187,15 @@ server authoritative rule above is necessary but **not** sufficient. Also:
 - **prod-guard (OPA, env gated).** Prod must have Stripe enabled + `RATELIMIT_STORAGE_URI` set to a real
   Redis. It **warns** today. Flip to **deny** only AFTER the store + Stripe are actually provisioned (a
   default empty value would hard block the first prod apply).
-- **No secrets in committed files.** Secrets go in gitignored `*.secrets.auto.tfvars`. Never commit
-  `tfplan.json` / `*.tfstate*`, they contain cleartext secrets (gitignore them, rotate if leaked).
+- **No secrets in committed files or on a machine.** Each secret is set in its GitHub environment, never in
+  Vercel's dashboard, and reaches Vercel through an apply in Actions alone. Never commit a plan or a state
+  (`tfplan*` / `*.tfstate*`, gitignored). One written before its secrets moved to write only values holds them in
+  cleartext (rotate if leaked).
 - `sensitive = true` on every secret bearing var. The top level plan `.variables` show even `sensitive` vars
   in **cleartext**. Don't assume redaction when reasoning about exposure.
-- **No GCP resources** until an ADR approves. Run `make env-audit && make check-invariants` before any apply.
+- **No GCP resources** until an ADR approves. Every plan and apply runs in GitHub Actions through cicd's
+  `terraform-run.yml`, never on a machine, its policies blocking on a `deny`. Run `make audit-all` before a pull
+  request.
 
 ## Scenario. CI/CD & supply chain  *(kriegerdataforge-cicd · every repo)*
 
