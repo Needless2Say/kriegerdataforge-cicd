@@ -69,7 +69,13 @@ const OUTWARD_TOOLS = /^(mcp__(?!ide__getDiagnostics$)|Artifact|SendUserFile$|Se
 const MCP_ALLOWED = new Set([
   'mcp__ide__getDiagnostics',
   'mcp__claude-artifacts__guide', 'mcp__claude-artifacts__publish_version', 'mcp__claude-artifacts__edit_version',
-  'mcp__claude-artifacts__get_artifact', 'mcp__claude-artifacts__read_artifact', 'mcp__claude-artifacts__list_artifacts'
+  'mcp__claude-artifacts__get_artifact', 'mcp__claude-artifacts__read_artifact', 'mcp__claude-artifacts__list_artifacts',
+  // Claude in Chrome, for a browser test the owner approves first, its sites held by the extension's own site list
+  'mcp__claude-in-chrome__tabs_context_mcp', 'mcp__claude-in-chrome__tabs_create_mcp',
+  'mcp__claude-in-chrome__tabs_close_mcp', 'mcp__claude-in-chrome__navigate', 'mcp__claude-in-chrome__computer',
+  'mcp__claude-in-chrome__read_page', 'mcp__claude-in-chrome__find', 'mcp__claude-in-chrome__get_page_text',
+  'mcp__claude-in-chrome__form_input', 'mcp__claude-in-chrome__read_network_requests',
+  'mcp__claude-in-chrome__read_console_messages'
 ]);
 const MCP_WHY = 'A session calls only the MCP tools on the guard\'s list, MCP_ALLOWED in kdf-guard.js, which the owner '
   + 'changes by pull request. ';
@@ -85,9 +91,22 @@ const MCP_INPUT_KEYS = new Map([
     'artifact_title']],
   ['mcp__claude-artifacts__get_artifact', ['slug']],
   ['mcp__claude-artifacts__read_artifact', ['slug', 'offset', 'limit']],
-  ['mcp__claude-artifacts__list_artifacts', ['limit', 'shared_only', 'type']]
+  ['mcp__claude-artifacts__list_artifacts', ['limit', 'shared_only', 'type']],
+  ['mcp__claude-in-chrome__tabs_context_mcp', ['createIfEmpty']],
+  ['mcp__claude-in-chrome__tabs_create_mcp', []],
+  ['mcp__claude-in-chrome__tabs_close_mcp', ['tabId']],
+  ['mcp__claude-in-chrome__navigate', ['url', 'tabId']],
+  ['mcp__claude-in-chrome__computer', ['action', 'action_summary', 'coordinate', 'duration', 'modifiers', 'ref',
+    'region', 'repeat', 'save_to_disk', 'scale', 'scroll_amount', 'scroll_direction', 'start_coordinate', 'tabId',
+    'text']],
+  ['mcp__claude-in-chrome__read_page', ['depth', 'filter', 'max_chars', 'ref_id', 'tabId']],
+  ['mcp__claude-in-chrome__find', ['query', 'tabId']],
+  ['mcp__claude-in-chrome__get_page_text', ['tabId']],
+  ['mcp__claude-in-chrome__form_input', ['action_summary', 'ref', 'tabId', 'value']],
+  ['mcp__claude-in-chrome__read_network_requests', ['clear', 'limit', 'tabId', 'urlPattern']],
+  ['mcp__claude-in-chrome__read_console_messages', ['clear', 'limit', 'onlyErrors', 'pattern', 'tabId']]
 ]);
-const MCP_KEYS_WHY = 'A listed artifact tool takes only the input fields the guard knows, MCP_INPUT_KEYS in '
+const MCP_KEYS_WHY = 'A listed MCP tool takes only the input fields the guard knows, MCP_INPUT_KEYS in '
   + 'kdf-guard.js, so a field the server adds is refused until the owner lists it by pull request. ';
 // publish_files sends files from disk by their path, and its bytes never pass through the session, so the guard cannot
 // see what it sends. It is held off the list, not merely left off it, and says so (D-095).

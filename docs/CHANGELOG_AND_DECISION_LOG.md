@@ -5739,3 +5739,36 @@ first.* Declined, with no caller there is nothing to move.
 this one, so no run changes. A caller that still named it would fail to resolve it at its next run and run nothing.
 The kit's lines reach each repo at its next Distribute. VERSION 0.10.0.
 
+## D-110. Claude in Chrome's reading and driving tools on the guard's MCP list, each held to its known fields
+
+- **Date.** 2026-11-17
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Standard · `tools/claude-code/kdf-guard.js`, `guard-cases.json` and the `Makefile`'s
+  `SCAN_LIMIT` line · D-066's list grows, no workflow input changed
+
+**Context.** The Claude in Chrome extension gives a session tools that drive the owner's own Chrome, named
+`mcp__claude-in-chrome__<tool>`. D-066's list refused every one of them, so a session could not run a browser test
+the owner had approved. Some of its tools reach past what the guard can see, a script run inside a page signed in as
+the owner, several calls batched into one, and files sent from disk.
+
+**Decision.**
+
+1. `MCP_ALLOWED` gains eleven of the extension's tools, `tabs_context_mcp`, `tabs_create_mcp`, `tabs_close_mcp`,
+    `navigate`, `computer`, `read_page`, `find`, `get_page_text`, `form_input`, `read_network_requests` and
+    `read_console_messages`, each by its whole name.
+2. Each is held to the input fields it takes today, `MCP_INPUT_KEYS`, as D-095 holds the artifact tools, so a field
+    the extension adds later is refused until the owner lists it. `MCP_KEYS_WHY` now names any listed MCP tool.
+3. Every other tool of the extension stays refused. `javascript_tool` runs script in a page signed in as the owner and
+    can read what it holds, `browser_batch` carries several calls the guard would see as one, `file_upload` and
+    `upload_image` send files from disk as `publish_files` would, and `gif_creator` downloads a file. The browser
+    switchers wait until more than one Chrome is connected.
+4. A reviewer uses none of them, the extension's tools being outward tools.
+5. The guard cannot hold which sites a session reaches, since a click on a link reaches any. The extension's own site
+    list is that fence, set by the owner, and the owner's yes before every browser test is the owner's own rule.
+
+**Alternatives considered.** *List the extension's tools by name alone.* Rejected, a field it adds would pass unseen,
+D-095's gap again. *A host list for `navigate` in the guard.* Not taken, a click reaches past it, so it would promise
+a fence it is not.
+
+**Consequences.** The guard's change reaches a machine only through `install.sh`, the owner's, and `SCAN_LIMIT`'s
+recorded hash for `kdf-guard.js` moves with it. 18 new cases. VERSION 0.10.1.
