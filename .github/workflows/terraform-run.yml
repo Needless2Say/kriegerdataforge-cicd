@@ -1,7 +1,7 @@
 # Reusable workflow, terraform run (terraform in Actions, design 5.6 to 5.8 in the owner's context repo)
 #
-# The one writer of a terraform environment's state, its modes held to that environment's switch, beside
-# cd-terraform.yml, which today's caller keeps until it moves here (CONTRIBUTING.md, the additive rule).
+# The one writer of a terraform environment's state, its modes held to that environment's switch, the terraform
+# repo's one route to a plan or an apply since its move, cd-terraform.yml before it retired (D-109).
 #
 # ── Modes ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 #   apply       DEV, by the release. Plan with refresh, the policies, apply, then the state proof. Switch on.

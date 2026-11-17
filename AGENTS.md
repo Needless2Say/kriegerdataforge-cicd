@@ -40,7 +40,8 @@ repo. As KDF grows, this library may also host AI driven agent workflows, an ide
 
 - **GitHub Actions.** Reusable workflows (`on: workflow_call`), called by every tenant repo.
 - **Vercel CLI.** A pinned `vercel@48.0.0` CLI (`npm install -g` → `vercel --prod --yes`) for Next.js + FastAPI serverless deploys.
-- **Terraform `~1.9`** (`hashicorp/setup-terraform`), `cd-terraform.yml` runs `plan`/`apply`.
+- **Terraform** (`hashicorp/setup-terraform`), `terraform-run.yml` runs every `plan`/`apply` at the version its
+  caller names, a deploy at the one its gate sealed.
 - **Python 3.14 (stdlib first).** Platform scripts in `scripts/` (token/PAT rotation, DB backup,
   deployer gate, version bump/check), tested with `pytest` + coverage.
 - **actionlint.** Local + CI lint for all workflow YAML.
@@ -53,8 +54,7 @@ repo. As KDF grows, this library may also host AI driven agent workflows, an ide
 | --- | --- |
 | `.github/workflows/cd-nextjs-vercel.yml` | Deploy Next.js → Vercel (fitness-app-frontend, tiffanys-space, arthurs-portfolio) |
 | `.github/workflows/cd-python-vercel.yml` | Deploy FastAPI → Vercel + optional Alembic migrations (kriegerdataforge, app backends) |
-| `.github/workflows/cd-terraform.yml` | `terraform plan` + `apply` for Vercel infra (kriegerdataforge-terraform) |
-| `.github/workflows/terraform-run.yml` + `scripts/terraform_run.py` | The one writer of a terraform environment's state, seven modes held to their switch, no secret in a state or a plan, the gate's plan sealed and claimed once (D-102), the saved plan read whole, the run's own rules and a sealed record of each proven state (D-103), the run contract each release declares, contract 1 frozen by `scripts/tests/fixtures/terraform_run/contract_1.json`, and acceptance running the gate's and deploy's handoff on DEV (D-106). Beside `cd-terraform.yml` until the terraform repo's move switches it on |
+| `.github/workflows/terraform-run.yml` + `scripts/terraform_run.py` | The one writer of a terraform environment's state, seven modes held to their switch, no secret in a state or a plan, the gate's plan sealed and claimed once (D-102), the saved plan read whole, the run's own rules and a sealed record of each proven state (D-103), the run contract each release declares, contract 1 frozen by `scripts/tests/fixtures/terraform_run/contract_1.json`, and acceptance running the gate's and deploy's handoff on DEV (D-106). The terraform repo's one route to a plan or an apply since its move, `cd-terraform.yml` retired (D-109) |
 | `.github/workflows/bump-version-check.yml` | Validate `VERSION` is exactly +1 semver ahead of `main` |
 | `.github/workflows/create-github-release.yml` | Create GitHub Release + git tag from `VERSION` |
 | `.github/workflows/ci-*.yml` | Reusable per stack CI (python lint/typecheck/tests/security/integration, nextjs build/lint/tests, codeql, npm audit, vercel compactor) |

@@ -87,11 +87,11 @@ manually rotated credential (`secret_registry.json:118-140`).
 they aren't approved for, including self approving on `dev`, where a collaborator is a valid
 Environment reviewer.
 
-Every reusable CD workflow (`cd-nextjs-vercel.yml`, `cd-python-vercel.yml`, `cd-terraform.yml`)
-starts with an **`authorize` job that the deploy/apply job `needs:`**. Crucially, `authorize` has
+Every reusable CD workflow (`cd-nextjs-vercel.yml`, `cd-python-vercel.yml`, `terraform-run.yml`)
+starts with an **`authorize` job that the deploy/run job `needs:`**. Crucially, `authorize` has
 **no `environment:`**, so it runs *before* the GitHub Environment approval is even requested, an
 unauthorized dispatch fails fast, with no approval notification and no secrets loaded
-(`cd-python-vercel.yml:59-92`, `cd-nextjs-vercel.yml:47-80`, `cd-terraform.yml:113-145`).
+(`cd-python-vercel.yml:59-92`, `cd-nextjs-vercel.yml:47-80`, `terraform-run.yml:188-209`).
 
 The `authorize` job checks out this repo (sparse, `scripts/` only) and runs
 [`check_deployer.py`](../../scripts/check_deployer.py), passing the **dispatching user** as
@@ -247,8 +247,8 @@ credentials (CICD-SEC-3 / SLSA class).
   holds `VERCEL_DEPLOYMENT_TOKEN`, `GH_PACKAGES_PAT`, and (on migrations) `DB_DATABASE_URL`, an
   unpinned floating install is called out as a dependency chain risk (`cd-python-vercel.yml:134-139`).
 - **The conftest binary is verified against a pinned `sha256` before it is extracted or executed**,
-  because that Terraform step holds prod secrets and a tampered release must never run
-  (`cd-terraform.yml:251-267`).
+  because it runs in the one job that holds a terraform environment's credentials and a tampered release must
+  never run (`terraform-run.yml:638-649`).
 
 ### C7. Tenant agnostic trust boundary (a repo depends only on what it consumes)
 
@@ -300,7 +300,7 @@ granted **only** where Vercel OIDC needs it.
 | `cd-nextjs-vercel.yml` → `authorize` | read | — | — | no `environment:` → runs before approval (`cd-nextjs-vercel.yml:47-51`) |
 | `cd-nextjs-vercel.yml` → `deploy` | read | write | — | OIDC (`cd-nextjs-vercel.yml:82-84`) |
 | `cd-python-vercel.yml` → `deploy` | read | write | — | `cd-python-vercel.yml:94-96` |
-| `cd-terraform.yml` → `apply` | read | — | — | `cd-terraform.yml:147` |
+| `terraform-run.yml` → `run` | read | — | — | `actions: read` and `deployments: write` too (`terraform-run.yml:265-268`) |
 | `bump-version-check.yml` | read | — | — | `bump-version-check.yml:31-33` |
 | `_authorize-owner.yml` | read | — | — | `_authorize-owner.yml:21-23` |
 | `ops-rotate-secrets.yml` → `run` | read | — | write | issues:write to comment result (`ops-rotate-secrets.yml:38-40`) |
@@ -319,11 +319,10 @@ job's** permissions and derives all cross repo access from its minted, scoped Ap
 These are current state facts a reader must not over-read. They are **not** fixed here (docs only
 task). They are recorded for the owner in the summary.
 
-1. **The Terraform invariant policy gate is ADVISORY today.** The conftest/OPA step runs with
-   `continue-on-error: true`, and the `prod_guard` rules are `warn` (conftest exits 0), so it
-   surfaces violations in the log but **does not block a misconfigured prod apply** yet. The
-   flip to deny is gated on PL-014 (Upstash Redis) and PL-051 (prod Stripe) closing out
-   (`cd-terraform.yml:226-267`). Until the flip, C6's policy check is observ­ability, not enforcement.
+1. **The Terraform invariant policy gate blocks on a `deny` alone.** `terraform-run.yml` runs conftest over
+   every plan it makes with no `continue-on-error`, so a `deny` of the caller's policies stops the run before
+   an apply (`terraform-run.yml:638-659`, D-102). A rule the caller writes as `warn` still only surfaces in the
+   log, and which rules deny is the caller's to set.
 2. **The App token migration is flag gated with a broad PAT fallback.** `ops-rotate-secrets.yml`
    and `ops-setup-e2e.yml` mint the scoped App token **only when `vars.USE_GITHUB_APP == 'true'`**.
    Otherwise they fall back to `secrets.CICD_PAT` (`ops-rotate-secrets.yml:62-64, 123`;
