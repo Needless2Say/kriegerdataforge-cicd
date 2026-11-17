@@ -2165,6 +2165,107 @@
  },
  {
   "role": "owner",
+  "tool": "mcp__claude-in-chrome__navigate",
+  "input": { "url": "http://localhost:3000", "tabId": 1 },
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-in-chrome__navigate",
+  "input": { "url": "http://localhost:3000", "headers": "x" },
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-in-chrome__javascript_tool",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-in-chrome__tabs_context_mcp",
+  "input": { "createIfEmpty": true },
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-in-chrome__tabs_create_mcp",
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-in-chrome__tabs_close_mcp",
+  "input": { "tabId": 1 },
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-in-chrome__computer",
+  "input": { "action": "screenshot", "tabId": 1 },
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-in-chrome__read_page",
+  "input": { "tabId": 1, "filter": "interactive" },
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-in-chrome__find",
+  "input": { "query": "sign in button", "tabId": 1 },
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-in-chrome__get_page_text",
+  "input": { "tabId": 1 },
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-in-chrome__form_input",
+  "input": { "ref": "ref_1", "value": "x", "tabId": 1 },
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-in-chrome__read_network_requests",
+  "input": { "tabId": 1, "urlPattern": "/api/" },
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-in-chrome__read_console_messages",
+  "input": { "tabId": 1, "pattern": "error" },
+  "expect": "allow"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-in-chrome__browser_batch",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-in-chrome__file_upload",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-in-chrome__upload_image",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
+  "tool": "mcp__claude-in-chrome__gif_creator",
+  "expect": "block"
+ },
+ {
+  "role": "reviewer",
+  "tool": "mcp__claude-in-chrome__navigate",
+  "expect": "block"
+ },
+ {
+  "role": "owner",
   "tool": "mcp__claude_ai_Google_Drive__search_files",
   "expect": "block"
  },
