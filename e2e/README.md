@@ -149,7 +149,9 @@ sibling. `ci_stack.py`:
 - generates a per run **certificate authority** and a leaf certificate each for the
   browser facing edge (`https://localhost:3002`, `E2E_EDGE_PORT` moves it), the mail
   sink's STARTTLS and the hub's edge of the runner round (`e2e/.e2e-certs/`,
-  gitignored, the authority's own key never written). The hub trusts the authority
+  gitignored, the authority's own key never written). They live two days, so a local
+  clone keeps its set from run to run and makes it again once it is a day old, and
+  `--regen` remakes it at any time. The hub trusts the authority
   through `SSL_CERT_FILE`, Playwright ignores certificate errors by config, so no trust
   store is touched;
 - brings up the **edge** (Caddy, the shape of the local stack's `docker/Caddyfile` and of

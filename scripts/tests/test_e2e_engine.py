@@ -9,9 +9,11 @@ STARTTLS and a login, the service key gate on, every published port on the loopb
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import ci_stack  # e2e/ is on the path, conftest.py
@@ -102,6 +104,97 @@ def test_make_certs_reuses_a_complete_set_and_regenerates_a_partial_one(tmp_path
     ci_stack.make_certs(regen = False)
     assert (certs / "mail.pem").exists()
     assert (certs / "ca.pem").read_bytes() != first, "a missing file regenerates the whole set"
+
+
+def _write_set(certs: Path, made: list[int]) -> None:
+    """
+    A stand in for the two makers, every file of a set written and the making counted.
+    """
+    for name in ci_stack._CERT_FILES:
+        (certs / name).write_text("made", encoding = "utf-8")
+    made.append(1)
+
+
+def _age(path: Path, hours: float) -> None:
+    """
+    Set a file's times to the given number of hours ago.
+    """
+    then = time.time() - hours * 3600
+    os.utime(path, (then, then))
+
+
+def test_make_certs_remakes_a_complete_set_before_it_expires(tmp_path, monkeypatch):
+    # a local clone keeps its set from run to run, and a set past CERT_DAYS is refused by every client that verifies,
+    # the hub's STARTTLS to the mail sink first. the makers are stubbed, the reuse rule alone is judged here, so this
+    # runs with neither the cryptography lib nor the openssl CLI
+    certs    = tmp_path / "certs"
+    made     = []
+    lifetime = ci_stack.CERT_DAYS * 24
+    monkeypatch.setattr(ci_stack, "CERTS", certs)
+    monkeypatch.setattr(ci_stack, "_make_certs_cryptography", lambda: _write_set(certs, made))
+    monkeypatch.setattr(ci_stack, "_make_certs_openssl", lambda: _write_set(certs, made))
+    ci_stack.make_certs(regen = False)
+    assert len(made) == 1
+
+    _age(certs / "ca.pem", 1)
+    ci_stack.make_certs(regen = False)
+    assert len(made) == 1, "a set an hour old is reused"
+
+    _age(certs / "ca.pem", lifetime - 25)
+    ci_stack.make_certs(regen = False)
+    assert len(made) == 1, "a set with more than a day left is reused"
+
+    _age(certs / "ca.pem", lifetime - 23)
+    ci_stack.make_certs(regen = False)
+    assert len(made) == 2, "a set with less than a day left is made again, a long run could outlive it"
+
+    _age(certs / "ca.pem", lifetime * 30)
+    ci_stack.make_certs(regen = False)
+    assert len(made) == 3, "an expired set is made again"
+
+    ci_stack.make_certs(regen = True)
+    assert len(made) == 4, "--regen makes a young set again"
+
+
+class _Stopped(Exception):
+    """
+    Raised by the stubbed runner once `up` has been called, the rest of cmd_up not judged here.
+    """
+
+
+def _up_command(monkeypatch) -> list[str]:
+    """
+    The compose `up` command cmd_up runs, every step before it stubbed, make_certs keeping the set.
+    """
+    calls = []
+
+
+    def run(cmd, env, **kwargs):
+        calls.append(cmd)
+        if "up" in cmd:
+            raise _Stopped
+
+
+    monkeypatch.setattr(ci_stack, "discover", lambda: {})
+    monkeypatch.setattr(ci_stack, "resolve_journeys", lambda raw, registry: ["auth"])
+    monkeypatch.setattr(ci_stack, "_check_repos", lambda journeys, registry: None)
+    monkeypatch.setattr(ci_stack, "load_or_make_state", lambda journeys, regen: {})
+    monkeypatch.setattr(ci_stack, "make_certs", lambda regen: None)
+    monkeypatch.setattr(ci_stack, "_compose_env", lambda *args: {"GH_PACKAGES_PAT": "p", "GH_NPM_TOKEN": "n"})
+    monkeypatch.setattr(ci_stack, "_compose_files", lambda *args: ["-f", "compose.yml"])
+    monkeypatch.setattr(ci_stack, "_run", run)
+    with pytest.raises(_Stopped):
+        ci_stack.cmd_up("auth", regen = False)
+    return calls[-1]
+
+
+def test_up_recreates_every_container_even_when_the_set_is_kept(monkeypatch):
+    # compose recreates only a container whose config or image changed, and a running mail sink and edge keep the
+    # certificates they loaded. a set made since they started, by its age, by --regen, or by an earlier up whose
+    # build failed after making it, would leave the hub trusting an authority the sink no longer presents, so every
+    # up recreates every container, a kept set on this run proving nothing about what the running ones loaded
+    up = _up_command(monkeypatch)
+    assert "--force-recreate" in up, up
 
 
 # ── the environment the compose reads ────────────────────────────────────────
