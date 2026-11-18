@@ -28,13 +28,13 @@ import json
 import os
 import sys
 
+from kdf_sdk.database import get_engine
 from sqlmodel import Session, select
 
 from api.auth.enums import UserGlobalPermissionRole
 from api.auth.models import KDFUser
 from api.auth.schemas import RegisterRequest
 from api.auth.service import AuthDatabaseService
-from api.database.dependencies import get_engine
 from api.oauth.enums import OAuthClientType
 from api.oauth.models import OAuthClient
 from api.oauth.service import hash_client_secret
