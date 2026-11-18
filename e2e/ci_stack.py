@@ -616,7 +616,12 @@ def cmd_up(raw_journeys: str, regen: bool, target: str = "dev") -> None:
     print(f"[ci_stack] journeys: {', '.join(journeys)}  (auth UI image: {target})")
 
     _run(_compose(files, "build"), env, timeout=BUILD_TIMEOUT, step="build images")
-    _run(_compose(files, "up", "-d", "--wait", "--wait-timeout", str(WAIT_TIMEOUT)),
+    # every up recreates every container. compose recreates only a container whose config or image
+    # changed, and a running mail sink and edge keep the certificates they loaded, so a set made
+    # since they started, by its age, by --regen or by an earlier up whose build failed after
+    # making it, would leave the hub trusting an authority the sink no longer presents. CI starts
+    # with no containers, and migrate and seed below run again on every up
+    _run(_compose(files, "up", "-d", "--force-recreate", "--wait", "--wait-timeout", str(WAIT_TIMEOUT)),
          env, step="up + wait for healthchecks")
 
     # Hub: migrate, then seed the login user + one OIDC client per active journey.
