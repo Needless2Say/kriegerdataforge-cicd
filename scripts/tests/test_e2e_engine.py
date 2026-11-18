@@ -9,9 +9,11 @@ STARTTLS and a login, the service key gate on, every published port on the loopb
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import ci_stack  # e2e/ is on the path, conftest.py
@@ -102,6 +104,48 @@ def test_make_certs_reuses_a_complete_set_and_regenerates_a_partial_one(tmp_path
     ci_stack.make_certs(regen = False)
     assert (certs / "mail.pem").exists()
     assert (certs / "ca.pem").read_bytes() != first, "a missing file regenerates the whole set"
+
+
+def _write_set(certs: Path, made: list[int]) -> None:
+    """
+    A stand in for the two makers, every file of a set written and the making counted.
+    """
+    for name in ci_stack._CERT_FILES:
+        (certs / name).write_text("made", encoding = "utf-8")
+    made.append(1)
+
+
+def _age(path: Path, hours: float) -> None:
+    """
+    Set a file's times to the given number of hours ago.
+    """
+    then = time.time() - hours * 3600
+    os.utime(path, (then, then))
+
+
+def test_make_certs_remakes_a_complete_set_before_it_expires(tmp_path, monkeypatch):
+    # a local clone keeps its set from run to run, and a set past CERT_DAYS is refused by every client that verifies,
+    # the hub's STARTTLS to the mail sink first. the makers are stubbed, the reuse rule alone is judged here, so this
+    # runs with neither the cryptography lib nor the openssl CLI
+    certs = tmp_path / "certs"
+    made  = []
+    monkeypatch.setattr(ci_stack, "CERTS", certs)
+    monkeypatch.setattr(ci_stack, "_make_certs_cryptography", lambda: _write_set(certs, made))
+    monkeypatch.setattr(ci_stack, "_make_certs_openssl", lambda: _write_set(certs, made))
+    ci_stack.make_certs(regen = False)
+    assert len(made) == 1
+
+    _age(certs / "ca.pem", 1)
+    ci_stack.make_certs(regen = False)
+    assert len(made) == 1, "a set an hour old is reused"
+
+    _age(certs / "ca.pem", ci_stack.CERT_DAYS * 24 - 1)
+    ci_stack.make_certs(regen = False)
+    assert len(made) == 2, "a set an hour short of its expiry is made again, a run would outlive it"
+
+    _age(certs / "ca.pem", ci_stack.CERT_DAYS * 24 * 30)
+    ci_stack.make_certs(regen = False)
+    assert len(made) == 3, "an expired set is made again"
 
 
 # ── the environment the compose reads ────────────────────────────────────────

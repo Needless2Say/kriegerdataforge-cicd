@@ -66,6 +66,7 @@ STATE = HERE / ".e2e-ci.json"        # gitignored — persisted per-run secrets
 ENV_FILE = HERE / ".env"             # gitignored — loaded by playwright.config.ts
 CERTS = HERE / ".e2e-certs"          # gitignored — the run's authority + leaf certificates
 CERT_DAYS = 2                        # a run's certificates outlive any run, and no more
+CERT_REUSE_HOURS = 24                # a kept set older than this is made again, a day before it expires
 
 # One leaf certificate per service, subject alternative names, all signed by the run's
 # authority: the browser facing edge, the mail sink (STARTTLS on the compose network) and
@@ -324,11 +325,20 @@ def _is_ip(value: str) -> bool:
         return False
 
 
+def _certs_aged() -> bool:
+    """True when the kept set was written more than CERT_REUSE_HOURS ago, read from the
+    authority's file time, every file of a set being written together."""
+    written = datetime.datetime.fromtimestamp((CERTS / "ca.pem").stat().st_mtime, datetime.timezone.utc)
+    return datetime.datetime.now(datetime.timezone.utc) - written > datetime.timedelta(hours=CERT_REUSE_HOURS)
+
+
 def make_certs(regen: bool) -> None:
     """The run's certificate authority and one leaf per service in _LEAVES, written to CERTS.
-    Made once and reused, like the keypair, unless --regen or a file is missing. Prefers the
-    `cryptography` lib (the action installs it), falls back to the `openssl` CLI."""
-    if not regen and all((CERTS / f).exists() for f in _CERT_FILES):
+    Made once and reused, unless --regen, a file is missing or the set is older than
+    CERT_REUSE_HOURS. Unlike the keypair a certificate expires, and a local clone keeps its set
+    from run to run, so an old one is made again before the hub's STARTTLS refuses the mail sink.
+    Prefers the `cryptography` lib (the action installs it), falls back to the `openssl` CLI."""
+    if not regen and all((CERTS / f).exists() for f in _CERT_FILES) and not _certs_aged():
         return
     if CERTS.exists():
         shutil.rmtree(CERTS)
