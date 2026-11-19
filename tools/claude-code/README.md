@@ -370,7 +370,7 @@ ecosystem's writing conventions, the owner's settled decisions from `kriegerdata
 when that clone sits in the workspace, and a closing instruction. So no session writes those words again, or forgets
 one. `--no-settled` leaves the settled decisions out, and `--dry-run` prints the frame and starts nothing. `--effort`
 is `high` by default, or `xhigh` or `max`, the efforts a read is worth among those OpenAI's API takes for its GPT-6
-models, and any other is refused before Codex starts. `--model` names the model, `gpt-6.1-sol` by default.
+models, and any other is refused before Codex starts. `--model` names the model, `gpt-6.2-sol` by default.
 
 `--kind` sets the closing instruction, the one part of the frame that changes (D-053). `review`, the default, asks for
 real problems in a change, each with its file, its line and what triggers it. `plan` tells Codex the question holds a

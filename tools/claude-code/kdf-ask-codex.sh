@@ -105,7 +105,7 @@ secret_under() {
 	return 1
 }
 
-repo="" files="" brief="" at="" base="" kind="review" effort="high" model="gpt-6.1-sol" settled=1 dry=0 fix=0 security=0
+repo="" files="" brief="" at="" base="" kind="review" effort="high" model="gpt-6.2-sol" settled=1 dry=0 fix=0 security=0
 also=()
 while [ $# -gt 0 ]; do
 	case "$1" in
