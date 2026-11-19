@@ -49,13 +49,13 @@ QUESTION_WORDS = {
     19: "19. Detection.",
 }
 
-# the flags verified on 2026-10-05, each as the tool must pass it
+# the flags verified on 2026-10-05, each as the tool must pass it, the default model gpt-6.2-sol since 2026-11-19
 VERIFIED = (
     "--ignore-user-config",
     "-c windows.sandbox=unelevated",
     "--ephemeral",
     "-s read-only",
-    "-m gpt-6.1-sol",
+    "-m gpt-6.2-sol",
     "-c model_reasoning_effort=high",
     "-c approval_policy=never",
     "-c web_search=disabled",
@@ -709,7 +709,7 @@ def test_each_effort_above_the_default_reaches_codex_and_the_header(rig: Rig, ef
     done = _ask(rig, "--effort", effort)
     assert done.returncode == 0, done.stderr
     assert f" -c model_reasoning_effort={effort} " in f" {_logged(rig, 'args=')} "
-    assert f"gpt-6.1-sol at {effort} effort." in _answers(rig)[0].read_text(encoding = "utf-8")
+    assert f"gpt-6.2-sol at {effort} effort." in _answers(rig)[0].read_text(encoding = "utf-8")
 
 
 def test_events_that_cannot_be_read_fail_the_run(rig: Rig) -> None:
