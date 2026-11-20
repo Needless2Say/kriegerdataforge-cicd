@@ -1078,7 +1078,7 @@ input, and once a day at 06:23 UTC, never on a pull request. Its env names every
 | --- | --- | --- |
 | `SOURCES` | Each package and its sources in turn, Docker's official images on ECR Public's gallery, Docker Hub and Google's mirror, Mailpit's and Checkov's publishers on GitHub's registry and Docker Hub | A source serves bytes by a digest already chosen, read with no credentials, and never decides a tag |
 | `KEPT` | The Postgres lanes' entries, each its index digest, its tag and its `server_version_num`, the newest last (D-077) | Fixed, the entry's own tag |
-| `PINNED` | The E2E stacks' Postgres 16-alpine, Caddy and Mailpit and the terraform scan's Checkov, each its package, index digest and tag | Fixed, the version and variant its image's config carries, `16.15-alpine`, `2.10.2-alpine`, `v1.31.2`, `3.3.6` |
+| `PINNED` | The E2E stacks' Postgres 16-alpine, Caddy and Mailpit, the restore drill's Postgres 17 and the terraform scan's Checkov, each its package, index digest and tag | Fixed, the version and variant its image's config carries, `16.15-alpine`, `2.10.2-alpine`, `v1.31.2`, `17.12`, `3.3.6` |
 | `FOLLOWED` | The base images every Dockerfile builds on, `node 24-alpine` and `python 3.14-slim`, and a held digest while a hold stands | The digest Docker Hub names for the tag, read each run, unless held |
 | `WATCH` | A line per kept or pinned image, its publisher, its line's upstream tag and the level a newer version is reported at, `patch` or Checkov's `minor` | Never, the weekly ecosystem watch alone reads it |
 
