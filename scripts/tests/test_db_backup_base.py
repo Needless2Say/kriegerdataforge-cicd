@@ -186,11 +186,11 @@ class TestRunBackup:
             self._argv( "--env", "prod", "--env-file", str(env_file), "--out-dir", str(tmp_path) ),
         )
 
-        captured_cmd = []
+        captured_env = {}
 
 
         def fake_run(cmd, **kwargs):
-            captured_cmd.extend(cmd)
+            captured_env.update(kwargs["env"])
             Path(cmd[cmd.index("--file") + 1]).write_bytes(b"data")
             return CompletedProcess(args = cmd, returncode = 0, stdout = "", stderr = "")
 
@@ -199,7 +199,7 @@ class TestRunBackup:
              patch("subprocess.run", side_effect = fake_run):
             run_backup("auth")
 
-        assert "postgresql://from_file" in captured_cmd
+        assert captured_env["PGHOST"] == "from_file"
 
 
     def test_exits_when_db_backup_url_not_in_env_or_file(self, monkeypatch, tmp_path):
@@ -214,7 +214,7 @@ class TestRunBackup:
         assert "DB_BACKUP_URL" in str(exc.value)
 
 
-    def test_exits_when_pg_dump_returns_nonzero(self, monkeypatch, tmp_path):
+    def test_exits_when_pg_dump_returns_nonzero(self, monkeypatch, tmp_path, capsys):
         monkeypatch.setattr(
             sys,
             "argv",
@@ -230,7 +230,8 @@ class TestRunBackup:
              patch("subprocess.run", side_effect = fail_run):
             with pytest.raises(SystemExit) as exc:
                 run_backup("auth")
-        assert "some pg_dump error" in str(exc.value)
+        assert "exit 1" in str(exc.value)
+        assert "some pg_dump error" in capsys.readouterr().err
 
 
     def test_output_filename_contains_app_name_env_and_timestamp(self, monkeypatch, tmp_path):
@@ -334,7 +335,64 @@ class TestRunBackup:
 
         assert "--format=custom" in captured
         assert "--no-password" in captured
-        assert "postgresql://user:pass@host/db" in captured
+        assert "postgresql://user:pass@host/db" not in captured
+        assert not any("postgresql://" in argument or ":pass@" in argument for argument in captured)
+
+
+    def test_the_connection_reaches_pg_dump_in_its_environment_alone(self, monkeypatch, tmp_path):
+        url = (
+            "postgresql+psycopg2://writer:s3cr%40t@ep-x.neon.tech:5433/neondb"
+            "?sslmode=verify-full&channel_binding=require"
+        )
+        monkeypatch.setattr(sys, "argv", self._argv("--env", "prod", "--out-dir", str(tmp_path)))
+        monkeypatch.setenv("DB_BACKUP_URL", url)
+        seen = {}
+
+
+        def fake_run(cmd, **kwargs):
+            seen["cmd"], seen["env"] = cmd, kwargs["env"]
+            Path(cmd[cmd.index("--file") + 1]).write_bytes(b"data")
+            return CompletedProcess(args = cmd, returncode = 0, stdout = "", stderr = "")
+
+
+        with patch("shutil.which", return_value = "/usr/bin/pg_dump"), \
+             patch("subprocess.run", side_effect = fake_run):
+            run_backup("auth", default_env_file = str(tmp_path / "absent.env"))
+
+        assert not any("s3cr" in argument for argument in seen["cmd"])
+        assert seen["env"]["PGPASSWORD"] == "s3cr@t"
+        assert seen["env"]["PGHOST"] == "ep-x.neon.tech"
+        assert seen["env"]["PGPORT"] == "5433"
+        assert seen["env"]["PGUSER"] == "writer"
+        assert seen["env"]["PGDATABASE"] == "neondb"
+        assert seen["env"]["PGSSLMODE"] == "verify-full"
+        assert seen["env"]["PGCHANNELBINDING"] == "require"
+        assert "DB_BACKUP_URL" not in seen["env"]
+
+
+    def test_a_failure_prints_its_stderr_with_the_password_masked(self, monkeypatch, tmp_path, capsys):
+        monkeypatch.setattr(sys, "argv", self._argv("--env", "prod", "--out-dir", str(tmp_path)))
+        monkeypatch.setenv("DB_BACKUP_URL", "postgresql://writer:hunter2-secret@ep-x.neon.tech/neondb")
+
+
+        def fail_run(cmd, **kwargs):
+            return CompletedProcess(args = cmd, returncode = 1, stdout = "", stderr = "auth failed for hunter2-secret")
+
+
+        with patch("shutil.which", return_value = "/usr/bin/pg_dump"), \
+             patch("subprocess.run", side_effect = fail_run), \
+             pytest.raises(SystemExit) as exc:
+            run_backup("auth", default_env_file = str(tmp_path / "absent.env"))
+
+        assert "hunter2-secret" not in str(exc.value) + capsys.readouterr().err
+        assert "ep-x.neon.tech" in str(exc.value)
+
+
+    def test_a_url_that_is_not_postgresql_is_refused(self):
+        from common.db_backup_base import connection_environment
+
+        with pytest.raises(SystemExit):
+            connection_environment("mysql://u:p@host/db")
 
 
     def test_prints_done_with_file_size(self, monkeypatch, tmp_path, capsys):
