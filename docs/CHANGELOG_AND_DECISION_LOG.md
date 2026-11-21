@@ -5772,3 +5772,64 @@ a fence it is not.
 
 **Consequences.** The guard's change reaches a machine only through `install.sh`, the owner's, and `SCAN_LIMIT`'s
 recorded hash for `kdf-guard.js` moves with it. 18 new cases. VERSION 0.10.1.
+
+## D-111. The database backups and their restore, reusable, each secret in a job of its own
+
+- **Date.** 2026-11-20
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Epic, cicd's part (the secrets moves, step 2) · `db-backup.yml`, `db-restore.yml`,
+  `scripts/kdf_backup/`, `scripts/backup_freshness.py` with `backup_registry.json` and its section in the ecosystem
+  watch, the database lock on `cd-python-vercel.yml`'s `deploy` job, `scripts/common/db_backup_base.py` and the image
+  test's drill list · two new reusable workflows, no existing input, output or secret changed
+
+**Context.** The apps' PROD databases were dumped by hand on a machine that held their strings. The dumps move to
+workflows the owner dispatches and a weekly schedule, each stored as one row of a table in a Postgres project of its
+own, encrypted and signed per app and environment. The store's roles are held to their own rows by row security, and
+every delete to a floor in time the server sets. A backup must let no step's code reach another step's secret, must
+never prune what it could not verify, and a restore must refuse anything that does not bind to its row.
+
+**Decision.**
+
+1. **The archive.** The app's own dump tool writes its dump and a manifest, the snapshot's time, the server's and the
+   dump tool's versions, the Alembic revision and each table's count from the snapshot the dump imports. cicd checks
+   both, the dump's major the server's own, adds the backup's id, app and environment, and packs a tar whose bytes
+   depend on its contents alone (`kdf_backup/archive.py`).
+2. **The signature.** The tar is encrypted with `age` to the app's committed recipient. The row's signature is the
+   HMAC SHA256 of a domain tag and its canonical plain columns, `backup_id`, app, environment, `taken_at`, both
+   versions, the size and the encrypted archive's SHA256, each app and environment with a key of its own.
+3. **The jobs.** `db-backup.yml` splits by secret, since any step can change what a later step of its job runs.
+   `precheck` holds the store writer's string, `dump` the source's alone and passes on the sealed archive alone, for a
+   day, `store` holds the HMAC key and the writer's string and runs cicd's code alone, and `report` holds no secret.
+4. **The store step**, under one session advisory lock every scope takes, with a bounded wait. It compares the scope
+   with the last run's receipt, checks the whole store's size and the archive's against the capacity, inserts, reads
+   back and checks, then prunes. A row counts only when its signature checks over its own columns and the store's own
+   SHA256 of its archive is its digest. Those are ranked by their signed `taken_at`, then `backup_id`, the newest N
+   kept and the rest deleted by name, the store's floor keeping any younger. A row that fails a check, a row missing,
+   changed or unexplained since the last receipt, or no receipt for a scope that holds rows skips the prune and opens
+   an issue, the backup standing.
+5. **The client.** psycopg 3 pinned with `--require-hashes` in a requirements file only these jobs install, the newest
+   version at least two weeks old, and `age` from Ubuntu's archive. Every URL carries `sslmode=verify-full` and each
+   job names the runner's system bundle in `PGSSLROOTCERT`, so a URL without its check fails closed.
+6. **The restore.** `db-restore.yml` checks the row, fetches the archive and checks it again, decrypts it with the
+   identity in a file of mode 0600 removed either way, and opens the tar only in its exact layout, its manifest bound
+   to its row. The app's own restore tool loads it, and the restored tables and counts are compared with the manifest.
+   Every secret of a restore job is used before the app's tool. A drill restores into a service of the archive's own
+   major on cicd's mirror, a job per major, the image test holding each job to its major's copier entry. A live
+   restore into prod needs its confirm phrase.
+7. **The database lock.** A live restore and the python deploy's `deploy` job share the concurrency group
+   `kdf-database-<repository>-<environment>`, `cancel-in-progress: false`. A caller's reseed, seed and client change
+   take it at their own job, and no caller sets it on a job that calls these workflows.
+8. **The freshness.** The weekly watch reports, per listed backup workflow and source environment, a workflow missing,
+   disabled, failing or disarmed, or no store job of that environment that succeeded with its store step within eight
+   days. A DEV run, a drill and a skipped job never count.
+9. **The local helper.** `db_backup_base.py` reads `DB_BACKUP_URL` from the environment before its file, Tiffany's
+   path kept, and hands `pg_dump` its connection by libpq's variables, never its arguments.
+
+**Alternatives considered.** *One job for the whole backup.* Rejected, a dependency of the app's dump tool could change
+a later step and reach the HMAC key. *psql driven from the standard library rather than psycopg.* Rejected by the
+owner, for its fragility. *A store step without the HMAC key, pruning by exact match under a second lock.* Not taken,
+it would split the one lock the capacity check needs.
+
+**Consequences.** The callers, fitness-app-backend and the hub, gain a `backup.yml` and a `restore.yml` that call these,
+and their dump tools write the manifest. Until those land, the watch reports the two listed backups as missing, a true
+finding. VERSION 0.11.0.
