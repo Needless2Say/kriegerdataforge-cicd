@@ -12,6 +12,7 @@ Every image a runner pulls to build, start or scan with comes from the owner's m
 | --- | --- | --- |
 | `postgres:16.15` | The three Postgres lanes here, by digest | `KEPT`, by its index digest (D-077, [ci-postgres-mirror.md](./ci-postgres-mirror.md)) |
 | `postgres:16.15-alpine` | The shared E2E stack's database and each tenant's E2E stack, by digest | `PINNED`, by its index digest |
+| `postgres:17.12` | The database restore drill's service, for a source on Postgres 17, by digest, once that drill names it | `PINNED`, by its index digest |
 | `caddy:2.10.2-alpine` | The shared E2E stack's two edges, by digest | `PINNED` |
 | `mailpit:v1.31.2` | The shared E2E stack's mail sink, by digest | `PINNED` |
 | `checkov:3.3.6` | The terraform repository's security scan, by digest | `PINNED` |

@@ -60,7 +60,7 @@ class FakeGet:
 def test_the_copiers_own_text_parses_in_its_shapes() -> None:
     entries = ei.parse_copier(COPIER_TEXT)
 
-    assert [len(entries[key]) for key in ("KEPT", "PINNED", "FOLLOWED", "WATCH")] == [1, 4, 2, 5]
+    assert [len(entries[key]) for key in ("KEPT", "PINNED", "FOLLOWED", "WATCH")] == [1, 5, 2, 6]
     assert {entry["level"] for entry in entries["WATCH"]} == {"patch", "minor"}
 
 

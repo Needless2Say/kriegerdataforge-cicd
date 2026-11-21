@@ -4,8 +4,9 @@
 #
 # Four blocks of entries, each in its own text below.
 #   KEPT      The Postgres lanes' image, as D-077 wrote it, copied whole by its index digest
-#   PINNED    The E2E stacks' services and the terraform scan's Checkov, each its package, digest and tag, copied whole
-#             by its digest. The tag is the version and variant the image's config carries, and never moves
+#   PINNED    The E2E stacks' services, the restore drill's Postgres 17 and the terraform scan's Checkov, each its
+#             package, digest and tag, copied whole by its digest. The tag is the version and variant the image's
+#             config carries, and never moves
 #   FOLLOWED  The two base images every Dockerfile builds on, each its package and tag. Docker Hub alone names the
 #             tag's index digest, by a HEAD that counts toward no limit, and the copy moves the mirror's tag to it.
 #             A hold, a digest written after the tag, keeps the tag on a digest its package already holds instead
@@ -73,12 +74,14 @@ env:
   # ever removed, so a rollback is a pull request that moves the lanes back to an older one
   KEPT: |
     sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d 16.15 160015
-  # the E2E stacks' services and the terraform scan's Checkov, each its package, its index digest and its tag
+  # the E2E stacks' services, the restore drill's Postgres 17 and the terraform scan's Checkov, each its package, its
+  # index digest and its tag
   PINNED: |
     postgres sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea 16.15-alpine
     caddy sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d 2.10.2-alpine
     mailpit sha256:74d609a42ec279aa63c6b4622a6fa9b5408d1ad5b1d76a1c4be40a265ce0863d v1.31.2
     checkov sha256:39894d0672bb53c913b9784614f05c98de167cb2041ff96aa53dbd64a0b4a159 3.3.6
+    postgres sha256:b60e90042aa6b8dbecd58e224b3e36114dbf8ad754465264c2476ad58a86e45c 17.12
   # the base images, each its package and the tag Docker Hub names, and a held digest after it while a hold stands
   FOLLOWED: |
     node 24-alpine
@@ -91,6 +94,7 @@ env:
     caddy 2.10.2-alpine docker.io/library/caddy 2-alpine patch
     mailpit v1.31.2 ghcr.io/axllent/mailpit latest patch
     checkov 3.3.6 ghcr.io/bridgecrewio/checkov latest minor
+    postgres 17.12 docker.io/library/postgres 17 patch
 
 jobs:
   copy:
