@@ -14,8 +14,8 @@ The backup, in order
     store       BACKUP_STORE_WRITER_URL and BACKUP_HMAC_KEY, KDF_PREVIOUS_RECEIPT, stored, read back and pruned
 
 The restore, in order
-    plan        BACKUP_STORE_READER_URL and BACKUP_HMAC_KEY, KDF_APP, KDF_ENVIRONMENT, KDF_BACKUP_ID, the row checked and
-                its server's major given as the step's output
+    plan        BACKUP_STORE_READER_URL and BACKUP_HMAC_KEY, KDF_APP, KDF_ENVIRONMENT, KDF_BACKUP_ID, the row
+                checked and its server's major given as the step's output
     fetch       BACKUP_STORE_READER_URL, the row and its encrypted archive
     check       BACKUP_HMAC_KEY, the row's signature, the store's SHA256 and the file's
     decrypt     BACKUP_AGE_IDENTITY, the archive decrypted, the identity in a file of the owner's alone and removed
@@ -362,6 +362,9 @@ def plan() -> None:
 def fetch() -> None:
     """
     Fetch the chosen row and its encrypted archive.
+
+    Raises:
+        CliError: no such backup in the scope
     """
     folder = work()
     app, environment, backup_id = env("KDF_APP"), env("KDF_ENVIRONMENT"), env("KDF_BACKUP_ID")
@@ -480,7 +483,8 @@ def counts() -> None:
         restored = {}
         for schema, name in connection.execute(TABLES).fetchall():
             # the names come from the catalog, each quoted as an identifier
-            query = f"SELECT count(*) FROM {quote_identifier(schema)}.{quote_identifier(name)}"  # noqa: S608  # nosec B608
+            table = f"{quote_identifier(schema)}.{quote_identifier(name)}"
+            query = f"SELECT count(*) FROM {table}"  # noqa: S608  # nosec B608
             restored[f"{schema}.{name}"] = int(connection.execute(query).fetchone()[0])
     differences = archive.count_differences(expected, restored)
     for difference in differences:
@@ -493,21 +497,28 @@ def counts() -> None:
 # Entry point
 # ======================================================================================================================
 
-COMMANDS: dict[str, Any] = {
-    "options": options,
-    "precheck": precheck,
-    "pack": pack,
-    "encrypt": encrypt,
-    "sign": sign,
-    "store": store_step,
-    "plan": plan,
-    "fetch": fetch,
-    "check": check,
-    "decrypt": decrypt,
-    "open": open_step,
-    "target": target,
-    "counts": counts,
-}
+def commands() -> dict[str, Any]:
+    """
+    Each command's name and its step.
+
+    Returns:
+        dict[str, Any]: the commands
+    """
+    return {
+        "options": options,
+        "precheck": precheck,
+        "pack": pack,
+        "encrypt": encrypt,
+        "sign": sign,
+        "store": store_step,
+        "plan": plan,
+        "fetch": fetch,
+        "check": check,
+        "decrypt": decrypt,
+        "open": open_step,
+        "target": target,
+        "counts": counts,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -521,11 +532,12 @@ def main(argv: list[str] | None = None) -> int:
         int: 0 when it passed, 1 when it refused, 2 for an unknown command
     """
     arguments = sys.argv[1:] if argv is None else argv
-    if len(arguments) != 1 or arguments[0] not in COMMANDS:
-        print(f"usage: python -m kdf_backup.cli {{{','.join(COMMANDS)}}}", file = sys.stderr)
+    known     = commands()
+    if len(arguments) != 1 or arguments[0] not in known:
+        print(f"usage: python -m kdf_backup.cli {{{','.join(known)}}}", file = sys.stderr)
         return 2
     try:
-        COMMANDS[arguments[0]]()
+        known[arguments[0]]()
     except (CliError, archive.ArchiveError, store.StoreError) as refused:
         print(f"::error::{refused}")
         return 1

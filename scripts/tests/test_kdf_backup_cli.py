@@ -73,6 +73,9 @@ class FakeAge:
 
 
         class Done:
+            """
+            What `subprocess.run` returns, its exit status alone.
+            """
             returncode = 1 if self.fail else 0
 
 
@@ -101,6 +104,9 @@ class Connection:
 
 
         class Cursor:
+            """
+            A fake cursor over the statement's answer.
+            """
             def fetchone(self) -> tuple | None:
                 return rows[0] if rows else None
 
