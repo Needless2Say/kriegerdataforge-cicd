@@ -48,12 +48,18 @@ ROWS:          str = (
     " signature, pg_catalog.encode(pg_catalog.sha256(archive), 'hex'), inserted_at"
     " FROM kdf_backup.backup WHERE app = %s AND environment = %s ORDER BY taken_at DESC, backup_id DESC"
 )
-INSERT:        str = (
+ROW:           str = (
+    "SELECT backup_id::text, app, environment, taken_at, pg_dump_version, server_version, size_bytes, archive_sha256,"
+    " signature, pg_catalog.encode(pg_catalog.sha256(archive), 'hex'), inserted_at"
+    " FROM kdf_backup.backup WHERE app = %s AND environment = %s AND backup_id = %s::uuid"
+)
+FETCH:         str = "SELECT archive FROM kdf_backup.backup WHERE app = %s AND environment = %s AND backup_id = %s::uuid"
+INSERT: str = (
     "INSERT INTO kdf_backup.backup (backup_id, app, environment, taken_at, pg_dump_version, server_version,"
     " size_bytes, archive_sha256, signature, archive)"
     " VALUES (%s::uuid, %s, %s, %s::timestamptz, %s, %s, %s, %s, %s, %s)"
 )
-PRUNE:         str = (
+PRUNE:  str = (
     "DELETE FROM kdf_backup.backup WHERE app = %s AND environment = %s AND backup_id = ANY(%s::uuid[])"
     " RETURNING backup_id::text"
 )
