@@ -10,6 +10,9 @@
 #              the capacity, before any dump
 #   dump       DB_BACKUP_URL alone. The caller's dump tool, then the pack and the encryption, the sealed archive passed
 #              on for a day and the plaintext removed
+#   verify     BACKUP_AGE_IDENTITY alone, running cicd's code alone. The sealed archive decrypted and opened, its
+#              manifest bound to its metadata and its dump a custom archive, before the store may sign it, so a dump
+#              job that sealed to the wrong key never stores a backup none can restore
 #   store      BACKUP_HMAC_KEY and BACKUP_STORE_WRITER_URL, running cicd's code alone. The archive checked against
 #              its metadata and this run's scope, signed, then stored, read back and pruned under the store's one lock,
 #              and the run's receipt left for the next run to compare before its prune
@@ -146,7 +149,7 @@ jobs:
 
       - name: Install the store client, by its hashes
         run: |
-          python -m pip install --require-hashes --no-deps --only-binary=:all: -r _kdf_cicd/scripts/kdf_backup/requirements.txt
+          python -I -m pip install --require-hashes --no-deps --only-binary=:all: -r _kdf_cicd/scripts/kdf_backup/requirements.txt
 
       - name: Check the options
         env:
@@ -224,7 +227,7 @@ jobs:
       - name: Pass the sealed archive on
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: kdf-backup-sealed
+          name: kdf-backup-sealed-${{ inputs.app }}-${{ inputs.environment }}
           path: |
             ${{ runner.temp }}/kdf-backup/archive.age
             ${{ runner.temp }}/kdf-backup/metadata.json
@@ -235,9 +238,58 @@ jobs:
         if: always()
         run: rm -rf "$RUNNER_TEMP/kdf-backup-tool" "$RUNNER_TEMP/kdf-backup"
 
+  verify:
+    name: Verify the sealed archive (${{ inputs.environment }})
+    needs: [authorize, dump]
+    if: github.actor == github.triggering_actor
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+    outputs:
+      sealed_sha256: ${{ steps.verify.outputs.sealed_sha256 }}
+    steps:
+      - name: Check out cicd's backup scripts
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Needless2Say/kriegerdataforge-cicd
+          ref: main
+          sparse-checkout: scripts
+          path: _kdf_cicd
+          persist-credentials: false
+          token: ${{ github.token }}
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+
+      - name: Install age
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends age
+          age --version
+
+      - name: Take the sealed archive
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: kdf-backup-sealed-${{ inputs.app }}-${{ inputs.environment }}
+          path: ${{ runner.temp }}/kdf-backup
+
+      - name: Decrypt and open it
+        id: verify
+        env:
+          BACKUP_AGE_IDENTITY: ${{ secrets.BACKUP_AGE_IDENTITY }}
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli verify
+
+      - name: Remove the work folder
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/kdf-backup"
+
   store:
     name: Store the backup (${{ inputs.environment }})
-    needs: [authorize, dump]
+    needs: [authorize, dump, verify]
     if: github.actor == github.triggering_actor
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -265,12 +317,12 @@ jobs:
 
       - name: Install the store client, by its hashes
         run: |
-          python -m pip install --require-hashes --no-deps --only-binary=:all: -r _kdf_cicd/scripts/kdf_backup/requirements.txt
+          python -I -m pip install --require-hashes --no-deps --only-binary=:all: -r _kdf_cicd/scripts/kdf_backup/requirements.txt
 
       - name: Take the sealed archive
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: kdf-backup-sealed
+          name: kdf-backup-sealed-${{ inputs.app }}-${{ inputs.environment }}
           path: ${{ runner.temp }}/kdf-backup
 
       - name: Check the options
@@ -287,21 +339,42 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           KDF_APP: ${{ inputs.app }}
           KDF_ENVIRONMENT: ${{ inputs.environment }}
+          CALLER_REF: ${{ github.workflow_ref }}
         run: |
           set -euo pipefail
           [[ "$KDF_APP" =~ ^[a-z][a-z0-9-]{0,31}$ && "$KDF_ENVIRONMENT" =~ ^(dev|prod)$ ]] \
             || { echo "::error::the app or the environment is out of its shape"; exit 1; }
+          # the caller's own workflow file, whose scheduled or dispatched runs on main alone leave this scope's receipt
+          caller="${CALLER_REF#"${GITHUB_REPOSITORY}/"}"
+          caller="${caller%%@*}"
           name="kdf-backup-receipt-${KDF_APP}-${KDF_ENVIRONMENT}"
-          found="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${name}&per_page=30" \
-            --jq "[.artifacts[] | select(.expired | not) | select(.workflow_run.head_branch == \"main\")
-                   | select(.workflow_run.id != ${GITHUB_RUN_ID})] | first | .id // empty")"
+          # a lookup that fails finds no receipt, which skips the prune and raises an issue, the backup standing
+          listed="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${name}&per_page=30" \
+            --jq '.artifacts[] | select(.expired | not) | "\(.id) \(.workflow_run.id)"')" || listed=""
+          found=""
+          while read -r artifact run; do
+            if [ -z "$artifact" ] || [ "$run" = "$GITHUB_RUN_ID" ]; then
+              continue
+            fi
+            made="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run}" \
+              --jq '[.path, .event, .head_branch, .head_repository.full_name] | join(" ")')" || made=""
+            case "$made" in
+              "${caller} schedule main ${GITHUB_REPOSITORY}" | "${caller} workflow_dispatch main ${GITHUB_REPOSITORY}")
+                found="$artifact"
+                break
+                ;;
+            esac
+          done <<< "$listed"
           if [ -n "$found" ]; then
-            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${found}/zip" > "$RUNNER_TEMP/receipt.zip"
             mkdir -p "$RUNNER_TEMP/kdf-backup/previous"
-            unzip -o -q "$RUNNER_TEMP/receipt.zip" receipt.json -d "$RUNNER_TEMP/kdf-backup/previous"
-            echo "the last receipt is the artifact ${found}"
+            if gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${found}/zip" > "$RUNNER_TEMP/receipt.zip" \
+              && unzip -o -q "$RUNNER_TEMP/receipt.zip" receipt.json -d "$RUNNER_TEMP/kdf-backup/previous"; then
+              echo "the last receipt is the artifact ${found}, from ${caller}"
+            else
+              echo "::warning::the artifact ${found} gave no receipt.json, so no receipt counts"
+            fi
           else
-            echo "no receipt of ${name} before this run"
+            echo "no receipt of ${name} from ${caller} before this run"
           fi
 
       - name: Sign the row
@@ -309,6 +382,7 @@ jobs:
           BACKUP_HMAC_KEY: ${{ secrets.BACKUP_HMAC_KEY }}
           KDF_APP: ${{ inputs.app }}
           KDF_ENVIRONMENT: ${{ inputs.environment }}
+          KDF_VERIFIED_SHA256: ${{ needs.verify.outputs.sealed_sha256 }}
         run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli sign
 
       - name: Store, read back and prune
@@ -337,7 +411,7 @@ jobs:
 
   report:
     name: Report the backup (${{ inputs.environment }})
-    needs: [authorize, precheck, dump, store]
+    needs: [authorize, precheck, dump, verify, store]
     if: >-
       always() && github.actor == github.triggering_actor
       && ((github.event_name == 'schedule' && contains(needs.*.result, 'failure'))

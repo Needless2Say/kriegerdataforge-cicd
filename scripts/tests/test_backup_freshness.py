@@ -69,12 +69,14 @@ class Fake:
     ) -> None:
         self.runs, self.jobs, self.state = runs, jobs, state
         self.flow_status, self.runs_status = flow_status, runs_status
+        self.asked: list[dict[str, Any]] = []
 
 
     def get(self, path: str, params: dict[str, Any] | None = None, raw: bool = False) -> ew.Response:
         if path == FLOW:
             return ew.Response(self.flow_status, {"state": self.state} if self.flow_status == 200 else {})
         if path == f"{FLOW}/runs":
+            self.asked.append(dict(params or {}))
             return ew.Response(self.runs_status, {"workflow_runs": self.runs})
         run_id = int(path.split("/runs/")[1].split("/")[0])
         return ew.Response(200, {"jobs": self.jobs.get(run_id, [])})
@@ -117,6 +119,7 @@ def test_a_stale_prod_beside_a_fresh_dev_is_stale() -> None:
     "job",
     [
         store_job(name = "restore / Drill on Postgres 17 (prod)"),
+        store_job(name = "backup / Preview Store the backup (prod)"),
         store_job(conclusion = "skipped"),
         store_job(step = "failure"),
         store_job(step = "skipped"),
@@ -127,6 +130,14 @@ def test_a_drill_a_skipped_job_a_failed_store_step_or_a_dev_run_never_counts_for
     result = bf.collect_entry(Fake([run(1)], {1: [job]}), ENTRY, NOW, 8)
 
     assert "stale:prod" in keys(result)
+
+
+def test_the_runs_are_read_from_main_alone() -> None:
+    fake = Fake([run(1)], {1: [store_job()]})
+
+    bf.collect_entry(fake, ENTRY, NOW, 8)
+
+    assert fake.asked and all(asked["branch"] == "main" for asked in fake.asked)
 
 
 def test_an_active_workflow_with_its_arming_variable_off_is_disarmed() -> None:

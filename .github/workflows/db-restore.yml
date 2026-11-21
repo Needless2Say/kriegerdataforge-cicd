@@ -147,7 +147,7 @@ jobs:
 
       - name: Install the store client, by its hashes
         run: |
-          python -m pip install --require-hashes --no-deps --only-binary=:all: -r _kdf_cicd/scripts/kdf_backup/requirements.txt
+          python -I -m pip install --require-hashes --no-deps --only-binary=:all: -r _kdf_cicd/scripts/kdf_backup/requirements.txt
 
       - name: Check the row and read its major
         id: plan
@@ -157,6 +157,7 @@ jobs:
           KDF_APP: ${{ inputs.app }}
           KDF_ENVIRONMENT: ${{ inputs.environment }}
           KDF_BACKUP_ID: ${{ inputs.backup_id }}
+          KDF_MODE: ${{ inputs.mode }}
           PGSSLROOTCERT: /etc/ssl/certs/ca-certificates.crt
         run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli plan
 
@@ -207,7 +208,7 @@ jobs:
 
       - name: Install the store client by its hashes, and age
         run: |
-          python -m pip install --require-hashes --no-deps --only-binary=:all: -r _kdf_cicd/scripts/kdf_backup/requirements.txt
+          python -I -m pip install --require-hashes --no-deps --only-binary=:all: -r _kdf_cicd/scripts/kdf_backup/requirements.txt
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends age
           age --version
@@ -298,7 +299,7 @@ jobs:
 
       - name: Install the store client by its hashes, and age
         run: |
-          python -m pip install --require-hashes --no-deps --only-binary=:all: -r _kdf_cicd/scripts/kdf_backup/requirements.txt
+          python -I -m pip install --require-hashes --no-deps --only-binary=:all: -r _kdf_cicd/scripts/kdf_backup/requirements.txt
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends age
           age --version
@@ -380,7 +381,7 @@ jobs:
 
       - name: Install the store client by its hashes, and age
         run: |
-          python -m pip install --require-hashes --no-deps --only-binary=:all: -r _kdf_cicd/scripts/kdf_backup/requirements.txt
+          python -I -m pip install --require-hashes --no-deps --only-binary=:all: -r _kdf_cicd/scripts/kdf_backup/requirements.txt
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends age
           age --version

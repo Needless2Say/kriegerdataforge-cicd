@@ -85,7 +85,7 @@ def connection_environment(db_url: str) -> dict[str, str]:
         db_url: A postgresql:// URL, a SQLAlchemy driver suffix allowed
 
     Returns:
-        dict[str, str]: Each variable set, PGSSLMODE require when the URL names none
+        dict[str, str]: Each variable set, PGSSLMODE verify-full when the URL names none
     """
     scheme, _, rest = db_url.partition("://")
     if scheme.split("+", 1)[0] not in ("postgresql", "postgres") or not rest:
@@ -97,11 +97,12 @@ def connection_environment(db_url: str) -> dict[str, str]:
         "PGUSER": unquote(parts.username) if parts.username else None,
         "PGPASSWORD": unquote(parts.password) if parts.password else None,
         "PGDATABASE": unquote(parts.path.lstrip("/")) or None,
-        "PGSSLMODE": "require",
+        "PGSSLMODE": "verify-full",
     }
     for name, value in parse_qsl(parts.query):
-        if name in QUERY_VARIABLES:
-            values[QUERY_VARIABLES[name]] = value
+        if name not in QUERY_VARIABLES:
+            sys.exit(f"Error: the connection string's option {name} is not one this helper passes on.")
+        values[QUERY_VARIABLES[name]] = value
     return {name: value for name, value in values.items() if value}
 
 
@@ -192,8 +193,14 @@ def run_backup(app_name: str, default_env_file: str = ".env.backup") -> None:
     out_path = out_dir / filename
 
     # run pg_dump, the connection in libpq's variables alone and never in its arguments
+    # the child's connection is the URL's alone, so an ambient PG variable never picks another database, the trust
+    # bundle's path kept, since it chooses no database
     connection = connection_environment(db_url)
-    child_env  = {name: value for name, value in os.environ.items() if name != "DB_BACKUP_URL"}
+    child_env  = {
+        name: value
+        for name, value in os.environ.items()
+        if name != "DB_BACKUP_URL" and (not name.startswith("PG") or name == "PGSSLROOTCERT")
+    }
     child_env.update(connection)
     print(f"Backing up {app_name} [{args.env}] → {out_path}")
     result = subprocess.run(

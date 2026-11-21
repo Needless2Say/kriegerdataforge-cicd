@@ -10,7 +10,8 @@ The backup, in order
     precheck    BACKUP_STORE_WRITER_URL, the whole store and the next archive's bound against the capacity
     pack        KDF_APP, KDF_ENVIRONMENT, KDF_TOOL_DIR, the dump tool's folder into the archive's tar
     encrypt     KDF_RECIPIENT_FILE, the tar to the app's `age` recipient, the tar removed
-    sign        BACKUP_HMAC_KEY, the row's metadata signed
+    verify      BACKUP_AGE_IDENTITY, in a job of its own, the sealed archive decrypted and opened, the plaintext removed
+    sign        BACKUP_HMAC_KEY and KDF_VERIFIED_SHA256, the row's metadata signed once its archive is the verified one
     store       BACKUP_STORE_WRITER_URL and BACKUP_HMAC_KEY, KDF_PREVIOUS_RECEIPT, stored, read back and pruned
 
 The restore, in order
@@ -53,6 +54,9 @@ RECIPIENT_SHAPE: re.Pattern[str] = re.compile(r"^age1[0-9a-z]{58}$")
 IDENTITY_MARK:   str = "AGE-SECRET-KEY-1"
 LOCAL_HOSTS:     frozenset[str] = frozenset({"localhost", "127.0.0.1", "::1"})
 MODES:           frozenset[str] = frozenset({"drill", "live"})
+
+# the majors a drill has a service for on cicd's mirror, each a job of db-restore.yml
+DRILL_MAJORS: frozenset[int] = frozenset({16, 17})
 
 # every table outside the catalogs, as the apps' dump tools count them
 TABLES:             str = (
@@ -216,7 +220,7 @@ def precheck() -> None:
     Refuse before the dump when the store is too full for the next archive's bound.
     """
     kept = _options()
-    with closing(store.connect(env("BACKUP_STORE_WRITER_URL"))) as connection:
+    with closing(store.connect(env("BACKUP_STORE_WRITER_URL"), direct = True)) as connection:
         store.precheck(connection, capacity = kept.capacity, bound = kept.bound)
 
 
@@ -259,26 +263,65 @@ def encrypt() -> None:
     print(f"encrypted to {recipient}, {metadata['size_bytes']} bytes, the tar removed")
 
 
+def _sealed_matches(folder: Path, metadata: dict[str, Any]) -> bool:
+    """
+    Whether the sealed archive in the work folder is the size and SHA256 its metadata names.
+
+    Args:
+        folder: the work folder
+        metadata: its metadata
+
+    Returns:
+        bool: whether it is
+    """
+    sealed = folder / "archive.age"
+    return (
+        sealed.is_file()
+        and sealed.stat().st_size == metadata.get("size_bytes")
+        and archive.sha256_of(sealed) == metadata.get("archive_sha256")
+    )
+
+
+def verify() -> None:
+    """
+    Prove the sealed archive decrypts with the app's identity and opens in its exact layout, its manifest bound to its
+    metadata and its dump a custom archive, then remove the plaintext and give the sealed archive's SHA256 as the
+    step's output, which the store's signing step holds it to.
+
+    Raises:
+        CliError: the archive is not its metadata's, or does not decrypt
+    """
+    folder   = work()
+    metadata = read_json(folder / "metadata.json")
+    if not _sealed_matches(folder, metadata):
+        raise CliError("the sealed archive is not the size and SHA256 its metadata names")
+    try:
+        _decrypt(folder)
+        manifest, _dump = archive.open_archive(folder / "archive.tar", folder / "verify", expected = metadata)
+    finally:
+        shutil.rmtree(folder / "verify", ignore_errors = True)
+        (folder / "archive.tar").unlink(missing_ok = True)
+    output("sealed_sha256", metadata["archive_sha256"])
+    print(f"{metadata['backup_id']} decrypts and opens, {len(manifest['tables'])} tables, the plaintext removed")
+
+
 def sign() -> None:
     """
     Sign the row's metadata with the app's HMAC key, once the sealed archive the dump's job passed on is the one its
-    metadata names, of this run's own app and environment.
+    metadata names, of this run's own app and environment, and the one the verify job decrypted and opened.
 
     Raises:
-        CliError: the metadata names another scope, or the archive is not its size and SHA256
+        CliError: the metadata names another scope, or the archive is not its size and SHA256 or not the verified one
     """
     folder   = work()
     key      = archive.read_key(env("BACKUP_HMAC_KEY"))
     metadata = read_json(folder / "metadata.json")
     if (metadata.get("app"), metadata.get("environment")) != (env("KDF_APP"), env("KDF_ENVIRONMENT")):
         raise CliError("the archive's metadata names another app or environment than this run")
-    sealed = folder / "archive.age"
-    if (
-        not sealed.is_file()
-        or sealed.stat().st_size != metadata.get("size_bytes")
-        or archive.sha256_of(sealed) != metadata.get("archive_sha256")
-    ):
+    if not _sealed_matches(folder, metadata):
         raise CliError("the sealed archive is not the size and SHA256 its metadata names")
+    if metadata.get("archive_sha256") != env("KDF_VERIFIED_SHA256"):
+        raise CliError("the sealed archive is not the one the verify job decrypted and opened")
     (folder / "signature.txt").write_text(archive.sign(metadata, key), encoding = "ascii")
     print(f"signed the row's metadata of {metadata['backup_id']}")
 
@@ -307,7 +350,7 @@ def store_step() -> None:
     folder   = work()
     key      = archive.read_key(env("BACKUP_HMAC_KEY"))
     metadata = read_json(folder / "metadata.json")
-    with closing(store.connect(env("BACKUP_STORE_WRITER_URL"))) as connection:
+    with closing(store.connect(env("BACKUP_STORE_WRITER_URL"), direct = True)) as connection:
         outcome = store.store_backup(
             connection,
             metadata = metadata,
@@ -361,14 +404,19 @@ def plan() -> None:
     Check the chosen row and give its server's major as the step's output, for the drill's service.
 
     Raises:
-        CliError: the row's pg_dump and server majors differ
+        CliError: the row's pg_dump and server majors differ, or a drill of a major no drill job serves
     """
-    key = archive.read_key(env("BACKUP_HMAC_KEY"))
+    mode = env("KDF_MODE")
+    key  = archive.read_key(env("BACKUP_HMAC_KEY"))
     with closing(store.connect(env("BACKUP_STORE_READER_URL"))) as connection:
         stored = _row(connection, key)
     major = archive.major_of(stored.server_version)
     if archive.major_of(stored.pg_dump_version) != major:
         raise CliError("the row's pg_dump and server majors differ")
+    if mode == "drill" and major not in DRILL_MAJORS:
+        raise CliError(
+            f"no drill job serves Postgres {major}, so the drill would restore nothing, add its service first",
+        )
     output("major", str(major))
     print(f"{stored.backup_id}, taken {stored.taken_at}, server major {major}, its signature checked")
 
@@ -411,17 +459,19 @@ def check() -> None:
     print(f"{stored.backup_id} checked, its signature, the store's SHA256 and the file's")
 
 
-def decrypt() -> None:
+def _decrypt(folder: Path) -> None:
     """
-    Decrypt the archive, the identity written to a file only the job's user reads and removed after.
+    Decrypt the work folder's archive, the identity written to a file only the job's user reads and removed after.
+
+    Args:
+        folder: the work folder
 
     Raises:
-        CliError: the identity is not an age identity
+        CliError: the identity is not an age identity, or age failed
     """
     identity = env("BACKUP_AGE_IDENTITY")
     if IDENTITY_MARK not in identity:
         raise CliError("BACKUP_AGE_IDENTITY is not an age identity")
-    folder = work()
     path   = folder / "identity.txt"
     handle = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
@@ -430,6 +480,13 @@ def decrypt() -> None:
         run_age(["-d", "-i", str(path), "-o", str(folder / "archive.tar"), str(folder / "archive.age")])
     finally:
         path.unlink(missing_ok = True)
+
+
+def decrypt() -> None:
+    """
+    Decrypt the archive for a restore, the identity's file removed either way.
+    """
+    _decrypt(work())
     print("decrypted, the identity's file removed")
 
 
@@ -523,6 +580,7 @@ def commands() -> dict[str, Any]:
         "precheck": precheck,
         "pack": pack,
         "encrypt": encrypt,
+        "verify": verify,
         "sign": sign,
         "store": store_step,
         "plan": plan,

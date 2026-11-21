@@ -72,16 +72,41 @@ def test_each_backup_job_holds_its_own_secrets_alone() -> None:
 
     assert secrets_of(jobs["precheck"]) == {"BACKUP_STORE_WRITER_URL"}
     assert secrets_of(jobs["dump"]) == {"DB_BACKUP_URL"}
+    assert secrets_of(jobs["verify"]) == {"BACKUP_AGE_IDENTITY"}
     assert secrets_of(jobs["store"]) == {"BACKUP_HMAC_KEY", "BACKUP_STORE_WRITER_URL"}
     assert secrets_of(jobs["authorize"]) == set() and secrets_of(jobs["report"]) == set()
 
 
-def test_the_store_job_runs_cicds_code_alone() -> None:
-    store = workflow("db-backup.yml")["store"]
+@pytest.mark.parametrize("job", ["verify", "store"])
+def test_the_verify_and_store_jobs_run_cicds_code_alone(job: str) -> None:
+    steps     = workflow("db-backup.yml")[job]["steps"]
+    checkouts = [step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")]
 
-    assert not any(CALLER.search(str(step.get("run", ""))) for step in store["steps"])
-    checkouts = [step for step in store["steps"] if str(step.get("uses", "")).startswith("actions/checkout@")]
+    assert not any(CALLER.search(str(step.get("run", ""))) for step in steps)
     assert [step["with"]["repository"] for step in checkouts] == ["Needless2Say/kriegerdataforge-cicd"]
+
+
+def test_the_store_signs_only_the_archive_the_verify_job_opened() -> None:
+    jobs = workflow("db-backup.yml")
+    sign = next(step for step in jobs["store"]["steps"] if step.get("name") == "Sign the row")
+
+    assert "verify" in jobs["store"]["needs"]
+    assert sign["env"]["KDF_VERIFIED_SHA256"] == "${{ needs.verify.outputs.sealed_sha256 }}"
+
+
+@pytest.mark.parametrize("name", ["db-backup.yml", "db-restore.yml"])
+def test_every_pip_install_is_isolated_from_the_callers_checkout(name: str) -> None:
+    text  = (WORKFLOWS / name).read_text(encoding = "utf-8")
+    lines = [line.strip() for line in text.splitlines() if "pip install" in line]
+
+    assert lines and all(line.startswith("python -I -m pip install --require-hashes") for line in lines)
+
+
+def test_the_sealed_archive_is_named_for_its_scope() -> None:
+    text = (WORKFLOWS / "db-backup.yml").read_text(encoding = "utf-8")
+
+    assert text.count("name: kdf-backup-sealed-${{ inputs.app }}-${{ inputs.environment }}") == 3
+    assert "name: kdf-backup-sealed\n" not in text
 
 
 def test_the_dump_steps_secret_reaches_the_dump_alone() -> None:

@@ -5799,7 +5799,10 @@ never prune what it could not verify, and a restore must refuse anything that do
    versions, the size and the encrypted archive's SHA256, each app and environment with a key of its own.
 3. **The jobs.** `db-backup.yml` splits by secret, since any step can change what a later step of its job runs.
    `precheck` holds the store writer's string, `dump` the source's alone and passes on the sealed archive alone, for a
-   day, `store` holds the HMAC key and the writer's string and runs cicd's code alone, and `report` holds no secret.
+   day, `verify` holds the `age` identity alone and runs cicd's code alone, decrypting and opening the sealed archive,
+   so a dump job that sealed to the wrong key never stores a backup none can restore, the owner's answer of
+   2026-11-20. `store` holds the HMAC key and the writer's string, runs cicd's code alone and signs only the archive
+   `verify` opened, and `report` holds no secret.
 4. **The store step**, under one session advisory lock every scope takes, with a bounded wait. It compares the scope
    with the last run's receipt, checks the whole store's size and the archive's against the capacity, inserts, reads
    back and checks, then prunes. A row counts only when its signature checks over its own columns and the store's own
@@ -5807,9 +5810,12 @@ never prune what it could not verify, and a restore must refuse anything that do
    kept and the rest deleted by name, the store's floor keeping any younger. A row that fails a check, a row missing,
    changed or unexplained since the last receipt, or no receipt for a scope that holds rows skips the prune and opens
    an issue, the backup standing.
-5. **The client.** psycopg 3 pinned with `--require-hashes` in a requirements file only these jobs install, the newest
-   version at least two weeks old, and `age` from Ubuntu's archive. Every URL carries `sslmode=verify-full` and each
-   job names the runner's system bundle in `PGSSLROOTCERT`, so a URL without its check fails closed.
+5. **The client.** psycopg 3 pinned with `--require-hashes` in a requirements file only these jobs install, by an
+   isolated `python -I -m pip` so a caller's checkout cannot shadow it, the newest version at least two weeks old, and
+   `age` from Ubuntu's archive. Every remote connection verifies the server's certificate, `verify-full` whatever its
+   URL says, against the bundle each job names in `PGSSLROOTCERT`, a URL whose query names another host is refused,
+   and the store's writer, whose lock needs one session, is refused a pooler host. The last receipt counts only from
+   a scheduled or dispatched run on `main` of the caller's own workflow, its rows checked for their shape.
 6. **The restore.** `db-restore.yml` checks the row, fetches the archive and checks it again, decrypts it with the
    identity in a file of mode 0600 removed either way, and opens the tar only in its exact layout, its manifest bound
    to its row. The app's own restore tool loads it, and the restored tables and counts are compared with the manifest.
@@ -5832,4 +5838,7 @@ it would split the one lock the capacity check needs.
 
 **Consequences.** The callers, fitness-app-backend and the hub, gain a `backup.yml` and a `restore.yml` that call these,
 and their dump tools write the manifest. Until those land, the watch reports the two listed backups as missing, a true
-finding. VERSION 0.11.0.
+finding. Codex's security read of the change passed, its fourteen findings judged, twelve taken, the verify job of the
+third on the owner's answer. One is a known limit. A drill's counts run in the job of the caller's restore tool,
+since a drill's service lives in that one job, so they prove an honest tool's restore and a hostile tool could fake
+them. VERSION 0.11.0.

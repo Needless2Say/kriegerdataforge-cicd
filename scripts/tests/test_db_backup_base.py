@@ -438,3 +438,41 @@ class TestRunBackup:
             run_backup("auth")
 
         assert nested.is_dir()
+
+
+# ── the connection, its database the URL's alone ────────────────────────────────
+def test_an_option_the_helper_does_not_pass_on_is_refused():
+    from common.db_backup_base import connection_environment
+
+    with pytest.raises(SystemExit):
+        connection_environment("postgresql://u:p@host/first?dbname=second")
+
+
+def test_a_url_naming_no_mode_verifies_the_servers_certificate():
+    from common.db_backup_base import connection_environment
+
+    assert connection_environment("postgresql://u:p@host/db")["PGSSLMODE"] == "verify-full"
+
+
+def test_an_ambient_pg_variable_never_picks_another_database(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "argv", ["script", "--env", "prod", "--out-dir", str(tmp_path)])
+    monkeypatch.setenv("DB_BACKUP_URL", "postgresql://u:p@ep-x.neon.tech/neondb")
+    monkeypatch.setenv("PGHOSTADDR", "10.0.0.1")
+    monkeypatch.setenv("PGSERVICE", "elsewhere")
+    monkeypatch.setenv("PGSSLROOTCERT", "/etc/ssl/certs/ca-certificates.crt")
+    seen = {}
+
+
+    def fake_run(cmd, **kwargs):
+        seen.update(kwargs["env"])
+        Path(cmd[cmd.index("--file") + 1]).write_bytes(b"data")
+        return CompletedProcess(args = cmd, returncode = 0, stdout = "", stderr = "")
+
+
+    with patch("shutil.which", return_value = "/usr/bin/pg_dump"), \
+         patch("subprocess.run", side_effect = fake_run):
+        run_backup("auth", default_env_file = str(tmp_path / "absent.env"))
+
+    assert "PGHOSTADDR" not in seen and "PGSERVICE" not in seen
+    assert seen["PGSSLROOTCERT"] == "/etc/ssl/certs/ca-certificates.crt"
+    assert seen["PGHOST"] == "ep-x.neon.tech"

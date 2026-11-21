@@ -160,10 +160,11 @@ def signed_row(data: bytes, key: bytes = KEY, server: str = "17.12 (4d8000a)") -
     )
 
 
-def scope(monkeypatch: pytest.MonkeyPatch) -> None:
+def scope(monkeypatch: pytest.MonkeyPatch, mode: str = "drill") -> None:
     monkeypatch.setenv("KDF_APP", "fitness")
     monkeypatch.setenv("KDF_ENVIRONMENT", "prod")
     monkeypatch.setenv("KDF_BACKUP_ID", ID)
+    monkeypatch.setenv("KDF_MODE", mode)
 
 # ======================================================================================================================
 # The backup's steps
@@ -296,9 +297,24 @@ def test_the_signature_is_the_metadatas(folder: Path, monkeypatch: pytest.Monkey
     monkeypatch.setenv("BACKUP_HMAC_KEY", KEY_HEX)
     monkeypatch.setenv("KDF_APP", "fitness")
     monkeypatch.setenv("KDF_ENVIRONMENT", "prod")
+    monkeypatch.setenv("KDF_VERIFIED_SHA256", metadata["archive_sha256"])
 
     assert cli.main(["sign"]) == 0
     assert archive.verify(metadata, (folder / "signature.txt").read_text(), KEY)
+
+
+def test_the_signature_refuses_an_archive_the_verify_job_did_not_open(
+    folder: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sealed_with_metadata(folder)
+    monkeypatch.setenv("BACKUP_HMAC_KEY", KEY_HEX)
+    monkeypatch.setenv("KDF_APP", "fitness")
+    monkeypatch.setenv("KDF_ENVIRONMENT", "prod")
+    monkeypatch.setenv("KDF_VERIFIED_SHA256", "cd" * 32)
+
+    assert cli.main(["sign"]) == 1
+    assert not (folder / "signature.txt").exists()
 
 
 @pytest.mark.parametrize(
@@ -312,12 +328,13 @@ def test_the_signature_refuses_another_scope_or_a_swapped_archive(
     environment: str,
     swap: bool,
 ) -> None:
-    sealed_with_metadata(folder)
+    metadata = sealed_with_metadata(folder)
     if swap:
         (folder / "archive.age").write_bytes(b"another, the same len")
     monkeypatch.setenv("BACKUP_HMAC_KEY", KEY_HEX)
     monkeypatch.setenv("KDF_APP", app)
     monkeypatch.setenv("KDF_ENVIRONMENT", environment)
+    monkeypatch.setenv("KDF_VERIFIED_SHA256", metadata["archive_sha256"])
 
     assert cli.main(["sign"]) == 1
     assert not (folder / "signature.txt").exists()
@@ -351,7 +368,7 @@ def test_the_store_step_leaves_its_receipt_and_its_issues(
     monkeypatch.setenv("BACKUP_STORE_WRITER_URL", "postgresql://w:p@store/neondb")
     seen: dict[str, Any] = {}
     connection = Connection({})
-    monkeypatch.setattr(cli.store, "connect", lambda url: connection)
+    monkeypatch.setattr(cli.store, "connect", lambda url, **_: connection)
 
 
     def fake_store(conn: Any, **kwargs: Any) -> store.Outcome:
@@ -380,7 +397,7 @@ def test_the_plan_gives_the_checked_rows_major(folder: Path, tmp_path: Path, mon
     scope(monkeypatch)
     monkeypatch.setenv("BACKUP_HMAC_KEY", KEY_HEX)
     monkeypatch.setenv("BACKUP_STORE_READER_URL", "postgresql://r:p@store/neondb")
-    monkeypatch.setattr(cli.store, "connect", lambda url: Connection({store.ROW: [signed_row(b"sealed")]}))
+    monkeypatch.setattr(cli.store, "connect", lambda url, **_: Connection({store.ROW: [signed_row(b"sealed")]}))
 
     assert cli.main(["plan"]) == 0
     assert outputs(tmp_path)["major"] == "17"
@@ -395,10 +412,39 @@ def test_the_plan_refuses_a_row_whose_signature_fails(
     monkeypatch.setenv("BACKUP_HMAC_KEY", KEY_HEX)
     monkeypatch.setenv("BACKUP_STORE_READER_URL", "postgresql://r:p@store/neondb")
     forged = signed_row(b"sealed", key = bytes.fromhex("22" * 32))
-    monkeypatch.setattr(cli.store, "connect", lambda url: Connection({store.ROW: [forged]}))
+    monkeypatch.setattr(cli.store, "connect", lambda url, **_: Connection({store.ROW: [forged]}))
 
     assert cli.main(["plan"]) == 1
     assert "major" not in outputs(tmp_path)
+
+
+@pytest.mark.parametrize("mode, code", [("drill", 1), ("live", 0)])
+def test_a_drill_of_a_major_no_drill_job_serves_fails_the_plan(
+    folder: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+    code: int,
+) -> None:
+    scope(monkeypatch, mode)
+    monkeypatch.setenv("BACKUP_HMAC_KEY", KEY_HEX)
+    monkeypatch.setenv("BACKUP_STORE_READER_URL", "postgresql://r:p@store/neondb")
+    row      = signed_row(b"sealed", server = "18.1 (abc)")
+    row      = (*row[:4], "pg_dump (PostgreSQL) 18.1", *row[5:])
+    resigned = {
+        "backup_id": ID,
+        "app": "fitness",
+        "environment": "prod",
+        "taken_at": "2026-11-20T06:00:00Z",
+        "pg_dump_version": "pg_dump (PostgreSQL) 18.1",
+        "server_version": "18.1 (abc)",
+        "size_bytes": 6,
+        "archive_sha256": row[7],
+    }
+    row      = (*row[:8], archive.sign(resigned, KEY), *row[9:])
+    monkeypatch.setattr(cli.store, "connect", lambda url, **_: Connection({store.ROW: [row]}))
+
+    assert cli.main(["plan"]) == code
 
 
 def test_a_fetched_archive_changed_from_its_row_is_refused(folder: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -406,7 +452,7 @@ def test_a_fetched_archive_changed_from_its_row_is_refused(folder: Path, monkeyp
     monkeypatch.setenv("BACKUP_HMAC_KEY", KEY_HEX)
     monkeypatch.setenv("BACKUP_STORE_READER_URL", "postgresql://r:p@store/neondb")
     answers = {store.ROW: [signed_row(b"sealed")], store.FETCH: [(b"sealed but swapped",)]}
-    monkeypatch.setattr(cli.store, "connect", lambda url: Connection(answers))
+    monkeypatch.setattr(cli.store, "connect", lambda url, **_: Connection(answers))
 
     assert cli.main(["fetch"]) == 0
     assert cli.main(["check"]) == 1
@@ -418,7 +464,7 @@ def test_a_fetched_archive_that_matches_its_row_is_checked(folder: Path, monkeyp
     monkeypatch.setenv("BACKUP_HMAC_KEY", KEY_HEX)
     monkeypatch.setenv("BACKUP_STORE_READER_URL", "postgresql://r:p@store/neondb")
     answers = {store.ROW: [signed_row(b"sealed")], store.FETCH: [(b"sealed",)]}
-    monkeypatch.setattr(cli.store, "connect", lambda url: Connection(answers))
+    monkeypatch.setattr(cli.store, "connect", lambda url, **_: Connection(answers))
 
     assert cli.main(["fetch"]) == 0
     assert cli.main(["check"]) == 0
@@ -499,7 +545,7 @@ def test_the_target_holds_the_archives_major(
     write_manifest(folder)
     monkeypatch.setenv("KDF_MODE", mode)
     monkeypatch.setenv("KDF_RESTORE_TARGET_URL", "postgresql://postgres:local@127.0.0.1:5432/drill")
-    monkeypatch.setattr(cli.store, "connect", lambda url: Connection({cli.SERVER_VERSION_NUM: [(served,)]}))
+    monkeypatch.setattr(cli.store, "connect", lambda url, **_: Connection({cli.SERVER_VERSION_NUM: [(served,)]}))
 
     assert cli.main(["target"]) == code
 
@@ -512,7 +558,7 @@ def test_restored_counts_equal_to_the_manifests_pass(folder: Path, monkeypatch: 
         'SELECT count(*) FROM "public"."a"': [(2,)],
         'SELECT count(*) FROM "public"."b"': [(0,)],
     }
-    monkeypatch.setattr(cli.store, "connect", lambda url: Connection(answers))
+    monkeypatch.setattr(cli.store, "connect", lambda url, **_: Connection(answers))
 
     assert cli.main(["counts"]) == 0
 
@@ -529,7 +575,7 @@ def test_a_restored_count_that_differs_fails_naming_it(
         'SELECT count(*) FROM "public"."a"': [(1,)],
         'SELECT count(*) FROM "public"."b"': [(0,)],
     }
-    monkeypatch.setattr(cli.store, "connect", lambda url: Connection(answers))
+    monkeypatch.setattr(cli.store, "connect", lambda url, **_: Connection(answers))
 
     assert cli.main(["counts"]) == 1
     assert "public.a holds 1 rows, the manifest 2" in capsys.readouterr().out
@@ -538,3 +584,86 @@ def test_a_restored_count_that_differs_fails_naming_it(
 def test_an_unknown_command_is_refused() -> None:
     assert cli.main(["drop"]) == 2
     assert cli.main([]) == 2
+
+# ======================================================================================================================
+# The verify job
+# ======================================================================================================================
+
+def sealed_pack(folder: Path, tmp_path: Path) -> dict[str, Any]:
+    """
+    A real packed tar sealed as the fake age seals, its bytes reversed, with its metadata in the work folder.
+
+    Args:
+        folder: the work folder
+        tmp_path: pytest's folder
+
+    Returns:
+        dict[str, Any]: the metadata
+    """
+    tool = tmp_path / "tool"
+    tool.mkdir()
+    (tool / "dump.pgdump").write_bytes(b"PGDMP a dump")
+    (tool / "manifest.json").write_text(json.dumps({
+        "taken_at": "2026-11-20T06:00:00Z",
+        "server_version": "17.12",
+        "pg_dump_version": "pg_dump (PostgreSQL) 17.12",
+        "alembic_revision": None,
+        "tables": {"public.a": 1},
+        "dump": {"file": "dump.pgdump", "bytes": 12, "sha256": hashlib.sha256(b"PGDMP a dump").hexdigest()},
+    }))
+    manifest, dump = archive.read_tool_folder(tool)
+    folder.mkdir()
+    plain    = tmp_path / "plain.tar"
+    metadata = archive.pack(manifest, dump, app = "fitness", environment = "prod", backup_id = ID, out = plain)
+    (folder / "archive.age").write_bytes(plain.read_bytes()[::-1])
+    metadata.update(
+        size_bytes = (folder / "archive.age").stat().st_size,
+        archive_sha256 = archive.sha256_of(folder / "archive.age"),
+    )
+    (folder / "metadata.json").write_text(json.dumps(metadata))
+    return metadata
+
+
+def test_the_verify_job_decrypts_and_opens_the_sealed_archive_and_leaves_no_plaintext(
+    folder: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    age: FakeAge,
+) -> None:
+    metadata = sealed_pack(folder, tmp_path)
+    monkeypatch.setenv("BACKUP_AGE_IDENTITY", "AGE-SECRET-KEY-1" + "Q" * 58)
+
+    assert cli.main(["verify"]) == 0
+
+    assert outputs(tmp_path)["sealed_sha256"] == metadata["archive_sha256"]
+    assert not (folder / "archive.tar").exists() and not (folder / "verify").exists()
+    assert not (folder / "identity.txt").exists()
+
+
+@pytest.mark.parametrize("what", ["wrong key", "another backup", "swapped archive"])
+def test_the_verify_job_refuses_what_it_cannot_open_or_bind(
+    folder: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    what: str,
+) -> None:
+    metadata = sealed_pack(folder, tmp_path)
+    monkeypatch.setenv("BACKUP_AGE_IDENTITY", "AGE-SECRET-KEY-1" + "Q" * 58)
+    monkeypatch.setattr(cli.shutil, "which", lambda name: "/usr/bin/age")
+    monkeypatch.setattr(cli.subprocess, "run", FakeAge(fail = what == "wrong key"))
+    if what == "another backup":
+        (folder / "metadata.json").write_text(json.dumps({**metadata, "taken_at": "2026-11-19T06:00:00Z"}))
+    if what == "swapped archive":
+        (folder / "archive.age").write_bytes(b"x" * metadata["size_bytes"])
+
+    assert cli.main(["verify"]) == 1
+    assert "sealed_sha256" not in outputs(tmp_path)
+    assert not (folder / "archive.tar").exists() and not (folder / "verify").exists()
+
+
+def test_a_drill_url_whose_query_names_another_host_is_refused(folder: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    write_manifest(folder)
+    monkeypatch.setenv("KDF_MODE", "drill")
+    monkeypatch.setenv("KDF_RESTORE_TARGET_URL", "postgresql://u:p@127.0.0.1:5432/drill?host=ep-x.neon.tech")
+
+    assert cli.main(["target"]) == 1

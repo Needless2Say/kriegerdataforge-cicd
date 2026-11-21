@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qsl, unquote, urlsplit
 
 # third party imports
 from kdf_backup import archive
@@ -66,8 +66,16 @@ PRUNE:         str = (
     " RETURNING backup_id::text"
 )
 
-# psycopg's LockNotAvailable, a lock wait that ran out
+# psycopg's LockNotAvailable, a lock wait that ran out, and UniqueViolation, a row inserted already
 LOCK_TIMEOUT_STATE: str = "55P03"
+UNIQUE_STATE:       str = "23505"
+
+# the capacity check's allowance on an archive, heap, TOAST and index space beside its bytes, five fourths of them
+ALLOWANCE_TIMES: int = 5
+ALLOWANCE_PER:   int = 4
+
+# the hosts a connection may reach without verifying a certificate, a drill's own service alone
+LOCAL_HOSTS: frozenset[str] = frozenset({"localhost", "127.0.0.1", "::1"})
 
 # the receipt's format
 RECEIPT_FORMAT: str = "kdf-backup-receipt-1"
@@ -309,11 +317,17 @@ def receipt_faults(previous: Any, app: str, environment: str, rows: list[Stored]
         or not isinstance(previous.get("rows"), list)
     ):
         return ["the last receipt is not this scope's, so no receipt counts"]
-    then   = {
-        entry.get("backup_id"): (entry.get("inserted_at"), entry.get("archive_sha256"))
-        for entry in previous["rows"]
-        if isinstance(entry, dict)
-    }
+    entries = previous["rows"]
+    if not all(
+        isinstance(entry, dict)
+        and archive.identity_faults(app, environment, entry.get("backup_id")) == []
+        and isinstance(entry.get("inserted_at"), str)
+        and isinstance(entry.get("archive_sha256"), str)
+        and archive.SHA256_SHAPE.match(entry["archive_sha256"])
+        for entry in entries
+    ) or len({entry["backup_id"] for entry in entries}) != len(entries):
+        return ["the last receipt holds a row out of its shape, so no receipt counts"]
+    then   = {entry["backup_id"]: (entry["inserted_at"], entry["archive_sha256"]) for entry in entries}
     now    = {row.backup_id: (row.inserted_at, row.archive_sha256) for row in rows}
     faults = [f"{name} is missing since the last receipt" for name in sorted(set(then) - set(now), key = str)]
     faults += [
@@ -433,9 +447,11 @@ def _unlock(connection: Any) -> None:
         connection: the connection
     """
     try:
-        connection.execute(UNLOCK, (LOCK_KEY,))
+        released = connection.execute(UNLOCK, (LOCK_KEY,)).fetchone()
     except Exception:
-        print("::warning::the store's lock could not be released, and the session's end releases it")
+        released = None
+    if not released or released[0] is not True:
+        print("::warning::the store's lock was not released by this session, and the session's end releases it")
 
 
 def store_backup(
@@ -482,9 +498,10 @@ def store_backup(
         drift  = receipt_faults(previous, app, environment, _scope_rows(connection, app, environment))
         issues = list(drift)
         size   = int(connection.execute(SIZE).fetchone()[0])
-        if size + len(data) > capacity:
-            raise StoreError(f"the store holds {size} bytes, so this archive's {len(data)} would pass the capacity "
-                             f"{capacity}, and nothing is inserted")
+        needed = len(data) * ALLOWANCE_TIMES // ALLOWANCE_PER
+        if size + needed > capacity:
+            raise StoreError(f"the store holds {size} bytes, so this archive's {needed} with its storage allowance "
+                             f"would pass the capacity {capacity}, and nothing is inserted")
         try:
             connection.execute(INSERT, (
                 backup_id,
@@ -499,9 +516,12 @@ def store_backup(
                 data,
             ))
         except Exception as failed:
-            raise StoreError(
-                f"the insert of {backup_id} failed, {type(failed).__name__}, so nothing is pruned",
-            ) from None
+            if getattr(failed, "sqlstate", None) != UNIQUE_STATE:
+                raise StoreError(
+                    f"the insert of {backup_id} failed, {type(failed).__name__}, so nothing is pruned",
+                ) from None
+            # a rerun of this run's store job, whose earlier attempt inserted the row, finishes by its readback
+            print(f"{backup_id} is stored already, by an earlier attempt, so its readback decides")
         rows = _scope_rows(connection, app, environment)
         new  = next((row for row in rows if row.backup_id == backup_id), None)
         if new is None or new.metadata() != metadata or new.signature != signature or new.fault(key):
@@ -517,6 +537,8 @@ def store_backup(
             print("pruning is off, so nothing is pruned")
         elif drift:
             issues.append("the prune is skipped, since the store does not match the last receipt, the backup stands")
+        elif invalid:
+            issues.append("the prune is skipped, since a row fails its check, the backup stands")
         else:
             ranked = sorted(
                 (row for row in rows if row.backup_id not in invalid),
@@ -566,23 +588,57 @@ def masked(text: str, url: str) -> str:
     return text
 
 
-def connect(url: str) -> Any:
+def normalized(url: str) -> str:
     """
-    Connect to the store or a database by a URL from the job's environment, never an argument.
+    A postgresql:// URL, a SQLAlchemy driver suffix taken off, its host its own.
 
     Args:
         url: the URL
 
     Returns:
+        str: the URL psycopg takes
+
+    Raises:
+        StoreError: another scheme, or a query that names another host
+    """
+    scheme, separator, rest = url.partition("://")
+    if not separator or scheme.split("+", 1)[0] not in ("postgresql", "postgres") or not rest:
+        raise StoreError("the connection string is not a postgresql:// URL")
+    target = "postgresql://" + rest
+    if {"host", "hostaddr"} & {name for name, _ in parse_qsl(urlsplit(target).query)}:
+        raise StoreError("the connection string's query names a host, which the URL's own host decides here")
+    return target
+
+
+def connect(url: str, *, direct: bool = False) -> Any:
+    """
+    Connect by a URL from the job's environment, never an argument.
+
+    Every host but a drill's own service on the runner is verified by its certificate, verify-full whatever the URL
+    says, against the bundle the job names in PGSSLROOTCERT. A direct connection, the store's writer, whose lock needs
+    one session, refuses a pooler host.
+
+    Args:
+        url: the URL
+        direct: whether the connection must be the direct host's
+
+    Returns:
         Any: the connection, in autocommit
 
     Raises:
-        StoreError: the connection failed, named by its host with any password masked
+        StoreError: the URL is refused, or the connection failed, named by its host with any password masked
     """
+    target = normalized(url)
+    host   = urlsplit(target).hostname or ""
+    if direct and "-pooler" in host:
+        raise StoreError(f"{host} is a pooler host, and the store's lock needs the direct host's one session")
+    options: dict[str, Any] = {"autocommit": True, "connect_timeout": 30, "application_name": "kdf-backup"}
+    if host not in LOCAL_HOSTS:
+        options["sslmode"] = "verify-full"
+
     import psycopg  # noqa: PLC0415  # the backup and restore jobs alone install it
 
     try:
-        return psycopg.connect(url, autocommit = True, connect_timeout = 30, application_name = "kdf-backup")
+        return psycopg.connect(target, **options)
     except psycopg.Error as failed:
-        host = urlsplit(url).hostname or "the database"
-        raise StoreError(f"could not connect to {host}, {masked(str(failed).strip(), url)}") from None
+        raise StoreError(f"could not connect to {host or 'the database'}, {masked(str(failed).strip(), url)}") from None

@@ -68,6 +68,9 @@ VERSION_MAXIMUM: int = 256
 MANIFEST_BYTES:  int = 1 << 20
 CHUNK:           int = 1 << 20
 
+# the first bytes of every pg_dump custom format archive
+DUMP_MAGIC: bytes = b"PGDMP"
+
 
 class ArchiveError(Exception):
     """
@@ -268,10 +271,13 @@ def manifest_faults(manifest: Any) -> list[str]:
         or not FILE_SHAPE.match(dump["file"])
         or ".." in dump["file"]
         or not _is_count(dump.get("bytes"))
+        or dump["bytes"] < len(DUMP_MAGIC)
         or not isinstance(dump.get("sha256"), str)
         or not SHA256_SHAPE.match(dump["sha256"])
     ):
-        faults.append("dump is not the file's plain name, its bytes and its SHA256")
+        faults.append(
+            "dump is not the file's plain name, its bytes, at least a custom archive's header, and its SHA256",
+        )
     if not faults:
         try:
             dumped, served = major_of(manifest["pg_dump_version"]), major_of(manifest["server_version"])
@@ -315,7 +321,23 @@ def read_tool_folder(folder: Path) -> tuple[dict[str, Any], Path]:
         raise ArchiveError("the dump tool's manifest names a dump the folder does not hold")
     if dump.stat().st_size != manifest["dump"]["bytes"] or sha256_of(dump) != manifest["dump"]["sha256"]:
         raise ArchiveError("the dump's size or SHA256 is not its manifest's")
+    if not is_custom_archive(dump):
+        raise ArchiveError("the dump is not a pg_dump custom archive, its header is not PGDMP")
     return manifest, dump
+
+
+def is_custom_archive(path: Path) -> bool:
+    """
+    Whether a file starts as pg_dump's custom format does.
+
+    Args:
+        path: the file
+
+    Returns:
+        bool: whether its first bytes are PGDMP
+    """
+    with path.open("rb") as handle:
+        return handle.read(len(DUMP_MAGIC)) == DUMP_MAGIC
 
 
 def _member(name: str, size: int) -> tarfile.TarInfo:
@@ -373,6 +395,8 @@ def pack(
         "dump": {**manifest["dump"], "file": DUMP_NAME},
     }
     data  = canonical(inner)
+    if len(data) > MANIFEST_BYTES:
+        raise ArchiveError(f"the packed {MANIFEST_NAME} is over {MANIFEST_BYTES} bytes, which no restore opens")
     with tarfile.open(out, mode = "w", format = tarfile.USTAR_FORMAT) as tar:
         tar.addfile(_member(MANIFEST_NAME, len(data)), io.BytesIO(data))
         with dump.open("rb") as handle:
@@ -488,7 +512,7 @@ def open_archive(tar_path: Path, out_dir: Path, *, expected: dict[str, Any]) -> 
     with tar:
         members = tar.getmembers()
         if [member.name for member in members] != [MANIFEST_NAME, DUMP_NAME] or not all(
-            member.isreg() for member in members
+            member.type == tarfile.REGTYPE and not member.issparse() for member in members
         ):
             raise ArchiveError(f"the archive is not exactly {MANIFEST_NAME} then {DUMP_NAME}, each a plain file")
         head, body = members
@@ -503,9 +527,12 @@ def open_archive(tar_path: Path, out_dir: Path, *, expected: dict[str, Any]) -> 
         for name in BOUND_FIELDS:
             if manifest.get(name) != expected.get(name):
                 raise ArchiveError(f"the archive's manifest names another {name} than its row")
-        dump_entry = manifest.get("dump")
-        if not isinstance(dump_entry, dict) or dump_entry.get("bytes") != body.size:
-            raise ArchiveError("the archive's dump is not the size its manifest names")
+        faults = manifest_faults({name: value for name, value in manifest.items() if name not in IDENTITY_FIELDS})
+        if faults:
+            raise ArchiveError("the archive's manifest is refused, " + ", ".join(faults))
+        dump_entry = manifest["dump"]
+        if dump_entry["file"] != DUMP_NAME or dump_entry["bytes"] != body.size:
+            raise ArchiveError("the archive's dump is not the file and the size its manifest names")
         out_dir.mkdir(parents = True, exist_ok = True)
         dump   = out_dir / DUMP_NAME
         digest = hashlib.sha256()
@@ -513,9 +540,9 @@ def open_archive(tar_path: Path, out_dir: Path, *, expected: dict[str, Any]) -> 
             for chunk in iter(lambda: source.read(CHUNK), b""):
                 digest.update(chunk)
                 target.write(chunk)
-    if digest.hexdigest() != dump_entry.get("sha256"):
+    if digest.hexdigest() != dump_entry["sha256"] or not is_custom_archive(dump):
         dump.unlink()
-        raise ArchiveError("the archive's dump is not the SHA256 its manifest names")
+        raise ArchiveError("the archive's dump is not the SHA256 its manifest names, or not a custom archive")
     return manifest, dump
 
 # ======================================================================================================================

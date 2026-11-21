@@ -27,7 +27,8 @@ REGISTRY:    Path = Path(__file__).resolve().parent / "backup_registry.json"
 STORE_JOB:   str = "Store the backup ({environment})"
 STORE_STEP:  str = "Store, read back and prune"
 WINDOW_DAYS: int = 35
-RUNS_READ:   int = 30
+RUN_PAGE:    int = 100
+RUN_PAGES:   int = 5
 STAMP:       str = "%Y-%m-%dT%H:%M:%SZ"
 
 
@@ -87,7 +88,8 @@ def stored_at(jobs: list[dict[str, Any]], environment: str) -> str | None:
     name  = STORE_JOB.format(environment = environment)
     found = []
     for job in jobs:
-        if not str(job.get("name", "")).endswith(name) or job.get("conclusion") != "success":
+        named = str(job.get("name", ""))
+        if not (named == name or named.endswith(f" / {name}")) or job.get("conclusion") != "success":
             continue
         steps = job.get("steps") or []
         if any(step.get("name") == STORE_STEP and step.get("conclusion") == "success" for step in steps):
@@ -144,15 +146,23 @@ def collect_entry(transport: Any, entry: dict[str, Any], now: datetime, days: in
     if flow.data.get("state") != "active":
         result["findings"].append({"key": "disabled", "text": f"disabled, its state is {flow.data.get('state')}"})
 
-    since = (now - timedelta(days = WINDOW_DAYS)).strftime("%Y-%m-%d")
-    runs  = transport.get(
-        f"/repos/{repo}/actions/workflows/{workflow}/runs",
-        {"per_page": RUNS_READ, "created": f">={since}"},
-    )
-    if not runs.ok or not isinstance(runs.data, dict):
-        result["error"] = runs.reason()
+    since     = (now - timedelta(days = WINDOW_DAYS)).strftime("%Y-%m-%d")
+    completed = []
+    for page in range(1, RUN_PAGES + 1):
+        runs = transport.get(
+            f"/repos/{repo}/actions/workflows/{workflow}/runs",
+            {"per_page": RUN_PAGE, "page": page, "branch": "main", "created": f">={since}"},
+        )
+        if not runs.ok or not isinstance(runs.data, dict):
+            result["error"] = runs.reason()
+            return result
+        listed = runs.data.get("workflow_runs") or []
+        completed += [run for run in listed if run.get("status") == "completed"]
+        if len(listed) < RUN_PAGE:
+            break
+    else:
+        result["error"] = f"more than {RUN_PAGES * RUN_PAGE} runs in {WINDOW_DAYS} days, the rest not read"
         return result
-    completed = [run for run in runs.data.get("workflow_runs") or [] if run.get("status") == "completed"]
     if completed and completed[0].get("conclusion") == "failure":
         result[
             "findings"

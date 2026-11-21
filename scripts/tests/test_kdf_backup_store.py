@@ -12,6 +12,7 @@ from __future__ import annotations
 
 # standard imports
 import hashlib
+import sys
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -529,3 +530,147 @@ def test_a_failure_naming_its_url_is_masked() -> None:
 
     assert "s3cr3t-pass" not in masked
     assert "ep-x.c-1.us-east-1.aws.neon.tech" in masked
+
+# ======================================================================================================================
+# Codex's security read, each finding taken
+# ======================================================================================================================
+
+def test_a_row_that_fails_its_check_skips_the_prune_and_good_backups_stay(tmp_path: Any) -> None:
+    rows = old_rows()
+    rows[2]["archive"] = b"bytes changed after the signature"
+    connection = FakeStore(rows)
+
+    outcome = run(connection, tmp_path, keep = 1, previous = receipt_of(old_rows()))
+
+    assert store.PRUNE not in connection.statements
+    assert len(connection.rows) == 4
+    assert any("a row fails its check" in issue for issue in outcome.issues)
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"backup_id": "not-a-uuid", "inserted_at": "x", "archive_sha256": "ab" * 32},
+        {"backup_id": "00000000-0000-4000-8000-000000000001", "inserted_at": 7, "archive_sha256": "ab" * 32},
+        {"backup_id": "00000000-0000-4000-8000-000000000001", "inserted_at": "x", "archive_sha256": "<b>"},
+        "a row that is no object",
+    ],
+)
+def test_a_receipt_row_out_of_its_shape_is_no_receipt(tmp_path: Any, entry: Any) -> None:
+    connection = FakeStore(old_rows())
+    previous   = {**receipt_of(connection.rows), "rows": [entry]}
+
+    outcome = run(connection, tmp_path, previous = previous)
+
+    assert store.PRUNE not in connection.statements
+    assert any("out of its shape" in issue for issue in outcome.issues)
+
+
+def test_a_receipt_naming_one_row_twice_is_no_receipt(tmp_path: Any) -> None:
+    connection = FakeStore(old_rows())
+    previous   = receipt_of(connection.rows)
+    previous["rows"].append(dict(previous["rows"][0]))
+
+    outcome = run(connection, tmp_path, previous = previous)
+
+    assert store.PRUNE not in connection.statements
+    assert outcome.issues
+
+
+class Duplicate(Exception):
+    """
+    psycopg's UniqueViolation, a row inserted already.
+    """
+    sqlstate = "23505"
+
+
+def test_a_rerun_whose_row_is_stored_already_finishes_by_its_readback(tmp_path: Any) -> None:
+    metadata, signature, path = new_backup(tmp_path)
+    earlier    = {**metadata, "signature": signature, "archive": path.read_bytes(), "inserted_at": NOW}
+    connection = FakeStore([*old_rows(), earlier])
+    original   = connection.execute
+
+
+    def execute(query: str, params: tuple | list = ()) -> Cursor:
+        if query is store.INSERT:
+            connection.statements.append(query)
+            raise Duplicate("duplicate key value violates unique constraint")
+        return original(query, params)
+
+
+    connection.execute = execute
+
+    outcome = run(connection, tmp_path, backup = (metadata, signature, path), previous = receipt_of(old_rows()))
+
+    assert any(row["backup_id"] == metadata["backup_id"] for row in connection.rows)
+    assert any("unexplained" in issue for issue in outcome.issues), "the earlier attempt left no receipt"
+
+
+def test_the_capacity_check_counts_an_allowance_beside_the_archive(tmp_path: Any) -> None:
+    connection = FakeStore([], size = 999_999_990)
+
+    with pytest.raises(store.StoreError, match = "allowance"):
+        run(connection, tmp_path, capacity = 1_000_000_000, previous = None)
+
+# ======================================================================================================================
+# The connection
+# ======================================================================================================================
+
+class FakePsycopg:
+    """
+    A stand in for psycopg that records each connection's URL and options.
+    """
+    class Error(Exception):
+        """
+        psycopg's base error.
+        """
+
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+
+    def connect(self, url: str, **options: Any) -> str:
+        self.calls.append((url, options))
+        return "a connection"
+
+
+@pytest.fixture
+def psycopg(monkeypatch: pytest.MonkeyPatch) -> FakePsycopg:
+    fake = FakePsycopg()
+    monkeypatch.setitem(sys.modules, "psycopg", fake)
+    return fake
+
+
+def test_a_remote_connection_verifies_its_certificate_whatever_its_url_says(psycopg: FakePsycopg) -> None:
+    store.connect("postgresql+psycopg2://u:p@ep-x.us-east-1.aws.neon.tech/neondb?sslmode=disable")
+
+    url, options = psycopg.calls[0]
+    assert url == "postgresql://u:p@ep-x.us-east-1.aws.neon.tech/neondb?sslmode=disable"
+    assert options["sslmode"] == "verify-full"
+
+
+def test_the_drills_own_service_connects_without_a_certificate(psycopg: FakePsycopg) -> None:
+    store.connect("postgresql://kdf_drill:kdf-drill-local@127.0.0.1:5432/kdf_drill")
+
+    assert "sslmode" not in psycopg.calls[0][1]
+
+
+@pytest.mark.parametrize(
+    "url, direct",
+    [
+        ("postgresql://u:p@ep-x-pooler.us-east-1.aws.neon.tech/neondb", True),
+        ("postgresql://u:p@127.0.0.1/drill?host=ep-x.us-east-1.aws.neon.tech", False),
+        ("postgresql://u:p@127.0.0.1/drill?hostaddr=10.0.0.1", False),
+        ("mysql://u:p@host/db", False),
+    ],
+)
+def test_a_pooler_writer_a_host_in_the_query_or_another_scheme_is_refused(
+    psycopg: FakePsycopg,
+    url: str,
+    direct: bool,
+) -> None:
+    with pytest.raises(store.StoreError):
+        store.connect(url, direct = direct)
+
+    assert psycopg.calls == []

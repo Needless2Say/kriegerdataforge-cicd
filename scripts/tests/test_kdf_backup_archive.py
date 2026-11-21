@@ -295,7 +295,7 @@ def tar_of(members: list[tuple[str, bytes, bytes]]) -> bytes:
     A tar of the given members, each a name, a kind and its bytes.
 
     Args:
-        members: each name, its kind (b"file", b"link" or b"dir") and its bytes
+        members: each name, its kind (b"file", b"cont", b"link" or b"dir") and its bytes
 
     Returns:
         bytes: the tar
@@ -310,7 +310,9 @@ def tar_of(members: list[tuple[str, bytes, bytes]]) -> bytes:
                 info.type = tarfile.DIRTYPE
             else:
                 info.size = len(data)
-            tar.addfile(info, io.BytesIO(data) if kind == b"file" else None)
+                if kind == b"cont":
+                    info.type = tarfile.CONTTYPE
+            tar.addfile(info, io.BytesIO(data) if kind in (b"file", b"cont") else None)
     return buffer.getvalue()
 
 
@@ -365,3 +367,61 @@ def test_each_missing_extra_or_changed_table_is_named() -> None:
         "public.c is missing, the manifest holds 3 rows",
         "public.d is not in the manifest, restored with 0 rows",
     ]
+
+# ======================================================================================================================
+# What a restore could not use, refused before it is stored
+# ======================================================================================================================
+
+def test_an_empty_dump_is_refused(tmp_path: Path) -> None:
+    folder = tool_folder(
+        tmp_path,
+        dump = {"file": "dump.pgdump", "bytes": 0, "sha256": hashlib.sha256(b"").hexdigest()},
+    )
+    (folder / "dump.pgdump").write_bytes(b"")
+
+    with pytest.raises(archive.ArchiveError):
+        archive.read_tool_folder(folder)
+
+
+def test_a_dump_that_is_not_a_custom_archive_is_refused(tmp_path: Path) -> None:
+    plain  = b"-- PostgreSQL database dump, plain text"
+    folder = tool_folder(
+        tmp_path,
+        dump = {"file": "dump.pgdump", "bytes": len(plain), "sha256": hashlib.sha256(plain).hexdigest()},
+    )
+    (folder / "dump.pgdump").write_bytes(plain)
+
+    with pytest.raises(archive.ArchiveError, match = "PGDMP"):
+        archive.read_tool_folder(folder)
+
+
+def test_a_manifest_that_packs_past_the_limit_a_restore_opens_is_refused(tmp_path: Path) -> None:
+    folder = tool_folder(tmp_path, notes = "")
+    path   = folder / "manifest.json"
+    filler = archive.MANIFEST_BYTES - path.stat().st_size - 8
+    path.write_text(json.dumps({**json.loads(path.read_text()), "notes": "x" * filler}), encoding = "utf-8")
+    manifest, dump = archive.read_tool_folder(folder)
+
+    with pytest.raises(archive.ArchiveError, match = "packed"):
+        archive.pack(manifest, dump, app = "fitness", environment = "prod", backup_id = ID, out = tmp_path / "out.tar")
+
+
+def test_a_contiguous_member_is_refused_as_no_plain_file(tmp_path: Path) -> None:
+    out, metadata = packed(tmp_path)
+    with tarfile.open(out, mode = "r:") as tar:
+        inner = tar.extractfile("manifest.json").read()
+    out.write_bytes(tar_of([("manifest.json", b"file", inner), ("dump.pgdump", b"cont", DUMP)]))
+
+    with pytest.raises(archive.ArchiveError, match = "plain file"):
+        archive.open_archive(out, tmp_path / "opened", expected = metadata)
+
+
+def test_an_inner_manifest_naming_another_dump_file_is_refused(tmp_path: Path) -> None:
+    out, metadata = packed(tmp_path)
+    with tarfile.open(out, mode = "r:") as tar:
+        inner = json.loads(tar.extractfile("manifest.json").read())
+    inner["dump"]["file"] = "other.pgdump"
+    out.write_bytes(tar_of([("manifest.json", b"file", archive.canonical(inner)), ("dump.pgdump", b"file", DUMP)]))
+
+    with pytest.raises(archive.ArchiveError, match = "dump"):
+        archive.open_archive(out, tmp_path / "opened", expected = metadata)

@@ -440,8 +440,9 @@ the row and stores it. Its jobs hold their secrets apart, since any step can cha
 |---|---|---|
 | `authorize` | nothing | the deployer allow list |
 | `precheck` | `BACKUP_STORE_WRITER_URL` | checks the options, then the whole store and `bound_bytes` against `capacity_bytes`, before any dump |
-| `dump` | `DB_BACKUP_URL` | runs `dump_command` with `KDF_BACKUP_OUT`, packs, encrypts to `recipient_file`, passes on the sealed archive alone for a day |
-| `store` | `BACKUP_HMAC_KEY`, `BACKUP_STORE_WRITER_URL` | cicd's code alone. Checks the archive against its metadata and the run's scope, signs, then under the store's one lock compares the last receipt, checks the capacity again, inserts, reads back and prunes, and leaves the run's receipt |
+| `dump` | `DB_BACKUP_URL` | runs `dump_command` with `KDF_BACKUP_OUT`, packs, encrypts to `recipient_file`, passes on the sealed archive alone for a day, as `kdf-backup-sealed-<app>-<environment>` |
+| `verify` | `BACKUP_AGE_IDENTITY` | cicd's code alone. Decrypts and opens the sealed archive, its manifest bound to its metadata and its dump a custom archive, removes the plaintext and gives the archive's SHA256 on |
+| `store` | `BACKUP_HMAC_KEY`, `BACKUP_STORE_WRITER_URL` | cicd's code alone. Checks the archive against its metadata, the run's scope and the SHA256 `verify` opened, signs, then under the store's one lock compares the last receipt, checks the capacity again, inserts, reads back and prunes, and leaves the run's receipt |
 | `report` | nothing | opens or comments on an issue, `ops:backup-<app>-<environment>`, when a scheduled run failed or the store raised one |
 
 | Input | Type | Default | Required |
@@ -457,7 +458,7 @@ the row and stores it. Its jobs hold their secrets apart, since any step can cha
 | `lock_wait_seconds` | string | `"600"` | no |
 
 - **Secrets read (via `inherit`).** `DB_BACKUP_URL`, the source's read only role on its direct host, and
-  `BACKUP_STORE_WRITER_URL`, `BACKUP_HMAC_KEY`, each in the caller's environment.
+  `BACKUP_STORE_WRITER_URL`, `BACKUP_HMAC_KEY` and `BACKUP_AGE_IDENTITY`, each in the caller's environment.
 - **Outputs.** `backup_id`.
 - **The prune.** A row counts only when its signature checks over its own columns and the store's own SHA256 of its
   archive is its digest, ranked by its signed `taken_at`, then `backup_id`, the newest `keep` kept and the rest
@@ -1105,7 +1106,7 @@ shown where it differs from top level):
 |---|---|
 | `cd-nextjs-vercel.yml` | `authorize`: `contents:read`, `deploy`: `contents:read` |
 | `cd-python-vercel.yml` | `authorize`: `contents:read`, `deploy`: `contents:read` |
-| `db-backup.yml` | `authorize`, `precheck`, `dump`: `contents:read`, `store`: `contents:read` + `actions:read`, `report`: `issues:write` (caller must grant) |
+| `db-backup.yml` | `authorize`, `precheck`, `dump`, `verify`: `contents:read`, `store`: `contents:read` + `actions:read`, `report`: `issues:write` (caller must grant) |
 | `db-restore.yml` | every job: `contents:read` |
 | `terraform-run.yml` | `authorize`: `contents:read`, `run`: `contents:read` + `actions:read` + `deployments:write` |
 | `bump-version-check.yml` | job: `contents:read` |
