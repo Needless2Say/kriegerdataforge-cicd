@@ -264,7 +264,17 @@ def test_a_recipient_file_that_is_not_one_recipient_is_refused(
     assert age.calls == []
 
 
-def test_the_signature_is_the_metadatas(folder: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def sealed_with_metadata(folder: Path, data: bytes = b"sealed archive") -> dict[str, Any]:
+    """
+    A sealed archive the dump's job passed on, and its metadata.
+
+    Args:
+        folder: the work folder
+        data: the archive's bytes
+
+    Returns:
+        dict[str, Any]: its metadata
+    """
     metadata = {
         "backup_id": ID,
         "app": "fitness",
@@ -272,15 +282,45 @@ def test_the_signature_is_the_metadatas(folder: Path, monkeypatch: pytest.Monkey
         "taken_at": "2026-11-20T06:00:00Z",
         "pg_dump_version": "pg_dump (PostgreSQL) 17.12",
         "server_version": "17.12",
-        "size_bytes": 9,
-        "archive_sha256": "ab" * 32,
+        "size_bytes": len(data),
+        "archive_sha256": hashlib.sha256(data).hexdigest(),
     }
-    folder.mkdir()
+    folder.mkdir(exist_ok = True)
+    (folder / "archive.age").write_bytes(data)
     (folder / "metadata.json").write_text(json.dumps(metadata))
+    return metadata
+
+
+def test_the_signature_is_the_metadatas(folder: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    metadata = sealed_with_metadata(folder)
     monkeypatch.setenv("BACKUP_HMAC_KEY", KEY_HEX)
+    monkeypatch.setenv("KDF_APP", "fitness")
+    monkeypatch.setenv("KDF_ENVIRONMENT", "prod")
 
     assert cli.main(["sign"]) == 0
     assert archive.verify(metadata, (folder / "signature.txt").read_text(), KEY)
+
+
+@pytest.mark.parametrize(
+    "app, environment, swap",
+    [("hub", "prod", False), ("fitness", "dev", False), ("fitness", "prod", True)],
+)
+def test_the_signature_refuses_another_scope_or_a_swapped_archive(
+    folder: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    app: str,
+    environment: str,
+    swap: bool,
+) -> None:
+    sealed_with_metadata(folder)
+    if swap:
+        (folder / "archive.age").write_bytes(b"another, the same len")
+    monkeypatch.setenv("BACKUP_HMAC_KEY", KEY_HEX)
+    monkeypatch.setenv("KDF_APP", app)
+    monkeypatch.setenv("KDF_ENVIRONMENT", environment)
+
+    assert cli.main(["sign"]) == 1
+    assert not (folder / "signature.txt").exists()
 
 
 def test_a_malformed_key_is_refused_without_its_text(

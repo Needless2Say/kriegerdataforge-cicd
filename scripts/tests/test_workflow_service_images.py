@@ -38,9 +38,11 @@ from tests.copier_rule import (
     ESCAPE,
     KEPT_ENTRY,
     MIRROR,
+    PINNED_ENTRY,
     block,
     blocks,
     copier_judged,
+    env_entries,
     kept_digests,
     kept_entries,
 )
@@ -75,6 +77,11 @@ WITH_POSTGRES: tuple[str, ...] = (
     "ci-python-mutation.yml",
     "ci-python-system.yml",
 )
+
+# the restore drill's jobs, each its service of one Postgres major on the mirror, held apart from the lanes' one digest
+# (the secrets moves, step 2, D-111). A major's image is a copier's kept entry of that major, D-077's lanes' own, or
+# its pinned entry of the plain variant, postgres <major>.<minor>, which the backups' sources run
+WITH_DRILL: dict[str, dict[str, int]] = {"db-restore.yml": {"drill-16": 16, "drill-17": 17}}
 
 # a job's key, two spaces in
 JOB_KEY: re.Pattern[str] = re.compile(r"^  ([A-Za-z0-9_-]+):\s*$")
@@ -248,7 +255,7 @@ def stage_faults(images: dict[str, list[str]], kept: list[str]) -> list[str]:
             the lanes one digest among the kept ones, and the copier's verify job the newest on the mirror
     """
     faults  = []
-    started = sorted(name for name, found in images.items() if found)
+    started = sorted(name for name, found in images.items() if found and name not in WITH_DRILL)
     if started != sorted(WITH_POSTGRES):
         faults.append(f"the workflows that start a service are {started}")
     for name in WITH_POSTGRES:
@@ -260,6 +267,66 @@ def stage_faults(images: dict[str, list[str]], kept: list[str]) -> list[str]:
     faults.extend(f"a lane names {found}, which the copier does not keep" for found in sorted(lanes - set(kept)))
     if not kept or images.get(COPIER) != [f"{MIRROR}@{kept[-1]}"]:
         faults.append("the copier's verify job does not name the newest kept digest on the mirror")
+    return faults
+
+
+def job_images(text: str) -> dict[str, list[str]]:
+    """
+    The pinned images each job's service lines name, by the job's key.
+
+    Args:
+        text: A workflow file's text
+
+    Returns:
+        dict[str, list[str]]: Each job's images
+    """
+    jobs = blocks(block(blocks(text.splitlines(), 0), "jobs")[1:], 2)
+    return {name: [found.group("image") for found in map(IMAGE_LINE.match, lines) if found] for name, lines in jobs}
+
+
+def major_digests(copier: str) -> dict[int, set[str]]:
+    """
+    The copier's digests a drill may name for each Postgres major, its kept entries' and its pinned plain entries'.
+
+    Args:
+        copier: The copier's text
+
+    Returns:
+        dict[int, set[str]]: Each major's digests
+    """
+    found: dict[int, set[str]] = {}
+    for entry in filter(None, map(KEPT_ENTRY.match, kept_entries(copier))):
+        found.setdefault(int(entry["version"]) // 10000, set()).add(entry["digest"])
+    for entry in filter(None, map(PINNED_ENTRY.match, env_entries(copier, "PINNED"))):
+        plain = re.fullmatch(r"(\d+)\.\d+", entry["tag"])
+        if entry["name"] == "postgres" and plain:
+            found.setdefault(int(plain.group(1)), set()).add(entry["digest"])
+    return found
+
+
+def drill_faults(texts: dict[str, str], copier: str) -> list[str]:
+    """
+    Where a restore drill's jobs leave their majors' images (D-111).
+
+    Args:
+        texts: Each drill workflow's text, by its file name
+        copier: The copier's text
+
+    Returns:
+        list[str]: Each fault. A drill workflow's own jobs alone start a service, each one image, the copier's entry
+            of its major on the mirror
+    """
+    majors = major_digests(copier)
+    faults = []
+    for name, jobs in WITH_DRILL.items():
+        images  = job_images(texts.get(name, ""))
+        started = sorted(job for job, found in images.items() if found)
+        if started != sorted(jobs):
+            faults.append(f"{name}'s jobs that start a service are {started}, not {sorted(jobs)}")
+        for job, major in jobs.items():
+            found = images.get(job, [])
+            if len(found) != 1 or digest(found[0]) not in majors.get(major, set()):
+                faults.append(f"{name}'s {job} names other than one image of the copier's Postgres {major}")
     return faults
 
 
@@ -410,6 +477,42 @@ def test_the_postgres_services_name_one_image_each_and_the_same_one():
     assert stage_faults(images, kept_digests(_text(COPIER))) == []
 
 
+def test_each_drill_job_names_the_copiers_image_of_its_major():
+    """
+    A restore drill restores into a service of the archive's own major, so each drill job names one image, the copier's
+    entry of its major on the mirror, Postgres 16's kept digest and Postgres 17's pinned one (D-111).
+    """
+    texts = {name: _text(name) for name in WITH_DRILL}
+
+    assert drill_faults(texts, _text(COPIER)) == []
+
+
+@pytest.mark.parametrize("swap", ["seventeen", "alpine", "unkept", "a third job"])
+def test_a_drill_job_on_another_majors_image_or_one_the_copier_lacks_is_refused(swap):
+    """
+    The 16 drill on 17's image, on the E2E stacks' alpine one, on a digest the copier lacks, or a job beside the drills
+    starting a service, each refused.
+    """
+    text    = _text("db-restore.yml")
+    sixteen = digest(job_images(text)["drill-16"][0])
+    alpine  = next(
+        entry["digest"]
+        for entry in map(PINNED_ENTRY.match, env_entries(_text(COPIER), "PINNED"))
+        if entry and entry["tag"].endswith("-alpine") and entry["name"] == "postgres"
+    )
+    if swap == "a third job":
+        changed = text.replace(
+            "  live:\n",
+            f"  live:\n    services:\n      postgres:\n        image: {MIRROR}@{sixteen}\n",
+            1,
+        )
+    else:
+        other = {"seventeen": digest(job_images(text)["drill-17"][0]), "alpine": alpine, "unkept": "sha256:" + "a" * 64}
+        changed = text.replace(sixteen, other[swap], 1)
+
+    assert drill_faults({"db-restore.yml": changed}, _text(COPIER))
+
+
 def proof_held(ci: str, version: str) -> bool:
     """
     Whether a ci.yml holds the lanes' proof whole, expecting this ``server_version_num``.
@@ -422,7 +525,12 @@ def _lanes_version() -> str:
     """
     The ``server_version_num`` of the kept entry the lanes' one digest names, or none.
     """
-    lanes   = {digest(image) for name, (found, _) in _workflows().items() if name != COPIER for image in found}
+    lanes   = {
+        digest(image)
+        for name, (found, _) in _workflows().items()
+        if name != COPIER and name not in WITH_DRILL
+        for image in found
+    }
     matched = [KEPT_ENTRY.match(entry) for entry in kept_entries(_text(COPIER))]
     entries = {entry["digest"]: entry["version"] for entry in matched if entry}
     return entries.get(next(iter(lanes)), "") if len(lanes) == 1 else ""

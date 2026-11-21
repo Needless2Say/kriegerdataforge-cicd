@@ -261,12 +261,26 @@ def encrypt() -> None:
 
 def sign() -> None:
     """
-    Sign the row's metadata with the app's HMAC key.
+    Sign the row's metadata with the app's HMAC key, once the sealed archive the dump's job passed on is the one its
+    metadata names, of this run's own app and environment.
+
+    Raises:
+        CliError: the metadata names another scope, or the archive is not its size and SHA256
     """
-    key       = archive.read_key(env("BACKUP_HMAC_KEY"))
-    signature = archive.sign(read_json(work() / "metadata.json"), key)
-    (work() / "signature.txt").write_text(signature, encoding = "ascii")
-    print("signed the row's metadata")
+    folder   = work()
+    key      = archive.read_key(env("BACKUP_HMAC_KEY"))
+    metadata = read_json(folder / "metadata.json")
+    if (metadata.get("app"), metadata.get("environment")) != (env("KDF_APP"), env("KDF_ENVIRONMENT")):
+        raise CliError("the archive's metadata names another app or environment than this run")
+    sealed = folder / "archive.age"
+    if (
+        not sealed.is_file()
+        or sealed.stat().st_size != metadata.get("size_bytes")
+        or archive.sha256_of(sealed) != metadata.get("archive_sha256")
+    ):
+        raise CliError("the sealed archive is not the size and SHA256 its metadata names")
+    (folder / "signature.txt").write_text(archive.sign(metadata, key), encoding = "ascii")
+    print(f"signed the row's metadata of {metadata['backup_id']}")
 
 
 def _previous_receipt() -> Any:

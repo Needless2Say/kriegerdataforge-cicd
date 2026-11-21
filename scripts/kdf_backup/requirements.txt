@@ -1,0 +1,6 @@
+# The backup's and the restore's store client, psycopg 3, installed by db-backup.yml's and db-restore.yml's jobs alone
+# with --require-hashes --no-deps --only-binary=:all: on ubuntu-latest's CPython 3.14, x86_64. 3.3.8, the newest at
+# least two weeks old on 2026-11-20 by its wheels' build dates. Its one wheel for that platform is manylinux_2_17, and
+# it needs no other package there. A move is a pull request that names both hashes again.
+psycopg==3.3.8 --hash=sha256:ca50af6072ba9ea6866f33021975230c2555d7bfdb9d8f94ca3af5c3d1bf2167
+psycopg-binary==3.3.8 --hash=sha256:710183a2e29c72050c3a447f9f566de27c6efea9da40bf7b800381ac57026204
