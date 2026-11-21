@@ -109,6 +109,15 @@ def clean_images(monkeypatch: pytest.MonkeyPatch) -> FakeRegistry:
     return registry
 
 
+@pytest.fixture(autouse = True)
+def no_backups(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Every collect's backups section empty, so the other sections' tests read no backup workflow, which
+    test_backup_freshness.py holds.
+    """
+    monkeypatch.setattr(ew.backup_freshness, "collect_backups", lambda transport, moment: [])
+
+
 @pytest.fixture()
 def registries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """

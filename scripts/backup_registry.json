@@ -1,0 +1,18 @@
+{
+  "_comment": "Each app's backup workflow whose freshness the weekly ecosystem watch reports per source environment (D-111). A backup is fresh when a job named 'Store the backup (<environment>)' and its step 'Store, read back and prune' succeeded within max_age_days. A DEV run, a drill and a skipped job never count for prod.",
+  "max_age_days": 8,
+  "backups": [
+    {
+      "repo": "Needless2Say/fitness-app-backend",
+      "workflow": "backup.yml",
+      "app": "fitness",
+      "environments": ["prod"]
+    },
+    {
+      "repo": "Needless2Say/kriegerdataforge",
+      "workflow": "backup.yml",
+      "app": "hub",
+      "environments": ["prod"]
+    }
+  ]
+}

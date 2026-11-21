@@ -54,6 +54,7 @@ from typing import Any, Protocol
 from urllib.parse import parse_qsl, urlencode, urlparse
 
 # third party imports
+import backup_freshness
 import ecosystem_images
 
 # ======================================================================================================================
@@ -994,10 +995,12 @@ def collect(
     stamp   = moment.strftime(STAMP)
     known   = sorted(releases.known.items())
     images  = ecosystem_images.collect_images(transport.get, registry or registry_client(), moment)
+    backups = collect_backups(transport, moment)
     summary = summarize(results, stamp)
     behind, unread = ecosystem_images.counts(images)
-    # an unreadable tag list, script source or image read is a blind spot, counted with the repos' own
+    # an unreadable tag list, script source, image read or backup workflow is a blind spot, counted with the repos' own
     summary["errors"] += sum(1 for source, release in known if release.error) + len(missing) + unread
+    summary["errors"] += sum(1 for entry in backups if entry["error"])
     summary["images_behind"] = behind
     return {
         "schema": SCHEMA,
@@ -1008,8 +1011,27 @@ def collect(
         "canonical_scripts_unreadable": missing,
         "repos": results,
         "images": images,
+        "backups": backups,
         "summary": summary,
     }
+
+
+def collect_backups(transport: Transport, moment: datetime) -> list[dict[str, Any]]:
+    """
+    The backups' freshness (D-111), a registry that cannot be read reported as a blind spot rather than a failure.
+
+    Args:
+        transport: how GitHub is reached
+        moment: the snapshot's time
+
+    Returns:
+        list[dict[str, Any]]: each backup workflow's freshness
+    """
+    try:
+        return backup_freshness.collect_backups(transport, moment)
+    except (OSError, ValueError, backup_freshness.RegistryError) as unread:
+        registry = "scripts/backup_registry.json"
+        return [{"repo": CICD_REPO, "workflow": registry, "app": "", "findings": [], "fresh": {}, "error": str(unread)}]
 
 
 def summarize(results: list[dict[str, Any]], as_of: str = "") -> dict[str, Any]:
@@ -1432,6 +1454,38 @@ def _images_section(snapshot: dict[str, Any], findings: dict[str, str]) -> list[
     return lines
 
 
+def _backups_section(snapshot: dict[str, Any], findings: dict[str, str]) -> list[str]:
+    """
+    Each listed backup's freshness per source environment (D-111), none when the snapshot predates it.
+
+    Args:
+        snapshot: the snapshot
+        findings: each finding's key and its news line, added to
+
+    Returns:
+        list[str]: the section's lines
+    """
+    if "backups" not in snapshot:
+        return []
+    lines = ["", "### Backups", ""]
+    for entry in snapshot["backups"]:
+        name  = _name(entry["repo"])
+        where = f"{name} `{entry['workflow']}`"
+        if entry.get("error"):
+            lines.append(f"- {where} could not be read, {entry['error']}")
+            findings[f"backup-error:{name}:{entry['workflow']}"] = f"{where} could not be read, {entry['error']}"
+            continue
+        for finding in entry["findings"]:
+            lines.append(f"- {where}, {finding['text']}")
+            findings[f"backup:{name}:{entry['workflow']}:{finding['key']}"] = f"{where}, {finding['text']}"
+        if not entry["findings"]:
+            fresh = ", ".join(f"{environment} stored {stamp}" for environment, stamp in sorted(entry["fresh"].items()))
+            lines.append(f"- {where}, fresh, {fresh}")
+    if len(lines) == 3:
+        lines.append("No backup is listed.")
+    return lines
+
+
 def _errors_section(snapshot: dict[str, Any], findings: dict[str, str]) -> list[str]:
     """
     What could not be read, which keeps the issue open, since a blind spot is a finding too.
@@ -1514,6 +1568,7 @@ def render(
     lines += _kit_check_section(kit_check, findings)
     lines += _notices_section(snapshot["repos"], findings, snapshot["generated_at"])
     lines += _images_section(snapshot, findings)
+    lines += _backups_section(snapshot, findings)
     lines += _errors_section(snapshot, findings)
     run   = f", [run]({run_url})" if run_url else ""
     stamp = f"Snapshot `{snapshot['schema']}` of {snapshot['generated_at']}{run}."
