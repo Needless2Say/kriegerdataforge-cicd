@@ -10,6 +10,8 @@ Usage:
     python scripts/token_repositories.py secrets --names=NAMES   # rotate_secret.py's writes for the named secrets
     python scripts/token_repositories.py staged --names=SLOTS    # the staged slots' entries' writes, and cicd
     python scripts/token_repositories.py watch                   # ecosystem_watch.py's repos, cicd among them
+    python scripts/token_repositories.py oidc --names=CLIENT     # oidc_generations.py's writes for one client, and cicd
+    python scripts/token_repositories.py oidc-runs --names=CLIENT  # the repos of the runs its steps check
 
 A value is bound to --names with `=`, so `--` or a name opening with a dash is a name, matching none and failing, and
 never the end of the options, which would leave the filter empty and the list every target (Codex's step 9 read). An
@@ -147,6 +149,38 @@ def staged_targets(names: str) -> list[str]:
     return [CICD_REPO] + secret_targets(",".join(sorted({slots[slot] for slot in wanted})))
 
 
+def oidc_targets(names: str, runs: bool = False) -> list[str]:
+    """
+    The repos one client's OIDC generation flow reaches (D-112), its writes, cicd where the source and the record live,
+    the hub's pending copy and terraform's active copy, or for the token that reads alone the repos of the runs its
+    steps check.
+
+    Args:
+        names: the client, as its registry entry names it
+        runs: the runs' repos instead of the writes'
+
+    Returns:
+        list[str]: owner and name of each
+
+    Raises:
+        SystemExit: when the registry holds no engine generated entry for the client
+    """
+    wanted  = names.strip()
+    entries = {
+        entry["client"]: entry
+        for entry in registry("secret_registry.json")["secrets"]
+        if entry.get("kind") == "engine_generated"
+    }
+    if wanted not in entries:
+        raise SystemExit(f"token_repositories: no engine generated client named {wanted or 'at all'}")
+    entry = entries[wanted]
+    if runs:
+        return [phase["repo"] for phase in entry["evidence"].values()]
+    return [CICD_REPO] + [
+        target["repo"] for target in entry["pending_github_env_secrets"] + entry["github_env_secrets"]
+    ]
+
+
 def watch_targets() -> list[str]:
     """
     The repos the ecosystem watch reads, cicd and every kit target, as ecosystem_watch.read_registries lists them.
@@ -172,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
             every repo the App reaches
     """
     parser = argparse.ArgumentParser(description = "The repositories a workflow's App token may reach (D-085).")
-    parser.add_argument("kind", choices = ("kit", "scripts", "all", "secrets", "staged", "watch"))
+    parser.add_argument("kind", choices = ("kit", "scripts", "all", "secrets", "staged", "watch", "oidc", "oidc-runs"))
     parser.add_argument("--names", default = "", help = "--repos for a Distribute, the secrets for secrets, with =")
     parser.add_argument(
         "--allow-empty",
@@ -186,6 +220,8 @@ def main(argv: list[str] | None = None) -> int:
         repos = staged_targets(args.names)
     elif args.kind == "watch":
         repos = watch_targets()
+    elif args.kind in ("oidc", "oidc-runs"):
+        repos = oidc_targets(args.names, runs = args.kind == "oidc-runs")
     else:
         repos = sync_targets(args.kind, args.names or None)
     if not repos and not args.allow_empty:

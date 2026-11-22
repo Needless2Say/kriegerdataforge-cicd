@@ -31,14 +31,21 @@ REGISTRY  = ROOT / "scripts" / "secret_registry.json"
 CHECK     = "./.github/workflows/_authorize-owner.yml"
 MINT      = "actions/create-github-app-token@"
 WRITERS   = {"KDF_WRITER_APP_ID", "KDF_WRITER_APP_PRIVATE_KEY", "CICD_PAT", "VERCEL_MASTER_TOKEN"}
-# every staging slot the registry names (D-099), and the projects flow's classic token, a name of its own
+# every staging slot the registry names (D-099), and the projects flow's classic token, a name of its own, then every
+# OIDC client secret's source, the one recoverable copy of a generation in flight (D-112)
 STAGING    = {
     slot["slot"]
     for entry in json.loads(REGISTRY.read_text(encoding = "utf-8"))["secrets"]
     for slot in entry.get("staging", [])
 } | {"PROVISION_PROJECTS_PAT"}
 READER_OPS = {"KDF_READER_APP_ID", "KDF_READER_APP_PRIVATE_KEY"}
-HELD       = WRITERS | STAGING | READER_OPS
+SOURCES    = {
+    source["secret_name"]
+    for entry in json.loads(REGISTRY.read_text(encoding = "utf-8"))["secrets"]
+    if entry.get("kind") == "engine_generated"
+    for source in entry["sources"]
+}
+HELD       = WRITERS | STAGING | READER_OPS | SOURCES
 CRON       = {
     "KDF_HUB_URL_DEV": ("dev", "KDF_HUB_URL"),
     "KDF_HUB_URL_PROD": ("prod", "KDF_HUB_URL"),
@@ -54,6 +61,7 @@ ARM        = "vars.ARM_OPS_SCHEDULE"
 VARIABLES_MINTS = (
     ("rotate-vercel-tokens.yml", "rotate", "facts-token", "kriegerdataforge-cicd"),
     ("distribute-staged.yml", "distribute", "facts-token", "kriegerdataforge-cicd"),
+    ("oidc-client-secrets.yml", "flow", "facts-token", "kriegerdataforge-cicd"),
     ("ops-setup-e2e.yml", "setup", "app-token", "${{ steps.fields.outputs.repo }}"),
 )
 # a key shaped as an RSA key is, one DER sequence whose declared length is the bytes that follow, and the same key with

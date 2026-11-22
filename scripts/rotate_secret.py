@@ -8,10 +8,12 @@ and/or non-Terraform Vercel project env vars. This script is the single front-en
 the scheduled rotation workflows and the owner-only `ops:rotate-secrets` issue form.
 
 SCOPE — CI-plane credentials only. App secrets owned by Terraform (SECRETS_INVENTORY:
-DB URLs, the RS256 keypair, KDF_SERVICE_KEY, STRIPE_*, OIDC client secrets, CRON_SECRET …)
+DB URLs, the RS256 keypair, KDF_SERVICE_KEY, STRIPE_*, CRON_SECRET …)
 must be rotated through the terraform SECRETS_ROTATION runbook, NOT here — a direct API
 write would drift on the next `terraform apply`. Any registry entry flagged
-`"terraform_managed": true` is refused by this engine (fail closed).
+`"terraform_managed": true` is refused by this engine (fail closed). The frontends' OIDC client
+secrets are `engine_generated` entries, terraform consumed and written by scripts/oidc_generations.py
+alone (D-112), so this engine refuses them too and names that writer.
 
 Modes
   generate   Mint fresh value(s) and write them to the registry targets.
@@ -433,6 +435,20 @@ def _refuse_unless_paste(entry: dict) -> None:
 
 
 def _refuse_if_terraform_managed(entry: dict) -> None:
+    """
+    Refuse a write of any entry terraform consumes.
+
+    An `engine_generated` entry, a frontend's OIDC client secret, has one writer, scripts/oidc_generations.py, which
+    carries it from its source in cicd's ops to the hub's pending copy and terraform's environment, each step recorded
+    (D-112), so this engine names that writer. Any other terraform owned entry is rotated through terraform's own
+    runbook, since a direct write would drift on its next apply.
+
+    Args:
+        entry: The registry entry being written
+    """
+    if entry.get("kind") == "engine_generated":
+        writer = "scripts/oidc_generations.py alone, through Ops · OIDC client secrets (D-112)"
+        sys.exit(f"Error: '{entry['name']}' is written by {writer}, never by rotate_secret.py.")
     if entry.get("terraform_managed"):
         sys.exit(
             f"Error: '{entry['name']}' is Terraform-managed — refusing to write it directly "
