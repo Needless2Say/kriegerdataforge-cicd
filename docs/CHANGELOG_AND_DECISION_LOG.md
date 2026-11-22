@@ -5912,3 +5912,33 @@ consumer reports, the third by its strict time alone. Two are not taken. A lost 
 copy's time, so a run made between the two writes is refused and the owner runs it again, and its cure needs a
 fingerprint GitHub does not give. A delete's 404 is taken as gone, since the writer's mint names each repository and
 fails when it cannot reach one. VERSION 0.12.0.
+
+## D-113. The restore's counts in the manifest's schemas, and the scripts' packages pinned to exact versions
+
+- **Date.** 2026-11-22
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Quick, two fixes the owner chose to carry in one pull request · `scripts/kdf_backup/cli.py`'s
+  counts, `scripts/requirements.txt` · no workflow's input, output or secret changed
+
+**Context.** D-111's restore compares the restored tables and counts with the manifest's, every table outside the
+catalogs, each missing from either side a difference. Each Neon source also holds Neon's own `neon_auth` schema, owned
+by Neon's role, and the apps' dumps carry `public` alone, so every live restore into Neon would fail its count check,
+while a drill, restoring into an empty local database, passes. Found while mapping the secrets moves' step 4.
+Separately, `scripts/requirements.txt` held floors, `requests>=2.31.0` and `PyNaCl>=1.5.0`, installed before the token
+step of every `ops` workflow, so a run took whatever release was newest that day.
+
+**Decision.**
+
+1. **The counts** compare only the schemas the manifest names. A dump tool decides which schemas it carries, and
+   within each it names the check stays exact both ways, a table missing or one the manifest lacks a difference. The
+   owner's choice of 2026-11-22.
+2. **The scripts' packages** are pinned to one exact version each, the transitive ones too, `requests` and `PyNaCl`
+   with `certifi`, `charset-normalizer`, `idna`, `urllib3`, `cffi` and `pycparser`, the versions resolved that day. A
+   test holds each line to an exact pin and the names to a written list. The owner chose exact pins over hashes for
+   this file, which every workflow and the Windows venvs install, since hashes would need each platform's wheels and
+   put every file installed beside it in hash mode. D-111's psycopg hash pins, a small install for Linux alone in the
+   store's job, stay. Dependabot's alerts read the file and the weekly watch reports them, so no version update pull
+   requests are added.
+
+**Consequences.** A live restore into a Neon database can pass its count check. A package's bump is a pull request of
+its own. VERSION 0.12.1.

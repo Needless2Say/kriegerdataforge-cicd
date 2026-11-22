@@ -493,8 +493,9 @@ jobs:
 
 A chosen backup's row is checked, its archive fetched and checked again, decrypted and opened in its exact layout, its
 manifest bound to its row. The caller's restore tool loads the dump, given `KDF_RESTORE_DUMP`, `KDF_RESTORE_MANIFEST`,
-`KDF_RESTORE_TARGET_URL` and `KDF_MODE`, and the restored tables and counts are compared with the manifest's, a
-mismatch reported as a committed restore to investigate. In each restore job every step that holds a secret runs
+`KDF_RESTORE_TARGET_URL` and `KDF_MODE`, and the restored tables and counts are compared with the manifest's, in
+the schemas the manifest names, so a schema no app restores, Neon's own `neon_auth`, is left out (D-113), a mismatch
+reported as a committed restore to investigate. In each restore job every step that holds a secret runs
 before the caller's tool.
 
 | Job | Holds | Does |

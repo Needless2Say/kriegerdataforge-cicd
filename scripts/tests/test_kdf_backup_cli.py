@@ -581,6 +581,43 @@ def test_a_restored_count_that_differs_fails_naming_it(
     assert "public.a holds 1 rows, the manifest 2" in capsys.readouterr().out
 
 
+def test_a_schema_the_manifest_does_not_name_is_left_out_of_the_counts(
+    folder: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # a live target on Neon holds Neon's own neon_auth schema, which no app's dump carries or restores
+    write_manifest(folder)
+    monkeypatch.setenv("KDF_RESTORE_TARGET_URL", "postgresql://postgres:local@127.0.0.1:5432/drill")
+    answers = {
+        cli.TABLES: [("neon_auth", "users_sync"), ("public", "a"), ("public", "b")],
+        'SELECT count(*) FROM "neon_auth"."users_sync"': [(3,)],
+        'SELECT count(*) FROM "public"."a"': [(2,)],
+        'SELECT count(*) FROM "public"."b"': [(0,)],
+    }
+    monkeypatch.setattr(cli.store, "connect", lambda url, **_: Connection(answers))
+
+    assert cli.main(["counts"]) == 0
+
+
+def test_a_table_the_manifest_lacks_in_a_schema_it_names_still_fails(
+    folder: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    write_manifest(folder)
+    monkeypatch.setenv("KDF_RESTORE_TARGET_URL", "postgresql://postgres:local@127.0.0.1:5432/drill")
+    answers = {
+        cli.TABLES: [("public", "a"), ("public", "b"), ("public", "c")],
+        'SELECT count(*) FROM "public"."a"': [(2,)],
+        'SELECT count(*) FROM "public"."b"': [(0,)],
+        'SELECT count(*) FROM "public"."c"': [(5,)],
+    }
+    monkeypatch.setattr(cli.store, "connect", lambda url, **_: Connection(answers))
+
+    assert cli.main(["counts"]) == 1
+    assert "public.c is not in the manifest, restored with 5 rows" in capsys.readouterr().out
+
+
 def test_an_unknown_command_is_refused() -> None:
     assert cli.main(["drop"]) == 2
     assert cli.main([]) == 2
