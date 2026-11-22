@@ -58,7 +58,7 @@ MODES:           frozenset[str] = frozenset({"drill", "live"})
 # the majors a drill has a service for on cicd's mirror, each a job of db-restore.yml
 DRILL_MAJORS: frozenset[int] = frozenset({16, 17})
 
-# every table outside the catalogs, as the apps' dump tools count them
+# every table outside the catalogs, which the counts narrow to the schemas the manifest names
 TABLES:             str = (
     "SELECT schemaname, tablename FROM pg_catalog.pg_tables"
     " WHERE schemaname NOT IN ('pg_catalog', 'information_schema') AND left(schemaname, 3) <> 'pg_'"
@@ -544,15 +544,20 @@ def target() -> None:
 
 def counts() -> None:
     """
-    Compare the restored tables and counts with the manifest's.
+    Compare the restored tables and counts with the manifest's, in the schemas the manifest names. A dump tool decides
+    which schemas it carries, and a live target may hold a schema no app restores, Neon's own neon_auth among them,
+    so a schema outside the manifest is left out, and within each schema it names the check is exact both ways.
 
     Raises:
         CliError: any table's count differs, which a committed restore to investigate
     """
     expected = _manifest()["tables"]
+    schemas  = {name.split(".", 1)[0] for name in expected}
     with closing(store.connect(env("KDF_RESTORE_TARGET_URL"))) as connection:
         restored = {}
         for schema, name in connection.execute(TABLES).fetchall():
+            if schema not in schemas:
+                continue
             # the names come from the catalog, each quoted as an identifier
             table = f"{quote_identifier(schema)}.{quote_identifier(name)}"
             query = f"SELECT count(*) FROM {table}"  # noqa: S608  # nosec B608
