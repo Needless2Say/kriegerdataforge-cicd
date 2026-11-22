@@ -62,6 +62,8 @@ Keeping CI/CD logic in one place means deploy behavior is consistent across all 
 | `cd-nextjs-vercel.yml` | Deploy Next.js app to Vercel | fitness-app-frontend, tiffanys-space, arthurs-portfolio |
 | `cd-python-vercel.yml` | Deploy FastAPI app to Vercel with optional Alembic migrations | kriegerdataforge, fitness-app-backend, tiffanys-space-backend |
 | `terraform-run.yml` | The one writer of a terraform environment's state, every plan and apply in its modes (D-102) | kriegerdataforge-terraform |
+| `db-backup.yml` | Back up a database into the backup store, encrypted and signed, each secret in a job of its own (D-111) | fitness-app-backend, kriegerdataforge |
+| `db-restore.yml` | Restore a backup, a drill into a service of its own major or live under the database lock (D-111) | fitness-app-backend, kriegerdataforge |
 | `create-github-release.yml` | Create a GitHub Release and git tag from the `VERSION` file | All repos with a `release.yml` caller |
 | `bump-version-check.yml` | Validate that `VERSION` has been bumped on a PR | All versioned repos |
 | `ci-python-security.yml` | Bandit SAST + pip-audit CVE scan for Python repos | kriegerdataforge, kriegerdataforge-sdk |

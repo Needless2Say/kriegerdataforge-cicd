@@ -194,7 +194,7 @@ on every result GitHub can write.
 
 ## Reusable workflow catalog
 
-30 workflows are `on: workflow_call`. None declares an explicit `secrets:` block, so callers pass
+32 workflows are `on: workflow_call`. None declares an explicit `secrets:` block, so callers pass
 `secrets: inherit`. Permissions are stated as declared in each file (top level and/or per job), an
 undeclared scope means the workflow relies on the caller's / default token.
 
@@ -269,6 +269,11 @@ deployment's runtime logs. The revision is read from alembic's verbose `Rev:` li
   `:178`).
 - **Outputs.** None.
 - **Permissions.** `deploy` job. `contents: read` (D-016 dropped `id-token: write`).
+- **The database lock (D-111).** The `deploy` job holds the concurrency group
+  `kdf-database-<repository>-<environment>`, `cancel-in-progress: false`, the upgrade, smoke, downgrade and
+  promotion inside it. A live restore holds the same group, and a caller's reseed, seed and client change take it at
+  their own job. Running work is never cancelled, a waiting run may be replaced by a newer one, and a caller sets no
+  concurrency of its own on the job that calls this.
 - **Consumers.** `kriegerdataforge` (hub). Registry also lists `fitness-app-backend`,
   `tiffanys-space-backend`, `kriegerdataforge-template-fastapi`.
 
@@ -414,6 +419,112 @@ jobs:
     with:
       environment: ${{ inputs.environment }}                   # dev | prod
       expected_generation: ${{ inputs.expected_generation }}   # e.g. G1
+    secrets: inherit
+```
+
+### Database backup and restore (D-111)
+
+Each app's PROD and DEV databases are backed up into the backup store, a Postgres project of its own, one row per
+backup, encrypted to the app's `age` recipient and signed with its HMAC key, and restored from it. The archive's
+contract, the store's steps and every check are `scripts/kdf_backup/`. Every connection verifies the server's
+certificate, each URL carrying `sslmode=verify-full` and each job naming the runner's bundle in `PGSSLROOTCERT`.
+
+#### `db-backup.yml`
+
+The caller's own dump tool writes a folder of its dump and its `manifest.json`, the snapshot's `taken_at`, the
+server's `server_version`, the dump tool's `pg_dump_version`, the `alembic_revision` and each table's count in
+`tables` from the snapshot the dump imports, and `dump`, its file, bytes and SHA256. cicd packs it, encrypts it, signs
+the row and stores it. Its jobs hold their secrets apart, since any step can change what a later step of its job runs.
+
+| Job | Holds | Does |
+|---|---|---|
+| `authorize` | nothing | the deployer allow list |
+| `precheck` | `BACKUP_STORE_WRITER_URL` | checks the options, then the whole store and `bound_bytes` against `capacity_bytes`, before any dump |
+| `dump` | `DB_BACKUP_URL` | runs `dump_command` with `KDF_BACKUP_OUT`, packs, encrypts to `recipient_file`, passes on the sealed archive alone for a day, as `kdf-backup-sealed-<app>-<environment>` |
+| `verify` | `BACKUP_AGE_IDENTITY` | cicd's code alone. Decrypts and opens the sealed archive, its manifest bound to its metadata and its dump a custom archive, removes the plaintext and gives the archive's SHA256 on |
+| `store` | `BACKUP_HMAC_KEY`, `BACKUP_STORE_WRITER_URL` | cicd's code alone. Checks the archive against its metadata, the run's scope and the SHA256 `verify` opened, signs, then under the store's one lock compares the last receipt, checks the capacity again, inserts, reads back and prunes, and leaves the run's receipt |
+| `report` | nothing | opens or comments on an issue, `ops:backup-<app>-<environment>`, when a scheduled run failed or the store raised one |
+
+| Input | Type | Default | Required |
+|---|---|---|---|
+| `app` | string | | **yes.** The store's app column |
+| `environment` | string | | **yes.** `dev` or `prod` |
+| `dump_command` | string | | **yes.** The caller's dump tool, run in its checkout |
+| `recipient_file` | string | | **yes.** The committed `age` recipient's path |
+| `prune` | boolean | `false` | no. Off for the first sizing runs |
+| `keep` | string | `""` | N, required once `prune` is on, checked before the dump |
+| `capacity_bytes` | string | `"1000000000"` | no |
+| `bound_bytes` | string | `"100000000"` | no. The next archive's bound, set from the first sizes |
+| `lock_wait_seconds` | string | `"600"` | no |
+
+- **Secrets read (via `inherit`).** `DB_BACKUP_URL`, the source's read only role on its direct host, and
+  `BACKUP_STORE_WRITER_URL`, `BACKUP_HMAC_KEY` and `BACKUP_AGE_IDENTITY`, each in the caller's environment.
+- **Outputs.** `backup_id`.
+- **The prune.** A row counts only when its signature checks over its own columns and the store's own SHA256 of its
+  archive is its digest, ranked by its signed `taken_at`, then `backup_id`, the newest `keep` kept and the rest
+  deleted by name, the store's floor keeping any younger. A row missing, changed or unexplained since the last
+  receipt, or no receipt for a scope that holds rows, skips the prune and raises an issue, the backup standing.
+- **The freshness.** The weekly ecosystem watch reports each backup `scripts/backup_registry.json` lists, by its
+  store job, `Store the backup (<environment>)`, and that job's step `Store, read back and prune`.
+
+```yaml
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+jobs:
+  backup:
+    # the schedule armed by a repository variable once DEV is accepted
+    if: github.event_name == 'workflow_dispatch' || vars.RUN_BACKUP_SCHEDULE == 'true'
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/db-backup.yml@main
+    with:
+      app: fitness
+      environment: prod
+      dump_command: python scripts/db_backup.py --out "$KDF_BACKUP_OUT"
+      recipient_file: .github/backup/age-recipient-prod.txt
+    secrets: inherit
+```
+
+#### `db-restore.yml`
+
+A chosen backup's row is checked, its archive fetched and checked again, decrypted and opened in its exact layout, its
+manifest bound to its row. The caller's restore tool loads the dump, given `KDF_RESTORE_DUMP`, `KDF_RESTORE_MANIFEST`,
+`KDF_RESTORE_TARGET_URL` and `KDF_MODE`, and the restored tables and counts are compared with the manifest's, a
+mismatch reported as a committed restore to investigate. In each restore job every step that holds a secret runs
+before the caller's tool.
+
+| Job | Holds | Does |
+|---|---|---|
+| `plan` | `BACKUP_STORE_READER_URL`, `BACKUP_HMAC_KEY` | refuses a live restore into prod unless `confirm` reads `restore <app> prod <backup_id>`, then checks the row and gives its server's major |
+| `drill-16`, `drill-17` | the reader's string, the HMAC key, `BACKUP_AGE_IDENTITY` | a drill into a service of the job's own of the archive's major on cicd's mirror, Postgres 16's kept digest or 17's pinned one, taking no live destination |
+| `live` | as the drill's, and `DB_DATABASE_URL` | a restore into the environment's database under the database lock |
+
+| Input | Type | Default | Required |
+|---|---|---|---|
+| `app` | string | | **yes** |
+| `environment` | string | | **yes.** `dev` or `prod` |
+| `backup_id` | string | | **yes** |
+| `mode` | string | `drill` | no. `drill` or `live` |
+| `restore_command` | string | | **yes.** The caller's restore tool, run in its checkout |
+| `confirm` | string | `""` | for a live restore into prod |
+
+```yaml
+jobs:
+  restore:
+    permissions:
+      contents: read
+    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/db-restore.yml@main
+    with:
+      app: fitness
+      environment: ${{ inputs.environment }}
+      backup_id: ${{ inputs.backup_id }}
+      mode: ${{ inputs.mode }}
+      confirm: ${{ inputs.confirm }}
+      restore_command: python scripts/db_restore.py
     secrets: inherit
 ```
 
@@ -995,6 +1106,8 @@ shown where it differs from top level):
 |---|---|
 | `cd-nextjs-vercel.yml` | `authorize`: `contents:read`, `deploy`: `contents:read` |
 | `cd-python-vercel.yml` | `authorize`: `contents:read`, `deploy`: `contents:read` |
+| `db-backup.yml` | `authorize`, `precheck`, `dump`, `verify`: `contents:read`, `store`: `contents:read` + `actions:read`, `report`: `issues:write` (caller must grant) |
+| `db-restore.yml` | every job: `contents:read` |
 | `terraform-run.yml` | `authorize`: `contents:read`, `run`: `contents:read` + `actions:read` + `deployments:write` |
 | `bump-version-check.yml` | job: `contents:read` |
 | `create-github-release.yml` | job: `contents:write` (caller must grant) |

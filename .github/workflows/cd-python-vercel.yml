@@ -191,6 +191,13 @@ jobs:
     # the pinned Vercel CLI never requests a GitHub OIDC token.
     environment: ${{ inputs.environment }}
 
+    # The one database lock of the repository and environment (D-111), which a restore, a reseed, a seed and a
+    # client change take too, the upgrade, smoke, downgrade and promotion inside it. Running work is never
+    # cancelled by a newer request, and a waiting run may be replaced by a newer one, so a caller sets none of its own.
+    concurrency:
+      group: kdf-database-${{ github.repository }}-${{ inputs.environment }}
+      cancel-in-progress: false
+
     permissions:
       contents: read
 

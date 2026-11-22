@@ -1,6 +1,10 @@
 """
 Shared backup logic for all KDF database backup scripts.
 
+The connection string comes from --url, else DB_BACKUP_URL in the environment, else the env file, Tiffany's path kept
+as it is. pg_dump gets it as libpq's PG variables in its own environment, never in its arguments, which a process
+listing shows, and a failure is reported with the password masked, never the raw stderr (the secrets moves, step 2).
+
 Usage (from a tenant script):
     from common.db_backup_base import run_backup
 
@@ -18,8 +22,19 @@ import os
 import shutil
 import subprocess
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import parse_qsl, unquote, urlsplit
+
+# each URL query parameter libpq also reads from its environment, by the variable's name
+QUERY_VARIABLES: dict[str, str] = {
+    "sslmode": "PGSSLMODE",
+    "sslrootcert": "PGSSLROOTCERT",
+    "channel_binding": "PGCHANNELBINDING",
+    "connect_timeout": "PGCONNECT_TIMEOUT",
+    "options": "PGOPTIONS",
+    "application_name": "PGAPPNAME",
+}
 
 
 def _check_pg_dump() -> None:
@@ -62,6 +77,56 @@ def _load_env_file(env_file: str) -> None:
             os.environ.setdefault(key, value)
 
 
+def connection_environment(db_url: str) -> dict[str, str]:
+    """
+    libpq's variables for a connection URL, so pg_dump's arguments carry no password.
+
+    Args:
+        db_url: A postgresql:// URL, a SQLAlchemy driver suffix allowed
+
+    Returns:
+        dict[str, str]: Each variable set, PGSSLMODE verify-full when the URL names none
+    """
+    scheme, _, rest = db_url.partition("://")
+    if scheme.split("+", 1)[0] not in ("postgresql", "postgres") or not rest:
+        sys.exit("Error: the connection string is not a postgresql:// URL.")
+    parts  = urlsplit("postgresql://" + rest)
+    values = {
+        "PGHOST": parts.hostname,
+        "PGPORT": str(parts.port) if parts.port else None,
+        "PGUSER": unquote(parts.username) if parts.username else None,
+        "PGPASSWORD": unquote(parts.password) if parts.password else None,
+        "PGDATABASE": unquote(parts.path.lstrip("/")) or None,
+        "PGSSLMODE": "verify-full",
+    }
+    for name, value in parse_qsl(parts.query):
+        if name not in QUERY_VARIABLES:
+            sys.exit(f"Error: the connection string's option {name} is not one this helper passes on.")
+        values[QUERY_VARIABLES[name]] = value
+    return {name: value for name, value in values.items() if value}
+
+
+def masked(text: str, db_url: str) -> str:
+    """
+    A message with the URL's password masked wherever it appears.
+
+    Args:
+        text: The message
+        db_url: The URL
+
+    Returns:
+        str: The message masked
+    """
+    rest = db_url.partition("://")[2]
+    try:
+        password = urlsplit("postgresql://" + rest).password if rest else None
+    except ValueError:
+        password = None
+    for value in filter(None, {password, unquote(password) if password else None}):
+        text = text.replace(value, "***")
+    return text
+
+
 def run_backup(app_name: str, default_env_file: str = ".env.backup") -> None:
     """
     Parse CLI args and run pg_dump for the given app.
@@ -101,9 +166,11 @@ def run_backup(app_name: str, default_env_file: str = ".env.backup") -> None:
 
     _check_pg_dump()
 
-    # resolve database URL
+    # resolve database URL, the environment's before the env file, which a job never has
     if args.url:
         db_url = args.url
+    elif os.environ.get("DB_BACKUP_URL"):
+        db_url = os.environ["DB_BACKUP_URL"]
     else:
         _load_env_file(args.env_file)
         db_url = os.environ.get("DB_BACKUP_URL")
@@ -111,7 +178,7 @@ def run_backup(app_name: str, default_env_file: str = ".env.backup") -> None:
             sys.exit(f"Error: DB_BACKUP_URL not set.\n" f"Supply --url or set DB_BACKUP_URL in {args.env_file}.")
 
     # resolve output path
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     filename  = f"{app_name}_{args.env}_{timestamp}.dump"
 
     if args.out_dir:
@@ -125,7 +192,16 @@ def run_backup(app_name: str, default_env_file: str = ".env.backup") -> None:
     out_dir.mkdir(parents = True, exist_ok = True)
     out_path = out_dir / filename
 
-    # run pg_dump
+    # run pg_dump, the connection in libpq's variables alone and never in its arguments
+    # the child's connection is the URL's alone, so an ambient PG variable never picks another database, the trust
+    # bundle's path kept, since it chooses no database
+    connection = connection_environment(db_url)
+    child_env  = {
+        name: value
+        for name, value in os.environ.items()
+        if name != "DB_BACKUP_URL" and (not name.startswith("PG") or name == "PGSSLROOTCERT")
+    }
+    child_env.update(connection)
     print(f"Backing up {app_name} [{args.env}] → {out_path}")
     result = subprocess.run(
         [
@@ -134,14 +210,15 @@ def run_backup(app_name: str, default_env_file: str = ".env.backup") -> None:
             "--no-password",
             "--file",
             str(out_path),
-            db_url,
         ],
         capture_output = True,
         text = True,
+        env = child_env,
     )
 
     if result.returncode != 0:
-        sys.exit(f"pg_dump failed (exit {result.returncode}):\n" f"{result.stderr.strip()}")
+        print(masked(result.stderr.strip(), db_url), file = sys.stderr)
+        sys.exit(f"pg_dump failed against {connection.get('PGHOST', 'the database')} (exit {result.returncode})")
 
     size_bytes = out_path.stat().st_size
     size_kb    = size_bytes / 1024

@@ -1,0 +1,463 @@
+# Reusable database backup into the backup store, a Neon project of its own (the secrets moves, step 2, ADR D-111).
+#
+# The caller's own dump tool writes a folder of its dump and its manifest (scripts/kdf_backup/archive.py holds the
+# contract). cicd packs it, encrypts it to the caller's committed age recipient, signs the row's plain columns with
+# the caller's HMAC key, stores it as one row, reads it back and prunes, every step from cicd's scripts/kdf_backup/.
+#
+# Each job holds only its own secrets, since any step can change what a later step of its job runs.
+#   authorize  the deployer allow list, as every deploy checks it (scripts/check_deployer.py)
+#   precheck   BACKUP_STORE_WRITER_URL. The options checked, then the whole store and the next archive's bound against
+#              the capacity, before any dump
+#   dump       DB_BACKUP_URL alone. The caller's dump tool, then the pack and the encryption, the sealed archive passed
+#              on for a day and the plaintext removed
+#   verify     BACKUP_AGE_IDENTITY alone, running cicd's code alone. The sealed archive decrypted and opened, its
+#              manifest bound to its metadata and its dump a custom archive, before the store may sign it, so a dump
+#              job that sealed to the wrong key never stores a backup none can restore
+#   store      BACKUP_HMAC_KEY and BACKUP_STORE_WRITER_URL, running cicd's code alone. The archive checked against
+#              its metadata and this run's scope, signed, then stored, read back and pruned under the store's one lock,
+#              and the run's receipt left for the next run to compare before its prune
+#   report     an issue in the caller's repository, opened or commented, when a scheduled run failed or the store
+#              raised one, a skipped prune or a row that fails a check
+#
+# Every connection verifies the server's certificate, the store's and the source's URLs carrying
+# sslmode=verify-full and PGSSLROOTCERT naming the runner's system bundle, so a URL without it fails closed.
+#
+# Caller (the app repository's backup.yml), its schedule armed by a repository variable once DEV is accepted:
+#   on:
+#     schedule:
+#       - cron: "17 6 * * 1"
+#     workflow_dispatch:
+#   jobs:
+#     backup:
+#       if: github.event_name == 'workflow_dispatch' || vars.RUN_BACKUP_SCHEDULE == 'true'
+#       permissions:
+#         contents: read
+#         actions: read
+#         issues: write
+#       uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/db-backup.yml@main
+#       with:
+#         app: fitness
+#         environment: prod
+#         dump_command: python scripts/db_backup.py --out "$KDF_BACKUP_OUT"
+#         recipient_file: .github/backup/age-recipient-prod.txt
+#       secrets: inherit
+
+name: Database backup
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        description: The app's short name, the store's app column
+        type: string
+        required: true
+      environment:
+        description: dev or prod, the environment whose secrets the jobs read
+        type: string
+        required: true
+      dump_command:
+        description: The caller's dump tool, run in its checkout with DB_BACKUP_URL and KDF_BACKUP_OUT, its folder
+        type: string
+        required: true
+      recipient_file:
+        description: The caller's committed age recipient for this environment, a path in its repository
+        type: string
+        required: true
+      prune:
+        description: Whether the run prunes, off for the first sizing runs
+        type: boolean
+        required: false
+        default: false
+      keep:
+        description: N, the newest valid backups of the scope a prune keeps, required once pruning is on
+        type: string
+        required: false
+        default: ""
+      capacity_bytes:
+        description: The backup store's capacity in bytes, every app's backups together
+        type: string
+        required: false
+        default: "1000000000"
+      bound_bytes:
+        description: The bound on the next archive's size in bytes, set from the first sizes
+        type: string
+        required: false
+        default: "100000000"
+      lock_wait_seconds:
+        description: How long the store job waits for the store's lock before it fails
+        type: string
+        required: false
+        default: "600"
+    outputs:
+      backup_id:
+        description: The new backup's id
+        value: ${{ jobs.dump.outputs.backup_id }}
+
+permissions:
+  contents: read
+
+jobs:
+  authorize:
+    name: Authorize deployer
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Check out deployer registry (kriegerdataforge-cicd)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Needless2Say/kriegerdataforge-cicd
+          ref: main
+          sparse-checkout: scripts
+          path: _kdf_cicd
+          persist-credentials: false
+          token: ${{ github.token }}
+
+      - name: Verify deployer is approved
+        run: python3 _kdf_cicd/scripts/check_deployer.py
+        env:
+          DEPLOY_REPO: ${{ github.repository }}
+          DEPLOY_ACTOR: ${{ github.triggering_actor }}
+          DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+
+  precheck:
+    name: Precheck the store (${{ inputs.environment }})
+    needs: authorize
+    # a rerun of failed jobs alone keeps the deployer check's pass, so only the login that started the run reruns it
+    if: github.actor == github.triggering_actor
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+    steps:
+      - name: Check out cicd's backup scripts
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Needless2Say/kriegerdataforge-cicd
+          ref: main
+          sparse-checkout: scripts
+          path: _kdf_cicd
+          persist-credentials: false
+          token: ${{ github.token }}
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+
+      - name: Install the store client, by its hashes
+        run: |
+          python -I -m pip install --require-hashes --no-deps --only-binary=:all: -r _kdf_cicd/scripts/kdf_backup/requirements.txt
+
+      - name: Check the options
+        env:
+          KDF_PRUNE: ${{ inputs.prune }}
+          KDF_KEEP: ${{ inputs.keep }}
+          KDF_CAPACITY: ${{ inputs.capacity_bytes }}
+          KDF_BOUND: ${{ inputs.bound_bytes }}
+          KDF_LOCK_WAIT: ${{ inputs.lock_wait_seconds }}
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli options
+
+      - name: Precheck the store's capacity
+        env:
+          BACKUP_STORE_WRITER_URL: ${{ secrets.BACKUP_STORE_WRITER_URL }}
+          PGSSLROOTCERT: /etc/ssl/certs/ca-certificates.crt
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli precheck
+
+  dump:
+    name: Dump and seal (${{ inputs.environment }})
+    needs: [authorize, precheck]
+    if: github.actor == github.triggering_actor
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+    outputs:
+      backup_id: ${{ steps.pack.outputs.backup_id }}
+    steps:
+      - name: Check out the caller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Check out cicd's backup scripts
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Needless2Say/kriegerdataforge-cicd
+          ref: main
+          sparse-checkout: scripts
+          path: _kdf_cicd
+          persist-credentials: false
+          token: ${{ github.token }}
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+
+      - name: Install age
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends age
+          age --version
+
+      - name: Dump with the caller's own tool
+        env:
+          DB_BACKUP_URL: ${{ secrets.DB_BACKUP_URL }}
+          KDF_BACKUP_OUT: ${{ runner.temp }}/kdf-backup-tool
+          PGSSLROOTCERT: /etc/ssl/certs/ca-certificates.crt
+        run: ${{ inputs.dump_command }}  # zizmor: ignore[template-injection] the caller's own command by design
+
+      - name: Pack the archive
+        id: pack
+        env:
+          KDF_APP: ${{ inputs.app }}
+          KDF_ENVIRONMENT: ${{ inputs.environment }}
+          KDF_TOOL_DIR: ${{ runner.temp }}/kdf-backup-tool
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli pack
+
+      - name: Encrypt to the caller's recipient
+        env:
+          KDF_RECIPIENT_FILE: ${{ github.workspace }}/${{ inputs.recipient_file }}
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli encrypt
+
+      - name: Pass the sealed archive on
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: kdf-backup-sealed-${{ inputs.app }}-${{ inputs.environment }}
+          path: |
+            ${{ runner.temp }}/kdf-backup/archive.age
+            ${{ runner.temp }}/kdf-backup/metadata.json
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Remove the plaintext
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/kdf-backup-tool" "$RUNNER_TEMP/kdf-backup"
+
+  verify:
+    name: Verify the sealed archive (${{ inputs.environment }})
+    needs: [authorize, dump]
+    if: github.actor == github.triggering_actor
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+    outputs:
+      sealed_sha256: ${{ steps.verify.outputs.sealed_sha256 }}
+    steps:
+      - name: Check out cicd's backup scripts
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Needless2Say/kriegerdataforge-cicd
+          ref: main
+          sparse-checkout: scripts
+          path: _kdf_cicd
+          persist-credentials: false
+          token: ${{ github.token }}
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+
+      - name: Install age
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends age
+          age --version
+
+      - name: Take the sealed archive
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: kdf-backup-sealed-${{ inputs.app }}-${{ inputs.environment }}
+          path: ${{ runner.temp }}/kdf-backup
+
+      - name: Decrypt and open it
+        id: verify
+        env:
+          BACKUP_AGE_IDENTITY: ${{ secrets.BACKUP_AGE_IDENTITY }}
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli verify
+
+      - name: Remove the work folder
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/kdf-backup"
+
+  store:
+    name: Store the backup (${{ inputs.environment }})
+    needs: [authorize, dump, verify]
+    if: github.actor == github.triggering_actor
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      issues: ${{ steps.store.outputs.issues }}
+    steps:
+      - name: Check out cicd's backup scripts
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Needless2Say/kriegerdataforge-cicd
+          ref: main
+          sparse-checkout: scripts
+          path: _kdf_cicd
+          persist-credentials: false
+          token: ${{ github.token }}
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+
+      - name: Install the store client, by its hashes
+        run: |
+          python -I -m pip install --require-hashes --no-deps --only-binary=:all: -r _kdf_cicd/scripts/kdf_backup/requirements.txt
+
+      - name: Take the sealed archive
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: kdf-backup-sealed-${{ inputs.app }}-${{ inputs.environment }}
+          path: ${{ runner.temp }}/kdf-backup
+
+      - name: Check the options
+        env:
+          KDF_PRUNE: ${{ inputs.prune }}
+          KDF_KEEP: ${{ inputs.keep }}
+          KDF_CAPACITY: ${{ inputs.capacity_bytes }}
+          KDF_BOUND: ${{ inputs.bound_bytes }}
+          KDF_LOCK_WAIT: ${{ inputs.lock_wait_seconds }}
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli options
+
+      - name: Find the last receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KDF_APP: ${{ inputs.app }}
+          KDF_ENVIRONMENT: ${{ inputs.environment }}
+          CALLER_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+          [[ "$KDF_APP" =~ ^[a-z][a-z0-9-]{0,31}$ && "$KDF_ENVIRONMENT" =~ ^(dev|prod)$ ]] \
+            || { echo "::error::the app or the environment is out of its shape"; exit 1; }
+          # the caller's own workflow file, whose scheduled or dispatched runs on main alone leave this scope's receipt
+          caller="${CALLER_REF#"${GITHUB_REPOSITORY}/"}"
+          caller="${caller%%@*}"
+          name="kdf-backup-receipt-${KDF_APP}-${KDF_ENVIRONMENT}"
+          # a lookup that fails finds no receipt, which skips the prune and raises an issue, the backup standing
+          listed="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${name}&per_page=30" \
+            --jq '.artifacts[] | select(.expired | not) | "\(.id) \(.workflow_run.id)"')" || listed=""
+          found=""
+          while read -r artifact run; do
+            if [ -z "$artifact" ] || [ "$run" = "$GITHUB_RUN_ID" ]; then
+              continue
+            fi
+            made="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run}" \
+              --jq '[.path, .event, .head_branch, .head_repository.full_name] | join(" ")')" || made=""
+            case "$made" in
+              "${caller} schedule main ${GITHUB_REPOSITORY}" | "${caller} workflow_dispatch main ${GITHUB_REPOSITORY}")
+                found="$artifact"
+                break
+                ;;
+            esac
+          done <<< "$listed"
+          if [ -n "$found" ]; then
+            mkdir -p "$RUNNER_TEMP/kdf-backup/previous"
+            if gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${found}/zip" > "$RUNNER_TEMP/receipt.zip" \
+              && unzip -o -q "$RUNNER_TEMP/receipt.zip" receipt.json -d "$RUNNER_TEMP/kdf-backup/previous"; then
+              echo "the last receipt is the artifact ${found}, from ${caller}"
+            else
+              echo "::warning::the artifact ${found} gave no receipt.json, so no receipt counts"
+            fi
+          else
+            echo "no receipt of ${name} from ${caller} before this run"
+          fi
+
+      - name: Sign the row
+        env:
+          BACKUP_HMAC_KEY: ${{ secrets.BACKUP_HMAC_KEY }}
+          KDF_APP: ${{ inputs.app }}
+          KDF_ENVIRONMENT: ${{ inputs.environment }}
+          KDF_VERIFIED_SHA256: ${{ needs.verify.outputs.sealed_sha256 }}
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli sign
+
+      - name: Store, read back and prune
+        id: store
+        env:
+          BACKUP_STORE_WRITER_URL: ${{ secrets.BACKUP_STORE_WRITER_URL }}
+          BACKUP_HMAC_KEY: ${{ secrets.BACKUP_HMAC_KEY }}
+          KDF_PREVIOUS_RECEIPT: ${{ runner.temp }}/kdf-backup/previous/receipt.json
+          PGSSLROOTCERT: /etc/ssl/certs/ca-certificates.crt
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli store
+
+      - name: Leave the receipt
+        if: steps.store.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: kdf-backup-receipt-${{ inputs.app }}-${{ inputs.environment }}
+          path: |
+            ${{ runner.temp }}/kdf-backup/receipt.json
+            ${{ runner.temp }}/kdf-backup/issues.md
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Remove the work folder
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/kdf-backup" "$RUNNER_TEMP/receipt.zip"
+
+  report:
+    name: Report the backup (${{ inputs.environment }})
+    needs: [authorize, precheck, dump, verify, store]
+    if: >-
+      always() && github.actor == github.triggering_actor
+      && ((github.event_name == 'schedule' && contains(needs.*.result, 'failure'))
+          || needs.store.outputs.issues == 'true')
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Take the store's issues
+        if: needs.store.outputs.issues == 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: kdf-backup-receipt-${{ inputs.app }}-${{ inputs.environment }}
+          path: ${{ runner.temp }}/kdf-backup-receipt
+
+      - name: Open or comment on the backup's issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KDF_APP: ${{ inputs.app }}
+          KDF_ENVIRONMENT: ${{ inputs.environment }}
+          FAILED: ${{ contains(needs.*.result, 'failure') }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$KDF_APP" =~ ^[a-z][a-z0-9-]{0,31}$ && "$KDF_ENVIRONMENT" =~ ^(dev|prod)$ ]] \
+            || { echo "::error::the app or the environment is out of its shape"; exit 1; }
+          label="ops:backup-${KDF_APP}-${KDF_ENVIRONMENT}"
+          issues="$RUNNER_TEMP/kdf-backup-receipt/issues.md"
+          {
+            if [ "$FAILED" = "true" ]; then
+              echo "The scheduled backup of ${KDF_APP} in ${KDF_ENVIRONMENT} failed."
+            else
+              echo "The backup of ${KDF_APP} in ${KDF_ENVIRONMENT} stands, and the store raised what follows."
+            fi
+            echo
+            if [ -s "$issues" ]; then cat "$issues"; echo; fi
+            echo "Run: ${RUN_URL}"
+          } > "$RUNNER_TEMP/issue.md"
+          gh label create "$label" --repo "$GITHUB_REPOSITORY" --color B60205 \
+            --description "A backup that needs the owner" 2>/dev/null || true
+          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --label "$label" --state open \
+            --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/issue.md"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "[Backup] ${KDF_APP} ${KDF_ENVIRONMENT} needs a look" \
+              --label "$label" --body-file "$RUNNER_TEMP/issue.md"
+          fi

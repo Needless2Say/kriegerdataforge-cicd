@@ -1,0 +1,434 @@
+# Reusable database restore from the backup store (the secrets moves, step 2, ADR D-111).
+#
+# A chosen backup's row is checked, its signature over its own columns and the store's SHA256 of its archive, then the
+# archive is fetched, checked again, decrypted and opened in its exact layout, its manifest bound to its row. The
+# caller's own restore tool loads the dump, and the restored tables and counts are compared with the manifest's, a
+# mismatch reported as a committed restore to investigate.
+#
+#   authorize  the deployer allow list (scripts/check_deployer.py)
+#   plan       BACKUP_STORE_READER_URL and BACKUP_HMAC_KEY. A live restore into prod refused unless its confirm reads
+#              "restore <app> prod <backup_id>", then the row checked and its server's major given on
+#   drill-16   a drill, into a service of the job's own of the archive's major, Postgres 16 or 17 on cicd's mirror,
+#   drill-17   which takes no live destination, starts no app and uploads nothing. The job's end discards the service
+#   live       a restore into the environment's own database, DB_DATABASE_URL, under the one database lock every
+#              restore, reseed, seed, client change and deploy of the repository and environment takes
+#
+# In each restore job every step that holds a secret runs before the caller's tool, and none after it. A drill is
+# held to the job's own service, and no restore loads an archive from a newer pg_dump than its server.
+#
+# Caller (the app repository's restore.yml):
+#   on:
+#     workflow_dispatch:
+#       inputs:
+#         environment: {type: choice, options: [dev, prod]}
+#         backup_id: {type: string, required: true}
+#         mode: {type: choice, options: [drill, live], default: drill}
+#         confirm: {type: string, required: false}
+#   jobs:
+#     restore:
+#       permissions:
+#         contents: read
+#       uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/db-restore.yml@main
+#       with:
+#         app: fitness
+#         environment: ${{ inputs.environment }}
+#         backup_id: ${{ inputs.backup_id }}
+#         mode: ${{ inputs.mode }}
+#         confirm: ${{ inputs.confirm }}
+#         restore_command: python scripts/db_restore.py
+#       secrets: inherit
+# The caller sets no concurrency of its own on this job, since the live job holds the database lock itself.
+
+name: Database restore
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        description: The app's short name, the store's app column
+        type: string
+        required: true
+      environment:
+        description: dev or prod, the environment whose backups and secrets the jobs read
+        type: string
+        required: true
+      backup_id:
+        description: The backup to restore, its id
+        type: string
+        required: true
+      mode:
+        description: drill, into a service of the job's own, or live, into the environment's database
+        type: string
+        required: false
+        default: drill
+      restore_command:
+        description: >-
+          The caller's restore tool, run in its checkout with KDF_RESTORE_DUMP, KDF_RESTORE_MANIFEST,
+          KDF_RESTORE_TARGET_URL and KDF_MODE
+        type: string
+        required: true
+      confirm:
+        description: For a live restore into prod, "restore <app> prod <backup_id>"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  authorize:
+    name: Authorize deployer
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Check out deployer registry (kriegerdataforge-cicd)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Needless2Say/kriegerdataforge-cicd
+          ref: main
+          sparse-checkout: scripts
+          path: _kdf_cicd
+          persist-credentials: false
+          token: ${{ github.token }}
+
+      - name: Verify deployer is approved
+        run: python3 _kdf_cicd/scripts/check_deployer.py
+        env:
+          DEPLOY_REPO: ${{ github.repository }}
+          DEPLOY_ACTOR: ${{ github.triggering_actor }}
+          DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+
+  plan:
+    name: Check the backup (${{ inputs.environment }})
+    needs: authorize
+    # a rerun of failed jobs alone keeps the deployer check's pass, so only the login that started the run reruns it
+    if: github.actor == github.triggering_actor
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+    outputs:
+      major: ${{ steps.plan.outputs.major }}
+    steps:
+      - name: Check the request
+        env:
+          KDF_MODE: ${{ inputs.mode }}
+          KDF_APP: ${{ inputs.app }}
+          KDF_ENVIRONMENT: ${{ inputs.environment }}
+          KDF_BACKUP_ID: ${{ inputs.backup_id }}
+          KDF_CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          [[ "$KDF_MODE" =~ ^(drill|live)$ ]] || { echo "::error::the mode is neither drill nor live"; exit 1; }
+          if [ "$KDF_MODE" = live ] && [ "$KDF_ENVIRONMENT" = prod ] \
+            && [ "$KDF_CONFIRM" != "restore ${KDF_APP} prod ${KDF_BACKUP_ID}" ]; then
+            echo "::error::a live restore into prod needs confirm to read: restore <app> prod <backup_id>"
+            exit 1
+          fi
+
+      - name: Check out cicd's backup scripts
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Needless2Say/kriegerdataforge-cicd
+          ref: main
+          sparse-checkout: scripts
+          path: _kdf_cicd
+          persist-credentials: false
+          token: ${{ github.token }}
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+
+      - name: Install the store client, by its hashes
+        run: |
+          python -I -m pip install --require-hashes --no-deps --only-binary=:all: -r _kdf_cicd/scripts/kdf_backup/requirements.txt
+
+      - name: Check the row and read its major
+        id: plan
+        env:
+          BACKUP_STORE_READER_URL: ${{ secrets.BACKUP_STORE_READER_URL }}
+          BACKUP_HMAC_KEY: ${{ secrets.BACKUP_HMAC_KEY }}
+          KDF_APP: ${{ inputs.app }}
+          KDF_ENVIRONMENT: ${{ inputs.environment }}
+          KDF_BACKUP_ID: ${{ inputs.backup_id }}
+          KDF_MODE: ${{ inputs.mode }}
+          PGSSLROOTCERT: /etc/ssl/certs/ca-certificates.crt
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli plan
+
+  drill-16:
+    name: Drill on Postgres 16 (${{ inputs.environment }})
+    needs: [authorize, plan]
+    if: github.actor == github.triggering_actor && inputs.mode == 'drill' && needs.plan.outputs.major == '16'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: ghcr.io/needless2say/postgres@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
+        env:
+          POSTGRES_USER: kdf_drill
+          POSTGRES_PASSWORD: kdf-drill-local
+          POSTGRES_DB: kdf_drill
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kdf_drill -d kdf_drill" --health-interval 5s --health-timeout 5s
+          --health-retries 30
+    env:
+      KDF_MODE: drill
+      KDF_RESTORE_TARGET_URL: postgresql://kdf_drill:kdf-drill-local@127.0.0.1:5432/kdf_drill
+    steps:
+      - name: Check out the caller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Check out cicd's backup scripts
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Needless2Say/kriegerdataforge-cicd
+          ref: main
+          sparse-checkout: scripts
+          path: _kdf_cicd
+          persist-credentials: false
+          token: ${{ github.token }}
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+
+      - name: Install the store client by its hashes, and age
+        run: |
+          python -I -m pip install --require-hashes --no-deps --only-binary=:all: -r _kdf_cicd/scripts/kdf_backup/requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends age
+          age --version
+
+      - name: Fetch the archive
+        env:
+          BACKUP_STORE_READER_URL: ${{ secrets.BACKUP_STORE_READER_URL }}
+          KDF_APP: ${{ inputs.app }}
+          KDF_ENVIRONMENT: ${{ inputs.environment }}
+          KDF_BACKUP_ID: ${{ inputs.backup_id }}
+          PGSSLROOTCERT: /etc/ssl/certs/ca-certificates.crt
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli fetch
+
+      - name: Check its signature and digests
+        env:
+          BACKUP_HMAC_KEY: ${{ secrets.BACKUP_HMAC_KEY }}
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli check
+
+      - name: Decrypt it
+        env:
+          BACKUP_AGE_IDENTITY: ${{ secrets.BACKUP_AGE_IDENTITY }}
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli decrypt
+
+      - name: Open it
+        id: open
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli open
+
+      - name: Check the target
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli target
+
+      - name: Restore with the caller's own tool
+        env:
+          KDF_RESTORE_DUMP: ${{ steps.open.outputs.dump }}
+          KDF_RESTORE_MANIFEST: ${{ runner.temp }}/kdf-backup/restore/manifest.json
+        run: ${{ inputs.restore_command }}  # zizmor: ignore[template-injection] the caller's own command by design
+
+      - name: Compare the counts with the manifest
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli counts
+
+      - name: Remove the plaintext
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/kdf-backup"
+
+  drill-17:
+    name: Drill on Postgres 17 (${{ inputs.environment }})
+    needs: [authorize, plan]
+    if: github.actor == github.triggering_actor && inputs.mode == 'drill' && needs.plan.outputs.major == '17'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: ghcr.io/needless2say/postgres@sha256:b60e90042aa6b8dbecd58e224b3e36114dbf8ad754465264c2476ad58a86e45c
+        env:
+          POSTGRES_USER: kdf_drill
+          POSTGRES_PASSWORD: kdf-drill-local
+          POSTGRES_DB: kdf_drill
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kdf_drill -d kdf_drill" --health-interval 5s --health-timeout 5s
+          --health-retries 30
+    env:
+      KDF_MODE: drill
+      KDF_RESTORE_TARGET_URL: postgresql://kdf_drill:kdf-drill-local@127.0.0.1:5432/kdf_drill
+    steps:
+      - name: Check out the caller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Check out cicd's backup scripts
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Needless2Say/kriegerdataforge-cicd
+          ref: main
+          sparse-checkout: scripts
+          path: _kdf_cicd
+          persist-credentials: false
+          token: ${{ github.token }}
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+
+      - name: Install the store client by its hashes, and age
+        run: |
+          python -I -m pip install --require-hashes --no-deps --only-binary=:all: -r _kdf_cicd/scripts/kdf_backup/requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends age
+          age --version
+
+      - name: Fetch the archive
+        env:
+          BACKUP_STORE_READER_URL: ${{ secrets.BACKUP_STORE_READER_URL }}
+          KDF_APP: ${{ inputs.app }}
+          KDF_ENVIRONMENT: ${{ inputs.environment }}
+          KDF_BACKUP_ID: ${{ inputs.backup_id }}
+          PGSSLROOTCERT: /etc/ssl/certs/ca-certificates.crt
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli fetch
+
+      - name: Check its signature and digests
+        env:
+          BACKUP_HMAC_KEY: ${{ secrets.BACKUP_HMAC_KEY }}
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli check
+
+      - name: Decrypt it
+        env:
+          BACKUP_AGE_IDENTITY: ${{ secrets.BACKUP_AGE_IDENTITY }}
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli decrypt
+
+      - name: Open it
+        id: open
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli open
+
+      - name: Check the target
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli target
+
+      - name: Restore with the caller's own tool
+        env:
+          KDF_RESTORE_DUMP: ${{ steps.open.outputs.dump }}
+          KDF_RESTORE_MANIFEST: ${{ runner.temp }}/kdf-backup/restore/manifest.json
+        run: ${{ inputs.restore_command }}  # zizmor: ignore[template-injection] the caller's own command by design
+
+      - name: Compare the counts with the manifest
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli counts
+
+      - name: Remove the plaintext
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/kdf-backup"
+
+  live:
+    name: Restore live (${{ inputs.environment }})
+    needs: [authorize, plan]
+    if: github.actor == github.triggering_actor && inputs.mode == 'live'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+    # the one database lock of the repository and environment, running work never cancelled by a newer request
+    concurrency:
+      group: kdf-database-${{ github.repository }}-${{ inputs.environment }}
+      cancel-in-progress: false
+    env:
+      KDF_MODE: live
+    steps:
+      - name: Check out the caller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Check out cicd's backup scripts
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: Needless2Say/kriegerdataforge-cicd
+          ref: main
+          sparse-checkout: scripts
+          path: _kdf_cicd
+          persist-credentials: false
+          token: ${{ github.token }}
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+
+      - name: Install the store client by its hashes, and age
+        run: |
+          python -I -m pip install --require-hashes --no-deps --only-binary=:all: -r _kdf_cicd/scripts/kdf_backup/requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends age
+          age --version
+
+      - name: Fetch the archive
+        env:
+          BACKUP_STORE_READER_URL: ${{ secrets.BACKUP_STORE_READER_URL }}
+          KDF_APP: ${{ inputs.app }}
+          KDF_ENVIRONMENT: ${{ inputs.environment }}
+          KDF_BACKUP_ID: ${{ inputs.backup_id }}
+          PGSSLROOTCERT: /etc/ssl/certs/ca-certificates.crt
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli fetch
+
+      - name: Check its signature and digests
+        env:
+          BACKUP_HMAC_KEY: ${{ secrets.BACKUP_HMAC_KEY }}
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli check
+
+      - name: Decrypt it
+        env:
+          BACKUP_AGE_IDENTITY: ${{ secrets.BACKUP_AGE_IDENTITY }}
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli decrypt
+
+      - name: Open it
+        id: open
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli open
+
+      - name: Check the target
+        env:
+          KDF_RESTORE_TARGET_URL: ${{ secrets.DB_DATABASE_URL }}
+          PGSSLROOTCERT: /etc/ssl/certs/ca-certificates.crt
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli target
+
+      - name: Restore with the caller's own tool
+        env:
+          KDF_RESTORE_DUMP: ${{ steps.open.outputs.dump }}
+          KDF_RESTORE_MANIFEST: ${{ runner.temp }}/kdf-backup/restore/manifest.json
+          KDF_RESTORE_TARGET_URL: ${{ secrets.DB_DATABASE_URL }}
+          PGSSLROOTCERT: /etc/ssl/certs/ca-certificates.crt
+        run: ${{ inputs.restore_command }}  # zizmor: ignore[template-injection] the caller's own command by design
+
+      - name: Compare the counts with the manifest
+        env:
+          KDF_RESTORE_TARGET_URL: ${{ secrets.DB_DATABASE_URL }}
+          PGSSLROOTCERT: /etc/ssl/certs/ca-certificates.crt
+        run: cd _kdf_cicd/scripts && KDF_BACKUP_WORK="$RUNNER_TEMP/kdf-backup" python -m kdf_backup.cli counts
+
+      - name: Remove the plaintext
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/kdf-backup"
