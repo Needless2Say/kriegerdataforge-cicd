@@ -33,6 +33,7 @@ COMPUTED = {
     "ops-distribute-scripts.yml": 'scripts --names="$REPOS"',
     "rotate-vercel-tokens.yml": "secrets --names=VERCEL_DEPLOYMENT_TOKEN",
     "ecosystem-watch.yml": "watch",
+    "oidc-client-secrets.yml": 'oidc --names="$CLIENT"',
 }
 
 
@@ -131,6 +132,31 @@ def test_all_secrets_and_an_unknown_one(capsys):
 
 def test_the_watchs_list_is_the_repos_ecosystem_watch_reads(capsys):
     assert listed(capsys, "watch") == names(ew.read_registries()[0])
+
+
+@pytest.mark.parametrize(
+    ("client", "frontend"),
+    [("fitness", "fitness-app-frontend"), ("tiffanys-space", "tiffanys-space")],
+)
+def test_an_oidc_clients_writes_reach_cicd_the_hub_and_terraform_and_its_runs_its_frontend(capsys, client, frontend):
+    # the writer's token never reaches the frontend, which the flow only reads a run of (D-112)
+    writes = {"kriegerdataforge-cicd", "kriegerdataforge", "kriegerdataforge-terraform"}
+    reads  = {"kriegerdataforge", "kriegerdataforge-terraform", frontend}
+    assert listed(capsys, "oidc", f"--names={client}") == writes
+    assert listed(capsys, "oidc-runs", f"--names={client}") == reads
+
+
+@pytest.mark.parametrize("kind", ["oidc", "oidc-runs"])
+@pytest.mark.parametrize("value", ["", "--", "FITNESS", "fitness,tiffanys-space", "GH_PACKAGES_PAT"])
+def test_an_oidc_list_names_one_engine_generated_client_or_fails(kind, value):
+    with pytest.raises(SystemExit):
+        tr.main([kind, f"--names={value}"])
+
+
+def test_an_unknown_clients_refusal_is_one_line_so_no_part_reads_as_a_workflow_command():
+    with pytest.raises(SystemExit) as refused:
+        tr.main(["oidc", "--names=x\n::warning::injected"])
+    assert "\n" not in str(refused.value.code) and "'x\\n::warning::injected'" in str(refused.value.code)
 
 
 def test_the_oidc_drift_tokens_fixed_list_is_its_manifests_pair():

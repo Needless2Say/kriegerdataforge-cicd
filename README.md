@@ -73,6 +73,7 @@ Keeping CI/CD logic in one place means deploy behavior is consistent across all 
 | `rotate-vercel-tokens.yml` | The shared Vercel token's generations, a daily due job, the rotation, the reap and the retirement of its repository copies (D-100) | Internal |
 | `verify-token-generation.yml` | Prints whether an environment's Vercel token is the expected generation (D-100) | kriegerdataforge-terraform |
 | `distribute-staged.yml` | Distribute the staged manual secrets, each from its own slot in `ops`, to their targets (D-099) | Internal |
+| `oidc-client-secrets.yml` | The OIDC client secrets' generations, each made once in `ops` and carried to the hub and to terraform, every step recorded and resumable (D-112) | Internal |
 | `check-secret-expiry.yml` | Weekly credential expiry monitor → opens/closes a deduped rotation issue | Internal |
 | `check-oidc-rp-drift.yml` | Weekly PL-084 guard. Detects drift of the copy pasted OIDC RP core across the two tenant frontends → deduped tracking issue | Internal |
 | `ops-rotate-secrets.yml` | Owner only on demand expiry check (the `Ops · Check secret expiry` issue form), writing nothing (D-099) | Internal |
