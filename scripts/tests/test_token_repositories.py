@@ -153,6 +153,12 @@ def test_an_oidc_list_names_one_engine_generated_client_or_fails(kind, value):
         tr.main([kind, f"--names={value}"])
 
 
+def test_an_unknown_clients_refusal_is_one_line_so_no_part_reads_as_a_workflow_command():
+    with pytest.raises(SystemExit) as refused:
+        tr.main(["oidc", "--names=x\n::warning::injected"])
+    assert "\n" not in str(refused.value.code) and "'x\\n::warning::injected'" in str(refused.value.code)
+
+
 def test_the_oidc_drift_tokens_fixed_list_is_its_manifests_pair():
     manifest = registry("oidc_drift_manifest.json")
     text     = (WORKFLOWS / "check-oidc-rp-drift.yml").read_text(encoding = "utf-8")

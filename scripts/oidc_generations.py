@@ -13,28 +13,31 @@ A generation moves through its steps in order, each a dispatch of oidc-client-se
 - generate   makes the value and masks it, records it intended with its fingerprint, writes the source, then the
              pending copy
 - register   checks the hub's run that registered the pending copy, named by the owner, and records it
-- promote    writes the active copy from the source
+- promote    writes the active copy from the source, once the pending copy is shown unchanged since its distribution
 - finish     checks terraform's run that applied the active copy and the app's deploy run after it, both named by the
-             owner, deletes the pending copy and the source, and records the generation done
-- recover    closes the open generation on purpose, deletes its pending copy and its source, and never touches the
-             active copy
+             owner, with the active copy shown unchanged since the promotion, deletes the pending copy and the source,
+             and records the generation done
+- recover    closes the open generation on purpose, for one of REASONS, records the recovery before deleting its
+             pending copy and its source, and never touches the active copy
 - status     prints every generation the record keeps, never a value
 
 The value's fingerprint is recorded before the value is written anywhere, so a crash at any point resumes from the
-record and the source. A source whose fingerprint matches was written and is never made again, and a value is made
-again only when none landed. The pending and active copies are written from the source after its fingerprint is
-checked, so a write repeated after a lost answer carries the same value. One generation of a client and environment is
-open at a time. No value reaches a variable, an output, an artifact or the log, and a value this flow made is masked
-before any use, since it is no registered secret.
+record and the source. A source whose fingerprint matches was written and is never made again, a value is made again
+only when none landed, and a source holding another value is refused until a recovery. The pending and active copies
+are written from the source after its fingerprint is checked, so a write repeated after a lost answer carries the same
+value. A secret's update time by GitHub's clock is recorded at each write, so a step that relies on a copy refuses one
+another writer replaced. One generation of a client and environment is open at a time. No value reaches a variable, an
+output, an artifact or the log, and a value this flow made is masked before any use, since it is no registered secret.
 
 The record is the cicd `ops` environment variable OIDC_SECRET_RECORD, through token_generations.py's GitHub seam. The
 workflow's one concurrency group serializes every step.
 
 Environment variables
-    GH_TOKEN                   writes and deletes the homes' secrets, every step but status
-    FACTS_GH_TOKEN             reads and writes the record
+    GH_TOKEN                   writes and deletes the homes' secrets, generate, promote, finish and recover
+    FACTS_GH_TOKEN             reads and writes the record, every step but status
     RUNS_GH_TOKEN              reads the named runs, register and finish
-    OIDC_<CLIENT>_<ENV>_SOURCE the selected source as the job's secrets context gives it, empty when not set
+    OIDC_SECRET_RECORD         the record as the job's vars context gives it, for status, which needs no token
+    OIDC_<CLIENT>_<ENV>_SOURCE the selected source as the job's secrets context gives it, generate and promote
 
 Usage, in Actions alone
     python scripts/oidc_generations.py --mode status
@@ -44,7 +47,7 @@ Usage, in Actions alone
     python scripts/oidc_generations.py --mode finish --client fitness --environment dev --applied-run 124 \
         --deployed-run 125
     python scripts/oidc_generations.py --mode recover --client fitness --environment dev --generation O1 \
-        --reason "the hub refused the registration"
+        --reason hub-refused
 """
 
 from __future__ import annotations
@@ -86,12 +89,24 @@ KEEP_CLOSED = 12
 PHASES        = ("intended", "generated", "distributed", "registered", "promoted", "done", "abandoned")
 OPEN          = PHASES[:5]
 STAMP         = "%Y-%m-%dT%H:%M:%SZ"
-GENERATION_ID = re.compile(r"O[1-9][0-9]*")
+GENERATION_ID = re.compile(r"O([1-9][0-9]*)")
 RUN_ID        = re.compile(r"[1-9][0-9]{0,19}")
 VALUE         = re.compile(r"[0-9a-f]{64}")
-# a reason is printed and kept, so it holds no line break and nothing a workflow command could open with
-REASON = re.compile(r"[A-Za-z0-9 ,.'()-]{1,200}")
-MODES  = ("status", "generate", "register", "promote", "finish", "recover")
+FINGERPRINT   = re.compile(r"[0-9a-f]{16}")
+CLIENT        = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
+MODES         = ("status", "generate", "register", "promote", "finish", "recover")
+# a recovery's reason is one of these, never free text, since a dispatch's inputs show on this public repository's runs
+# and the reason is kept in the record
+REASONS = ("hub-refused", "apply-failed", "deploy-failed", "exposed", "abandoned")
+
+# the tokens each step needs, the writer for the homes, the facts token for the record and the reader for the runs
+TOKENS = {
+    "generate": ("GH_TOKEN", "FACTS_GH_TOKEN"),
+    "register": ("FACTS_GH_TOKEN", "RUNS_GH_TOKEN"),
+    "promote": ("GH_TOKEN", "FACTS_GH_TOKEN"),
+    "finish": ("GH_TOKEN", "FACTS_GH_TOKEN", "RUNS_GH_TOKEN"),
+    "recover": ("GH_TOKEN", "FACTS_GH_TOKEN"),
+}
 
 
 class RecordError(RuntimeError):
@@ -371,6 +386,70 @@ def _one(entry: dict[str, Any], key: str, environment: str) -> dict[str, Any]:
     return found[0]
 
 
+def parse_record(text: str | None) -> dict[str, Any]:
+    """
+    The record from its text, an empty one before the first save, refused out of its shape. Public, so another reader
+    of OIDC_SECRET_RECORD, the terraform rotation's among them, takes the same refusals. A generation is open while its
+    phase is in OPEN, whatever its recovery holds.
+
+    Args:
+        text: the record's text, None before the first save
+
+    Returns:
+        dict[str, Any]: the record
+
+    Raises:
+        RecordError: when it is no JSON or out of its shape
+    """
+    if text is None:
+        return {"version": 1, "next": 1, "generations": []}
+    try:
+        record = json.loads(text)
+    except ValueError as exc:
+        raise RecordError("the record is no JSON") from exc
+    shaped = (
+        isinstance(record, dict)
+        and record.get("version") == 1
+        and type(record.get("next")) is int
+        and record["next"] >= 1
+        and isinstance(record.get("generations"), list)
+    )
+    if not shaped:
+        raise RecordError("the record is out of its shape")
+    numbers = []
+    for generation in record["generations"]:
+        number = GENERATION_ID.fullmatch(str(generation.get("id"))) if isinstance(generation, dict) else None
+        whole  = (
+            number is not None
+            and generation.get("phase") in PHASES
+            and CLIENT.fullmatch(str(generation.get("client")))
+            and generation.get("environment") in ENVIRONMENTS
+            and (generation.get("fingerprint") is None or FINGERPRINT.fullmatch(str(generation["fingerprint"])))
+            and isinstance(generation.get("at"), dict)
+            and isinstance(generation.get("runs"), dict)
+        )
+        if not whole:
+            raise RecordError(f"the record's generation {str(generation)[:40]!r} is out of its shape")
+        numbers.append(int(number.group(1)))
+    if len(set(numbers)) != len(numbers) or record["next"] <= max(numbers, default = 0):
+        raise RecordError("the record's generation ids repeat or reach its next id")
+    return record
+
+
+def _unrecovered(generation: dict[str, Any]) -> None:
+    """
+    Refuse a step on a generation whose recovery has begun, which only a recovery finishes.
+
+    Args:
+        generation: the generation
+
+    Raises:
+        Refused: when its recovery has begun
+    """
+    if generation.get("recovery"):
+        raise Refused(f"{generation['id']}'s recovery has begun, so dispatch recover for it again")
+
+
 def _mask_in_log(value: str) -> None:
     """
     Mask a value in the job's log before any use, the runner taking the line as its command.
@@ -459,45 +538,21 @@ class Engine:
         Raises:
             RecordError: when it is no JSON or out of its shape
         """
-        text = self.github.read_record()
-        if text is None:
-            return {"version": 1, "next": 1, "generations": []}
-        try:
-            record = json.loads(text)
-        except ValueError as exc:
-            raise RecordError("the record is no JSON") from exc
-        shaped = (
-            isinstance(record, dict)
-            and record.get("version") == 1
-            and type(record.get("next")) is int
-            and isinstance(record.get("generations"), list)
-        )
-        if not shaped:
-            raise RecordError("the record is out of its shape")
-        for generation in record["generations"]:
-            whole = (
-                isinstance(generation, dict)
-                and GENERATION_ID.fullmatch(str(generation.get("id")))
-                and generation.get("phase") in PHASES
-                and isinstance(generation.get("client"), str)
-                and generation.get("environment") in ENVIRONMENTS
-                and isinstance(generation.get("at"), dict)
-                and isinstance(generation.get("runs"), dict)
-            )
-            if not whole:
-                raise RecordError(f"the record's generation {str(generation)[:40]!r} is out of its shape")
-        return record
+        return parse_record(self.github.read_record())
 
 
     def _save(self, record: dict[str, Any]) -> None:
         """
-        Save the record, every open generation kept and the last closed ones.
+        Save the record, every open generation kept and the last ones to close.
 
         Args:
             record: the record
         """
-        closed = [generation["id"] for generation in record["generations"] if generation["phase"] not in OPEN]
-        keep   = set(closed[-KEEP_CLOSED:])
+        closed = sorted(
+            (generation for generation in record["generations"] if generation["phase"] not in OPEN),
+            key = lambda generation: (generation["at"].get(generation["phase"], ""), int(generation["id"][1:])),
+        )
+        keep   = {generation["id"] for generation in closed[-KEEP_CLOSED:]}
         record["generations"] = [
             generation
             for generation in record["generations"]
@@ -552,6 +607,7 @@ class Engine:
         generation = self._open(record, client, environment)
         if generation is None:
             raise Refused(f"no generation of {client} in {environment} is open")
+        _unrecovered(generation)
         if generation["phase"] != phase:
             held = f"{generation['id']} of {client} in {environment} is {generation['phase']}"
             raise Refused(f"{held}, and this step needs it {phase}")
@@ -646,6 +702,23 @@ class Engine:
             raise Refused(f"{home[1]} in {home[0]} shows unset after its write, dispatch the step again")
         return landed
 
+
+    def _unchanged(self, home: tuple[str, str], written: str) -> None:
+        """
+        Refuse unless a home's secret is still the step's own write, its update time by GitHub's clock the one recorded
+        when it was written, so no other writer has replaced it since.
+
+        Args:
+            home: the target and the secret's name
+            written: the time recorded at its write
+
+        Raises:
+            Refused: when it was written again since, or is gone
+        """
+        landed = self.github.secret_updated_at(*home)
+        if landed != written:
+            raise Refused(f"{home[1]} in {home[0]} was written at {landed}, not at {written} as recorded, so recover")
+
     # ================================================== The evidence ==================================================
 
     def _evidence(self, spec: dict[str, Any], run_id: str, after: str) -> dict[str, Any]:
@@ -653,8 +726,7 @@ class Engine:
         A run the owner named, refused unless it is the evidence the step needs.
 
         It must be a run of the spec's repository and of one of its workflows, on main, completed with success,
-        created no earlier than *after*, holding the spec's job, the workflow's own or a caller's, every such job a
-        success.
+        created after *after*, holding the spec's job, the workflow's own or a caller's, every such job a success.
 
         Args:
             spec: the repository, the workflows and the job
@@ -681,8 +753,9 @@ class Engine:
             wrong.append(f"on the branch {run.get('head_branch')!r}")
         if run.get("status") != "completed" or run.get("conclusion") != "success":
             wrong.append(f"{run.get('status')} with {run.get('conclusion')}")
-        if _parse(run.get("created_at", "")) < _parse(after):
-            wrong.append(f"created at {run.get('created_at')}, before {after}")
+        # strictly later, since a run created in the same second may have started before the time it must follow
+        if _parse(run.get("created_at", "")) <= _parse(after):
+            wrong.append(f"created at {run.get('created_at')!r}, not after {after}")
         jobs = [
             job
             for job in self.github.jobs(spec["repo"], run_id)
@@ -708,11 +781,14 @@ class Engine:
             given: the source as the job's secrets context gives it, empty when it is not set
 
         Raises:
-            Refused: when another generation of the client and environment is open past its source
+            Refused: when another generation of the client and environment is open past its source or recovering, or
+                the source holds a value that is not the intended generation's
         """
         homes      = self.homes(client, environment)
         record     = self._load()
         generation = self._open(record, client, environment)
+        if generation is not None:
+            _unrecovered(generation)
         if generation is not None and generation["phase"] not in ("intended", "generated"):
             held = f"{generation['id']} of {client} in {environment} is open, {generation['phase']}"
             raise Refused(f"{held}, so finish or recover it first")
@@ -730,10 +806,13 @@ class Engine:
             record["next"] += 1
             record["generations"].append(generation)
         if generation["phase"] == "intended":
-            if VALUE.fullmatch(given or "") and fingerprint(given) == generation["fingerprint"]:
+            if given and generation["fingerprint"] and fingerprint(given) == generation["fingerprint"]:
                 # the source landed before the answer was lost, so its value is this generation's
                 self.mask(given)
                 value = given
+            elif given and generation["fingerprint"]:
+                # a value this generation never made, which only a recovery clears
+                raise Refused(f"the source holds a value that is not {generation['id']}'s, so recover it")
             else:
                 value = self._make(record, generation, homes)
             self._move(record, generation, "generated", self._written(homes.source))
@@ -765,7 +844,8 @@ class Engine:
 
     def promote(self, client: str, environment: str, given: str) -> None:
         """
-        Write the active copy from the source.
+        Write the active copy from the source, once the pending copy is shown unchanged since its distribution, so the
+        hub's run, created after it, registered this generation's value.
 
         Args:
             client: the client
@@ -776,6 +856,7 @@ class Engine:
         record     = self._load()
         generation = self._at(record, client, environment, "registered")
         value      = self._check(generation, given)
+        self._unchanged(homes.pending, generation["at"]["distributed"])
         self.github.write_secret(*homes.active, value)
         self._move(record, generation, "promoted", self._written(homes.active))
         promoted = f"{generation['id']} of {client} in {environment} promoted to {homes.active[1]}"
@@ -784,8 +865,9 @@ class Engine:
 
     def finish(self, client: str, environment: str, applied_run: str, deployed_run: str) -> None:
         """
-        Check terraform's apply after the promotion and the app's deploy after it, then delete the pending copy and
-        the source, and record the generation done.
+        Check terraform's apply after the promotion and the app's deploy after it, with the active copy shown unchanged
+        since the promotion, so the apply set this generation's value, then delete the pending copy and the source,
+        and record the generation done.
 
         Args:
             client: the client
@@ -798,6 +880,7 @@ class Engine:
         generation = self._at(record, client, environment, "promoted")
         applied    = self._evidence(homes.evidence["applied"], applied_run, generation["at"]["promoted"])
         deployed   = self._evidence(homes.evidence["deployed"], deployed_run, applied["updated_at"])
+        self._unchanged(homes.active, generation["at"]["promoted"])
         self.github.delete_secret(*homes.pending)
         self.github.delete_secret(*homes.source)
         generation["at"]["applied"] = applied["updated_at"]
@@ -810,19 +893,21 @@ class Engine:
 
     def recover(self, client: str, environment: str, generation_id: str, reason: str) -> None:
         """
-        Close the open generation on purpose, deleting its pending copy and its source, never the active copy.
+        Close the open generation on purpose, deleting its pending copy and its source, never the active copy. The
+        recovery is recorded before the first delete, so no other step resumes the generation once it has begun, and a
+        recovery dispatched again finishes it.
 
         Args:
             client: the client
             environment: the environment
             generation_id: the open generation, named so the owner closes the one they read
-            reason: why, kept in the record
+            reason: one of REASONS, kept in the record
 
         Raises:
-            Refused: when the reason is out of its shape, or the generation is not the open one
+            Refused: when the reason is none of REASONS, or the generation is not the open one
         """
-        if not REASON.fullmatch(reason or ""):
-            raise Refused("a reason is 1 to 200 letters, digits, spaces and , . ' ( ) -")
+        if reason not in REASONS:
+            raise Refused(f"a reason is one of {', '.join(REASONS)}")
         homes      = self.homes(client, environment)
         record     = self._load()
         generation = self._open(record, client, environment)
@@ -830,9 +915,11 @@ class Engine:
             raise Refused(f"no generation of {client} in {environment} is open")
         if not GENERATION_ID.fullmatch(generation_id or "") or generation["id"] != generation_id:
             raise Refused(f"{generation_id!r} is not the open generation of {client} in {environment}")
+        if not generation.get("recovery"):
+            generation["recovery"] = {"at": self._stamp(), "run": int(self.run_id or 0), "reason": reason}
+            self._save(record)
         self.github.delete_secret(*homes.pending)
         self.github.delete_secret(*homes.source)
-        generation["recovery"] = {"at": self._stamp(), "run": int(self.run_id or 0), "reason": reason}
         self._move(record, generation, "abandoned", self._stamp())
         self.out(f"{generation['id']} of {client} in {environment} abandoned, {homes.active[1]} untouched")
 
@@ -851,6 +938,28 @@ class Engine:
 # ======================================================================================================================
 # The command
 # ======================================================================================================================
+
+class HeldRecord:
+    """
+    The record as the job's vars context gives it, for the status, which reads it alone.
+    """
+    def __init__(self, text: str) -> None:
+        """
+        Args:
+            text: the record, empty before the first save
+        """
+        self.text = text
+
+
+    def read_record(self) -> str | None:
+        """
+        The record.
+
+        Returns:
+            str | None: its text, None before the first save
+        """
+        return self.text or None
+
 
 def registry_entries() -> list[dict[str, Any]]:
     """
@@ -887,10 +996,16 @@ def main(argv: list[str] | None = None) -> int:
     if os.environ.get("GITHUB_ACTIONS") != "true":
         print("Error: oidc_generations.py runs in Actions alone, through oidc-client-secrets.yml", file = sys.stderr)
         return 1
-    tokens = {name: os.environ.get(name, "").strip() for name in ("GH_TOKEN", "FACTS_GH_TOKEN", "RUNS_GH_TOKEN")}
-    needed = {"FACTS_GH_TOKEN"} | ({"GH_TOKEN"} if args.mode != "status" else set())
-    needed |= {"RUNS_GH_TOKEN"} if args.mode in ("register", "finish") else set()
-    missing = sorted(name for name in needed if not tokens[name])
+    if args.mode == "status":
+        # the record as the job's vars context gives it, read with no token
+        try:
+            Engine(HeldRecord(os.environ.get(RECORD_VARIABLE, "")), registry_entries()).status()
+        except RecordError as exc:
+            print(f"Error: {exc}", file = sys.stderr)
+            return 1
+        return 0
+    tokens  = {name: os.environ.get(name, "").strip() for name in ("GH_TOKEN", "FACTS_GH_TOKEN", "RUNS_GH_TOKEN")}
+    missing = sorted(name for name in TOKENS[args.mode] if not tokens[name])
     if missing:
         print(f"Error: {', '.join(missing)} not set", file = sys.stderr)
         return 1
@@ -901,10 +1016,9 @@ def main(argv: list[str] | None = None) -> int:
         run_id = os.environ.get("GITHUB_RUN_ID", ""),
     )
     try:
-        if args.mode == "status":
-            engine.status()
-            return 0
-        given = os.environ.get(engine.homes(args.client, args.environment).source[1], "")
+        homes = engine.homes(args.client, args.environment)
+        # the source reaches the steps that write from it alone
+        given = os.environ.get(homes.source[1], "") if args.mode in ("generate", "promote") else ""
         if args.mode == "generate":
             engine.generate(args.client, args.environment, given)
         elif args.mode == "register":

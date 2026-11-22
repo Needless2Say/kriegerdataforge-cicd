@@ -172,7 +172,8 @@ def oidc_targets(names: str, runs: bool = False) -> list[str]:
         if entry.get("kind") == "engine_generated"
     }
     if wanted not in entries:
-        raise SystemExit(f"token_repositories: no engine generated client named {wanted or 'at all'}")
+        # the raw input printed in repr, one line, so no line of it reaches the runner as a workflow command
+        raise SystemExit(f"token_repositories: no engine generated client named {wanted!r}")
     entry = entries[wanted]
     if runs:
         return [phase["repo"] for phase in entry["evidence"].values()]

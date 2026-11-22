@@ -42,6 +42,16 @@ ACTIVE   = "FITNESS_OIDC_CLIENT_SECRET"
 REGISTER = "Register the pending secret of fitness"
 START    = datetime(2026, 11, 22, 12, 0, tzinfo = UTC)
 STAMP    = "%Y-%m-%dT%H:%M:%SZ"
+CLOSED   = {
+    "id": "O1",
+    "client": "fitness",
+    "environment": "dev",
+    "phase": "abandoned",
+    "fingerprint": None,
+    "at": {},
+    "runs": {},
+    "recovery": None,
+}
 
 
 ENTRY: dict[str, Any] = {
@@ -103,9 +113,17 @@ def parse(text: str) -> datetime:
 class Store:
     """
     What GitHub holds between processes, every secret with its update time, the record, the runs and their jobs, and
-    the one crash a test asks for, at the write of that number counted across every process.
+    the one crash a test asks for, at the secret's write or the record's save of that number counted across every
+    process.
     """
-    def __init__(self, crash_after: int | None = None, crash_before: int | None = None) -> None:
+    def __init__(
+        self,
+        crash_after: int | None = None,
+        crash_before: int | None = None,
+        crash_record: int | None = None,
+    ) -> None:
+        self.saves        = 0
+        self.crash_record = crash_record
         self.secrets: dict[tuple[str, str], tuple[str, datetime]] = {}
         self.record:  str | None = None
         self.runs:    dict[tuple[str, str], dict[str, Any]] = {}
@@ -168,6 +186,10 @@ class Fake:
 
 
     def write_record(self, text: str) -> None:
+        self.store.saves += 1
+        if self.store.saves == self.store.crash_record:
+            self.store.crash_record = None
+            raise Crash("the process died before its save landed")
         self.store.record = text
 
 
@@ -368,9 +390,13 @@ def test_a_crash_before_the_source_landed_makes_its_one_value_then() -> None:
     assert len(record(store)["generations"]) == 1
 
 
-@pytest.mark.parametrize("when", ["crash_after", "crash_before"])
-@pytest.mark.parametrize("number", [1, 2, 3, 4, 5])
-def test_a_crash_at_any_write_resumes_and_ends_on_one_value(
+@pytest.mark.parametrize(
+    ("when", "number"),
+    [("crash_after", number) for number in range(1, 6)] + [("crash_before", number) for number in range(1, 6)] + [
+        ("crash_record", number) for number in range(1, 7)
+    ],
+)
+def test_a_crash_at_any_write_or_save_resumes_and_ends_on_one_value(
     capsys: pytest.CaptureFixture[str],
     when: str,
     number: int,
@@ -390,6 +416,62 @@ def test_a_crash_at_any_write_resumes_and_ends_on_one_value(
     assert (HUB_DEV, PENDING) not in store.secrets and (OPS, SOURCE) not in store.secrets
     assert len(record(store)["generations"]) == 1
     assert active not in capsys.readouterr().out and active not in (store.record or "")
+
+
+def test_a_crash_after_a_recoverys_first_delete_is_finished_by_a_recovery_alone() -> None:
+    store = Store()
+    to(store, "generate")
+    store.crash_after = store.count + 1
+    with pytest.raises(Crash):
+        engine(store).recover("fitness", "dev", "O1", "abandoned")
+
+    with pytest.raises(og.Refused, match = "recovery has begun"):
+        engine(store).generate("fitness", "dev", source(store))
+    with pytest.raises(og.Refused, match = "recovery has begun"):
+        engine(store).register("fitness", "dev", hub_run(store))
+    engine(store).recover("fitness", "dev", "O1", "abandoned")
+
+    assert generation(store)["phase"] == "abandoned" and not store.secrets
+    assert [name for _, name, _ in store.writes].count(SOURCE) == 1
+
+
+def test_an_intended_generation_refuses_a_source_holding_another_value() -> None:
+    store = Store(crash_before = 1)
+    with pytest.raises(Crash):
+        engine(store).generate("fitness", "dev", source(store))
+    store.secrets[(OPS, SOURCE)] = ("b" * 64, START)
+
+    with pytest.raises(og.Refused, match = "not O1's"):
+        engine(store).generate("fitness", "dev", source(store))
+
+    assert store.secrets[(OPS, SOURCE)] == ("b" * 64, START) and generation(store)["phase"] == "intended"
+
+# ======================================================================================================================
+# Another writer
+# ======================================================================================================================
+
+def test_a_promotion_refuses_a_pending_copy_another_writer_replaced() -> None:
+    store = Store()
+    to(store, "register")
+    store.secrets[(HUB_DEV, PENDING)] = (source(store), store.tick())
+
+    with pytest.raises(og.Refused, match = "not at"):
+        engine(store).promote("fitness", "dev", source(store))
+
+    assert (TF_DEV, ACTIVE) not in store.secrets and generation(store)["phase"] == "registered"
+
+
+def test_a_finish_refuses_an_active_copy_another_writer_replaced() -> None:
+    store = Store()
+    to(store, "promote")
+    store.secrets[(TF_DEV, ACTIVE)] = ("c" * 64, store.tick())
+    applied = apply_run(store)
+
+    with pytest.raises(og.Refused, match = "not at"):
+        engine(store).finish("fitness", "dev", applied, deploy_run(store, applied))
+
+    assert (HUB_DEV, PENDING) in store.secrets and (OPS, SOURCE) in store.secrets
+    assert generation(store)["phase"] == "promoted"
 
 # ======================================================================================================================
 # One at a time, and the order
@@ -499,6 +581,15 @@ def test_an_unknown_or_malformed_run_id_is_refused(run_id: str) -> None:
         engine(store).register("fitness", "dev", run_id)
 
 
+def test_a_run_created_in_the_same_second_as_the_phase_it_follows_is_refused() -> None:
+    store = Store()
+    to(store, "generate")
+    run = hub_run(store, created_at = generation(store)["at"]["distributed"])
+
+    with pytest.raises(og.Refused, match = "not after"):
+        engine(store).register("fitness", "dev", run)
+
+
 def test_the_registering_job_may_be_the_workflows_own_or_a_callers() -> None:
     store = Store()
     to(store, "generate")
@@ -564,10 +655,10 @@ def test_a_recovery_closes_the_named_generation_and_never_touches_the_active_cop
     to(store, last)
     active = store.secrets[(TF_DEV, ACTIVE)]
 
-    engine(store).recover("fitness", "dev", "O1", "the hub refused the registration")
+    engine(store).recover("fitness", "dev", "O1", "hub-refused")
 
     closed = generation(store)
-    assert closed["phase"] == "abandoned" and closed["recovery"]["reason"] == "the hub refused the registration"
+    assert closed["phase"] == "abandoned" and closed["recovery"]["reason"] == "hub-refused"
     assert store.secrets[(TF_DEV, ACTIVE)] == active
     assert (HUB_DEV, PENDING) not in store.secrets and (OPS, SOURCE) not in store.secrets
     engine(store).generate("fitness", "dev", source(store))
@@ -576,7 +667,7 @@ def test_a_recovery_closes_the_named_generation_and_never_touches_the_active_cop
 
 @pytest.mark.parametrize(
     ("generation_id", "reason"),
-    [("O2", "a reason given"), ("O1", ""), ("O1", "x" * 201), ("O1", "two\n::warning::lines"), ("1", "a reason")],
+    [("O2", "abandoned"), ("O1", ""), ("O1", "the hub refused"), ("O1", "a" * 64), ("1", "abandoned")],
 )
 def test_a_recovery_of_another_generation_or_with_a_bad_reason_is_refused(generation_id: str, reason: str) -> None:
     store = Store()
@@ -593,7 +684,7 @@ def test_a_recovery_with_no_open_generation_is_refused() -> None:
     to(store, "finish")
 
     with pytest.raises(og.Refused, match = "open"):
-        engine(store).recover("fitness", "dev", "O1", "nothing is open")
+        engine(store).recover("fitness", "dev", "O1", "abandoned")
 
 # ======================================================================================================================
 # The inputs and the record
@@ -619,7 +710,12 @@ def test_a_client_or_environment_the_registry_does_not_hold_is_refused(client: s
         json.dumps({"version": 2, "next": 1, "generations": []}),
         json.dumps({"version": 1, "next": 1, "generations": 7}),
         json.dumps({"version": 1, "next": "1", "generations": []}),
+        json.dumps({"version": 1, "next": 0, "generations": []}),
         json.dumps({"version": 1, "next": 2, "generations": [{"id": "O1", "phase": "lost"}]}),
+        json.dumps({"version": 1, "next": 2, "generations": [CLOSED | {"fingerprint": "\n::warning::x"}]}),
+        json.dumps({"version": 1, "next": 2, "generations": [CLOSED | {"client": "Fitness\n"}]}),
+        json.dumps({"version": 1, "next": 1, "generations": [CLOSED]}),
+        json.dumps({"version": 1, "next": 3, "generations": [CLOSED, CLOSED]}),
     ],
 )
 def test_a_record_out_of_its_shape_stops_the_run(text: str) -> None:
@@ -632,26 +728,30 @@ def test_a_record_out_of_its_shape_stops_the_run(text: str) -> None:
     assert store.record == text and not store.writes
 
 
-def test_the_record_keeps_every_open_generation_and_the_last_closed_ones() -> None:
+def test_another_reader_takes_the_same_loader_and_its_refusals() -> None:
+    # the terraform rotation reads OIDC_SECRET_RECORD through parse_record, so its refusals hold for both
+    store = Store()
+    to(store, "generate")
+
+    assert og.parse_record(store.record) == record(store) and og.parse_record(None)["generations"] == []
+    assert [g["id"] for g in og.parse_record(store.record)["generations"] if g["phase"] in og.OPEN] == ["O1"]
+    with pytest.raises(og.RecordError):
+        og.parse_record(json.dumps({"version": 1, "next": 1, "generations": [CLOSED]}))
+
+
+def test_the_record_keeps_every_open_generation_and_the_last_ones_to_close() -> None:
+    still_open   = CLOSED | {"phase": "intended"}
     closed       = [
-        {
-            "id": f"O{number}",
-            "client": "fitness",
-            "environment": "dev",
-            "phase": "abandoned",
-            "fingerprint": None,
-            "at": {},
-            "runs": {},
-            "recovery": None,
-        }
-        for number in range(1, 15)
+        CLOSED | {"id": f"O{number}", "environment": "prod", "at": {"abandoned": f"2026-11-22T10:{number:02d}:00Z"}}
+        for number in range(2, 15)
     ]
     store        = Store()
-    store.record = json.dumps({"version": 1, "next": 15, "generations": closed})
+    store.record = json.dumps({"version": 1, "next": 15, "generations": [still_open, *closed]})
 
-    engine(store).generate("fitness", "dev", "")
+    engine(store).recover("fitness", "dev", "O1", "abandoned")
 
-    assert [g["id"] for g in record(store)["generations"]] == [f"O{number}" for number in range(3, 16)]
+    kept = [g["id"] for g in record(store)["generations"]]
+    assert kept == ["O1"] + [f"O{number}" for number in range(4, 15)], "O1 closed last, so it stays and O2 and O3 go"
 
 
 def test_the_status_names_each_generation_and_never_a_value(capsys: pytest.CaptureFixture[str]) -> None:
@@ -729,20 +829,48 @@ def test_the_command_runs_in_actions_alone(actions: Store, monkeypatch: pytest.M
     assert actions.record is None and not actions.made
 
 
-@pytest.mark.parametrize(("mode", "missing"), [("generate", "GH_TOKEN"), ("register", "RUNS_GH_TOKEN")])
-def test_each_mode_needs_its_tokens_and_the_status_the_facts_token_alone(
-    actions: Store,
-    monkeypatch: pytest.MonkeyPatch,
-    mode: str,
-    missing: str,
-) -> None:
+@pytest.mark.parametrize(
+    ("mode", "missing"),
+    [
+        ("generate", "GH_TOKEN"),
+        ("generate", "FACTS_GH_TOKEN"),
+        ("register", "RUNS_GH_TOKEN"),
+        ("finish", "RUNS_GH_TOKEN"),
+        ("recover", "GH_TOKEN"),
+    ],
+)
+def test_each_step_needs_its_tokens(actions: Store, monkeypatch: pytest.MonkeyPatch, mode: str, missing: str) -> None:
     monkeypatch.delenv(missing)
 
-    assert og.main(["--mode", mode, "--client", "fitness", "--environment", "dev", "--registered-run", "1"]) == 1
-    monkeypatch.delenv("GH_TOKEN", raising = False)
-    monkeypatch.delenv("RUNS_GH_TOKEN", raising = False)
+    argv = ["--mode", mode, "--client", "fitness", "--environment", "dev", "--registered-run", "1"]
+    assert og.main([*argv, "--applied-run", "1", "--deployed-run", "2", "--generation", "O1"]) == 1
+    assert actions.record is None and not actions.made
+
+
+def test_a_registration_holds_no_writer(actions: Store, monkeypatch: pytest.MonkeyPatch) -> None:
+    og.main(["--mode", "generate", "--client", "fitness", "--environment", "dev"])
+    monkeypatch.delenv("GH_TOKEN")
+
+    argv = ["--mode", "register", "--client", "fitness", "--environment", "dev"]
+    assert og.main([*argv, "--registered-run", hub_run(actions)]) == 0
+    assert actions.made[-1] == ("", "facts", "runs") and generation(actions)["phase"] == "registered"
+
+
+def test_the_status_reads_the_vars_context_with_no_token(
+    actions: Store,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    og.main(["--mode", "generate", "--client", "fitness", "--environment", "dev"])
+    for name in ("GH_TOKEN", "FACTS_GH_TOKEN", "RUNS_GH_TOKEN"):
+        monkeypatch.delenv(name)
+    monkeypatch.setenv("OIDC_SECRET_RECORD", actions.record or "")
+    made = len(actions.made)
+    capsys.readouterr()
+
     assert og.main(["--mode", "status"]) == 0
-    assert actions.record is None
+
+    assert "O1 fitness dev distributed" in capsys.readouterr().out and len(actions.made) == made
 
 
 def test_a_refusal_fails_the_command_with_its_reason(actions: Store, capsys: pytest.CaptureFixture[str]) -> None:
@@ -912,7 +1040,7 @@ def test_the_workflow_runs_in_ops_after_the_owner_check_in_one_group_that_never_
     assert "github.triggering_actor == github.repository_owner" in flow["if"]
 
 
-def test_the_flow_reads_each_source_only_when_its_client_and_environment_are_selected() -> None:
+def test_the_flow_reads_each_source_only_for_its_writing_steps_and_its_client_and_environment() -> None:
     env     = named("Run the flow")["env"]
     sources = {
         found["secret_name"]: (entry["client"], found["environment"])
@@ -922,16 +1050,35 @@ def test_the_flow_reads_each_source_only_when_its_client_and_environment_are_sel
     assert {key for key in env if key.endswith("_SOURCE")} == set(sources)
     for name, (client, environment) in sources.items():
         value    = " ".join(str(env[name]).split())
-        selected = f"inputs.client == '{client}' && inputs.environment == '{environment}'"
+        writing  = "(inputs.mode == 'generate' || inputs.mode == 'promote')"
+        selected = f"{writing} && inputs.client == '{client}' && inputs.environment == '{environment}'"
         assert value == f"${{{{ {selected} && secrets.{name} || '' }}}}", name
 
 
-def test_no_run_line_interpolates_an_input_and_the_status_holds_no_writer_or_source() -> None:
+def test_no_run_line_interpolates_an_input_and_the_status_holds_no_token_or_source() -> None:
     for found in flow_steps():
         assert "${{" not in str(found.get("run", "")), found.get("name")
     status = named("Show the generations")
-    assert set(status["env"]) == {"FACTS_GH_TOKEN"} and status["if"] == "inputs.mode == 'status'"
+    assert status["env"] == {"OIDC_SECRET_RECORD": "${{ vars.OIDC_SECRET_RECORD }}"}
+    assert status["if"] == "inputs.mode == 'status'"
     assert named("Run the flow")["if"] == "inputs.mode != 'status'"
+
+
+def test_a_registration_gets_no_writer_and_the_runs_token_no_writing_fallback() -> None:
+    env = named("Run the flow")["env"]
+    assert " ".join(str(env["GH_TOKEN"]).split()) == (
+        "${{ inputs.mode != 'register' && (steps.app-token.outputs.token || secrets.CICD_PAT) || '' }}"
+    )
+    assert env["RUNS_GH_TOKEN"] == "${{ steps.runs-token.outputs.token }}"
+    assert "inputs.mode != 'register'" in named("Mint GitHub App token")["if"]
+    assert "inputs.mode != 'register'" in named("List the repositories the flow writes")["if"]
+    assert "inputs.mode != 'status'" in named("Mint GitHub App token (variables on this repo)")["if"]
+
+
+def test_the_workflows_reasons_are_the_engines() -> None:
+    data   = workflow()
+    reason = data.get("on", data.get(True))["workflow_dispatch"]["inputs"]["reason"]
+    assert reason["type"] == "choice" and sorted(reason["options"]) == sorted(og.REASONS)
 
 
 def test_the_writers_token_reaches_its_writes_alone_and_the_runs_token_reads_alone() -> None:

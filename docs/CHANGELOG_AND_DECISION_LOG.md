@@ -5870,31 +5870,45 @@ hub registers its hash, so neither may make it, and the value must live in one r
    kept. One generation of a client and environment is open at a time.
 3. **The value.** `secrets.token_hex(32)`, masked in the log before any use, its fingerprint recorded before it is
    written anywhere. A resumed step reads the source from the job's secrets context. A source whose fingerprint
-   matches landed and is taken, never made again, and a value is made again only when none landed. The pending and
-   active copies are written from the source after its fingerprint check, so a write repeated after a lost answer
-   carries the same value.
+   matches landed and is taken, never made again, a value is made again only when none landed, and a source holding
+   another value is refused until a recovery. The pending and active copies are written from the source after its
+   fingerprint check, so a write repeated after a lost answer carries the same value.
 4. **The steps.** `generate` writes the source and the pending copy. `register` checks the hub's `oidc-clients.yml`
-   run the owner names. `promote` writes the active copy. `finish` checks terraform's apply after the promotion and the
-   app's deploy after that apply, then deletes the pending copy and the source. `recover` closes the open generation
-   by its id and a reason, deleting its pending copy and its source and never touching the active copy.
+   run the owner names. `promote` writes the active copy once the pending copy is shown unchanged since its
+   distribution. `finish` checks terraform's apply after the promotion and the app's deploy after that apply, with the
+   active copy shown unchanged since the promotion, then deletes the pending copy and the source. `recover` closes the
+   open generation by its id, for one of a fixed set of reasons, recording the recovery before its first delete, so
+   no other step resumes the generation once it has begun, then deletes its pending copy and its source and never
+   touches the active copy.
 5. **The evidence.** A named run counts when it is of the entry's repository and one of its workflows, on `main`,
-   completed with success, created after the phase it follows, and holds the entry's job for the environment, the
-   workflow's own or a caller's, each a success. Terraform's apply is `Terraform apply (dev)`, from `release.yml` or
-   `cd.yml`, and `Terraform deploy (prod)`, the app's deploy is `Deploy (<env>)`, and the hub's registration is
-   `Register the pending secret of <client> (<env>)`, the name the hub's `oidc-clients.yml` gives its job in the
-   moves' step 5. The times compared are GitHub's own, each secret's update time and each run's.
+   completed with success, created strictly after the phase it follows, and holds the entry's job for the
+   environment, the workflow's own or a caller's, each a success. Terraform's apply is `Terraform apply (dev)`, from
+   `release.yml` or `cd.yml`, and `Terraform deploy (prod)`, the app's deploy is `Deploy (<env>)`, and the hub's
+   registration is `Register the pending secret of <client> (<env>)`, the name the hub's `oidc-clients.yml` gives its
+   job in the moves' step 5. The times compared are GitHub's own. Each secret's update time is recorded at its write,
+   so a copy whose time moved since was replaced by another writer, and a run created after a copy's write that is
+   still unchanged read that copy.
 6. **The workflow.** `oidc-client-secrets.yml`, dispatched by the owner alone, its job in `ops` after the owner check,
    in one concurrency group that never cancels a running step. The writer's token reaches cicd, the hub and terraform
-   with secrets and environments write. The runs are read through a second token with Actions read alone, so no
-   frontend is written, and the record through the variables mint held to cicd. Each source reaches the step only
-   when its client and environment are selected, and the status step holds the record's token alone.
+   with secrets and environments write, minted only for the steps that write. The runs are read through a second
+   token with Actions read alone and no writing fallback, so no frontend is written, and the record through the
+   variables mint held to cicd. A source reaches the step only for `generate` and `promote`, with its client and
+   environment selected. The status reads the record from the job's vars context with no token.
 
-**Alternatives considered.** *An update time check before each repeated write.* Rejected, a clock compare could take
-another writer's change for the step's own, where the fingerprint compares the value itself. *The flow inside
-`token_generations.py`'s engine.* Rejected, its generations revoke their predecessors by a reap, which an OIDC client
-secret has no part in, and the terraform rotation's design reuses the same seam beside it. *One token for the writes
-and the runs.* Rejected, it would give each frontend's repository secrets write for a read.
+**Alternatives considered.** *An update time check before each repeated write.* Rejected, it could take another
+writer's change for the step's own and skip the write, where the fingerprint compares the value itself. *Each consumer
+reporting the fingerprint it took.* Not taken, it needs a contract in terraform's run and the hub's, where the update
+time recorded at each write shows the copy no other writer replaced. *The flow inside `token_generations.py`'s
+engine.* Rejected, its generations revoke their predecessors by a reap, which an OIDC client secret has no part in, and
+the terraform rotation's design reuses the same seam beside it. *One token for the writes and the runs.* Rejected, it
+would give each frontend's repository secrets write for a read. *A free text recovery reason.* Rejected, a dispatch's
+inputs show on this public repository's runs.
 
 **Consequences.** The hub's `oidc-clients.yml`, the moves' step 5, registers from `KDF_OIDC_PENDING_SECRET_<CLIENT>`
 in a job named as above. The moves' step 8 carries the first DEV client through every step. The terraform rotation's
-cicd build reads these entries as the moves' list of targets. VERSION 0.12.0.
+cicd build reads these entries as the moves' list of targets. Codex's security read of the change passed, its ten
+findings judged and eight taken, the first by the update time recorded at each write rather than a fingerprint each
+consumer reports, the third by its strict time alone. Two are not taken. A lost answer's repeated write moves the
+copy's time, so a run made between the two writes is refused and the owner runs it again, and its cure needs a
+fingerprint GitHub does not give. A delete's 404 is taken as gone, since the writer's mint names each repository and
+fails when it cannot reach one. VERSION 0.12.0.
