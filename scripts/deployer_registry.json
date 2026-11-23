@@ -43,5 +43,9 @@
 			"dev": ["Needless2Say"],
 			"prod": ["Needless2Say"]
 		}
+	},
+	"automation": {
+		"_comment": "Bots the deploy reusables may admit, each named by its numeric user id, the value a run carries as GITHUB_ACTOR_ID, never by a login and never by its App's id. Maps that id -> repo -> environment -> the exact caller workflow path and ref, {\"workflow\": \".github/workflows/cd.yml\", \"ref\": \"refs/heads/main\"}. A run a listed bot started is judged by its rule alone and never by the deployers' logins: admitted only where the deploy job's check names the profile 'redeploy', only on a run the bot both started and triggered, a workflow_dispatch on its first attempt, the first attempt standing in for the triggering actor, which a run carries as a login alone, and only from the caller its grant names. The deploy job then holds it to the version and commit the live production target's stamp carries (scripts/deploy_stamp.py). Empty until a bot exists, its entry added by its own pull request.",
+		"bots": {}
 	}
 }

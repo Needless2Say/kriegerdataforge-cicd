@@ -325,6 +325,152 @@ class TestMain:
         assert "Deployer authorization" in summary.read_text(encoding = "utf-8")
 
 
+# ── the bot's rule ─────────────────────────────────────────────────────────────
+BOT_ID = "100000001"
+BOT_LOGIN = "kdf-dispatcher[bot]"
+CALLER = "Needless2Say/kriegerdataforge/.github/workflows/cd.yml@refs/heads/main"
+
+
+@pytest.fixture
+def bot_registry(sample_registry):
+    registry = dict(sample_registry)
+    registry["automation"] = {
+        "bots": {
+            BOT_ID: {
+                "Needless2Say/kriegerdataforge": {
+                    "prod": {"workflow": ".github/workflows/cd.yml", "ref": "refs/heads/main"},
+                },
+            },
+        },
+    }
+    return registry
+
+
+def _bot_run(**overrides: str) -> list[str]:
+    """
+    The flags of a run the bot started and dispatched, its first attempt, from the deploy job, each one overridable.
+    """
+    flags = {
+        "repo": "Needless2Say/kriegerdataforge",
+        "environment": "prod",
+        "actor": BOT_LOGIN,
+        "started-by": BOT_LOGIN,
+        "actor-id": BOT_ID,
+        "profile": "redeploy",
+        "event": "workflow_dispatch",
+        "workflow-ref": CALLER,
+        "run-attempt": "1",
+    }
+    flags.update({key.replace("_", "-"): value for key, value in overrides.items()})
+    argv: list[str] = []
+    for key, value in flags.items():
+        argv += [f"--{key}", value]
+    return argv
+
+
+class TestTheBotRule:
+    """
+    The dispatcher's bot, named by its numeric id alone, admitted only on the deploy profile of its first attempt.
+    """
+    def _run(self, registry, argv, monkeypatch, tmp_path):
+        output = tmp_path / "output.txt"
+        monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+        with patch.object(cd, "_load_registry", return_value = registry):
+            rc = main(argv)
+        return rc, output.read_text(encoding = "utf-8") if output.exists() else ""
+
+
+    def test_the_bot_is_admitted_on_the_deploy_profile_of_its_first_dispatch(self, bot_registry, monkeypatch, tmp_path):
+        rc, output = self._run(bot_registry, _bot_run(), monkeypatch, tmp_path)
+        assert rc == 0
+        assert "path=bot" in output
+
+
+    @pytest.mark.parametrize("overrides", [
+        {"profile": ""},
+        {"profile": "terraform"},
+        {"run_attempt": "2"},
+        {"event": "schedule"},
+        {"event": "push"},
+        {"workflow_ref": "Needless2Say/kriegerdataforge/.github/workflows/other.yml@refs/heads/main"},
+        {"workflow_ref": "Needless2Say/kriegerdataforge/.github/workflows/cd.yml@refs/heads/feature"},
+        {"workflow_ref": "Needless2Say/kriegerdataforge/.github/workflows/cd.yml@refs/tags/v1.0.0"},
+        {"environment": "dev"},
+        {"repo": "Needless2Say/fitness-app-frontend"},
+        {"actor": "Needless2Say"},
+    ], ids = [
+        "no-profile", "another-profile", "a-rerun", "a-schedule", "a-push", "another-caller", "another-branch",
+        "a-tag", "an-environment-not-granted", "a-repo-not-granted", "the-owner-reran-it",
+    ])
+    def test_the_bot_is_refused_off_its_profile_and_never_falls_back_to_the_human_rule(
+        self, bot_registry, overrides, monkeypatch, tmp_path,
+    ):
+        rc, output = self._run(bot_registry, _bot_run(**overrides), monkeypatch, tmp_path)
+        assert rc == 1
+        assert "path=" not in output
+
+
+    def test_an_id_no_bot_entry_names_takes_the_human_rule_by_login(self, bot_registry, monkeypatch, tmp_path):
+        rc, output = self._run(bot_registry, _bot_run(actor_id = "100000002"), monkeypatch, tmp_path)
+        assert rc == 1
+        assert "path=" not in output
+
+
+    def test_the_owners_run_takes_the_human_rule_and_says_so(self, bot_registry, monkeypatch, tmp_path):
+        argv = _bot_run(actor = "Needless2Say", started_by = "Needless2Say", actor_id = "200000002", profile = "")
+        rc, output = self._run(bot_registry, argv, monkeypatch, tmp_path)
+        assert rc == 0
+        assert "path=human" in output
+
+
+    def test_the_owners_rerun_is_the_human_rule_as_before(self, bot_registry, monkeypatch, tmp_path):
+        argv = _bot_run(actor = "Needless2Say", started_by = "Needless2Say", actor_id = "200000002", run_attempt = "3")
+        rc, output = self._run(bot_registry, argv, monkeypatch, tmp_path)
+        assert rc == 0
+        assert "path=human" in output
+
+
+    def test_the_bots_login_alone_never_admits_it(self, bot_registry, monkeypatch, tmp_path):
+        # a login is not an identity the registry trusts for a bot, so a run whose id is no bot's is the human rule's
+        bot_registry["deployers"]["Needless2Say/kriegerdataforge"]["prod"].append(BOT_LOGIN)
+        rc, output = self._run(bot_registry, _bot_run(actor_id = "200000002"), monkeypatch, tmp_path)
+        assert rc == 0
+        assert "path=human" in output
+
+
+    def test_the_actor_id_falls_back_to_the_runners_own(self, bot_registry, monkeypatch, tmp_path):
+        monkeypatch.setenv("GITHUB_ACTOR_ID", BOT_ID)
+        argv = _bot_run()
+        index = argv.index("--actor-id")
+        del argv[index:index + 2]
+        rc, output = self._run(bot_registry, argv, monkeypatch, tmp_path)
+        assert rc == 0
+        assert "path=bot" in output
+
+
+    def test_a_registry_with_no_automation_section_admits_no_bot(self, sample_registry, monkeypatch, tmp_path):
+        rc, _ = self._run(sample_registry, _bot_run(), monkeypatch, tmp_path)
+        assert rc == 1
+
+
+    def test_the_real_registry_names_its_bots_by_number_with_exact_callers(self):
+        bots = _load_registry()["automation"]["bots"]
+        assert isinstance(bots, dict)
+        for bot_id, grants in bots.items():
+            assert bot_id.isdigit(), f"a bot is named by its numeric user id, not {bot_id!r}"
+            for repo, environments in grants.items():
+                assert "/" in repo
+                for environment, caller in environments.items():
+                    assert environment in ("dev", "prod")
+                    assert caller["workflow"].startswith(".github/workflows/")
+                    assert caller["ref"] == "refs/heads/main"
+
+
+    def test_the_real_registry_comment_names_the_bots_id_and_its_first_attempt(self):
+        comment = _load_registry()["automation"]["_comment"]
+        assert "GITHUB_ACTOR_ID" in comment and "first attempt" in comment
+
+
 # ── module entry guard ──────────────────────────────────────────────────────────
 class TestEntryGuard:
     def test_main_callable_with_argv(self, sample_registry, monkeypatch):
