@@ -1,0 +1,61 @@
+name: Deploy stamp
+description: >-
+  Judges a deploy against its Vercel project's live production target's stamp (scripts/deploy_stamp.py). `bot` holds
+  a bot's redeploy to the live version and commit, and `fresh` refuses a candidate whose stamped start is before the
+  live deployment's. Prints the target's id and stamp, never the token, and fails the step when it refuses.
+
+inputs:
+  command:
+    description: "`bot` or `fresh`"
+    required: true
+  token:
+    description: The job's VERCEL_DEPLOYMENT_TOKEN, trimmed and masked here
+    required: true
+  org:
+    description: The environment's VERCEL_ORG_ID
+    required: true
+  project:
+    description: The environment's VERCEL_PROJECT_ID
+    required: true
+  version:
+    description: For `bot`, the version the run deploys
+    required: false
+    default: ""
+  commit:
+    description: For `bot`, the commit the release check resolved
+    required: false
+    default: ""
+  started:
+    description: For `fresh`, the start the deploy job's first step recorded
+    required: false
+    default: ""
+  path:
+    description: For `fresh`, the path the deployer check wrote, human or bot
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Judge the deploy against the live target's stamp
+      shell: bash
+      env:
+        COMMAND: ${{ inputs.command }}
+        RAW_TOKEN: ${{ inputs.token }}
+        VERCEL_ORG_ID: ${{ inputs.org }}
+        VERCEL_PROJECT_ID: ${{ inputs.project }}
+        STAMP_VERSION: ${{ inputs.version }}
+        STAMP_COMMIT: ${{ inputs.commit }}
+        STAMP_STARTED: ${{ inputs.started }}
+        STAMP_PATH: ${{ inputs.path }}
+      run: |
+        # the same trim the deploy steps make, masked since the trimmed value is a string the secret's mask misses
+        VERCEL_TOKEN="$(printf '%s' "$RAW_TOKEN" | tr -d '[:space:]')"
+        if [ -n "$VERCEL_TOKEN" ]; then echo "::add-mask::$VERCEL_TOKEN"; fi
+        export VERCEL_TOKEN
+        script="$GITHUB_ACTION_PATH/../../../scripts/deploy_stamp.py"
+        case "$COMMAND" in
+          bot) python3 "$script" bot --version "$STAMP_VERSION" --commit "$STAMP_COMMIT" ;;
+          fresh) python3 "$script" fresh --started "$STAMP_STARTED" --path "$STAMP_PATH" ;;
+          *) echo "::error::the deploy stamp's command is bot or fresh, not '$COMMAND'"; exit 1 ;;
+        esac

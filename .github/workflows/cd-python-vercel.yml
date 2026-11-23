@@ -78,6 +78,9 @@ jobs:
     runs-on: ubuntu-slim
     permissions:
       contents: read
+    # human, or bot for the dispatcher's bot, admitted only on this deploy profile of its own first dispatch
+    outputs:
+      path: ${{ steps.gate.outputs.path }}
     steps:
       - name: Check out deployer registry (kriegerdataforge-cicd)
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -92,11 +95,19 @@ jobs:
           token: ${{ github.token }}
 
       - name: Verify deployer is approved
+        id: gate
         run: python3 _kdf_cicd/scripts/check_deployer.py
         env:
           DEPLOY_REPO: ${{ github.repository }}
           DEPLOY_ACTOR: ${{ github.triggering_actor }}
           DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+          # a bot is known by its numeric id alone and admitted only where this deploy job names its profile, from
+          # the caller workflow and ref its grant names, on a workflow_dispatch's first attempt
+          DEPLOY_ACTOR_ID: ${{ github.actor_id }}
+          DEPLOY_PROFILE: redeploy
+          DEPLOY_EVENT: ${{ github.event_name }}
+          DEPLOY_WORKFLOW_REF: ${{ github.workflow_ref }}
+          DEPLOY_RUN_ATTEMPT: ${{ github.run_attempt }}
 
   # ── PROD gate ──────────────────────────────────────────────────────────────
   # Runs after the deployer authorization and before the deploy job. A release deploys to
@@ -130,7 +141,11 @@ jobs:
           path: _kdf_cicd
           token: ${{ github.token }}
 
+      # A bot's redeploy is held instead, in the deploy job before anything is installed, to the version and commit
+      # its project's live production target carries, a deployment a gated deploy made, so a live PROD release
+      # whose gate run lies beyond this search's window is still redeployed. A human release keeps this gate.
       - name: Verify a successful PROD Gate run exists for this release
+        if: needs.authorize.outputs.path != 'bot'
         run: python3 _kdf_cicd/scripts/check_prod_gate.py
         env:
           DEPLOY_REPO: ${{ github.repository }}
@@ -138,6 +153,10 @@ jobs:
           DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
           EXPECTED_COMMIT: ${{ needs.release.outputs.sha }}
           GH_TOKEN: ${{ github.token }}
+
+      - name: The bot's redeploy, held to the live release in the deploy job
+        if: needs.authorize.outputs.path == 'bot'
+        run: echo "the bot redeploys the live release alone, checked against the live target's stamp before any install"
 
   # ── Release check ──────────────────────────────────────────────────────────
   # The environment's branch rule binds the run's ref, never the code the run checks out. So
@@ -194,6 +213,9 @@ jobs:
     # The one database lock of the repository and environment (D-111), which a restore, a reseed, a seed and a
     # client change take too, the upgrade, smoke, downgrade and promotion inside it. Running work is never
     # cancelled by a newer request, and a waiting run may be replaced by a newer one, so a caller sets none of its own.
+    # The group is also the deploy's own, one per app and environment, so the owner's deploys and a bot's redeploys
+    # wait on each other, its name the reusable's and none a caller's can equal, since a called job whose group has
+    # its caller's name waits on itself.
     concurrency:
       group: kdf-database-${{ github.repository }}-${{ inputs.environment }}
       cancel-in-progress: false
@@ -202,6 +224,12 @@ jobs:
       contents: read
 
     steps:
+      # The stamp's start, before any setting is read. Receipts read the attempt's start from GitHub, and the
+      # freshness rule compares this time with the live deployment's.
+      - name: Record the start, before any setting is read
+        id: start
+        run: echo "started=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -217,6 +245,19 @@ jobs:
             exit 1
           fi
           echo "deploying ${head}, the commit the release check resolved"
+
+      # A bot redeploys its project's live release alone, the version and the exact commit the live production
+      # target's stamp carries, checked here before anything is installed or built. A missing stamp refuses it.
+      - name: Hold the bot to the live release
+        if: needs.authorize.outputs.path == 'bot'
+        uses: Needless2Say/kriegerdataforge-cicd/.github/actions/deploy-stamp@main
+        with:
+          command: bot
+          token: ${{ secrets.VERCEL_DEPLOYMENT_TOKEN }}
+          org: ${{ secrets.VERCEL_ORG_ID }}
+          project: ${{ secrets.VERCEL_PROJECT_ID }}
+          version: ${{ inputs.version }}
+          commit: ${{ needs.release.outputs.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
@@ -289,9 +330,15 @@ jobs:
           echo "::add-mask::$TOKEN"
           echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
           echo "VERCEL_DEPLOYMENT_TOKEN trimmed length=${#TOKEN}; org=${VERCEL_ORG_ID}; project=${VERCEL_PROJECT_ID}"
-          # the CLI prints the deployment URL alone on stdout, its progress goes to stderr
+          # the CLI prints the deployment URL alone on stdout, its progress goes to stderr. The stamp, the release,
+          # its commit, the run and attempt and the job's start, rides on the deployment as its metadata
           URL="$(NODE_OPTIONS="--require ./dns-preload.js" vercel deploy --prod --yes --skip-domain \
             --token "$TOKEN" \
+            --meta "kdf_version=$STAMP_VERSION" \
+            --meta "kdf_commit=$STAMP_COMMIT" \
+            --meta "kdf_run_id=$GITHUB_RUN_ID" \
+            --meta "kdf_run_attempt=$GITHUB_RUN_ATTEMPT" \
+            --meta "kdf_started_at=$STAMP_STARTED" \
             --build-env "GH_PACKAGES_PAT=$GH_PACKAGES_PAT" | tail -n 1)"
           case "$URL" in
             https://*) ;;
@@ -304,20 +351,24 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           GH_PACKAGES_PAT: ${{ secrets.GH_PACKAGES_PAT }}
+          STAMP_VERSION: ${{ inputs.version }}
+          STAMP_COMMIT: ${{ needs.release.outputs.sha }}
+          STAMP_STARTED: ${{ steps.start.outputs.started }}
 
       # psycopg2 (the source build pinned in requirements, not psycopg2-binary)
       # links libpq dynamically and needs libpq.so.5 at import time. The slim
       # runner image does not ship it (Vercel's runtime does, so the deployed app
       # is unaffected), so install the runtime library before Alembic imports the
       # driver. Guarded to the migration path so non-migrating deploys skip it.
+      # A bot's redeploy never migrates, whatever the caller passes, its release's schema already the live one's.
       - name: Install libpq (psycopg2 runtime dependency)
-        if: inputs.run_migrations == 'true'
+        if: inputs.run_migrations == 'true' && needs.authorize.outputs.path != 'bot'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libpq5
 
       - name: Run Alembic migrations
-        if: inputs.run_migrations == 'true'
+        if: inputs.run_migrations == 'true' && needs.authorize.outputs.path != 'bot'
         id: migrate
         # The revision in place is recorded first, so a smoke failure below can undo the
         # upgrade to exactly it (the hub's rule, a release and its migrations in one window
@@ -402,8 +453,25 @@ jobs:
           DEPLOY_URL: ${{ steps.deploy.outputs.url }}
           BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
 
+      # The freshness rule, the owner's and a bot's alike, the last check before the promotion. The live target is
+      # read again and a candidate whose stamped start is before the live deployment's is never promoted over it. A
+      # live deployment with no stamp, a legacy one, lets the owner's deploy promote and says so in the summary, and
+      # refuses a bot. A refusal undoes the migration as a failed smoke does.
+      - name: Hold the candidate to the live deployment's start
+        id: fresh
+        uses: Needless2Say/kriegerdataforge-cicd/.github/actions/deploy-stamp@main
+        with:
+          command: fresh
+          token: ${{ secrets.VERCEL_DEPLOYMENT_TOKEN }}
+          org: ${{ secrets.VERCEL_ORG_ID }}
+          project: ${{ secrets.VERCEL_PROJECT_ID }}
+          started: ${{ steps.start.outputs.started }}
+          path: ${{ needs.authorize.outputs.path }}
+
       - name: Undo the migration, the new release will not serve
-        if: failure() && steps.smoke.outcome == 'failure' && inputs.run_migrations == 'true'
+        if: >-
+          failure() && (steps.smoke.outcome == 'failure' || steps.fresh.outcome == 'failure')
+          && steps.migrate.outcome == 'success'
         run: alembic downgrade "$BEFORE"
         env:
           BEFORE: ${{ steps.migrate.outputs.before }}
