@@ -21,6 +21,11 @@ from check_deployer import (
     parse_cli_args,
 )
 
+# a scratch bot for the bot's rule, its numeric id, its login and the one caller its grant names
+BOT_ID    = "100000001"
+BOT_LOGIN = "kdf-dispatcher[bot]"
+CALLER    = "Needless2Say/kriegerdataforge/.github/workflows/cd.yml@refs/heads/main"
+
 
 # ── Shared fixtures ────────────────────────────────────────────────────────────
 @pytest.fixture(autouse = True)
@@ -326,11 +331,6 @@ class TestMain:
 
 
 # ── the bot's rule ─────────────────────────────────────────────────────────────
-BOT_ID = "100000001"
-BOT_LOGIN = "kdf-dispatcher[bot]"
-CALLER = "Needless2Say/kriegerdataforge/.github/workflows/cd.yml@refs/heads/main"
-
-
 @pytest.fixture
 def bot_registry(sample_registry):
     registry = dict(sample_registry)
@@ -402,9 +402,8 @@ class TestTheBotRule:
         "no-profile", "another-profile", "a-rerun", "a-schedule", "a-push", "another-caller", "another-branch",
         "a-tag", "an-environment-not-granted", "a-repo-not-granted", "the-owner-reran-it",
     ])
-    def test_the_bot_is_refused_off_its_profile_and_never_falls_back_to_the_human_rule(
-        self, bot_registry, overrides, monkeypatch, tmp_path,
-    ):
+    def test_the_bot_off_its_profile_is_refused_by_both_rules(self, bot_registry, overrides, monkeypatch, tmp_path):
+        # a run the bot started never falls back to the logins, so off its profile it is refused whole
         rc, output = self._run(bot_registry, _bot_run(**overrides), monkeypatch, tmp_path)
         assert rc == 1
         assert "path=" not in output
@@ -440,7 +439,7 @@ class TestTheBotRule:
 
     def test_the_actor_id_falls_back_to_the_runners_own(self, bot_registry, monkeypatch, tmp_path):
         monkeypatch.setenv("GITHUB_ACTOR_ID", BOT_ID)
-        argv = _bot_run()
+        argv  = _bot_run()
         index = argv.index("--actor-id")
         del argv[index:index + 2]
         rc, output = self._run(bot_registry, argv, monkeypatch, tmp_path)

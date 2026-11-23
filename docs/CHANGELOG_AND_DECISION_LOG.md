@@ -5942,3 +5942,62 @@ step of every `ops` workflow, so a run took whatever release was newest that day
 
 **Consequences.** A live restore into a Neon database can pass its count check. A package's bump is a pull request of
 its own. VERSION 0.12.1.
+
+## D-114. The deploy stamp, a bot's rule in the deployer check and the freshness rule
+
+- **Date.** 2026-11-23
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Epic slice, the owner's design approved before this build · `cd-python-vercel.yml`,
+  `cd-nextjs-vercel.yml`, `scripts/check_deployer.py`, `scripts/deployer_registry.json`, the new
+  `scripts/deploy_stamp.py` and `.github/actions/deploy-stamp/` · one optional input added, `smoke_path` on the
+  Next.js deploy, no input, output or secret removed or renamed, every caller unchanged
+
+**Context.** A planned automation redeploys a project's live release once a setting it reads has changed, the
+release itself unchanged, as a GitHub App's bot dispatching the app's own `cd.yml`. Three things were missing. No
+deployment said which release, commit and run made it, or when that run began reading settings, so nothing could
+tell whether a live deployment holds a setting changed at a known time. The deployer check matched logins, and a
+run carries its triggering actor as a login alone, so a bot could not be told from a person who reran its run. No
+deploy compared itself with the one serving, so an older candidate promoted late could replace a newer one. Probes
+on scratch projects settled the facts this rests on, that Vercel returns `--meta` on the deployment and on the
+project's `targets.production`, that a run's `GITHUB_ACTOR_ID` is the bot account's user id, never its App's id, on
+a dispatch and on every rerun, that a person's rerun keeps the bot as `github.actor` and names the person as the
+triggering actor by login, and that GitHub's start of an attempt precedes every step in it.
+
+**Decision.**
+
+1. **The stamp.** Both deploy commands pass `kdf_version`, `kdf_commit`, `kdf_run_id`, `kdf_run_attempt` and
+   `kdf_started_at`, the last the time the deploy job's first step records before any setting is read. No input is
+   added for it, a reader taking the attempt's start from GitHub by the run id and attempt.
+2. **The bot's rule.** The registry gains `automation.bots`, a bot named by its numeric user id alone, mapped to the
+   exact caller workflow and ref it may deploy from per repo and environment. A run a listed bot started is judged
+   by that rule alone and never falls back to the logins. It is admitted only where the deploy reusables' `authorize`
+   job names the profile `redeploy`, so any other caller of the check refuses it with no inventory, only on a run
+   the bot both started and triggered, a `workflow_dispatch` on its first attempt, the first attempt standing in for
+   the triggering actor, and only from `github.workflow_ref` as its grant names it. The section starts empty, a bot's
+   entry its own pull request once it exists.
+3. **The bot's deploy profile.** In the deploy job, before anything is installed or built, a bot's run is held to the
+   version and the exact commit the live target's stamp carries, a missing stamp refusing it. Its path skips the PROD
+   gate's search, whose window a live PROD release's gate run may lie beyond, since the deployment it copies was made
+   by a gated deploy, and a human release keeps the gate. The Python deploy never migrates on it, whatever the caller
+   passes. Its Next.js run takes the Python deploy's shape, deployed without the domains, smoked on the caller's
+   `smoke_path` through `VERCEL_AUTOMATION_BYPASS_SECRET`, the live target read again, then promoted, and a caller
+   passing no route is refused before anything is installed.
+4. **The freshness rule.** Before any promotion, the owner's or a bot's, the live target is read again and a
+   candidate whose stamped start is before the live deployment's is refused, the stamps compared and GitHub asked
+   nothing, so the deploy jobs keep `contents: read` and no caller changes its grants. A live deployment with no stamp
+   lets the owner's deploy promote and says so in the summary, and refuses a bot. The Python deploy checks after its
+   smoke, a refusal undoing the migration as a failed smoke does. The owner's Next.js deploy, which promotes in its
+   one `--prod` call, checks immediately before that call.
+5. **One group per app and environment.** The Next.js deploy job gains `kdf-deploy-<repository>-<environment>`. The
+   Python deploy job keeps D-111's `kdf-database-<repository>-<environment>`, already per app and environment, so a
+   job holds one group. Both names are the reusable's own, which no caller's `cd-<environment>` can equal, since a
+   called job whose group has its caller's name waits on itself.
+6. **The checks in one script.** `scripts/deploy_stamp.py`, standard library only and unit tested against a fake API,
+   run through the `deploy-stamp` composite action at `@main`, as the token's generation is, so nothing is checked
+   out into the app's workspace, and printing the target's id and stamp, never the token.
+
+**Consequences.** Every deploy after this one carries a stamp, so a target still missing one is the owner's deploy
+to make before any automation is armed on it. A bot can redeploy a live release and nothing else, from one caller
+on its first attempt. An owner's deploy started before a newer one finished is refused at its promotion rather than
+replacing it. The Next.js deploy holds a group, so two owner deploys of one app and environment wait on each other.
+VERSION 0.13.0.

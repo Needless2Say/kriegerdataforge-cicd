@@ -45,7 +45,7 @@ API = "https://api.vercel.com"
 STAMP_KEYS = ("kdf_version", "kdf_commit", "kdf_run_id", "kdf_run_attempt", "kdf_started_at")
 
 # the time shape the deploy job's first step writes, UTC to the millisecond
-TIME_SHAPE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
+TIME_SHAPE   = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
 COMMIT_SHAPE = re.compile(r"^[0-9a-f]{40}$")
 
 # ======================================================================================================================
@@ -161,6 +161,15 @@ def judge_fresh(started: dt.datetime, stamp: Stamp | None, path: str, *, live: b
 
 
 def _iso(moment: dt.datetime) -> str:
+    """
+    A time written in the stamp's shape.
+
+    Args:
+        moment: an aware time in UTC
+
+    Returns:
+        str: the time, UTC to the millisecond
+    """
     return moment.strftime("%Y-%m-%dT%H:%M:%S.") + f"{moment.microsecond // 1000:03d}Z"
 
 # ======================================================================================================================
@@ -171,10 +180,16 @@ class Vercel:
     """
     Vercel's REST API through one token, scoped to a team when the account id names one.
     """
-
     def __init__(self, token: str, org: str) -> None:
+        """
+        One token, and the team scope its account id names.
+
+        Args:
+            token: the trimmed Vercel token
+            org: the account id, a team's when it starts `team_`
+        """
         self._token = token
-        self.scope = {"teamId": org} if org.startswith("team_") else {}
+        self.scope  = {"teamId": org} if org.startswith("team_") else {}
 
 
     def call(self, path: str) -> tuple[int, object]:
@@ -187,7 +202,7 @@ class Vercel:
         Returns:
             tuple[int, object]: the status and the parsed answer
         """
-        query = "?" + urllib.parse.urlencode(self.scope) if self.scope else ""
+        query   = "?" + urllib.parse.urlencode(self.scope) if self.scope else ""
         request = urllib.request.Request(API + path + query, method = "GET")
         request.add_header("Authorization", "Bearer " + self._token)
         try:
@@ -227,6 +242,10 @@ def live_target(api: Vercel, project: str) -> tuple[bool, str, dict]:
 def _say(line: str, *, ok: bool) -> None:
     """
     Print the result, an error annotation when refused, and add it to the step's summary.
+
+    Args:
+        line: the reason
+        ok: whether the check passed
     """
     print(line if ok else f"::error::{line}")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
@@ -242,9 +261,18 @@ def _say(line: str, *, ok: bool) -> None:
 # ======================================================================================================================
 
 def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """
+    The two subcommands and their flags.
+
+    Args:
+        argv: the arguments, or None for the process's own
+
+    Returns:
+        argparse.Namespace: the parsed arguments
+    """
     parser = argparse.ArgumentParser(description = "The deploy stamp's checks against the live production target.")
-    sub = parser.add_subparsers(dest = "command", required = True)
-    bot = sub.add_parser("bot", help = "a bot's redeploy, the live version and commit alone")
+    sub    = parser.add_subparsers(dest = "command", required = True)
+    bot    = sub.add_parser("bot", help = "a bot's redeploy, the live version and commit alone")
     bot.add_argument("--version", required = True)
     bot.add_argument("--commit", required = True)
     fresh = sub.add_parser("fresh", help = "a candidate's start against the live deployment's")
@@ -254,8 +282,18 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None, api: Vercel | None = None) -> int:
-    args = parse_cli_args(argv)
-    token = os.environ.get("VERCEL_TOKEN", "").strip()
+    """
+    Read the live target and judge the run, failing closed when the target cannot be read.
+
+    Args:
+        argv: the arguments, or None for the process's own
+        api: the API, a test's fake or None for Vercel's own
+
+    Returns:
+        int: 0 when the check passes, 1 when it refuses
+    """
+    args    = parse_cli_args(argv)
+    token   = os.environ.get("VERCEL_TOKEN", "").strip()
     project = os.environ.get("VERCEL_PROJECT_ID", "").strip()
     if not token or not project:
         _say("VERCEL_TOKEN and VERCEL_PROJECT_ID are both needed to read the live target.", ok = False)
@@ -269,8 +307,10 @@ def main(argv: list[str] | None = None, api: Vercel | None = None) -> int:
     api = api or Vercel(token, os.environ.get("VERCEL_ORG_ID", "").strip())
     read, target_id, meta = live_target(api, project)
     if not read:
-        _say("The project's production target could not be read, so nothing is judged and the deploy stops.",
-             ok = False)
+        _say(
+            "The project's production target could not be read, so nothing is judged and the deploy stops.",
+            ok = False,
+        )
         return 1
     stamp = read_stamp(meta)
     if stamp is not None:

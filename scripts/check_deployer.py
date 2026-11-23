@@ -133,7 +133,7 @@ def find_bot(registry: dict, actor_id: str) -> dict | None:
     candidate = actor_id.strip()
     if not candidate.isdigit():
         return None
-    bots = (registry.get("automation") or {}).get("bots") or {}
+    bots   = (registry.get("automation") or {}).get("bots") or {}
     grants = bots.get(candidate)
     return grants if isinstance(grants, dict) else None
 
@@ -207,12 +207,15 @@ def _emit(message: str, *, ok: bool) -> None:
 
 def _write_path(path: str) -> None:
     """
-    The path an allowed run took, `bot` or `human`, as the step's output `path`, when the step has outputs.
+    The path an allowed run took, as the step's output `path`, when the step has outputs.
+
+    Args:
+        path: `bot` or `human`
     """
     output_path = os.environ.get("GITHUB_OUTPUT")
     if output_path:
-        with open(output_path, "a", encoding = "utf-8") as fh:
-            fh.write(f"path={path}\n")
+        with open(output_path, "a", encoding = "utf-8") as handle:
+            handle.write(f"path={path}\n")
 
 # ======================================================================================================================
 # CLI

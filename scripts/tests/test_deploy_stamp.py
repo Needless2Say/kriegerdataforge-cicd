@@ -10,7 +10,7 @@ import deploy_stamp as ds
 import pytest
 
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
-OTHER = "fedcba9876543210fedcba9876543210fedcba98"
+OTHER  = "fedcba9876543210fedcba9876543210fedcba98"
 
 
 def _meta(**overrides: str) -> dict:
@@ -36,7 +36,7 @@ class FakeVercel:
     The project answer alone, its production target carrying the given meta, and the calls it was asked for.
     """
     def __init__(self, meta: dict | None, status: int = 200, target: bool = True) -> None:
-        self.meta = meta
+        self.meta   = meta
         self.status = status
         self.target = target
         self.paths: list[str] = []
@@ -52,6 +52,9 @@ class FakeVercel:
 
 # ── the stamp ──────────────────────────────────────────────────────────────────
 class TestReadStamp:
+    """
+    A deployment's stamp, read whole or not at all.
+    """
     def test_a_whole_stamp_is_read(self):
         stamp = ds.read_stamp(_meta())
         assert stamp == ds.Stamp("1.4.0", COMMIT, "45092719625", "1", _at("2026-11-23T01:07:30.123Z"))
@@ -86,6 +89,9 @@ class TestReadStamp:
 
 # ── the bot's redeploy ─────────────────────────────────────────────────────────
 class TestJudgeBot:
+    """
+    A bot's redeploy, the live version and commit alone.
+    """
     def test_the_live_version_and_commit_are_admitted(self):
         ok, _ = ds.judge_bot(ds.read_stamp(_meta()), "1.4.0", COMMIT)
         assert ok is True
@@ -106,6 +112,9 @@ class TestJudgeBot:
 
 # ── freshness ──────────────────────────────────────────────────────────────────
 class TestJudgeFresh:
+    """
+    The freshness rule, the owner's and a bot's alike.
+    """
     @pytest.mark.parametrize("path", ["human", "bot"])
     def test_a_candidate_started_after_the_live_one_is_promoted(self, path):
         ok, _ = ds.judge_fresh(_at("2026-11-23T01:08:00.000Z"), ds.read_stamp(_meta()), path, live = True)
@@ -154,6 +163,9 @@ def env(monkeypatch, tmp_path):
 
 
 class TestMain:
+    """
+    The command line against the fake API, failing closed and never printing the token.
+    """
     def test_the_bot_check_passes_for_the_live_release(self, env, capsys):
         api = FakeVercel(_meta())
         assert ds.main(["bot", "--version", "1.4.0", "--commit", COMMIT], api = api) == 0

@@ -111,7 +111,7 @@ workflow runs a **deployer authorization gate** as its first job.
    `authorize` job that the `deploy`/`run` job `needs:`. (`arthurs-portfolio`'s self contained
    `cd.yml` runs the same gate before its build.)
 2. `authorize` sparse checks out this repo's `scripts/` and runs
-   [`scripts/check_deployer.py`](../../scripts/check_deployer.py) (`cd-nextjs-vercel.yml:47-70`).
+   [`scripts/check_deployer.py`](../../scripts/check_deployer.py) (each workflow's `authorize` job).
 3. The script matches both of the run's users, `github.actor`, who started the run and chose its
    inputs and whom a rerun keeps, read from the runner's own `GITHUB_ACTOR`, and
    `github.triggering_actor`, whoever clicked **Run workflow** or reran it, against
@@ -138,6 +138,33 @@ workflow runs a **deployer authorization gate** as its first job.
 A repo not in the registry, an environment not listed for that repo, or an actor not in the list →
 **denied**. When onboarding a tenant, add its entry *before* its first deploy. Environment keys must
 match the value the caller passes to the reusable workflow's `environment` input.
+
+### The bot's rule
+
+A bot is named in the registry's `automation.bots` by its numeric user id alone, the value a run carries
+as `GITHUB_ACTOR_ID`, never by a login and never by its App's id, mapped to the exact caller workflow and
+ref it may deploy from in each repo and environment:
+
+```json
+{
+  "automation": {
+    "bots": {
+      "<numeric user id>": {
+        "Needless2Say/kriegerdataforge": { "prod": { "workflow": ".github/workflows/cd.yml", "ref": "refs/heads/main" } }
+      }
+    }
+  }
+}
+```
+
+A run a listed bot started is judged by the bot's rule alone and never falls back to the logins. It is
+admitted only where the two Vercel deploys' `authorize` job names the profile `redeploy`, so
+`terraform-run.yml` and any later caller of the check refuse it, only on a run the bot both started and
+triggered, a `workflow_dispatch` on its first attempt, the first attempt standing in for the triggering
+actor, which a run carries as a login alone, and only from the caller its grant names, read from
+`github.workflow_ref`. The check writes the path it took, `bot` or `human`, as the `authorize` job's
+output `path`. What a bot may deploy is the deploy job's own check, [the deploy stamp](#the-deploy-stamp).
+The section is empty until a bot exists, its entry added by its own pull request.
 
 ### Repo access for the gate
 
@@ -208,22 +235,31 @@ workflow prepends `v`), enabling rollback to an older tag.
 #### `cd-nextjs-vercel.yml`
 
 Deploy a Next.js app to a Vercel project (`vercel pull` → `vercel build`, the one install → `vercel deploy
---prebuilt --prod`). The deploy token reaches the pull and the deploy steps alone (D-016).
+--prebuilt --prod`). The deploy token reaches the pull and the deploy steps alone (D-016), and the stamp's
+checks through the `deploy-stamp` action. The owner's deploy promotes in its one `--prod` call, the live
+target read immediately before it. A bot's redeploy takes the Python deploy's shape, deployed without the
+domains, smoked on `smoke_path`, the live target read again, then promoted ([the deploy
+stamp](#the-deploy-stamp), D-114).
 
 | Input | Type | Default | Required |
 |---|---|---|---|
-| `environment` | string | — | **yes.** `dev` or `prod` (`:32-35`) |
-| `version` | string | — | **yes.** Tag to deploy, e.g. `1.2.0` (`:36-39`) |
+| `environment` | string | — | **yes.** `dev` or `prod` |
+| `version` | string | — | **yes.** Tag to deploy, e.g. `1.2.0` |
+| `smoke_path` | string | `''` | no. A route that loads the env module, which a bot's candidate is smoked on before its promotion. A bot's run with none is refused, an owner's deploy never reads it |
 
 - **Secrets read (via `inherit`):** `VERCEL_DEPLOYMENT_TOKEN` (the environment's copy since D-100, the
   repository copy until it is retired, compared with `vars.VERCEL_TOKEN_GENERATION` and printed yes or no
   by the `token-generation` action, never failing the deploy), `VERCEL_ORG_ID`,
   `VERCEL_PROJECT_ID` (per environment, job fails fast if unset, `:101-113`), optional
   `GH_NPM_TOKEN` (classic `read:packages`, exported to `npm ci` for private GH Packages deps;
-  Vercel's remote build reads its own project env var instead).
+  Vercel's remote build reads its own project env var instead), optional
+  `VERCEL_AUTOMATION_BYPASS_SECRET`, sent from a header file on a bot's smoke.
 - **Outputs.** None.
 - **Permissions.** `deploy` job. `contents: read` (D-016 dropped `id-token: write`, the pinned CLI never
   requests a GitHub OIDC token).
+- **The deploy group (D-114).** The `deploy` job holds `kdf-deploy-<repository>-<environment>`,
+  `cancel-in-progress: false`, so the owner's deploys and a bot's redeploys wait on each other, the freshness
+  check and the promotion inside it, a name no caller's own group (`cd-<environment>`) can equal.
 - **Consumers.** `fitness-app-frontend`, `tiffanys-space` (and `kriegerdataforge-auth-ui`,
   `kriegerdataforge-template-nextjs` per the registry). `arthurs-portfolio` deploys self contained to
   GitHub Pages, not via this workflow.
@@ -254,13 +290,15 @@ D-016). An optional `VERCEL_AUTOMATION_BYPASS_SECRET` environment secret rides o
 deployment protection covers the deployment URL, which answers a plain request with a 302 to vercel.com's sign
 in or a 401, and the smoke names that case, as it names Vercel's error code on a 5xx and points at the
 deployment's runtime logs. The revision is read from alembic's verbose `Rev:` line, since a repo's
-`alembic/env.py` may print to stdout, and the migrate and undo steps declare `ENVIRONMENT` (D-018).
+`alembic/env.py` may print to stdout, and the migrate and undo steps declare `ENVIRONMENT` (D-018). Before the
+promotion the live target is read again and an older candidate refused, a refusal undoing the migration as a
+failed smoke does, and a bot's redeploy never migrates ([the deploy stamp](#the-deploy-stamp), D-114).
 
 | Input | Type | Default | Required |
 |---|---|---|---|
-| `environment` | string | — | **yes.** `dev` or `prod` (`:38-42`) |
-| `run_migrations` | **string** | `'true'` | no. Gate is `if: inputs.run_migrations == 'true'`. Pass the **string** `'true'`/`'false'` (`:43-47`, `:169`, `:175`) |
-| `version` | string | — | **yes.** Tag to deploy (`:48-51`) |
+| `environment` | string | — | **yes.** `dev` or `prod` |
+| `run_migrations` | **string** | `'true'` | no. Pass the **string** `'true'`/`'false'`. A bot's redeploy never migrates, whatever it passes |
+| `version` | string | — | **yes.** Tag to deploy |
 
 - **Secrets read (via `inherit`):** `VERCEL_DEPLOYMENT_TOKEN` (the environment's copy since D-100,
   compared with `vars.VERCEL_TOKEN_GENERATION` by the `token-generation` action, never failing the
@@ -273,7 +311,8 @@ deployment's runtime logs. The revision is read from alembic's verbose `Rev:` li
   `kdf-database-<repository>-<environment>`, `cancel-in-progress: false`, the upgrade, smoke, downgrade and
   promotion inside it. A live restore holds the same group, and a caller's reseed, seed and client change take it at
   their own job. Running work is never cancelled, a waiting run may be replaced by a newer one, and a caller sets no
-  concurrency of its own on the job that calls this.
+  concurrency of its own on the job that calls this. It is also the deploy's own group (D-114), so the owner's
+  deploys and a bot's redeploys wait on each other.
 - **Consumers.** `kriegerdataforge` (hub). Registry also lists `fitness-app-backend`,
   `tiffanys-space-backend`, `kriegerdataforge-template-fastapi`.
 
@@ -287,6 +326,32 @@ jobs:
       version: ${{ inputs.version }}
     secrets: inherit
 ```
+
+#### The deploy stamp
+
+Both Vercel deploys stamp the deployment they make (D-114). Each deploy command passes five `--meta` keys:
+
+| Key | Value |
+|---|---|
+| `kdf_version` | the `version` input |
+| `kdf_commit` | the commit the release check resolved |
+| `kdf_run_id`, `kdf_run_attempt` | the run and attempt that made it, from which a reader takes the attempt's start from GitHub |
+| `kdf_started_at` | the time the deploy job's first step recorded, before any setting was read, UTC to the millisecond |
+
+Vercel returns the stamp on the deployment and on the project's `targets.production`, the deployment its production
+domains serve. [`scripts/deploy_stamp.py`](../../scripts/deploy_stamp.py) reads that target through the
+`deploy-stamp` action, asks GitHub nothing, so the deploy jobs keep `contents: read`, and prints the target's id
+and stamp, never the token. A stamp is read whole or not at all.
+
+- **The bot's redeploy (`bot`).** Admitted for the version and the exact commit the live target's stamp carries
+  alone, checked in the deploy job before anything is installed or built. A live target with no stamp, or none,
+  refuses it. The bot's path skips the PROD gate's search, since the deployment it copies was made by a gated
+  deploy, and a human release keeps the gate. The Python deploy never migrates on it.
+- **The freshness rule (`fresh`).** Before any promotion, the owner's or a bot's, the live target is read again
+  and a candidate whose stamped start is before the live deployment's is refused. A live deployment with no
+  stamp, a legacy one, lets the owner's deploy promote and says so in the summary, and refuses a bot. The
+  Python deploy checks after its smoke, a refusal undoing the migration, and the owner's Next.js deploy
+  immediately before its one `--prod` call.
 
 #### `terraform-run.yml`
 
