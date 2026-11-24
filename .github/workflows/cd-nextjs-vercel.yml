@@ -22,6 +22,15 @@
 # Environment secrets (set per environment in the caller repo):
 #   VERCEL_ORG_ID      — Vercel team / org ID
 #   VERCEL_PROJECT_ID  — Vercel project ID for the target environment
+# Optional environment secret:
+#   VERCEL_AUTOMATION_BYPASS_SECRET — the project's "Protection Bypass for Automation" value, sent on a bot's
+#                                     smoke of its candidate's `smoke_path` route
+#
+# Every deploy stamps its deployment with the version, the source commit, the run id and attempt, and the time the
+# deploy job's first step recorded. The owner's deploy promotes in its one `--prod` call, the live target read
+# immediately before it and an older candidate refused. A bot's redeploy, admitted by the deployer check on its first
+# dispatch alone, redeploys the live release only, deployed without the domains, smoked on `smoke_path` through the
+# bypass, the live target read again, then promoted.
 #
 # Usage (consumer repo .github/workflows/cd.yml):
 #   jobs:
@@ -48,6 +57,11 @@ on:
         description: 'Version to deploy (e.g. 1.2.0). Specify an older version to roll back.'
         required: true
         type: string
+      smoke_path:
+        description: 'A route that loads the env module, which a bot smokes on its candidate before promoting it'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   # ── Deployer authorization gate ───────────────────────────────────────────
@@ -60,6 +74,9 @@ jobs:
     runs-on: ubuntu-slim
     permissions:
       contents: read
+    # human, or bot for the dispatcher's bot, admitted only on this deploy profile of its own first dispatch
+    outputs:
+      path: ${{ steps.gate.outputs.path }}
     steps:
       - name: Check out deployer registry (kriegerdataforge-cicd)
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -74,11 +91,19 @@ jobs:
           token: ${{ github.token }}
 
       - name: Verify deployer is approved
+        id: gate
         run: python3 _kdf_cicd/scripts/check_deployer.py
         env:
           DEPLOY_REPO: ${{ github.repository }}
           DEPLOY_ACTOR: ${{ github.triggering_actor }}
           DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+          # a bot is known by its numeric id alone and admitted only where this deploy job names its profile, from
+          # the caller workflow and ref its grant names, on a workflow_dispatch's first attempt
+          DEPLOY_ACTOR_ID: ${{ github.actor_id }}
+          DEPLOY_PROFILE: redeploy
+          DEPLOY_EVENT: ${{ github.event_name }}
+          DEPLOY_WORKFLOW_REF: ${{ github.workflow_ref }}
+          DEPLOY_RUN_ATTEMPT: ${{ github.run_attempt }}
 
   # ── PROD gate ──────────────────────────────────────────────────────────────
   # Runs after the deployer authorization and before the deploy job. A release deploys to
@@ -112,7 +137,11 @@ jobs:
           path: _kdf_cicd
           token: ${{ github.token }}
 
+      # A bot's redeploy is held instead, in the deploy job before anything is installed, to the version and commit
+      # its project's live production target carries, a deployment a gated deploy made, so a live PROD release
+      # whose gate run lies beyond this search's window is still redeployed. A human release keeps this gate.
       - name: Verify a successful PROD Gate run exists for this release
+        if: needs.authorize.outputs.path != 'bot'
         run: python3 _kdf_cicd/scripts/check_prod_gate.py
         env:
           DEPLOY_REPO: ${{ github.repository }}
@@ -120,6 +149,10 @@ jobs:
           DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
           EXPECTED_COMMIT: ${{ needs.release.outputs.sha }}
           GH_TOKEN: ${{ github.token }}
+
+      - name: The bot's redeploy, held to the live release in the deploy job
+        if: needs.authorize.outputs.path == 'bot'
+        run: echo "the bot redeploys the live release alone, checked against the live target's stamp before any install"
 
   # ── Release check ──────────────────────────────────────────────────────────
   # The environment's branch rule binds the run's ref, never the code the run checks out. So
@@ -173,10 +206,23 @@ jobs:
     # the pinned Vercel CLI never requests a GitHub OIDC token.
     environment: ${{ inputs.environment }}
 
+    # One group per app and environment, so the owner's deploys and a bot's redeploys wait on each other, the
+    # freshness check and the promotion inside it. Its name is the reusable's own and none a caller's can equal,
+    # since a called job whose group has its caller's name waits on itself (the callers hold `cd-<environment>`).
+    concurrency:
+      group: kdf-deploy-${{ github.repository }}-${{ inputs.environment }}
+      cancel-in-progress: false
+
     permissions:
       contents: read
 
     steps:
+      # The stamp's start, before any setting is read. Receipts read the attempt's start from GitHub, and the
+      # freshness rule compares this time with the live deployment's.
+      - name: Record the start, before any setting is read
+        id: start
+        run: echo "started=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -192,6 +238,38 @@ jobs:
             exit 1
           fi
           echo "deploying ${head}, the commit the release check resolved"
+
+      # The deployer check's path decides every later branch, so a run whose path is neither, an output GitHub
+      # withheld for one, stops here. A bot is admitted on its first attempt alone, and a rerun of failed jobs keeps
+      # the check's pass from attempt 1, so a bot's later attempt stops here too.
+      - name: Refuse an unknown path or a bot's rerun
+        if: >-
+          (needs.authorize.outputs.path != 'bot' && needs.authorize.outputs.path != 'human')
+          || (needs.authorize.outputs.path == 'bot' && github.run_attempt != '1')
+        run: |
+          echo "::error::the deployer check's path is '${PATH_TAKEN}' on attempt ${GITHUB_RUN_ATTEMPT}, and a deploy runs on the human path or on a bot's first attempt alone"
+          exit 1
+        env:
+          PATH_TAKEN: ${{ needs.authorize.outputs.path }}
+
+      # A bot redeploys its project's live release alone, the version and the exact commit the live production
+      # target's stamp carries, checked here before anything is installed or built. A missing stamp refuses it.
+      - name: Hold the bot to the live release
+        if: needs.authorize.outputs.path == 'bot'
+        uses: Needless2Say/kriegerdataforge-cicd/.github/actions/deploy-stamp@main
+        with:
+          command: bot
+          token: ${{ secrets.VERCEL_DEPLOYMENT_TOKEN }}
+          org: ${{ secrets.VERCEL_ORG_ID }}
+          project: ${{ secrets.VERCEL_PROJECT_ID }}
+          version: ${{ inputs.version }}
+          commit: ${{ needs.release.outputs.sha }}
+
+      - name: Refuse a bot's run with no smoke route
+        if: needs.authorize.outputs.path == 'bot' && !startsWith(inputs.smoke_path, '/')
+        run: |
+          echo "::error::a bot's candidate is smoked before it serves, and this caller passes no smoke_path route"
+          exit 1
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
@@ -350,9 +428,116 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: vercel build --prod
 
+      # The freshness rule, immediately before the owner's one `--prod` call, which promotes as it deploys, inside the
+      # group. The live target is read and this deploy refused when its start is before the live deployment's. A live
+      # deployment with no stamp, a legacy one, lets the owner's deploy promote and says so in the summary.
+      - name: Hold this deploy to the live deployment's start
+        if: needs.authorize.outputs.path == 'human'
+        uses: Needless2Say/kriegerdataforge-cicd/.github/actions/deploy-stamp@main
+        with:
+          command: fresh
+          token: ${{ secrets.VERCEL_DEPLOYMENT_TOKEN }}
+          org: ${{ secrets.VERCEL_ORG_ID }}
+          project: ${{ secrets.VERCEL_PROJECT_ID }}
+          started: ${{ steps.start.outputs.started }}
+          path: human
+
+      # The stamp, the release, its commit, the run and attempt and the job's start, rides on the deployment as its
+      # metadata.
       - name: Deploy prebuilt artifact to Vercel
-        run: vercel deploy --prebuilt --prod --yes --token "$VERCEL_TOKEN"
+        if: needs.authorize.outputs.path == 'human'
+        run: |
+          vercel deploy --prebuilt --prod --yes --token "$VERCEL_TOKEN" \
+            --meta "kdf_version=$STAMP_VERSION" \
+            --meta "kdf_commit=$STAMP_COMMIT" \
+            --meta "kdf_run_id=$GITHUB_RUN_ID" \
+            --meta "kdf_run_attempt=$GITHUB_RUN_ATTEMPT" \
+            --meta "kdf_started_at=$STAMP_STARTED"
         env:
+          VERCEL_TOKEN: ${{ steps.token.outputs.token }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          STAMP_VERSION: ${{ inputs.version }}
+          STAMP_COMMIT: ${{ needs.release.outputs.sha }}
+          STAMP_STARTED: ${{ steps.start.outputs.started }}
+
+      # ── A bot's redeploy, the Python deploy's shape ───────────────────────────
+      # The same build, deployed without the domains so the release that is serving keeps serving, smoked on the
+      # caller's route that loads the env module through the protection bypass, the live target read again, and
+      # only then promoted. A failed smoke fails the run and nothing is promoted.
+      - name: The bot's candidate, deployed without the domains
+        id: candidate
+        if: needs.authorize.outputs.path == 'bot'
+        run: |
+          # the CLI prints the deployment URL alone on stdout, its progress goes to stderr
+          URL="$(vercel deploy --prebuilt --prod --yes --skip-domain --token "$VERCEL_TOKEN" \
+            --meta "kdf_version=$STAMP_VERSION" \
+            --meta "kdf_commit=$STAMP_COMMIT" \
+            --meta "kdf_run_id=$GITHUB_RUN_ID" \
+            --meta "kdf_run_attempt=$GITHUB_RUN_ATTEMPT" \
+            --meta "kdf_started_at=$STAMP_STARTED" | tail -n 1)"
+          case "$URL" in
+            https://*) ;;
+            *) echo "::error::vercel deploy printed no deployment URL (got '${URL}')"; exit 1 ;;
+          esac
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "deployed, not yet promoted: $URL"
+        env:
+          VERCEL_TOKEN: ${{ steps.token.outputs.token }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          STAMP_VERSION: ${{ inputs.version }}
+          STAMP_COMMIT: ${{ needs.release.outputs.sha }}
+          STAMP_STARTED: ${{ steps.start.outputs.started }}
+
+      - name: The bot's candidate, smoked on its route before it serves
+        if: needs.authorize.outputs.path == 'bot'
+        run: |
+          set +e
+          URL="${DEPLOY_URL}${SMOKE_PATH}"
+          # the bypass value reaches curl as a header file, never as an argument a process listing reads
+          BYPASS_HEADER="${RUNNER_TEMP}/bypass.header"
+          trap 'rm -f "$BYPASS_HEADER"' EXIT
+          if [ -n "$BYPASS" ]; then
+            (umask 077 && printf 'x-vercel-protection-bypass: %s\n' "$BYPASS" > "$BYPASS_HEADER")
+          fi
+          code=""
+          for attempt in 1 2 3 4 5 6; do
+            if [ -n "$BYPASS" ]; then
+              code="$(curl -s -o /dev/null -w '%{http_code}' -H "@$BYPASS_HEADER" "$URL")"
+            else
+              code="$(curl -s -o /dev/null -w '%{http_code}' "$URL")"
+            fi
+            if [ "$code" = "200" ]; then
+              echo "the smoke route answered 200 on attempt ${attempt}"
+              exit 0
+            fi
+            echo "attempt ${attempt}: the smoke route answered ${code:-nothing}"
+            sleep 10
+          done
+          echo "::error::the bot's candidate does not answer its smoke route with 200, so it is not promoted"
+          exit 1
+        env:
+          DEPLOY_URL: ${{ steps.candidate.outputs.url }}
+          SMOKE_PATH: ${{ inputs.smoke_path }}
+          BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+
+      - name: The bot's candidate, held to the live deployment's start
+        if: needs.authorize.outputs.path == 'bot'
+        uses: Needless2Say/kriegerdataforge-cicd/.github/actions/deploy-stamp@main
+        with:
+          command: fresh
+          token: ${{ secrets.VERCEL_DEPLOYMENT_TOKEN }}
+          org: ${{ secrets.VERCEL_ORG_ID }}
+          project: ${{ secrets.VERCEL_PROJECT_ID }}
+          started: ${{ steps.start.outputs.started }}
+          path: bot
+
+      - name: The bot's candidate, promoted to the production domains
+        if: needs.authorize.outputs.path == 'bot'
+        run: vercel promote "$DEPLOY_URL" --yes --token "$VERCEL_TOKEN"
+        env:
+          DEPLOY_URL: ${{ steps.candidate.outputs.url }}
           VERCEL_TOKEN: ${{ steps.token.outputs.token }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
