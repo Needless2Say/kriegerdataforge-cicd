@@ -5974,7 +5974,10 @@ triggering actor by login, and that GitHub's start of an attempt precedes every 
    job names the profile `redeploy`, so any other caller of the check refuses it with no inventory, only on a run
    the bot both started and triggered, a `workflow_dispatch` on its first attempt, the first attempt standing in for
    the triggering actor, and only from `github.workflow_ref` as its grant names it. The section starts empty, a bot's
-   entry its own pull request once it exists.
+   entry its own pull request once it exists. The check writes the path it took, `bot` or `human`, as the `authorize`
+   job's output. A rerun of failed jobs keeps that pass from attempt 1, so the deploy job, before anything is
+   installed, stops a bot's run past its first attempt, and stops any run whose path is neither, an output GitHub
+   withheld. Every step of the owner's path names `human`, so an empty path takes no branch.
 3. **The bot's deploy profile.** In the deploy job, before anything is installed or built, a bot's run is held to the
    version and the exact commit the live target's stamp carries, a missing stamp refusing it. Its path skips the PROD
    gate's search, whose window a live PROD release's gate run may lie beyond, since the deployment it copies was made
@@ -5986,8 +5989,9 @@ triggering actor by login, and that GitHub's start of an attempt precedes every 
    candidate whose stamped start is before the live deployment's is refused, the stamps compared and GitHub asked
    nothing, so the deploy jobs keep `contents: read` and no caller changes its grants. A live deployment with no stamp
    lets the owner's deploy promote and says so in the summary, and refuses a bot. The Python deploy checks after its
-   smoke, a refusal undoing the migration as a failed smoke does. The owner's Next.js deploy, which promotes in its
-   one `--prod` call, checks immediately before that call.
+   smoke, a refusal undoing the migration as a failed smoke does, and a run cancelled between the migration and the
+   promotion now undoes it too, which also closes that window during the smoke. The owner's Next.js deploy, which
+   promotes in its one `--prod` call, checks immediately before that call.
 5. **One group per app and environment.** The Next.js deploy job gains `kdf-deploy-<repository>-<environment>`. The
    Python deploy job keeps D-111's `kdf-database-<repository>-<environment>`, already per app and environment, so a
    job holds one group. Both names are the reusable's own, which no caller's `cd-<environment>` can equal, since a
@@ -5999,5 +6003,7 @@ triggering actor by login, and that GitHub's start of an attempt precedes every 
 **Consequences.** Every deploy after this one carries a stamp, so a target still missing one is the owner's deploy
 to make before any automation is armed on it. A bot can redeploy a live release and nothing else, from one caller
 on its first attempt. An owner's deploy started before a newer one finished is refused at its promotion rather than
-replacing it. The Next.js deploy holds a group, so two owner deploys of one app and environment wait on each other.
-VERSION 0.13.0.
+replacing it. The Next.js deploy holds a group, so two owner deploys of one app and environment wait on each other,
+and as in D-111's group a waiting run may be replaced by a newer one, a bot's among them, and is run again. A
+Codex read of the change at xhigh raised the bot's rerun, the withheld output and the cancellation, all three
+taken, and the waiting run's replacement, kept as GitHub's groups behave. VERSION 0.13.0.

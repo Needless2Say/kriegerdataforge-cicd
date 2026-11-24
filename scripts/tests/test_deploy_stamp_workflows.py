@@ -18,6 +18,8 @@ DEPLOYS   = (PYTHON, NEXTJS)
 STAMP     = "Needless2Say/kriegerdataforge-cicd/.github/actions/deploy-stamp@main"
 BOT       = "needs.authorize.outputs.path == 'bot'"
 NOT_BOT   = "needs.authorize.outputs.path != 'bot'"
+HUMAN     = "needs.authorize.outputs.path == 'human'"
+GUARD     = "Refuse an unknown path or a bot's rerun"
 META_KEYS = ("kdf_version", "kdf_commit", "kdf_run_id", "kdf_run_attempt", "kdf_started_at")
 
 
@@ -122,9 +124,24 @@ def test_the_bots_path_skips_the_prod_gates_search_and_a_human_release_keeps_it(
 
 def test_the_bot_never_migrates_whatever_the_caller_passes():
     for name in ("Install libpq (psycopg2 runtime dependency)", "Run Alembic migrations"):
-        assert _step(PYTHON, name)["if"] == f"inputs.run_migrations == 'true' && {NOT_BOT}", name
+        # the human path by name, so an empty path migrates nothing
+        assert _step(PYTHON, name)["if"] == f"inputs.run_migrations == 'true' && {HUMAN}", name
     undo = _step(PYTHON, "Undo the migration, the new release will not serve")["if"]
     assert "steps.migrate.outcome == 'success'" in undo, "only a migration that ran is undone"
+
+
+@pytest.mark.parametrize("workflow", DEPLOYS)
+def test_an_unknown_path_or_a_bots_later_attempt_stops_before_anything_is_installed(workflow):
+    # a rerun of failed jobs keeps the deployer check's pass from attempt 1, and GitHub may withhold a job output
+    names = _names(workflow)
+    guard = _step(workflow, GUARD)
+    assert guard["if"] == (
+        "(needs.authorize.outputs.path != 'bot' && needs.authorize.outputs.path != 'human')"
+        " || (needs.authorize.outputs.path == 'bot' && github.run_attempt != '1')"
+    )
+    assert "exit 1" in guard["run"] and guard["env"]["PATH_TAKEN"] == "${{ needs.authorize.outputs.path }}"
+    assert names.index("Compare the checkout with the release commit") < names.index(GUARD)
+    assert names.index(GUARD) < names.index("Hold the bot to the live release")
 
 
 # ── the freshness rule ─────────────────────────────────────────────────────────
@@ -142,10 +159,9 @@ def test_the_python_deploy_reads_the_live_target_again_before_promoting_and_undo
     assert fresh["with"]["command"] == "fresh"
     assert fresh["with"]["started"] == "${{ steps.start.outputs.started }}"
     assert fresh["with"]["path"] == "${{ needs.authorize.outputs.path }}"
-    assert "steps.fresh.outcome == 'failure'" in _step(
-        PYTHON,
-        "Undo the migration, the new release will not serve",
-    )["if"]
+    undo = _step(PYTHON, "Undo the migration, the new release will not serve")["if"]
+    assert "steps.fresh.outcome != 'success'" in undo, "a refusal or a cancellation of the check undoes it"
+    assert "(failure() || cancelled())" in undo, "a run cancelled before its promotion undoes it too"
 
 
 def test_the_owners_nextjs_deploy_is_held_to_the_live_start_immediately_before_its_one_prod_call():
@@ -153,10 +169,10 @@ def test_the_owners_nextjs_deploy_is_held_to_the_live_start_immediately_before_i
     fresh = names.index("Hold this deploy to the live deployment's start")
     assert names[fresh + 1] == "Deploy prebuilt artifact to Vercel"
     step = _step(NEXTJS, "Hold this deploy to the live deployment's start")
-    assert step["if"] == NOT_BOT and step["uses"] == STAMP
+    assert step["if"] == HUMAN and step["uses"] == STAMP
     assert step["with"]["command"] == "fresh" and step["with"]["path"] == "human"
     deploy = _step(NEXTJS, "Deploy prebuilt artifact to Vercel")
-    assert deploy["if"] == NOT_BOT
+    assert deploy["if"] == HUMAN, "the human path by name, so an empty path deploys nothing"
     assert "vercel deploy --prebuilt --prod --yes" in deploy["run"] and "--skip-domain" not in deploy["run"]
 
 

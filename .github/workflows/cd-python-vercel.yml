@@ -246,6 +246,19 @@ jobs:
           fi
           echo "deploying ${head}, the commit the release check resolved"
 
+      # The deployer check's path decides every later branch, so a run whose path is neither, an output GitHub
+      # withheld for one, stops here. A bot is admitted on its first attempt alone, and a rerun of failed jobs keeps
+      # the check's pass from attempt 1, so a bot's later attempt stops here too.
+      - name: Refuse an unknown path or a bot's rerun
+        if: >-
+          (needs.authorize.outputs.path != 'bot' && needs.authorize.outputs.path != 'human')
+          || (needs.authorize.outputs.path == 'bot' && github.run_attempt != '1')
+        run: |
+          echo "::error::the deployer check's path is '${PATH_TAKEN}' on attempt ${GITHUB_RUN_ATTEMPT}, and a deploy runs on the human path or on a bot's first attempt alone"
+          exit 1
+        env:
+          PATH_TAKEN: ${{ needs.authorize.outputs.path }}
+
       # A bot redeploys its project's live release alone, the version and the exact commit the live production
       # target's stamp carries, checked here before anything is installed or built. A missing stamp refuses it.
       - name: Hold the bot to the live release
@@ -362,13 +375,13 @@ jobs:
       # driver. Guarded to the migration path so non-migrating deploys skip it.
       # A bot's redeploy never migrates, whatever the caller passes, its release's schema already the live one's.
       - name: Install libpq (psycopg2 runtime dependency)
-        if: inputs.run_migrations == 'true' && needs.authorize.outputs.path != 'bot'
+        if: inputs.run_migrations == 'true' && needs.authorize.outputs.path == 'human'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libpq5
 
       - name: Run Alembic migrations
-        if: inputs.run_migrations == 'true' && needs.authorize.outputs.path != 'bot'
+        if: inputs.run_migrations == 'true' && needs.authorize.outputs.path == 'human'
         id: migrate
         # The revision in place is recorded first, so a smoke failure below can undo the
         # upgrade to exactly it (the hub's rule, a release and its migrations in one window
@@ -456,7 +469,8 @@ jobs:
       # The freshness rule, the owner's and a bot's alike, the last check before the promotion. The live target is
       # read again and a candidate whose stamped start is before the live deployment's is never promoted over it. A
       # live deployment with no stamp, a legacy one, lets the owner's deploy promote and says so in the summary, and
-      # refuses a bot. A refusal undoes the migration as a failed smoke does.
+      # refuses a bot. A refusal undoes the migration as a failed smoke does, and so does a cancellation of the run
+      # between the migration and the promotion.
       - name: Hold the candidate to the live deployment's start
         id: fresh
         uses: Needless2Say/kriegerdataforge-cicd/.github/actions/deploy-stamp@main
@@ -470,8 +484,8 @@ jobs:
 
       - name: Undo the migration, the new release will not serve
         if: >-
-          failure() && (steps.smoke.outcome == 'failure' || steps.fresh.outcome == 'failure')
-          && steps.migrate.outcome == 'success'
+          (failure() || cancelled()) && steps.migrate.outcome == 'success'
+          && (steps.smoke.outcome == 'failure' || steps.fresh.outcome != 'success')
         run: alembic downgrade "$BEFORE"
         env:
           BEFORE: ${{ steps.migrate.outputs.before }}

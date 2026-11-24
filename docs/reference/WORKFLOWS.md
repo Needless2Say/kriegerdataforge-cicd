@@ -150,7 +150,9 @@ ref it may deploy from in each repo and environment:
   "automation": {
     "bots": {
       "<numeric user id>": {
-        "Needless2Say/kriegerdataforge": { "prod": { "workflow": ".github/workflows/cd.yml", "ref": "refs/heads/main" } }
+        "Needless2Say/kriegerdataforge": {
+          "prod": { "workflow": ".github/workflows/cd.yml", "ref": "refs/heads/main" }
+        }
       }
     }
   }
@@ -163,7 +165,10 @@ admitted only where the two Vercel deploys' `authorize` job names the profile `r
 triggered, a `workflow_dispatch` on its first attempt, the first attempt standing in for the triggering
 actor, which a run carries as a login alone, and only from the caller its grant names, read from
 `github.workflow_ref`. The check writes the path it took, `bot` or `human`, as the `authorize` job's
-output `path`. What a bot may deploy is the deploy job's own check, [the deploy stamp](#the-deploy-stamp).
+output `path`. The deploy job stops before anything is installed when that path is neither `bot` nor
+`human`, an output GitHub withheld, and when a bot's run is past its first attempt, since a rerun of failed jobs
+keeps the check's pass from attempt 1. Every step of the owner's path names `human`, so an empty path takes none.
+What a bot may deploy is the deploy job's own check, [the deploy stamp](#the-deploy-stamp).
 The section is empty until a bot exists, its entry added by its own pull request.
 
 ### Repo access for the gate
@@ -259,7 +264,8 @@ stamp](#the-deploy-stamp), D-114).
   requests a GitHub OIDC token).
 - **The deploy group (D-114).** The `deploy` job holds `kdf-deploy-<repository>-<environment>`,
   `cancel-in-progress: false`, so the owner's deploys and a bot's redeploys wait on each other, the freshness
-  check and the promotion inside it, a name no caller's own group (`cd-<environment>`) can equal.
+  check and the promotion inside it, a name no caller's own group (`cd-<environment>`) can equal. Running work is
+  never cancelled, and a waiting run may be replaced by a newer one, the owner's or a bot's, to be run again.
 - **Consumers.** `fitness-app-frontend`, `tiffanys-space` (and `kriegerdataforge-auth-ui`,
   `kriegerdataforge-template-nextjs` per the registry). `arthurs-portfolio` deploys self contained to
   GitHub Pages, not via this workflow.
@@ -350,8 +356,8 @@ and stamp, never the token. A stamp is read whole or not at all.
 - **The freshness rule (`fresh`).** Before any promotion, the owner's or a bot's, the live target is read again
   and a candidate whose stamped start is before the live deployment's is refused. A live deployment with no
   stamp, a legacy one, lets the owner's deploy promote and says so in the summary, and refuses a bot. The
-  Python deploy checks after its smoke, a refusal undoing the migration, and the owner's Next.js deploy
-  immediately before its one `--prod` call.
+  Python deploy checks after its smoke, a refusal undoing the migration, as a run cancelled between the migration
+  and the promotion does too, and the owner's Next.js deploy immediately before its one `--prod` call.
 
 #### `terraform-run.yml`
 
