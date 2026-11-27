@@ -230,7 +230,7 @@ KDF_RULE     = """rules:
 
 # the active set the rig's Makefiles name, so the scan's tests read the block the scripts sync writes
 ACTIVE = {
-    "image": "ghcr.io/needless2say/kdf-scan",
+    "image": "ghcr.io/needlessalloy/kdf-scan",
     "digest": "sha256:" + "d" * 64,
     "commit": "c" * 40,
     "rules_commit": "1" * 40,

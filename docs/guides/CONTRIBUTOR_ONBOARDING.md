@@ -48,7 +48,7 @@ Notes:
 ## 2. Clone & install
 
 ```bash
-git clone https://github.com/Needless2Say/kriegerdataforge-cicd.git
+git clone https://github.com/NeedlessAlloy/kriegerdataforge-cicd.git
 cd kriegerdataforge-cicd
 
 # one-time: install the pre-commit secret-scan hook (PL-027)

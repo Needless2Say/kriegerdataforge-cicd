@@ -139,7 +139,7 @@ jobs:
       - name: Set repo variables (gate OFF; App path armed)
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
-          TARGET: Needless2Say/${{ steps.fields.outputs.repo }}
+          TARGET: NeedlessAlloy/${{ steps.fields.outputs.repo }}
         run: |
           gh variable set RUN_E2E_GATE   --repo "$TARGET" --body "false"
           gh variable set USE_GITHUB_APP --repo "$TARGET" --body "true"
@@ -147,7 +147,7 @@ jobs:
       - name: Copy the App secrets into the target repo
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.CICD_PAT }}
-          TARGET: Needless2Say/${{ steps.fields.outputs.repo }}
+          TARGET: NeedlessAlloy/${{ steps.fields.outputs.repo }}
           # The read only App's pair, from ops (masked in logs); `gh` encrypts them against the target's
           # public key. Passed via stdin so the multi-line PEM is preserved and never argv-visible.
           KDF_APP_ID: ${{ secrets.KDF_READER_APP_ID }}

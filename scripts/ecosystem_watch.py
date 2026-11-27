@@ -61,7 +61,7 @@ import ecosystem_images
 # Configuration
 # ======================================================================================================================
 
-OWNER        = "Needless2Say"
+OWNER        = "NeedlessAlloy"
 SCHEMA       = "kdf-ecosystem-watch/1"
 GITHUB_API   = "https://api.github.com"
 SCRIPTS_DIR  = Path(__file__).resolve().parent
@@ -101,7 +101,7 @@ GIT_PIN   = re.compile(_PIN_HEAD + re.escape(OWNER) + _PIN_TAIL, re.MULTILINE)
 KDF_FMT_REF = re.compile(r"""^[ \t]*kdf_fmt_ref:[ \t]*["']?(?P<ref>v?\d+\.\d+\.\d+|main)["']?[ \t]*$""", re.MULTILINE)
 
 # an npm package of the owner's, by its name, and the repo whose tags are its releases
-NPM_SOURCES = {"@needless2say/report-form": "kriegerdataforge-report-form"}
+NPM_SOURCES = {"@needlessalloy/report-form": "kriegerdataforge-report-form"}
 
 SEMVER    = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
 FULL_SHA  = re.compile(r"^[0-9a-f]{40}$")

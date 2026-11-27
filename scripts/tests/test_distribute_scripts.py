@@ -20,7 +20,7 @@ from tests.scan_fakes import makefile
 
 # an active set as an activating pull request writes it, for the block's tests
 ACTIVE = {
-    "image": "ghcr.io/needless2say/kdf-scan",
+    "image": "ghcr.io/needlessalloy/kdf-scan",
     "digest": "sha256:" + "d" * 64,
     "commit": "c" * 40,
     "rules_commit": RULES_COMMIT,
@@ -283,7 +283,7 @@ def test_while_cicd_pins_no_image_the_makefile_is_left_as_it_stands(monkeypatch)
 def test_the_repos_scan_image_file_names_cicds_image_by_its_digest_since_the_first_activation():
     # A3 pinned the image published from #327's merge, its provenance verified against publish-scan-image.yml on main
     active = parse_scan_image(ds.SCAN_IMAGE_FILE.read_text(encoding = "utf-8"))
-    assert active and active["image"] == "ghcr.io/needless2say/kdf-scan"
+    assert active and active["image"] == "ghcr.io/needlessalloy/kdf-scan"
     assert active["digest"].startswith("sha256:") and len(active["commit"]) == 40
 
 
@@ -296,12 +296,12 @@ def test_the_caller_runs_cicds_reusable_gate_at_main_on_dispatch_alone_with_read
 
 def test_the_caller_travels_with_the_block_once_an_image_is_pinned_and_the_registry_allows_it(monkeypatch):
     registry = {"files": [], "deletes": [], "makefile_patch": True, "scan_caller": True}
-    items    = ds._build_items(registry, None, {"repo": "Needless2Say/x"})
+    items    = ds._build_items(registry, None, {"repo": "NeedlessAlloy/x"})
     caller   = [item for item in items if item.dest == ds.CALLER_PATH]
     assert len(caller) == 1 and caller[0].desired("anything") == ds.caller_text()
     monkeypatch.setattr(ds, "active_scan_image", lambda: {})
     assert not [
-        item for item in ds._build_items(registry, None, {"repo": "Needless2Say/x"}) if item.dest == ds.CALLER_PATH
+        item for item in ds._build_items(registry, None, {"repo": "NeedlessAlloy/x"}) if item.dest == ds.CALLER_PATH
     ]
 
 
@@ -309,7 +309,7 @@ def test_the_caller_stays_out_of_the_sync_while_the_registry_grants_no_workflow_
     # the ops workflows' App token holds contents and pull request writes alone, and a workflow file it cannot write
     # aborts the whole repo's sync, so the caller arrives by a bootstrap pull request instead, Codex's step 6 read
     registry = {"files": [], "deletes": [], "makefile_patch": True}
-    items    = ds._build_items(registry, None, {"repo": "Needless2Say/x"})
+    items    = ds._build_items(registry, None, {"repo": "NeedlessAlloy/x"})
     assert not [item for item in items if item.dest == ds.CALLER_PATH]
     assert [item for item in items if item.dest == ds.MAKEFILE_DEST]
     assert ds._load_registry().get("scan_caller") is False
@@ -489,8 +489,8 @@ def test_registry_entry_without_a_style_lane_skips_the_formatter_pin_too():
     registry  = json.loads((ds.REPO_ROOT / "scripts" / "scripts_registry.json").read_text(encoding = "utf-8"))
     opted_out = [entry for entry in registry["repos"] if entry.get("skip_kdf_fmt")]
     assert [entry["repo"] for entry in opted_out] == [
-        "Needless2Say/kriegerdataforge-terraform",
-        "Needless2Say/kriegerdataforge-auth-ui",
+        "NeedlessAlloy/kriegerdataforge-terraform",
+        "NeedlessAlloy/kriegerdataforge-auth-ui",
     ]
     assert all(entry.get("skip_requirements") and entry.get("_skip_reason") for entry in opted_out)
 
@@ -549,10 +549,10 @@ def test_the_mutation_engine_reaches_the_four_repos_that_run_python_mutants():
 
     assert engine["dest"] == "scripts/kdf_scripts/mutation_runner.py"
     assert sorted(engine["repos"]) == [
-        "Needless2Say/fitness-app-backend",
-        "Needless2Say/kriegerdataforge",
-        "Needless2Say/kriegerdataforge-sdk",
-        "Needless2Say/tiffanys-space-backend",
+        "NeedlessAlloy/fitness-app-backend",
+        "NeedlessAlloy/kriegerdataforge",
+        "NeedlessAlloy/kriegerdataforge-sdk",
+        "NeedlessAlloy/tiffanys-space-backend",
     ]
     assert set(engine["repos"]) <= repos, "every repo the engine names is a repo the sync reaches"
 

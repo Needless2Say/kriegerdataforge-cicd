@@ -124,6 +124,6 @@ def github_clean(copier_text: str, now: datetime | None = None) -> dict[str, Any
             "status": "completed",
             "conclusion": "success",
             "created_at": began.strftime(ei.STAMP),
-            "html_url": "https://github.com/Needless2Say/kriegerdataforge-cicd/actions/runs/1",
+            "html_url": "https://github.com/NeedlessAlloy/kriegerdataforge-cicd/actions/runs/1",
         }]},
     }

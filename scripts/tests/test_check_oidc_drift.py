@@ -18,8 +18,8 @@ import pytest
 @pytest.fixture
 def manifest():
     return {
-        "left": {"repo": "Needless2Say/fitness-app-frontend", "branch": "main"},
-        "right": {"repo": "Needless2Say/tiffanys-space", "branch": "main"},
+        "left": {"repo": "NeedlessAlloy/fitness-app-frontend", "branch": "main"},
+        "right": {"repo": "NeedlessAlloy/tiffanys-space", "branch": "main"},
         "pairs": [
             {"path": "src/features/auth/utils/oidc.ts"},
             {"path": "src/app/api/auth/oidc/callback/route.ts"},
@@ -115,7 +115,7 @@ class TestComparePairs:
         with patch.object(cod, "fetch_file", side_effect = fake_fetch):
             results = cod.compare_pairs("tok", manifest)
         assert results[0]["status"] == "missing"
-        assert results[0]["missing_in"] == "Needless2Say/tiffanys-space"
+        assert results[0]["missing_in"] == "NeedlessAlloy/tiffanys-space"
 
 
 # ── fetch_file ──────────────────────────────────────────────────────────────────
@@ -189,8 +189,8 @@ class TestMain:
 class TestRealManifest:
     def test_manifest_loads_and_has_expected_shape(self):
         manifest = cod.load_manifest()
-        assert manifest["left"]["repo"].startswith("Needless2Say/")
-        assert manifest["right"]["repo"].startswith("Needless2Say/")
+        assert manifest["left"]["repo"].startswith("NeedlessAlloy/")
+        assert manifest["right"]["repo"].startswith("NeedlessAlloy/")
         assert len(manifest["pairs"]) >= 4
         for pair in manifest["pairs"]:
             assert pair["path"].endswith(".ts")

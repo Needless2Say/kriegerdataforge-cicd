@@ -19,7 +19,7 @@
 # The owner's private Python packages, by mirrors (D-078). When a make lane is named, the seven files CI's fetch plan
 # reads, requirements.txt, requirements.in, requirements-dev.txt, requirements-dev.in, requirements-test.txt,
 # requirements-test.in and pyproject.toml, are read at the commit for each pin of
-# git+https://github.com/Needless2Say/<repo>.git, as CI's PIN finds one, a comment skipped, and each repo must be on
+# git+https://github.com/NeedlessAlloy/<repo>.git, as CI's PIN finds one, a comment skipped, and each repo must be on
 # CI's allowlist in scripts/fetch_private_packages.py, read beside this tool. The scan is a convenience and not the
 # fence, since a pin it does not read fails at once in the container, which asks for no login. Nothing private is
 # mirrored or served unless GitHub says the repo under test is private, the repo named by the clone's one origin, or by
@@ -38,11 +38,16 @@
 # judged by the secret file rule below. The context gains each mirror's HEAD, refs and objects and a config of the
 # tool's own, which the image reads through CI's rewrite of the repo's https URL, so no token enters.
 #
+# The owner's GitHub name before the account's rename of 2026-11-26, Needless2Say, is read with the new one while the
+# repos move, a pin under it, an origin naming it, and the npm scope @needless2say/ in a lock or a tarball's
+# package.json, each as the same repo or package under NeedlessAlloy, and every fetch and GitHub question goes to the
+# new name alone. The rename's close removes it.
+#
 # The owner's private npm packages, from this machine's npm cache (D-087). When a make lane is named, the commit's
 # package-lock.json, lockfile version 2 or 3, is read by node, and each entry whose resolved URL starts with
 # https://npm.pkg.github.com/ is a private package, its name the entry's name else the path after its last
 # node_modules/. Such an entry brings the same fence as a pin, and in a clone the base's own lock must lock each package
-# the commit's does, any version. Once GitHub says the repo is private, an entry outside the scope @needless2say/, one
+# the commit's does, any version. Once GitHub says the repo is private, an entry outside the scope @needlessalloy/, one
 # with no sha512 in its integrity or two different ones, and a lock that is not JSON each refuse the run, and a public
 # repo serves nothing. Each tarball is read from this machine's npm cache, where a host install put it, at its digest's
 # path under _cacache/content-v2/sha512/, %LOCALAPPDATA%/npm-cache read through cygpath on Windows, else ~/.npm, and
@@ -112,7 +117,7 @@ workspace=""
 docker_bin="${KDF_DOCKER_BIN:-docker}"
 gh_bin="${KDF_GH_BIN:-gh}"
 runs="${KDF_PREFLIGHT_DIR:-$workspace/temp/kdf-preflight}"
-git_base="${KDF_PREFLIGHT_GIT_BASE:-https://github.com/Needless2Say}"
+git_base="${KDF_PREFLIGHT_GIT_BASE:-https://github.com/NeedlessAlloy}"
 fetch_script="$here/../../scripts/fetch_private_packages.py"
 # a token's shape, GitHub's, a private key's, AWS's and OpenAI's, the shapes kdf-ask-codex.sh screens for
 token_shapes='gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,}|-----BEGIN [A-Z ]*PRIVATE KEY'
@@ -123,7 +128,7 @@ secret_globs=('.env*' '*.pem' '*.key' '*.p12' '*.pfx' '*.tfvars' '*.tfstate*' 'i
 # the credential stores the guard closes whole, exactly kdf-ask-codex.sh's, matched as a whole part of the path
 secret_places=('.ssh' '.codex' '.docker' 'github cli' 'com.vercel.cli' '.config/gh' '.claude/.credentials.json')
 # CI's PIN in fetch_private_packages.py as an extended regular expression, held to it by a test
-pin_pattern="git\\+https://github\\.com/Needless2Say/[A-Za-z0-9._-]+\\.git@[^][:space:]#;,'\"[]+"
+pin_pattern="git\\+https://github\\.com/(NeedlessAlloy|Needless2Say)/[A-Za-z0-9._-]+\\.git@[^][:space:]#;,'\"[]+"
 # the files CI's fetch plan reads by default, its requirement_files input
 pin_files=(requirements.txt requirements.in requirements-dev.txt requirements-dev.in requirements-test.txt
 	requirements-test.in pyproject.toml)
@@ -137,8 +142,11 @@ npm_scan='
 	process.stdin.setEncoding("utf8");
 	process.stdin.on("data", (chunk) => { text += chunk; });
 	process.stdin.on("end", () => {
-		const host = "https://npm.pkg.github.com/", scope = "@needless2say/";
+		const host = "https://npm.pkg.github.com/", scopes = ["@needlessalloy/", "@needless2say/"];
 		const plain = (value) => typeof value === "string" && /^[\x21-\x7e]{1,214}$/.test(value);
+		// the scope of the owner before the rename of 2026-11-26 is read as the same package under the new one, so a
+		// lock of either and its base compare by one name, to the close of the rename
+		const canonical = (value) => value.startsWith(scopes[1]) ? scopes[0] + value.slice(scopes[1].length) : value;
 		let lock;
 		try { lock = JSON.parse(text); } catch (err) { console.log("unreadable"); return; }
 		const packages = lock !== null && typeof lock === "object" ? lock.packages : null;
@@ -147,11 +155,13 @@ npm_scan='
 			if (entry === null || typeof entry !== "object" || typeof entry.resolved !== "string") continue;
 			if (!entry.resolved.startsWith(host)) continue;
 			const at = where.lastIndexOf("node_modules/");
-			const name = typeof entry.name === "string" ? entry.name : where.slice(at < 0 ? 0 : at + 13);
-			if (!plain(name) || !name.startsWith(scope) || !/^[a-z0-9][a-z0-9._~-]*$/.test(name.slice(scope.length))) {
-				console.log("problem scope " + (plain(name) ? name : JSON.stringify(where)));
+			const locked = typeof entry.name === "string" ? entry.name : where.slice(at < 0 ? 0 : at + 13);
+			const scope = plain(locked) ? scopes.find((owner) => locked.startsWith(owner)) : undefined;
+			if (scope === undefined || !/^[a-z0-9][a-z0-9._~-]*$/.test(locked.slice(scope.length))) {
+				console.log("problem scope " + (plain(locked) ? locked : JSON.stringify(where)));
 				continue;
 			}
+			const name = canonical(locked);
 			console.log("locks " + name);
 			const version = entry.version;
 			if (!plain(version) || !/^[0-9A-Za-z][0-9A-Za-z.+-]*$/.test(version)) {
@@ -185,7 +195,12 @@ npm_manifest='
 		const manifest = JSON.parse(text);
 		const plain = (value) => typeof value === "string" && /^[\x21-\x7e]{1,214}$/.test(value);
 		const shown = (value) => plain(value) ? value : String(JSON.stringify(value)).slice(0, 100);
-		console.log(shown(manifest.name) + " " + shown(manifest.version));
+		// a tarball published before the rename of 2026-11-26 names the old scope of the owner, read as the new one as
+		// the lock scan reads it, to the close of the rename
+		const old = "@needless2say/";
+		const name = plain(manifest.name) && manifest.name.startsWith(old)
+			? "@needlessalloy/" + manifest.name.slice(old.length) : manifest.name;
+		console.log(shown(name) + " " + shown(manifest.version));
 	});
 '
 
@@ -226,7 +241,11 @@ owner_lane() {
 # the name of a repo of the owner's on GitHub that an origin URL names, in its https or ssh form, with or without .git
 github_name() {
 	local name
+	# a clone made before the owner's rename of 2026-11-26 may still name the old owner, the same repo, to the close
 	case "$1" in
+		https://github.com/NeedlessAlloy/*) name="${1#https://github.com/NeedlessAlloy/}" ;;
+		git@github.com:NeedlessAlloy/*) name="${1#git@github.com:NeedlessAlloy/}" ;;
+		ssh://git@github.com/NeedlessAlloy/*) name="${1#ssh://git@github.com/NeedlessAlloy/}" ;;
 		https://github.com/Needless2Say/*) name="${1#https://github.com/Needless2Say/}" ;;
 		git@github.com:Needless2Say/*) name="${1#git@github.com:Needless2Say/}" ;;
 		ssh://git@github.com/Needless2Say/*) name="${1#ssh://git@github.com/Needless2Say/}" ;;
@@ -284,7 +303,7 @@ npm_at() {
 npm_why() {
 	local what="${1#* }"
 	case "$1" in
-		"scope "*) printf "the entry %s from npm.pkg.github.com, outside the owner's scope @needless2say/" "$what" ;;
+		"scope "*) printf "the entry %s from npm.pkg.github.com, outside the owner's scope @needlessalloy/" "$what" ;;
 		"version "*) printf 'the entry %s with no plain version' "$what" ;;
 		"unread "*) printf 'the entry %s with a sha512 in its integrity that cannot be read' "$what" ;;
 		"none "*) printf 'the entry %s with no sha512 in its integrity' "$what" ;;
@@ -477,10 +496,10 @@ if [ "$make_lane" -eq 1 ]; then
 		declare -A named_repos=()
 		while IFS= read -r match; do
 			[ -n "$match" ] || continue
-			rest="${match#git+https://github.com/Needless2Say/}"
+			rest="${match#git+https://github.com/}" rest="${rest#*/}"
 			name="${rest%%.git@*}" ref="${rest#*.git@}"
 			case "$allowlist" in *" $name:"*) ;; *)
-				die 2 "$short pins Needless2Say/$name, which is not on CI's allowlist in" \
+				die 2 "$short pins NeedlessAlloy/$name, which is not on CI's allowlist in" \
 					"scripts/fetch_private_packages.py, so the run is refused" ;;
 			esac
 			named_repos[$name]=1
@@ -536,11 +555,11 @@ ask_private() {
 	left=$(remaining)
 	[ "$left" -gt 0 ] || { printf 'the run passed its timeout before GitHub was asked about %s' "$1"; return 1; }
 	errors="$(mktemp)"
-	answer="$(timeout --kill-after=5 "$left" "$gh_bin" api "repos/Needless2Say/$1" --jq .private 2>"$errors" \
+	answer="$(timeout --kill-after=5 "$left" "$gh_bin" api "repos/NeedlessAlloy/$1" --jq .private 2>"$errors" \
 		| tr -d '\r')"
 	status=$?
 	if [ "$status" -ne 0 ]; then
-		printf 'gh could not say whether Needless2Say/%s is private, %s. When gh is signed out, the owner signs it in' \
+		printf 'gh could not say whether NeedlessAlloy/%s is private, %s. When gh is signed out, the owner signs it in' \
 			"$1" "$(tr -d '\r' < "$errors" | tail -n 1 | redact)"
 		printf ' with gh auth login'
 		rm -f "$errors"
@@ -549,7 +568,7 @@ ask_private() {
 	rm -f "$errors"
 	case "$answer" in
 		true|false) printf '%s' "$answer" ;;
-		*) printf 'gh answered %s for whether Needless2Say/%s is private, neither true nor false' "$answer" "$1"
+		*) printf 'gh answered %s for whether NeedlessAlloy/%s is private, neither true nor false' "$answer" "$1"
 			return 1 ;;
 	esac
 }
@@ -558,7 +577,7 @@ if [ "${#pinned[@]}" -gt 0 ] || [ "$npm_private" -eq 1 ]; then
 	unknown="so whether it is private on GitHub is unknown, and nothing private is served"
 	[ "$origin_count" -le 1 ] || die 2 "$given has $origin_count origin URLs, which name no one GitHub repo, $unknown"
 	if [ -z "$named" ] && [ "$origin_count" -eq 1 ]; then
-		die 2 "$given's origin, $(printf '%s' "$origins" | redact), is not a repo of github.com/Needless2Say, $unknown"
+		die 2 "$given's origin, $(printf '%s' "$origins" | redact), is not a repo of github.com/NeedlessAlloy, $unknown"
 	fi
 	[ -n "$named" ] || die 2 "$given has no origin, $unknown. A fresh repo names its repo with --github <name>"
 	visibility="$(ask_private "$named")" || die 3 "$visibility"
@@ -581,7 +600,7 @@ if [ "${#pinned[@]}" -gt 0 ] || [ "$npm_private" -eq 1 ]; then
 		left=$(remaining)
 		[ "$left" -gt 0 ] || die 3 "the run passed its timeout before GitHub was asked about $base"
 		errors="$(mktemp)"
-		confirmed="$(timeout --kill-after=5 "$left" "$gh_bin" api "repos/Needless2Say/$named/commits/$base" \
+		confirmed="$(timeout --kill-after=5 "$left" "$gh_bin" api "repos/NeedlessAlloy/$named/commits/$base" \
 			--jq .sha 2>"$errors" | tr -d '\r')"
 		status=$?
 		said="$(tr -d '\r' < "$errors" | tail -n 1 | redact)"
@@ -589,10 +608,10 @@ if [ "${#pinned[@]}" -gt 0 ] || [ "$npm_private" -eq 1 ]; then
 		if [ "$status" -ne 0 ] || [ "$confirmed" != "$base" ]; then
 			# GitHub's 422 alone says it holds no such commit, and any other failure is an answer it could not give
 			case "$said" in *"HTTP 422"*)
-				die 2 "GitHub does not hold $base in Needless2Say/$named, so $short is built on no base GitHub confirms" \
+				die 2 "GitHub does not hold $base in NeedlessAlloy/$named, so $short is built on no base GitHub confirms" \
 					"there, and nothing private is served" ;;
 			esac
-			die 3 "gh could not say whether GitHub holds $base in Needless2Say/$named, ${said:-no answer}. When gh is" \
+			die 3 "gh could not say whether GitHub holds $base in NeedlessAlloy/$named, ${said:-no answer}. When gh is" \
 				"signed out, the owner signs it in with gh auth login"
 		fi
 		if [ "$github_named" -eq 0 ]; then
@@ -601,13 +620,13 @@ if [ "${#pinned[@]}" -gt 0 ] || [ "$npm_private" -eq 1 ]; then
 			base_repos=" "
 			while IFS= read -r match; do
 				[ -n "$match" ] || continue
-				rest="${match#git+https://github.com/Needless2Say/}"
+				rest="${match#git+https://github.com/}" rest="${rest#*/}"
 				base_repos="$base_repos${rest%%.git@*} "
 			done <<< "$base_pins"
 			for name in "${pinned[@]}"; do
 				case "$allowlist" in *" $name:private "*) ;; *) continue ;; esac
 				case "$base_repos" in *" $name "*) ;; *)
-					die 2 "$short pins Needless2Say/$name, which its base $base on GitHub does not pin, so nothing" \
+					die 2 "$short pins NeedlessAlloy/$name, which its base $base on GitHub does not pin, so nothing" \
 						"private is served. A commit is mirrored only the private repos its base already pins, so its" \
 						"pre-flight is reported not run, for the owner to decide" ;;
 				esac

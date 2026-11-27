@@ -87,7 +87,7 @@ jobs:
       - name: Check out deployer registry (kriegerdataforge-cicd)
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          repository: Needless2Say/kriegerdataforge-cicd
+          repository: NeedlessAlloy/kriegerdataforge-cicd
           ref: main
           sparse-checkout: scripts
           path: _kdf_cicd
@@ -133,7 +133,7 @@ jobs:
       - name: Check out cicd's backup scripts
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          repository: Needless2Say/kriegerdataforge-cicd
+          repository: NeedlessAlloy/kriegerdataforge-cicd
           ref: main
           sparse-checkout: scripts
           path: _kdf_cicd
@@ -172,7 +172,7 @@ jobs:
       contents: read
     services:
       postgres:
-        image: ghcr.io/needless2say/postgres@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
+        image: ghcr.io/needlessalloy/postgres@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
         env:
           POSTGRES_USER: kdf_drill
           POSTGRES_PASSWORD: kdf-drill-local
@@ -194,7 +194,7 @@ jobs:
       - name: Check out cicd's backup scripts
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          repository: Needless2Say/kriegerdataforge-cicd
+          repository: NeedlessAlloy/kriegerdataforge-cicd
           ref: main
           sparse-checkout: scripts
           path: _kdf_cicd
@@ -263,7 +263,7 @@ jobs:
       contents: read
     services:
       postgres:
-        image: ghcr.io/needless2say/postgres@sha256:b60e90042aa6b8dbecd58e224b3e36114dbf8ad754465264c2476ad58a86e45c
+        image: ghcr.io/needlessalloy/postgres@sha256:b60e90042aa6b8dbecd58e224b3e36114dbf8ad754465264c2476ad58a86e45c
         env:
           POSTGRES_USER: kdf_drill
           POSTGRES_PASSWORD: kdf-drill-local
@@ -285,7 +285,7 @@ jobs:
       - name: Check out cicd's backup scripts
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          repository: Needless2Say/kriegerdataforge-cicd
+          repository: NeedlessAlloy/kriegerdataforge-cicd
           ref: main
           sparse-checkout: scripts
           path: _kdf_cicd
@@ -367,7 +367,7 @@ jobs:
       - name: Check out cicd's backup scripts
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          repository: Needless2Say/kriegerdataforge-cicd
+          repository: NeedlessAlloy/kriegerdataforge-cicd
           ref: main
           sparse-checkout: scripts
           path: _kdf_cicd

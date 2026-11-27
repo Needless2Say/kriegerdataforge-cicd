@@ -238,7 +238,7 @@ def test_the_dockerfile_takes_its_base_by_digest_and_runs_the_wrapper_as_no_root
     text  = (BUILD / "Dockerfile").read_text(encoding = "utf-8")
     bases = re.findall(r"^FROM (\S+)", text, re.MULTILINE)
     assert len(bases) == 2 and all(DIGEST.search(base) for base in bases), bases
-    assert all(base.startswith("ghcr.io/needless2say/") for base in bases)
+    assert all(base.startswith("ghcr.io/needlessalloy/") for base in bases)
     assert "\nUSER 65532:65532\n" in text and '"-I", "-S", "-B", "/opt/kdf-scan/kdf_scan.py"' in text
     assert "semgrep" not in uncommented(text).lower()
     assert not text.startswith("# syntax")

@@ -34,7 +34,7 @@ Auth (resolved W1 finding, proven live 2026-07-12):
   fine-grained PAT, or GH_PACKAGES_PAT.
   GH_TOKEN          The staged classic PAT (PROVISION_PROJECTS_PAT). `project` scope creates boards +
                     fields; add `repo` only for automatic repo-linking (best-effort otherwise).
-  PROJECTS_OWNER    Board owner login (defaults to Needless2Say). The engine never relies on the
+  PROJECTS_OWNER    Board owner login (defaults to NeedlessAlloy). The engine never relies on the
                     GraphQL `viewer` (no App/PAT viewer assumptions).
 
 Usage:
@@ -64,7 +64,7 @@ GITHUB_API    = "https://api.github.com"
 GRAPHQL_API   = f"{GITHUB_API}/graphql"
 SCRIPTS_DIR   = Path(__file__).parent
 REGISTRY_FILE = SCRIPTS_DIR / "projects_registry.json"
-DEFAULT_OWNER = "Needless2Say"
+DEFAULT_OWNER = "NeedlessAlloy"
 
 # Colors for created single-select options (ProjectV2SingleSelectFieldOptionInput requires one).
 # Cycled in order; purely cosmetic — drift checks compare option NAMES only.

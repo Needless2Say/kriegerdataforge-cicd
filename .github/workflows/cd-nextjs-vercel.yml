@@ -14,7 +14,7 @@
 # Repository secrets (one global value — set at repo level, NOT per environment):
 #   VERCEL_DEPLOYMENT_TOKEN — shared Vercel deploy/management token
 #   GH_NPM_TOKEN            — CLASSIC read:packages PAT for the private
-#                             @needless2say/* GitHub Packages scope. Required by
+#                             @needlessalloy/* GitHub Packages scope. Required by
 #                             any consumer whose package.json depends on it; the
 #                             build happens HERE (see the prebuilt note below), so
 #                             this Actions secret is the ONLY place it is needed —
@@ -81,7 +81,7 @@ jobs:
       - name: Check out deployer registry (kriegerdataforge-cicd)
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          repository: Needless2Say/kriegerdataforge-cicd
+          repository: NeedlessAlloy/kriegerdataforge-cicd
           ref: main
           sparse-checkout: scripts
           path: _kdf_cicd
@@ -131,7 +131,7 @@ jobs:
       - name: Check out the PROD gate (kriegerdataforge-cicd)
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          repository: Needless2Say/kriegerdataforge-cicd
+          repository: NeedlessAlloy/kriegerdataforge-cicd
           ref: main
           sparse-checkout: scripts
           path: _kdf_cicd
@@ -181,7 +181,7 @@ jobs:
       - name: Check out the release check (kriegerdataforge-cicd)
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          repository: Needless2Say/kriegerdataforge-cicd
+          repository: NeedlessAlloy/kriegerdataforge-cicd
           ref: main
           sparse-checkout: scripts
           path: _kdf_cicd
@@ -343,7 +343,7 @@ jobs:
       # ── Why this deploys a PREBUILT artifact ──────────────────────────────────
       # A plain `vercel --prod` uploads SOURCE and builds on Vercel's machine. That
       # remote builder cannot see any GitHub Actions secret, so `npm install` there
-      # has no credential for the private @needless2say/* GitHub Packages scope and
+      # has no credential for the private @needlessalloy/* GitHub Packages scope and
       # dies with "401 … cannot be authenticated with the token provided" — even
       # though the runner's own `npm ci` a few steps earlier succeeded.
       #
@@ -420,7 +420,7 @@ jobs:
       - name: Build
         env:
           # Private GH-Packages npm auth (reports-ecosystem epic W3.5): consumers that
-          # depend on @needless2say/* commit an .npmrc interpolating ${GH_NPM_TOKEN} — a
+          # depend on @needlessalloy/* commit an .npmrc interpolating ${GH_NPM_TOKEN} — a
           # CLASSIC read:packages PAT (GH Packages rejects fine-grained PATs and App
           # installation tokens). Always exported; empty for token-less consumers.
           GH_NPM_TOKEN: ${{ secrets.GH_NPM_TOKEN }}

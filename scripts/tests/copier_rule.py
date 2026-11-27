@@ -35,7 +35,7 @@ USES: re.Pattern[str] = re.compile(r"""(?<![\w-])["']?uses["']?\s*:|actions/chec
 
 # the copier of D-077 and D-080, the namespace it writes and the lanes' package on it
 COPIER:    str = "mirror-ci-images.yml"
-NAMESPACE: str = "ghcr.io/needless2say"
+NAMESPACE: str = "ghcr.io/needlessalloy"
 MIRROR:    str = f"{NAMESPACE}/postgres"
 
 # the copier's words, the lanes' and skopeo's, and the one line beside its known ones that may name an image there,

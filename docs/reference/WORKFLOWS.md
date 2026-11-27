@@ -129,8 +129,8 @@ workflow runs a **deployer authorization gate** as its first job.
 ```json
 {
   "deployers": {
-    "Needless2Say/fitness-app-frontend": { "dev": ["Needless2Say"], "prod": ["Needless2Say"] },
-    "Needless2Say/arthurs-portfolio":    { "github-pages": ["Needless2Say"] }
+    "NeedlessAlloy/fitness-app-frontend": { "dev": ["NeedlessAlloy"], "prod": ["NeedlessAlloy"] },
+    "NeedlessAlloy/arthurs-portfolio":    { "github-pages": ["NeedlessAlloy"] }
   }
 }
 ```
@@ -150,7 +150,7 @@ ref it may deploy from in each repo and environment:
   "automation": {
     "bots": {
       "<numeric user id>": {
-        "Needless2Say/kriegerdataforge": {
+        "NeedlessAlloy/kriegerdataforge": {
           "prod": { "workflow": ".github/workflows/cd.yml", "ref": "refs/heads/main" }
         }
       }
@@ -647,7 +647,7 @@ jobs:
 All four check out, set up Node (`cache: npm`), `npm ci`, then run a `make` target. None declares a
 `permissions:` block (relies on the caller/default token). The only secret they read (via
 `secrets: inherit`, optional) is **`GH_NPM_TOKEN`**. A CLASSIC `read:packages` PAT exported to the
-`npm ci` step for consumers whose committed `.npmrc` routes `@needless2say/*` to private GitHub
+`npm ci` step for consumers whose committed `.npmrc` routes `@needlessalloy/*` to private GitHub
 Packages (reports ecosystem W3.5). Empty/absent for token less consumers, which changes nothing.
 There is deliberately **no App token path here**. GH Packages rejects fine grained PATs and GitHub
 App installation tokens (classic PAT / `GITHUB_TOKEN` only, see `SECRET_ROTATION.md` §8.2a).
@@ -681,7 +681,7 @@ The command driven lanes let the caller override the install/run commands. `need
 **without the job that runs the caller's code ever naming a secret** (D-035). The lane splits in two.
 Its **fetch job** (`Fetch private packages`) is the only job that names a secret. It checks out the
 caller with no credential kept, runs nothing of it, reads the `requirement_files` as text for
-`git+https://github.com/Needless2Say/<repo>.git@<tag or full commit id>` pins, mints the token for
+`git+https://github.com/NeedlessAlloy/<repo>.git@<tag or full commit id>` pins, mints the token for
 exactly those repos, clones each pinned ref with its full history into a bare mirror, and uploads
 the mirrors as one artifact kept for a day. A plain https link to a repo's page, as a pyproject's
 `[project.urls]` holds, is not a pin and passes, while any other form pip could install (git+,
@@ -691,7 +691,7 @@ keeps its id and its name, so every ruleset's required check is unchanged, names
 `needs_sdk_auth`, the fetch did not succeed (a skipped required job counts as passing). The step's `cancelled()` arm
 reads false in a job `always()` keeps through a cancel, measured in D-075, so without package access the job runs its
 work on a cancelled run. It checks the caller out with no credential kept, then downloads the mirrors and hands git one
-`url.file://<mirror>.insteadOf https://github.com/Needless2Say/<repo>.git` rewrite per repo
+`url.file://<mirror>.insteadOf https://github.com/NeedlessAlloy/<repo>.git` rewrite per repo
 through `GIT_CONFIG_COUNT`, `KEY_n` and `VALUE_n` in the job's environment. Without
 `needs_sdk_auth` the lane is one job as before. The token is **App token first** (reports ecosystem
 epic W2.5): when the calling repo sets the `USE_GITHUB_APP` variable and holds the distributed
@@ -756,7 +756,7 @@ lane is one template, `scripts/fetch_private_job.template.yml`, written by
 `scripts/render_fetch_job.py`, and a test fails when a copy differs.
 
 The Postgres these three jobs start is Docker's official image from the owner's mirror on GitHub's registry,
-`ghcr.io/needless2say/postgres`, pinned by its index digest, PostgreSQL 16.15, `server_version_num` 160015 (D-077).
+`ghcr.io/needlessalloy/postgres`, pinned by its index digest, PostgreSQL 16.15, `server_version_num` 160015 (D-077).
 Docker Hub's anonymous pull limit (D-064) and then ECR Public's data limit, each counted by a runner's address, had
 failed whole jobs before a test ran. `mirror-ci-images.yml` copies the image there and proves it public, and the
 runner logs in to GitHub's registry with the job's own token before it pulls the service, a `docker ... login
@@ -866,7 +866,7 @@ jobs:
 #### `kdf-scan-gate-reusable.yml`
 
 The local code scan's gate (D-088), Opengrep over the code and zizmor over the workflows of one pull request's head,
-in `ghcr.io/needless2say/kdf-scan` by the digest written in the workflow, which `scripts/common/SCAN_IMAGE` names
+in `ghcr.io/needlessalloy/kdf-scan` by the digest written in the workflow, which `scripts/common/SCAN_IMAGE` names
 too. A caller never writes its own caller. `.github/workflows/kdf-scan-gate.yml` is the text of
 `scripts/common/kdf-scan-gate-caller.yml`, which the scripts sync writes whole once the registry's `scan_caller` says
 its credential may write workflow files, a bootstrap pull request bringing it before, and the owner starts it on
@@ -1127,7 +1127,7 @@ N2e, `:160-178`) → dump compose logs on failure → upload the Playwright repo
 | `app-id` | **yes** | — | GitHub App ID. Pass `${{ secrets.KDF_APP_ID }}` (composite actions can't read secrets directly) (`:14-16`) |
 | `app-private-key` | **yes** | — | GitHub App private key. Pass `${{ secrets.KDF_APP_PRIVATE_KEY }}` (`:17-19`) |
 | `cicd-ref` | no | `main` | Ref of `kriegerdataforge-cicd` to run the engine from (`:20-23`) |
-| `gh-npm-token` | no | `""` | **Classic** `read:packages` PAT for the `npm ci` of the private `@needless2say/*` npm scope during frontend image builds. Pass the caller's `GH_NPM_TOKEN` secret for journeys whose manifest repos include such a frontend. Backend only journeys omit it. GH Packages npm rejects fine grained PATs and App tokens, so the minted App token cannot serve here (`:24-32`) |
+| `gh-npm-token` | no | `""` | **Classic** `read:packages` PAT for the `npm ci` of the private `@needlessalloy/*` npm scope during frontend image builds. Pass the caller's `GH_NPM_TOKEN` secret for journeys whose manifest repos include such a frontend. Backend only journeys omit it. GH Packages npm rejects fine grained PATs and App tokens, so the minted App token cannot serve here (`:24-32`) |
 
 - **Outputs.** None declared.
 - **Permissions.** None in the action (a composite action inherits the calling **job's** permissions;
@@ -1221,7 +1221,7 @@ owner gated via [`_authorize-owner.yml`](#_authorize-owneryml). Listed here for 
 | `hub-prune-tokens.yml` | daily `schedule` (04:17 UTC) + `workflow_dispatch` (`environment`) | POSTs the auth hub's `CRON_SECRET` gated `/internal/cron/prune-tokens` once per environment, which deletes expired denylist rows, spent verification tokens, audit rows past retention, abandoned registrations and expired OIDC rows in the hub (hub DEFERRED row 21). **Disarmed at birth**, the schedule job requires `vars.RUN_HUB_PRUNE == 'true'`, arm it with the hub release whose route answers POST. Each leg runs in the cicd environment it prunes, `dev` or `prod`, held to `main`, and reads that environment's `KDF_HUB_URL` and `KDF_HUB_CRON_SECRET`, an environment missing either fails its run, so a prune that never ran is never green. Prints the per table counts only | `_authorize-owner` on a dispatch, the schedule gated by `RUN_HUB_PRUNE` |
 | `codeql.yml` | `push` / `pull_request` → `main` + weekly `schedule` (Sun 00:00 UTC) | CodeQL through the centralized reusable workflow, one leg for `python` and one for `javascript-typescript` over `scripts`, `e2e` and `tools` (D-085, design 5.8), hosted with no local target. The analyze job stays skipped until `vars.ENABLE_CODEQL == 'true'`, free on this public repo | n/a |
 | `mirror-ci-images.yml` | `push` `main`, `paths` its own file alone, + `workflow_dispatch` with no `inputs` + daily `schedule` (06:23 UTC) | The copier of every image CI pulls (D-077, D-080), the next section | n/a (`main` guard on its copy job, `packages: write` to that job alone, both proof jobs and the workflow `{}`) |
-| `publish-scan-image.yml` | `push` `main`, `paths` the scan's sources and its own file, + `workflow_dispatch` | Builds the local code scan's image into an OCI archive, inspects every layer for the stock rules, runs the image's own fixtures, then pushes that archive to `ghcr.io/needless2say/kdf-scan` tagged with its commit, attests it in GitHub's attestation store and reads it anonymously (D-088, D-089). Nothing is deleted, and an image runs nowhere until an activating pull request pins its digest | n/a (`main` guard on both jobs, the build job `{}`, `packages`, `attestations` and `id-token` write to the publish job alone) |
+| `publish-scan-image.yml` | `push` `main`, `paths` the scan's sources and its own file, + `workflow_dispatch` | Builds the local code scan's image into an OCI archive, inspects every layer for the stock rules, runs the image's own fixtures, then pushes that archive to `ghcr.io/needlessalloy/kdf-scan` tagged with its commit, attests it in GitHub's attestation store and reads it anonymously (D-088, D-089). Nothing is deleted, and an image runs nowhere until an activating pull request pins its digest | n/a (`main` guard on both jobs, the build job `{}`, `packages`, `attestations` and `id-token` write to the publish job alone) |
 | `kdf-scan-gate.yml` | `workflow_dispatch` (`pr`) | This repo's own copy of the gate's caller, `scripts/common/kdf-scan-gate-caller.yml` whole, since cicd is no target of its own scripts sync, a test holding the two equal. The owner starts it on `main` at each merge attempt, and it calls `kdf-scan-gate-reusable.yml` at `main`, its log printing rule ids alone since this repo is public (D-085, D-088) | n/a (`contents: read`, `pull-requests: read`) |
 
 **The secrets fence.** Every job that can write a secret or lift a rule runs in cicd's **`ops`** environment, held
@@ -1257,7 +1257,7 @@ waits seven days on a GitHub Actions release.
 ### CI's image mirror (D-077, D-080)
 
 `mirror-ci-images.yml` keeps every image CI pulls on the owner's mirror on GitHub's registry,
-`ghcr.io/needless2say/<name>`, and proves each public on a runner, so no pull spends an allowance a runner's other
+`ghcr.io/needlessalloy/<name>`, and proves each public on a runner, so no pull spends an allowance a runner's other
 tenants share. It runs on `main` alone, at a push that changes its own file, at the owner's dispatch, which takes no
 input, and once a day at 06:23 UTC, never on a pull request. Its env names every entry in its own text.
 

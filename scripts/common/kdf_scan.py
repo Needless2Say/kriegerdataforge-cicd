@@ -143,8 +143,9 @@ TOOLING_RULES   = frozenset({"detect-non-literal-fs-filename", "path-join-resolv
 REPLACED_RULES  = frozenset({"python-logger-credential-disclosure"})
 CONFIDENT       = frozenset({"MEDIUM", "HIGH"})
 # a call of cicd's own reusable workflows or actions at main, which the wrapper accepts and zizmor's ref-pin would not
-# tell from any other branch (row L13)
-CICD_AT_MAIN = re.compile(r"Needless2Say/kriegerdataforge-cicd/[^@\s]+@main")
+# tell from any other branch (row L13). The owner's name before the account's rename of 2026-11-26 is accepted with
+# it while the callers move, the owner holding that name as an empty organization, and the rename's close ends it
+CICD_AT_MAIN = re.compile(r"(?:NeedlessAlloy|Needless2Say)/kriegerdataforge-cicd/[^@\s]+@main")
 # the managed block the scripts Distribute writes, and the repo's own lines inside it
 BLOCK_OPEN   = "# >>> kdf-scan, managed by cicd's scripts sync"
 BLOCK_CLOSE  = "# <<< kdf-scan"
@@ -232,7 +233,7 @@ UNSAFE_CONFIG = re.compile(r"(?i)(?:filter|include|includeif)\..*")
 CALLER_PATH   = ".github/workflows/kdf-scan-gate.yml"
 REUSABLE_PATH = ".github/workflows/kdf-scan-gate-reusable.yml"
 GATE_NAME     = "kdf-scan-gate"
-CICD_REPO     = "needless2say/kriegerdataforge-cicd"
+CICD_REPO     = "needlessalloy/kriegerdataforge-cicd"
 # a YAML double quoted scalar's escapes and escaped line breaks, which could spell the gate's name in a display name
 YAML_ESCAPE = re.compile(r"\\(?:x([0-9A-Fa-f]{2})|u([0-9A-Fa-f]{4})|U([0-9A-Fa-f]{8})|\r?\n[ \t]*)")
 # a caller's ci.yml line naming the paths that are not docs, which the docs only answer reads at main

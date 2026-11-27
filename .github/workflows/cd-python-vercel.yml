@@ -85,7 +85,7 @@ jobs:
       - name: Check out deployer registry (kriegerdataforge-cicd)
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          repository: Needless2Say/kriegerdataforge-cicd
+          repository: NeedlessAlloy/kriegerdataforge-cicd
           ref: main
           sparse-checkout: scripts
           path: _kdf_cicd
@@ -135,7 +135,7 @@ jobs:
       - name: Check out the PROD gate (kriegerdataforge-cicd)
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          repository: Needless2Say/kriegerdataforge-cicd
+          repository: NeedlessAlloy/kriegerdataforge-cicd
           ref: main
           sparse-checkout: scripts
           path: _kdf_cicd
@@ -185,7 +185,7 @@ jobs:
       - name: Check out the release check (kriegerdataforge-cicd)
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          repository: Needless2Say/kriegerdataforge-cicd
+          repository: NeedlessAlloy/kriegerdataforge-cicd
           ref: main
           sparse-checkout: scripts
           path: _kdf_cicd

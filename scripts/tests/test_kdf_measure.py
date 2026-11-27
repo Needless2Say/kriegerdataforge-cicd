@@ -403,12 +403,12 @@ def test_ordinary_names_and_settings_hold_no_credential_shape():
     lines.extend([
         "repo kriegerdataforge-template-fastapi secret REPORTS_CRON_SECRET_TIFFANYS_SPACE",
         "installation an-app permissions=administration:write,environments:write,secrets:write",
-        "login Needless2Say plan=pro scopes=gist,read:org,repo,workflow",
-        "installation kdf-cicd-automation repo Needless2Say/kriegerdataforge-template-fastapi",
-        "repo kriegerdataforge branch_rule main deletion ruleset=7 source=Needless2Say/kriegerdataforge",
-        "repo tiffanys-space-backend collaborator Needless2Say role=admin",
+        "login NeedlessAlloy plan=pro scopes=gist,read:org,repo,workflow",
+        "installation kdf-cicd-automation repo NeedlessAlloy/kriegerdataforge-template-fastapi",
+        "repo kriegerdataforge branch_rule main deletion ruleset=7 source=NeedlessAlloy/kriegerdataforge",
+        "repo tiffanys-space-backend collaborator NeedlessAlloy role=admin",
         "repo kriegerdataforge deploy_key MyLaptop-Key-2026-Personal-Backup read_only=true",
-        "installation vercel app_id=8329 id=31112 account=Needless2Say selection=all permissions=contents:read",
+        "installation vercel app_id=8329 id=31112 account=NeedlessAlloy selection=all permissions=contents:read",
     ])
     assert kdf_measure().find_value_shape(lines) is None
 

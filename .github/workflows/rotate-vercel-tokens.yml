@@ -64,7 +64,7 @@ jobs:
     # The schedule's first job, outside ops and holding no secret. It reads the public facts alone. It runs on the
     # owner's dispatch too, as every job here admits the owner, and a dispatch then does the mode it chose.
     if: >-
-      github.repository == 'Needless2Say/kriegerdataforge-cicd' &&
+      github.repository == 'NeedlessAlloy/kriegerdataforge-cicd' &&
       ((github.event_name == 'schedule' && vars.ARM_OPS_SCHEDULE == 'true') ||
         (github.event_name == 'workflow_dispatch' &&
           github.actor == github.repository_owner &&
@@ -111,7 +111,7 @@ jobs:
     # skipped. A rerun keeps the event's name, so any attempt after the first is the owner's alone.
     if: >-
       always() &&
-      github.repository == 'Needless2Say/kriegerdataforge-cicd' &&
+      github.repository == 'NeedlessAlloy/kriegerdataforge-cicd' &&
       ((github.event_name == 'schedule' && vars.ARM_OPS_SCHEDULE == 'true' &&
           needs.due.result == 'success' &&
           (needs.due.outputs.mode == 'rotate' || needs.due.outputs.mode == 'reap')) ||

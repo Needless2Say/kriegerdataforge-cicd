@@ -1,5 +1,5 @@
 # The local code scan's image (D-085, design 5.1), built from scripts/common/scan_build/Dockerfile on main alone and
-# published to ghcr.io/needless2say/kdf-scan, public and free from this public repo.
+# published to ghcr.io/needlessalloy/kdf-scan, public and free from this public repo.
 #
 # The build job holds no permission. It checks out the public source, builds the image into an OCI archive, inspects
 # every layer of it so Semgrep's rules never reach a public image, loads that same archive and runs the image's own
@@ -30,7 +30,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  IMAGE: ghcr.io/needless2say/kdf-scan
+  IMAGE: ghcr.io/needlessalloy/kdf-scan
   ARCHIVE: kdf-scan.oci.tar
 
 jobs:

@@ -6007,3 +6007,50 @@ replacing it. The Next.js deploy holds a group, so two owner deploys of one app 
 and as in D-111's group a waiting run may be replaced by a newer one, a bot's among them, and is run again. A
 Codex read of the change at xhigh raised the bot's rerun, the withheld output and the cancellation, all three
 taken, and the waiting run's replacement, kept as GitHub's groups behave. VERSION 0.13.0.
+
+## D-115. The owner's account renamed, every live reference moved and the old name read for the move
+
+- **Date.** 2026-11-27
+- **Status.** Proposed. Accepted when the owner merges the pull request that carries it.
+- **Tier / scope:** Epic slice, the owner's plan approved on 2026-11-27 with four Codex plan reads · the image
+  names, the registries, the owner constants, the fetch lanes, `kdf_scan.py`, `token_generations.py`,
+  `distribute_scripts.py`, `kdf-preflight.sh`, `kdf-codex-install.sh` · no input, output or secret added, removed or
+  renamed, every caller unchanged
+
+**Context.** The owner renamed the GitHub account from `Needless2Say` to `NeedlessAlloy` on about 2026-11-26. git,
+the web and the API forward a renamed account's repos, and Actions resolves a `uses:` through the same redirect, until
+another account takes the old name. GHCR forwards nothing, so `Mirror CI images` failed on 2026-11-26 and 2026-11-27
+with `manifest unknown` and `owner not found`, and every job that starts an image under `ghcr.io/needless2say/` failed
+with it. The deployer check named the old login, so it refused every deploy. The repo identity checks of
+`distribute-kit.yml` and `rotate-vercel-tokens.yml` skipped both, and `tag_ruleset_dates.json` keyed the PROD gate's
+ruleset dates by the old full names, so the gate found no date and skipped its limit. The owner holds the old name as
+an empty organization from 2026-11-27, so no one else can take it.
+
+**Decision.**
+
+1. **Every live reference moves.** The images to `ghcr.io/needlessalloy/` by the same digests, the registries' repos
+   and logins, the PROD gate's dates under the new keys with every date kept, the owner constants, the assignees and
+   the checkouts. The deployer check admits the new login alone.
+2. **The old spelling is read, never fetched.** Every check that reads an owner's pin, mention or origin reads the old
+   spelling too for the move, as the same repo, and every fetch, mirror rewrite and question to GitHub goes to the new
+   name alone. That covers the fetch scan's `PIN` and `MENTION`, the formatter's parser, the lanes' and the
+   pre-flight's mirror rewrites, the pre-flight's origin parser and its npm scope, read in a lock and in a tarball's
+   own `package.json`, and the Codex install's private lines.
+3. **The scanner.** Its exemption of a call of cicd at `main` covers both spellings for the move, and it knows cicd by
+   the new name alone. The callers that spell the old name, cicd's own and the ones it writes, stay as they are until
+   a scanner published from this source is active, since the active one exempts only the old spelling and each
+   caller's pinned hash is of its text.
+4. **The token record.** A record saved before the rename is read under the new name, every id, fingerprint, time,
+   token and revocation kept, and the next save writes it so. An owner's verified list that spells the old name names
+   the same targets.
+5. **The scripts sync.** A formatter pin that differs from the canonical one only by the old owner, the ref the same,
+   is rewritten in place, so the move reaches every repo by Distribute and no version moves.
+6. **The close.** A later pull request removes every reading of the old name, keeps rules that refuse it with negative
+   tests, and publishes and activates a scanner without the old exemption.
+
+**Consequences.** Once this merges, CI's images pull again, the deploys and the owner's runs are admitted again, and
+Distribute and the token rotation run again, the rotation's schedule kept off by the owner until a dispatched check
+reads the live record clean. Until the close, a pin, origin or caller under the old name still passes, which is safe
+while the owner holds that name. The guard's two lines that know the context repo by name are the owner's to change,
+and a clone's `origin` moves only after them. The scan image is published from this source after the merge and
+activated by a later pull request with the caller's new hash. VERSION 0.13.1.

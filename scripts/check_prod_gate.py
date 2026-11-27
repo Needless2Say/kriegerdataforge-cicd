@@ -41,7 +41,7 @@ repo's tag ruleset, which blocks a `v*` tag's update and deletion, was read back
 keeps the rule above, and its guarantee and no stronger.
 
 Inputs (CLI flags take precedence over environment variables):
-  --repo             / DEPLOY_REPO        / GITHUB_REPOSITORY        e.g. "Needless2Say/fitness-app-frontend"
+  --repo             / DEPLOY_REPO        / GITHUB_REPOSITORY        e.g. "NeedlessAlloy/fitness-app-frontend"
   --version          / DEPLOY_VERSION                                e.g. "1.2.0", the tag is v1.2.0
   --environment      / DEPLOY_ENVIRONMENT                            "dev" or "prod"
   --workflow         / PROD_GATE_WORKFLOW                            the workflow file, default prod-gate.yml
@@ -56,7 +56,7 @@ When the deploy may proceed on a run, the step's outputs name it, gate_run_id, g
 
 Usage:
     python3 check_prod_gate.py
-    python3 check_prod_gate.py --repo Needless2Say/tiffanys-space --version 0.3.7 --environment prod
+    python3 check_prod_gate.py --repo NeedlessAlloy/tiffanys-space --version 0.3.7 --environment prod
 
 Requirements: standard library only (no pip install).
 """
@@ -614,7 +614,7 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         formatter_class = argparse.RawDescriptionHelpFormatter,
         epilog = EPILOG,
     )
-    parser.add_argument("--repo", default = None, help = "owner/repo, e.g. Needless2Say/tiffanys-space")
+    parser.add_argument("--repo", default = None, help = "owner/repo, e.g. NeedlessAlloy/tiffanys-space")
     parser.add_argument("--version", default = None, help = "the release version being deployed, e.g. 0.3.7")
     parser.add_argument("--environment", default = None, help = "target environment, dev or prod")
     parser.add_argument("--workflow", default = None, help = "the PROD Gate workflow file name, default prod-gate.yml")

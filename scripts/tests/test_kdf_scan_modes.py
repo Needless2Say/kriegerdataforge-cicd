@@ -282,7 +282,7 @@ def test_cicds_own_reusable_workflow_is_apart_in_cicd_alone(tmp_path: Path) -> N
         (pull.head, pull.main, pull.merged()),
         "",
         buffer,
-        "Needless2Say/kriegerdataforge-cicd",
+        "NeedlessAlloy/kriegerdataforge-cicd",
     )
     assert "names the gate" not in buffer.getvalue(), buffer.getvalue()
     # in a tenant, or with no repository named, a file of that name is a lookalike like any other

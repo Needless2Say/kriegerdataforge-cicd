@@ -12,14 +12,14 @@
 			"key": "fitness",
 			"title": "KDF — Fitness",
 			"existing_node_id": "PVT_kwHOBVLJ2c4BdN5K",
-			"repos": ["Needless2Say/fitness-app-frontend", "Needless2Say/fitness-app-backend"],
+			"repos": ["NeedlessAlloy/fitness-app-frontend", "NeedlessAlloy/fitness-app-backend"],
 			"collaborators": []
 		},
 		{
 			"key": "tiffanys",
 			"title": "KDF — Tiffany's Space",
 			"existing_node_id": "PVT_kwHOBVLJ2c4BdN5L",
-			"repos": ["Needless2Say/tiffanys-space", "Needless2Say/tiffanys-space-backend"],
+			"repos": ["NeedlessAlloy/tiffanys-space", "NeedlessAlloy/tiffanys-space-backend"],
 			"collaborators": []
 		},
 		{
@@ -27,14 +27,14 @@
 			"title": "KDF — Platform",
 			"existing_node_id": "PVT_kwHOBVLJ2c4BdN5M",
 			"repos": [
-				"Needless2Say/kriegerdataforge",
-				"Needless2Say/kriegerdataforge-auth-ui",
-				"Needless2Say/kriegerdataforge-sdk",
-				"Needless2Say/kriegerdataforge-reports-sdk",
-				"Needless2Say/kriegerdataforge-report-form",
-				"Needless2Say/kriegerdataforge-fmt",
-				"Needless2Say/kriegerdataforge-context",
-				"Needless2Say/kriegerdataforge-review-bench"
+				"NeedlessAlloy/kriegerdataforge",
+				"NeedlessAlloy/kriegerdataforge-auth-ui",
+				"NeedlessAlloy/kriegerdataforge-sdk",
+				"NeedlessAlloy/kriegerdataforge-reports-sdk",
+				"NeedlessAlloy/kriegerdataforge-report-form",
+				"NeedlessAlloy/kriegerdataforge-fmt",
+				"NeedlessAlloy/kriegerdataforge-context",
+				"NeedlessAlloy/kriegerdataforge-review-bench"
 			],
 			"collaborators": []
 		},
@@ -42,28 +42,28 @@
 			"key": "infra",
 			"title": "KDF — Infra",
 			"existing_node_id": "PVT_kwHOBVLJ2c4BdN5O",
-			"repos": ["Needless2Say/kriegerdataforge-terraform"],
+			"repos": ["NeedlessAlloy/kriegerdataforge-terraform"],
 			"collaborators": []
 		},
 		{
 			"key": "business",
 			"title": "KDF — Business Portfolio",
 			"existing_node_id": "PVT_kwHOBVLJ2c4BdN5P",
-			"repos": ["Needless2Say/kriegerdataforge-portfolio", "Needless2Say/kriegerdataforge-tickets"],
+			"repos": ["NeedlessAlloy/kriegerdataforge-portfolio", "NeedlessAlloy/kriegerdataforge-tickets"],
 			"collaborators": []
 		},
 		{
 			"key": "personal",
 			"title": "KDF — Personal Portfolio",
 			"existing_node_id": null,
-			"repos": ["Needless2Say/arthurs-portfolio", "Needless2Say/kriegerdataforge-tickets"],
+			"repos": ["NeedlessAlloy/arthurs-portfolio", "NeedlessAlloy/kriegerdataforge-tickets"],
 			"collaborators": []
 		},
 		{
 			"key": "cicd",
 			"title": "KDF — CICD",
 			"existing_node_id": null,
-			"repos": ["Needless2Say/kriegerdataforge-cicd", "Needless2Say/kriegerdataforge-tickets"],
+			"repos": ["NeedlessAlloy/kriegerdataforge-cicd", "NeedlessAlloy/kriegerdataforge-tickets"],
 			"collaborators": []
 		},
 		{
@@ -71,10 +71,10 @@
 			"title": "KDF — Templates",
 			"existing_node_id": "PVT_kwHOBVLJ2c4BdN5R",
 			"repos": [
-				"Needless2Say/kriegerdataforge-template-nextjs",
-				"Needless2Say/kriegerdataforge-template-fastapi",
-				"Needless2Say/kriegerdataforge-template-npm-package",
-				"Needless2Say/kriegerdataforge-template-python-package"
+				"NeedlessAlloy/kriegerdataforge-template-nextjs",
+				"NeedlessAlloy/kriegerdataforge-template-fastapi",
+				"NeedlessAlloy/kriegerdataforge-template-npm-package",
+				"NeedlessAlloy/kriegerdataforge-template-python-package"
 			],
 			"collaborators": []
 		}

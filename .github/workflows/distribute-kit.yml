@@ -46,7 +46,7 @@ jobs:
     # Never run on forks (this repo is public). The owner gate passes first (PL-076 parity, fail-closed), and both
     # actors are tested here too, since a rerun of failed jobs alone keeps the gate's passed output.
     if: >-
-      github.repository == 'Needless2Say/kriegerdataforge-cicd' &&
+      github.repository == 'NeedlessAlloy/kriegerdataforge-cicd' &&
       needs.authorize.outputs.authorized == 'true' &&
       github.actor == github.repository_owner &&
       github.triggering_actor == github.repository_owner

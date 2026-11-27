@@ -37,8 +37,8 @@ JOB_B = {
 }
 
 SDK_SHA = "2f33da35c30406089a8a991be02a1891ecf73753"
-SDK_URL = "git+https://github.com/Needless2Say/kriegerdataforge-sdk.git"
-FMT_URL = "git+https://github.com/Needless2Say/kriegerdataforge-fmt.git"
+SDK_URL = "git+https://github.com/NeedlessAlloy/kriegerdataforge-sdk.git"
+FMT_URL = "git+https://github.com/NeedlessAlloy/kriegerdataforge-fmt.git"
 
 PACKAGES = "kriegerdataforge-sdk,kriegerdataforge-reports-sdk,kriegerdataforge-fmt"
 
@@ -78,9 +78,9 @@ def test_the_scan_reads_the_shapes_the_callers_write():
     """
     text = "\n".join([
         f"kriegerdataforge-sdk[fastapi,database] @ {SDK_URL}@{SDK_SHA}",
-        "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@v1.2.0 ; python_version >= '3.14'",
-        "-e git+https://github.com/Needless2Say/kriegerdataforge-reports-sdk.git@v0.2.1#egg=kdf-reports",
-        '  "kriegerdataforge-sdk @ git+https://github.com/Needless2Say/kriegerdataforge-sdk.git@v0.11.0",',
+        "kdf-fmt @ git+https://github.com/NeedlessAlloy/kriegerdataforge-fmt.git@v1.2.0 ; python_version >= '3.14'",
+        "-e git+https://github.com/NeedlessAlloy/kriegerdataforge-reports-sdk.git@v0.2.1#egg=kdf-reports",
+        '  "kriegerdataforge-sdk @ git+https://github.com/NeedlessAlloy/kriegerdataforge-sdk.git@v0.11.0",',
     ])
     pins, includes = fpp.scan_text(text, "requirements.txt")
     assert pins == [
@@ -94,42 +94,83 @@ def test_the_scan_reads_the_shapes_the_callers_write():
 
 def test_a_subdirectory_tail_is_part_of_the_url_and_not_of_the_ref():
     pins, _ = fpp.scan_text(
-        "probe @ git+https://github.com/Needless2Say/kriegerdataforge-cicd.git@v0.2.99#subdirectory=tests/probe",
+        "probe @ git+https://github.com/NeedlessAlloy/kriegerdataforge-cicd.git@v0.2.99#subdirectory=tests/probe",
         "r",
     )
     assert pins == [("kriegerdataforge-cicd", "v0.2.99")]
 
 
+# the owner's name before the rename of 2026-11-26, read as the same repo while the repos move, every fetch going to
+# the new name alone
+def test_a_pin_under_the_old_owner_s_name_is_read_as_the_same_repo():
+    text = "\n".join([
+        f"kriegerdataforge-sdk @ git+https://github.com/Needless2Say/kriegerdataforge-sdk.git@{SDK_SHA}",
+        "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@v1.2.0",
+    ])
+    pins, includes = fpp.scan_text(text, "requirements.txt")
+    assert pins == [("kriegerdataforge-sdk", SDK_SHA), ("kriegerdataforge-fmt", "v1.2.0")]
+    assert includes == []
+
+
+def test_every_fetch_goes_to_the_new_owner_s_name():
+    assert fpp.repo_url("kriegerdataforge-sdk") == "https://github.com/NeedlessAlloy/kriegerdataforge-sdk.git"
+
+
 @pytest.mark.parametrize("line", [
-    "# kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@v1.2.0",
-    "    # indented comment git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@v1.2.0",
-    "requests==2.32.3  # mirrors git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@v1.2.0",
+    "sdk @ git+https://github.com/needless2say/kriegerdataforge-sdk.git@v1",
+    "sdk @ git+ssh://git@github.com/Needless2Say/kriegerdataforge-sdk.git@v1",
+    "sdk @ https://github.com/Needless2Say/kriegerdataforge-sdk/archive/v1.zip",
+])
+def test_the_old_owner_s_name_in_a_form_the_scan_does_not_read_still_fails_the_plan(line):
+    with pytest.raises(fpp.FetchError, match = "a form this lane does not read"):
+        fpp.scan_text(line, "requirements.txt")
+
+
+def test_another_owner_s_pin_is_not_read_as_the_owner_s():
+    assert fpp.scan_text("sdk @ git+https://github.com/someone/kriegerdataforge-sdk.git@v1", "r") == ([], [])
+
+
+@pytest.mark.parametrize("lane", sorted([*JOB_B, "ci-python-kdf-fmt.yml"]))
+def test_each_lane_s_mirror_answers_the_owner_s_name_and_the_one_before_it(lane):
+    """
+    A pin of either spelling reads the same mirror, so the install job fetches nothing from GitHub under either.
+    """
+    text = (WORKFLOWS / lane).read_text(encoding = "utf-8")
+    assert "for owner in NeedlessAlloy Needless2Say; do" in text
+    assert 'echo "GIT_CONFIG_VALUE_$count=https://github.com/$owner/$repo.git" >> "$GITHUB_ENV"' in text
+    assert "https://github.com/Needless2Say/$repo.git" not in text
+
+
+@pytest.mark.parametrize("line", [
+    "# kdf-fmt @ git+https://github.com/NeedlessAlloy/kriegerdataforge-fmt.git@v1.2.0",
+    "    # indented comment git+https://github.com/NeedlessAlloy/kriegerdataforge-fmt.git@v1.2.0",
+    "requests==2.32.3  # mirrors git+https://github.com/NeedlessAlloy/kriegerdataforge-fmt.git@v1.2.0",
 ])
 def test_a_commented_pin_is_not_read(line):
     assert fpp.scan_text(line, "r") == ([], [])
 
 
 def test_a_continued_line_is_read_whole():
-    text = ("kriegerdataforge-sdk @ git+https://github.com/Needless2Say/kriegerdataforge-sdk.git@v0.11.0 \\\n"
+    text = ("kriegerdataforge-sdk @ git+https://github.com/NeedlessAlloy/kriegerdataforge-sdk.git@v0.11.0 \\\n"
             "    --hash=sha256:" + "a" * 64 + "\n")
     assert fpp.scan_text(text, "r")[0] == [("kriegerdataforge-sdk", "v0.11.0")]
 
 
 @pytest.mark.parametrize("line", [
-    "sdk @ git+ssh://git@github.com/Needless2Say/kriegerdataforge-sdk.git@v1",
-    "sdk @ git+https://github.com/Needless2Say/kriegerdataforge-sdk@v1",
-    "sdk @ git+https://github.com/needless2say/kriegerdataforge-sdk.git@v1",
-    "sdk @ https://github.com/Needless2Say/kriegerdataforge-sdk/archive/v1.zip",
-    "--extra-index-url https://github.com/Needless2Say/kriegerdataforge-sdk",
-    "git@github.com:Needless2Say/kriegerdataforge-sdk.git",
-    "sdk @ ssh://git@github.com/Needless2Say/kriegerdataforge-sdk.git",
-    "sdk @ https://github.com/Needless2Say/kriegerdataforge-sdk/tarball/v1",
-    "sdk @ https://github.com/Needless2Say/kriegerdataforge-sdk/zipball/v1",
-    "sdk @ https://github.com/Needless2Say/kriegerdataforge-sdk/releases/download/v1/kdf_sdk-1.0.tar.gz",
-    "sdk @ https://github.com/Needless2Say/kriegerdataforge-sdk/releases/download/v1/kdf_sdk-1.0-py3-none-any.whl",
-    "sdk @ https://codeload.github.com/Needless2Say/kriegerdataforge-sdk/tar.gz/refs/tags/v1",
-    "-e https://github.com/Needless2Say/kriegerdataforge-sdk",
-    "--find-links https://github.com/Needless2Say/kriegerdataforge-sdk/releases",
+    "sdk @ git+ssh://git@github.com/NeedlessAlloy/kriegerdataforge-sdk.git@v1",
+    "sdk @ git+https://github.com/NeedlessAlloy/kriegerdataforge-sdk@v1",
+    "sdk @ git+https://github.com/needlessalloy/kriegerdataforge-sdk.git@v1",
+    "sdk @ https://github.com/NeedlessAlloy/kriegerdataforge-sdk/archive/v1.zip",
+    "--extra-index-url https://github.com/NeedlessAlloy/kriegerdataforge-sdk",
+    "git@github.com:NeedlessAlloy/kriegerdataforge-sdk.git",
+    "sdk @ ssh://git@github.com/NeedlessAlloy/kriegerdataforge-sdk.git",
+    "sdk @ https://github.com/NeedlessAlloy/kriegerdataforge-sdk/tarball/v1",
+    "sdk @ https://github.com/NeedlessAlloy/kriegerdataforge-sdk/zipball/v1",
+    "sdk @ https://github.com/NeedlessAlloy/kriegerdataforge-sdk/releases/download/v1/kdf_sdk-1.0.tar.gz",
+    "sdk @ https://github.com/NeedlessAlloy/kriegerdataforge-sdk/releases/download/v1/kdf_sdk-1.0-py3-none-any.whl",
+    "sdk @ https://codeload.github.com/NeedlessAlloy/kriegerdataforge-sdk/tar.gz/refs/tags/v1",
+    "-e https://github.com/NeedlessAlloy/kriegerdataforge-sdk",
+    "--find-links https://github.com/NeedlessAlloy/kriegerdataforge-sdk/releases",
 ])
 def test_a_form_pip_could_install_that_the_scan_cannot_read_fails_the_plan(line):
     """
@@ -141,10 +182,10 @@ def test_a_form_pip_could_install_that_the_scan_cannot_read_fails_the_plan(line)
 
 
 @pytest.mark.parametrize("line", [
-    'Repository = "https://github.com/Needless2Say/kriegerdataforge-sdk"',
-    'Homepage = "https://github.com/Needless2Say/kriegerdataforge-sdk#readme"',
-    'Issues = "https://github.com/Needless2Say/kriegerdataforge-sdk/issues"',
-    'Changelog = "https://github.com/Needless2Say/kriegerdataforge-sdk/blob/main/CHANGELOG.md"',
+    'Repository = "https://github.com/NeedlessAlloy/kriegerdataforge-sdk"',
+    'Homepage = "https://github.com/NeedlessAlloy/kriegerdataforge-sdk#readme"',
+    'Issues = "https://github.com/NeedlessAlloy/kriegerdataforge-sdk/issues"',
+    'Changelog = "https://github.com/NeedlessAlloy/kriegerdataforge-sdk/blob/main/CHANGELOG.md"',
 ])
 def test_a_plain_link_to_a_repo_page_is_not_a_pin_and_passes(line):
     """
@@ -161,7 +202,7 @@ def test_a_pyproject_with_project_urls_plans_on_the_default_files(tmp_path):
         f'    "kriegerdataforge-sdk @ {SDK_URL}@{SDK_SHA}",',
         "]",
         "[project.urls]",
-        'Repository = "https://github.com/Needless2Say/kriegerdataforge-sdk"',
+        'Repository = "https://github.com/NeedlessAlloy/kriegerdataforge-sdk"',
         "",
     ])
     data      = _plan(tmp_path, {"pyproject.toml": pyproject}, REQUIREMENT_FILES = _default_requirement_files())
@@ -256,7 +297,7 @@ def test_an_include_is_followed_within_the_same_tree():
     files = {
         "requirements.txt": "-r base/common.txt\n",
         "base/common.txt": f"-c ../constraints.txt\nkdf-fmt @ {FMT_URL}@v1.2.0\n",
-        "constraints.txt": f"sdk @ git+https://github.com/Needless2Say/kriegerdataforge-sdk.git@{SDK_SHA}\n",
+        "constraints.txt": f"sdk @ git+https://github.com/NeedlessAlloy/kriegerdataforge-sdk.git@{SDK_SHA}\n",
     }
     pins  = fpp.scan_tree(_reader(files), ["requirements.txt"], "", required = False)
     assert {(pin.repo, pin.ref) for pin in pins} == {
@@ -431,7 +472,7 @@ def test_the_plan_refuses_a_private_pin_in_a_public_caller(tmp_path):
     with pytest.raises(fpp.FetchError, match = "the calling repo is public"):
         _plan(
             tmp_path,
-            {"requirements.txt": "x @ git+https://github.com/Needless2Say/kriegerdataforge-sdk.git@v1\n"},
+            {"requirements.txt": "x @ git+https://github.com/NeedlessAlloy/kriegerdataforge-sdk.git@v1\n"},
             CALLER_PRIVATE = "false",
         )
 
@@ -470,7 +511,7 @@ def test_a_file_read_inside_a_mirror_needs_its_repo_listed_as_an_extra(tmp_path)
 def test_main_writes_the_plan_and_the_repositories_output(tmp_path, monkeypatch):
     (tmp_path / "caller").mkdir()
     (tmp_path / "caller" / "requirements.txt").write_text(
-        "fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@v1.2.0\n",
+        "fmt @ git+https://github.com/NeedlessAlloy/kriegerdataforge-fmt.git@v1.2.0\n",
         encoding = "utf-8",
     )
     monkeypatch.setenv("CALLER_PRIVATE", "true")
@@ -524,7 +565,7 @@ def test_the_fetch_clones_each_pin_whole_into_a_bare_mirror_and_records_it(tmp_p
     fetch = next(call for call in git.calls if "fetch" in call)
     assert "--depth" not in " ".join(fetch), "a filtered clone of a shallow mirror fails, mirrors keep the history"
     assert f"{'7' * 40}:refs/heads/kdf-pin-777777777777" in fetch and "+refs/tags/v1.2.0:refs/tags/v1.2.0" in fetch
-    assert "https://github.com/Needless2Say/kriegerdataforge-fmt.git" in fetch
+    assert "https://github.com/NeedlessAlloy/kriegerdataforge-fmt.git" in fetch
     assert all("@github.com" not in part for call in git.calls for part in call), "no URL carries a credential"
 
 
@@ -654,7 +695,7 @@ def test_a_pin_read_inside_a_mirror_must_be_within_the_token(tmp_path):
     backend = "1" * 40
     git     = FakeGit(
         {"fitness-app-backend": f"{backend}\trefs/heads/main"},
-        {f"{backend}:requirements.txt": "x @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@v1\n"},
+        {f"{backend}:requirements.txt": "x @ git+https://github.com/NeedlessAlloy/kriegerdataforge-fmt.git@v1\n"},
     )
     data    = {
         "caller_private": True,
@@ -684,14 +725,14 @@ def test_main_fetch_writes_the_manifest_and_publishes_only_the_tokens_hash(tmp_p
 
 def test_a_refusal_is_one_error_line_and_exit_1(tmp_path, monkeypatch, capsys):
     (tmp_path / "requirements.txt").write_text(
-        "x @ git+https://github.com/Needless2Say/not-listed.git@v1\n",
+        "x @ git+https://github.com/NeedlessAlloy/not-listed.git@v1\n",
         encoding = "utf-8",
     )
     monkeypatch.setenv("CALLER_PRIVATE", "true")
     monkeypatch.setenv("REQUIREMENT_FILES", "requirements.txt")
     monkeypatch.delenv("GITHUB_OUTPUT", raising = False)
     assert fpp.main(["plan", "--caller", str(tmp_path), "--out", str(tmp_path / "plan.json")]) == 1
-    assert "::error::requirements.txt: Needless2Say/not-listed is not on the allowlist" in capsys.readouterr().out
+    assert "::error::requirements.txt: NeedlessAlloy/not-listed is not on the allowlist" in capsys.readouterr().out
 
 # ======================================================================================================================
 # The workflows
@@ -839,7 +880,7 @@ def test_the_style_lane_checks_in_a_job_that_names_no_secret():
     assert "        if: ${{ cancelled() || (true && needs.fetch-private.result != 'success') }}\n" in first
     assert "          ref: ${{ inputs.ref }}\n          persist-credentials: false\n" in style
     assert text.count("      - uses: actions/checkout@") == text.count("          persist-credentials: false\n") == 2
-    assert 'run: python -I -m pip install --quiet "kdf-fmt @ git+https://github.com/Needless2Say/' \
+    assert 'run: python -I -m pip install --quiet "kdf-fmt @ git+https://github.com/NeedlessAlloy/' \
            'kriegerdataforge-fmt.git@$KDF_FMT_REF"\n' in style
     assert '        default: "python -I -m kdf_fmt.cli check --no-cache"\n' in text
     # the caller's command run as its own, accepted on its line for the local code scan (D-085, design 5.7)
@@ -907,7 +948,7 @@ def test_the_public_lane_mints_for_the_formatter_alone_and_installs_isolated():
     assert "        if: ${{ vars.USE_GITHUB_APP == 'true' }}\n" in text
     assert "          permission-contents: read\n" in text
     assert "          GIT_CONFIG_GLOBAL: /dev/null\n" in text and "          GIT_CONFIG_NOSYSTEM: \"1\"\n" in text
-    assert 'run: python -I -m pip install --quiet "kdf-fmt @ git+https://github.com/Needless2Say/' \
+    assert 'run: python -I -m pip install --quiet "kdf-fmt @ git+https://github.com/NeedlessAlloy/' \
            'kriegerdataforge-fmt.git@$KDF_FMT_REF"\n' in text
 
 

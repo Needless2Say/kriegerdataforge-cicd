@@ -93,7 +93,7 @@ def _run_close(tmp_path: Path, workflow: str, outcome: str, shell: Path | None =
         "PATH": os.pathsep.join([str(fakebin), os.environ.get("PATH", "")]),
         "FAKE_GH_ARGS": called.as_posix(),
         "ISSUE": "264",
-        "REPO": "Needless2Say/kriegerdataforge-cicd",
+        "REPO": "NeedlessAlloy/kriegerdataforge-cicd",
         "OUTCOME": outcome,
     }
     run    = subprocess.run([bash, "-e", shell.as_posix()], env = env, capture_output = True, text = True)
@@ -109,7 +109,7 @@ def _run_close(tmp_path: Path, workflow: str, outcome: str, shell: Path | None =
 ])
 def test_the_close_reason_follows_the_run(tmp_path, workflow, outcome, reason):
     args = _run_close(tmp_path, workflow, outcome)
-    assert args == ["issue", "close", "264", "--repo", "Needless2Say/kriegerdataforge-cicd", "--reason", reason]
+    assert args == ["issue", "close", "264", "--repo", "NeedlessAlloy/kriegerdataforge-cicd", "--reason", reason]
 
 
 def test_the_control_a_close_that_ignores_the_outcome_calls_a_failure_completed(tmp_path):

@@ -61,10 +61,16 @@ import rotate_secret as rs
 # ======================================================================================================================
 
 ENTRY_NAME          = "VERCEL_DEPLOYMENT_TOKEN"
-CICD_REPO           = "Needless2Say/kriegerdataforge-cicd"
+CICD_REPO           = "NeedlessAlloy/kriegerdataforge-cicd"
 RECORD_VARIABLE     = "VERCEL_TOKEN_RECORD"
 FACTS_VARIABLE      = "VERCEL_TOKEN_FACTS"
 GENERATION_VARIABLE = "VERCEL_TOKEN_GENERATION"
+
+# the owner's name before the account's rename of 2026-11-26 and after it. A record saved before the rename holds the
+# old name in each generation's targets and writes and in each retired repository copy, so load reads it as the new
+# name and the next save writes it so, every id, fingerprint, time and revocation kept as it was
+OLD_OWNER = "Needless2Say"
+OWNER     = "NeedlessAlloy"
 
 # a reap waits this long after the generation's last write, GitHub's limit on a hosted job, so no deploy that started
 # before it still holds a predecessor
@@ -593,6 +599,44 @@ def registry_targets(entry: dict) -> tuple[list[str], list[str]]:
     copies  = sorted({target["repo"] for target in entry.get("retired_github_repo_secrets", [])})
     return targets, copies
 
+
+def renamed(name: str) -> str:
+    """
+    A target or a repository copy under the owner's name, read from the name before the rename.
+
+    Args:
+        name: owner/repo or owner/repo:environment
+
+    Returns:
+        str: the same name under OWNER when its owner is OLD_OWNER, in any case, and the name as it was otherwise
+    """
+    owner, slash, rest = name.partition("/")
+    if slash and owner.casefold() == OLD_OWNER.casefold():
+        return f"{OWNER}/{rest}"
+    return name
+
+
+def renamed_record(record: dict) -> dict:
+    """
+    A record saved before the rename, its targets, writes and retired repository copies read under the owner's name,
+    in place. Ids, fingerprints, times, tokens and revocations are not touched, and a record already on the new name
+    comes back as it was.
+
+    Args:
+        record: the record as parsed
+
+    Returns:
+        dict: the same record
+    """
+    for gen in record.get("generations", []):
+        if isinstance(gen.get("targets"), list):
+            gen["targets"] = [renamed(target) if isinstance(target, str) else target for target in gen["targets"]]
+        if isinstance(gen.get("written"), dict):
+            gen["written"] = {renamed(target): written_at for target, written_at in gen["written"].items()}
+    if isinstance(record.get("retired_repo_copies"), dict):
+        record["retired_repo_copies"] = {renamed(repo): entry for repo, entry in record["retired_repo_copies"].items()}
+    return record
+
 # ======================================================================================================================
 # The engine
 # ======================================================================================================================
@@ -653,7 +697,7 @@ class Engine:
             raise RecordError("the record is not JSON, so nothing is done") from exc
         if not isinstance(record, dict) or record.get("version") != 1:
             raise RecordError("the record has no version 1, so nothing is done")
-        return record
+        return renamed_record(record)
 
 
     def save(self, record: dict) -> None:
@@ -903,7 +947,7 @@ class Engine:
         for word in verified.replace(" ", ",").split(","):
             word = word.strip()
             if word:
-                out.add(word if "/" in word else f"{owner}/{word}")
+                out.add(renamed(word) if "/" in word else f"{owner}/{word}")
         return out
 
 

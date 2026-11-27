@@ -140,7 +140,7 @@ def test_a_missing_line_is_found_and_a_missing_page_is_left_to_the_gap_report(ag
 
 @pytest.fixture
 def one_repo():
-    return {"files": ["skills.md"], "repos": [{"repo": "Needless2Say/repo-a", "branch": "main"}]}
+    return {"files": ["skills.md"], "repos": [{"repo": "NeedlessAlloy/repo-a", "branch": "main"}]}
 
 
 @pytest.fixture
@@ -212,7 +212,7 @@ def test_a_rerun_over_a_branch_that_has_the_line_writes_nothing(one_repo):
         patch.object(dk, "_get_remote_file", side_effect = _reader({"AGENTS.md": done})),
         patch.object(dk, "_get_branch_sha", return_value = "basesha"),
         patch.object(dk, "_create_branch"),
-        patch.object(dk, "_open_pr_url", return_value = "https://github.com/Needless2Say/repo-a/pull/9"),
+        patch.object(dk, "_open_pr_url", return_value = "https://github.com/NeedlessAlloy/repo-a/pull/9"),
         patch.object(dk, "_put_file") as put_file,
     ):
         assert dk.cmd_distribute(one_repo, "tok", None) == 0

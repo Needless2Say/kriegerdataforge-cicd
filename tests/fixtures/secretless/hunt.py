@@ -50,7 +50,7 @@ CHUNK   = 8 * 1024 * 1024
 OVERLAP = 256
 
 PROBE_REPO = "kriegerdataforge-cicd"
-PROBE_URL  = f"https://github.com/Needless2Say/{PROBE_REPO}.git"
+PROBE_URL  = f"https://github.com/NeedlessAlloy/{PROBE_REPO}.git"
 PINNED_TAG = "v0.2.99"
 
 # ======================================================================================================================

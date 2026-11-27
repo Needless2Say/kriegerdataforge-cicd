@@ -179,7 +179,7 @@ the root read only, no capability and a user that is not root.
 
 - **`scan`** is the managed block every repo's Makefile holds, written by the scripts sync between its two marker
   lines once cicd pins an image in `scripts/common/SCAN_IMAGE`. It runs Opengrep over the code and zizmor over the
-  workflows before a pull request, in `ghcr.io/needless2say/kdf-scan` by its digest, the working tree, its git
+  workflows before a pull request, in `ghcr.io/needlessalloy/kdf-scan` by its digest, the working tree, its git
   folders and the rules' cache mounted read only. Its last line names the commit, the image's cicd commit, the pins
   and the result, and goes into the pull request whole. It exits 0 clean, 1 for a finding or a bad marker, 2 refused,
   3 when a tool failed and 4 when the scan is incomplete. `make` itself returns 2 whenever a recipe fails, so the last
@@ -250,7 +250,7 @@ This repo deliberately has none. It is Tier D, and
 ### Ecosystem canon
 
 The shared target vocabulary every repo's Makefile follows lives in the hub:
-[`docs/reference/MAKEFILE_CONVENTIONS.md`](https://github.com/Needless2Say/kriegerdataforge/blob/main/docs/reference/MAKEFILE_CONVENTIONS.md).
+[`docs/reference/MAKEFILE_CONVENTIONS.md`](https://github.com/NeedlessAlloy/kriegerdataforge/blob/main/docs/reference/MAKEFILE_CONVENTIONS.md).
 Two commands that do the same thing carry the same name everywhere. Check there before adding a
 target, and update it in the same PR if you add a genuinely new one. **This repo's workflows are
 what make several of those names load-bearing.**

@@ -3,7 +3,7 @@ name: Ops · Distribute staged secrets
 # The staging slots' run (D-099). Every secret a person makes, a PAT GitHub has no API to mint or a value another
 # system owns, has a staging slot of its own in cicd's ops environment, named in scripts/secret_registry.json's
 # `staging`, one per environment for a secret held in two, so a slot's name alone decides where its value goes. The
-# owner stages each new value at a prompt, `gh secret set <SLOT> --env ops --repo Needless2Say/kriegerdataforge-cicd`,
+# owner stages each new value at a prompt, `gh secret set <SLOT> --env ops --repo NeedlessAlloy/kriegerdataforge-cicd`,
 # then dispatches this run once naming the slots, and approves ops.
 #
 # rotate_secret.py --mode paste-staged checks every selected slot before anything is written, a `paste` entry's, set

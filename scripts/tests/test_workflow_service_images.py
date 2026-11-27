@@ -89,7 +89,7 @@ JOB_KEY: re.Pattern[str] = re.compile(r"^  ([A-Za-z0-9_-]+):\s*$")
 # the local code scan's image build and gate (D-085), which build, push and run the owner's own scan image, read by a
 # rule of their own, the one image any registry reference of theirs may name, and the build's grant to push it
 SCAN_WORKFLOWS:  tuple[str, ...] = ("kdf-scan-gate-reusable.yml", "publish-scan-image.yml")
-SCAN_IMAGE_NAME: str = "ghcr.io/needless2say/kdf-scan"
+SCAN_IMAGE_NAME: str = "ghcr.io/needlessalloy/kdf-scan"
 SCAN_PUBLISHER:  tuple[str, str] = ("publish-scan-image.yml", "publish")
 SCAN_REFERENCE:  re.Pattern[str] = re.compile(r"(?<![\w.-])[a-z0-9-]+(?:\.[a-z0-9-]+)+(?::\d+)?/[\w./-]+")
 
@@ -115,7 +115,7 @@ CREDENTIALS: re.Pattern[str] = re.compile(
 SHARED_COMPOSE: Path = Path(__file__).resolve().parents[2] / "e2e" / "docker-compose.shared.yml"
 STACK_MODE:     str = "mirror"
 STACK_IMAGES:   dict[str, str] = {
-    "mirror": r"ghcr\.io/needless2say/[a-z0-9][a-z0-9._-]*@sha256:[0-9a-f]{64}",
+    "mirror": r"ghcr\.io/needlessalloy/[a-z0-9][a-z0-9._-]*@sha256:[0-9a-f]{64}",
     "upstream": rf"{PINNED_IMAGE}|ghcr\.io/axllent/mailpit@sha256:[0-9a-f]{{64}}",
 }
 
@@ -424,16 +424,16 @@ def test_the_e2e_stack_pulls_every_image_by_digest_and_none_from_docker_hub():
     ("mode", "image", "passes"),
     [
         # the mirror refuses every upstream, any other GitHub namespace, a tag and Docker Hub
-        ("mirror", f"ghcr.io/needless2say/postgres@sha256:{'a' * 64}", True),
+        ("mirror", f"ghcr.io/needlessalloy/postgres@sha256:{'a' * 64}", True),
         ("mirror", f"public.ecr.aws/docker/library/postgres@sha256:{'a' * 64}", False),
         ("mirror", f"ghcr.io/axllent/mailpit@sha256:{'a' * 64}", False),
         ("mirror", f"ghcr.io/someone/caddy@sha256:{'a' * 64}", False),
-        ("mirror", "ghcr.io/needless2say/caddy:2.10.2-alpine", False),
+        ("mirror", "ghcr.io/needlessalloy/caddy:2.10.2-alpine", False),
         ("mirror", "caddy:2-alpine", False),
         # upstream, the way back, takes each image's own reference and refuses the mirror and any other namespace
         ("upstream", f"public.ecr.aws/docker/library/caddy@sha256:{'a' * 64}", True),
         ("upstream", f"ghcr.io/axllent/mailpit@sha256:{'a' * 64}", True),
-        ("upstream", f"ghcr.io/needless2say/postgres@sha256:{'a' * 64}", False),
+        ("upstream", f"ghcr.io/needlessalloy/postgres@sha256:{'a' * 64}", False),
         ("upstream", f"ghcr.io/someone/mailpit@sha256:{'a' * 64}", False),
         ("upstream", f"ghcr.io/axllent/caddy@sha256:{'a' * 64}", False),
         ("upstream", "postgres:16-alpine", False),
@@ -756,7 +756,7 @@ def test_the_scans_rule_refuses_another_registrys_image_and_an_escape():
     assert scan_judged("      - run: skopeo copy oci-archive:x docker://ghcr.io/attacker/kdf-scan:1\n")[1]
     assert scan_judged("      - run: echo \\x69mage\n")[1]
     assert not scan_judged('        run: docker pull --quiet "$KDF_SCAN_IMAGE@$KDF_SCAN_DIGEST"\n')[1]
-    assert not scan_judged("  IMAGE: ghcr.io/needless2say/kdf-scan\n")[1]
+    assert not scan_judged("  IMAGE: ghcr.io/needlessalloy/kdf-scan\n")[1]
 
 
 @pytest.mark.parametrize(

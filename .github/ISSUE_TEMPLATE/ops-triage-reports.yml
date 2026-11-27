@@ -4,7 +4,7 @@ title: "[Ops] Trigger reports triage: "
 labels:
   - ops
 assignees:
-  - Needless2Say
+  - NeedlessAlloy
 
 body:
   - type: markdown

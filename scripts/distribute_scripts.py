@@ -109,6 +109,12 @@ _REQUIREMENTS_HEADER = (
 # name, which is all we need to decide "is this package already declared here".
 _REQ_NAME_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:@|==|>=|<=|~=|!=|<|>|\[|$)")
 
+# The owner's GitHub name before the account's rename of 2026-11-26 and after it. A declared pin that differs from the
+# canonical spec only by the old name is the one difference the distributor rewrites itself, since the package and its
+# ref stay the same and no style baseline moves. The rename's close removes it.
+_OLD_OWNER_URL = "github.com/Needless2Say/"
+_OWNER_URL     = "github.com/NeedlessAlloy/"
+
 # A ci.yml may still pass the reusable style job an override ref, which must match the canonical one (D-054).
 _KDF_FMT_REF_RE = re.compile(r"^(\s*kdf_fmt_ref\s*:\s*)(\S+)\s*$", re.MULTILINE)
 
@@ -413,9 +419,11 @@ def patch_requirements(text: str | None, packages: list[dict]) -> str:
     """
     Merge the canonical toolchain pins into a repo's requirements-dev.in.
 
-    Four cases per package, and only two of them write anything:
+    Five cases per package, and only three of them write anything:
       absent            -> the pinned spec is appended
       present, same     -> untouched (idempotent; a re-run produces no diff)
+      present, renamed  -> the same spec under the owner's name before the rename of 2026-11-26, rewritten to the
+                           canonical spec in place, the ref the same, so no version moves
       present, differs  -> PatchError, so the repo is reported NEEDS MANUAL ATTENTION
       file absent       -> created with the header, then the pins appended
 
@@ -446,13 +454,18 @@ def patch_requirements(text: str | None, packages: list[dict]) -> str:
             declared[match.group(1).lower().replace("_", "-")] = (index, line.strip())
 
     additions: list[str] = []
+    renamed = False
     for package in packages:
         key  = package["name"].lower().replace("_", "-")
         spec = package["spec"]
         if key not in declared:
             additions.append(spec)
             continue
-        _index, existing = declared[key]
+        index, existing = declared[key]
+        if existing != spec and existing.replace(_OLD_OWNER_URL, _OWNER_URL) == spec:
+            lines[index] = lines[index].replace(existing, spec)
+            renamed = True
+            continue
         if existing != spec:
             raise PatchError(
                 f"{package['name']} is pinned as {existing!r} but the canonical pin is "
@@ -460,6 +473,8 @@ def patch_requirements(text: str | None, packages: list[dict]) -> str:
                 "for you, because changing kdf-fmt versions moves style baselines too."
             )
 
+    if renamed:
+        normalized = "\n".join(lines)
     if not additions:
         return normalized
     body = normalized.rstrip("\n")

@@ -21,7 +21,7 @@ import pytest
 
 ROOT      = Path(__file__).resolve().parents[2]
 WORKFLOWS = ROOT / ".github" / "workflows"
-FMT_URL   = "git+https://github.com/Needless2Say/kriegerdataforge-fmt.git"
+FMT_URL   = "git+https://github.com/NeedlessAlloy/kriegerdataforge-fmt.git"
 LANES     = ("ci-python-kdf-fmt.yml", "ci-kdf-fmt-public.yml")
 
 

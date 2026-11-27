@@ -232,7 +232,7 @@ style: _ensure-venv ## Style check with kdf-fmt (the KDF house style, baseline-g
 	@printf "$(GREEN)Running kdf-fmt style check...$(NC)\n"
 	@[ -n "$(KDF_FMT_VERSION)" ] || { printf "kdf_fmt_ref not found in .github/workflows/ci.yml\n"; exit 1; }
 	@$(PIP_GIT_AUTH) $(PYTHON) -m pip install --quiet --no-deps --force-reinstall \
-		"kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@$(KDF_FMT_VERSION)"
+		"kdf-fmt @ git+https://github.com/NeedlessAlloy/kriegerdataforge-fmt.git@$(KDF_FMT_VERSION)"
 	$(PYTHON) -m kdf_fmt.cli check --no-cache --baseline kdf-style-debt.json
 
 ##@ Testing
@@ -278,7 +278,7 @@ ci-style: _ensure-venv ## CI: kdf-fmt style check -- mirrors ci.yml style
 	@printf "$(GREEN)CI [2/4]: kdf-fmt style...$(NC)\n"
 	@[ -n "$(KDF_FMT_VERSION)" ] || { printf "kdf_fmt_ref not found in .github/workflows/ci.yml\n"; exit 1; }
 	@$(PIP_GIT_AUTH) $(PYTHON) -m pip install --quiet --no-deps --force-reinstall \
-		"kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@$(KDF_FMT_VERSION)"
+		"kdf-fmt @ git+https://github.com/NeedlessAlloy/kriegerdataforge-fmt.git@$(KDF_FMT_VERSION)"
 	$(PYTHON) -m kdf_fmt.cli check --no-cache --baseline kdf-style-debt.json
 
 ci-unit-tests: _ensure-venv ## CI: pytest over scripts/tests -- mirrors ci.yml test
@@ -452,7 +452,7 @@ clean-deep: ## Deep clean including virtual environment
 SCAN_EXCLUDE ?=
 SCAN_EXCLUDE += scripts/common/scan_rules  # the rules' own test cases are written to match them
 SCAN_LIMIT += tools/claude-code/kdf-guard.js@4a58a0be63ef830e35eaf6cd52722ddaf64e1c75fa513abc362fe39d17fbcdd2  # Opengrep's rule timeout ends before the guard's size
-KDF_SCAN_IMAGE := ghcr.io/needless2say/kdf-scan@sha256:7aeaa2051ce7259a30b761ccbfc89d14f3f71aaeb8ed15fc9898f139abe14f20
+KDF_SCAN_IMAGE := ghcr.io/needlessalloy/kdf-scan@sha256:7aeaa2051ce7259a30b761ccbfc89d14f3f71aaeb8ed15fc9898f139abe14f20
 KDF_SCAN_RULES_COMMIT := 17e31e11ebac99fb7dfe1cd288f7a32151b6f3f9
 KDF_SCAN_CALLER_SHA := d816ce5c870b0d821e71587c12507dc58d9d23f09318376b0b067742ff063949
 KDF_SCAN_ENGINE ?= docker

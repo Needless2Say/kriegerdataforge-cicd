@@ -16,7 +16,7 @@ import provision_projects as pp
 import pytest
 
 # the private repo holding the public repos' tickets until the organization move
-TICKETS_REPO = "Needless2Say/kriegerdataforge-tickets"
+TICKETS_REPO = "NeedlessAlloy/kriegerdataforge-tickets"
 
 
 # ── Fixtures ────────────────────────────────────────────────────────────────────
@@ -34,14 +34,14 @@ def registry():
                 "key": "fitness",
                 "title": "KDF — Fitness",
                 "existing_node_id": None,
-                "repos": ["Needless2Say/fitness-app-frontend", "Needless2Say/fitness-app-backend"],
+                "repos": ["NeedlessAlloy/fitness-app-frontend", "NeedlessAlloy/fitness-app-backend"],
                 "collaborators": [],
             },
             {
                 "key": "infra",
                 "title": "KDF — Infra",
                 "existing_node_id": "PVT_pinned123",
-                "repos": ["Needless2Say/kriegerdataforge-cicd"],
+                "repos": ["NeedlessAlloy/kriegerdataforge-cicd"],
                 "collaborators": [{"login": "somefriend", "role": "WRITER"}],
             },
         ],
@@ -70,7 +70,7 @@ def test_real_registry_is_valid():
     for board in boards:
         assert board["repos"], f"board {board['key']} has no repos"
         for repo in board["repos"]:
-            assert repo.startswith("Needless2Say/"), repo
+            assert repo.startswith("NeedlessAlloy/"), repo
     # The standard field schema the epic promises (no 'Repo' — that name is reserved by Projects v2).
     assert set(reg["standard_fields"]) == {"Priority", "Type", "Severity"}
     assert reg["status_options"][0] == "Inbox"  # AI reporter's landing status (v0.2.0 field-set)
@@ -89,7 +89,7 @@ def test_real_registry_covers_every_kit_repo_exactly_once():
     assert holder == ["business", "cicd", "personal"], holder
     kit       = json.loads((Path(pp.__file__).parent / "kit_registry.json").read_text(encoding = "utf-8"))
     kit_repos = {entry["repo"] for entry in kit["repos"]}
-    kit_repos.add("Needless2Say/kriegerdataforge-cicd")  # sync-excluded source repo
+    kit_repos.add("NeedlessAlloy/kriegerdataforge-cicd")  # sync-excluded source repo
     missing = kit_repos - set(board_repos)
     # The two new package repos may join the kit registry in a later wave; boards must already
     # carry them, so only assert the boards-side superset.
@@ -103,7 +103,7 @@ def test_real_registry_places_each_repo_on_its_board():
     """
     reg   = json.loads((Path(pp.__file__).parent / "projects_registry.json").read_text(encoding = "utf-8"))
     board = {b["key"]: b for b in reg["boards"]}
-    owner = "Needless2Say/"
+    owner = "NeedlessAlloy/"
     assert board["cicd"]["title"] == "KDF — CICD" and owner + "kriegerdataforge-cicd" in board["cicd"]["repos"]
     assert board["infra"]["repos"] == [owner + "kriegerdataforge-terraform"]
     assert board["personal"]["title"] == "KDF — Personal Portfolio"
@@ -189,7 +189,7 @@ def test_resolve_token_validates_and_returns_the_token():
     Single-token model: a token that can read the owner's ProjectsV2 is returned unchanged.
     """
     with patch.object(pp, "_gql", return_value = {"user": {"projectsV2": {"nodes": []}}}) as gql:
-        token = pp._resolve_token("classic-pat", "Needless2Say")
+        token = pp._resolve_token("classic-pat", "NeedlessAlloy")
     assert token == "classic-pat"
     assert gql.call_count == 1
 
@@ -201,7 +201,7 @@ def test_resolve_token_exits_with_guidance_on_refusal():
     """
     with patch.object(pp, "_gql", side_effect = pp.ProjectsAuthError("no project scope")):
         with pytest.raises(SystemExit) as exc:
-            pp._resolve_token("bad-token", "Needless2Say")
+            pp._resolve_token("bad-token", "NeedlessAlloy")
     msg = str(exc.value)
     assert "classic" in msg.lower()
     assert "project" in msg
@@ -224,7 +224,7 @@ def test_probe_requests_project_fields_not_just_totalcount():
 
 
     with patch.object(pp, "_gql", side_effect = fake_gql):
-        pp._resolve_token("tok", "Needless2Say")
+        pp._resolve_token("tok", "NeedlessAlloy")
     assert "nodes" in captured["query"] and "id" in captured["query"]
     assert "totalCount" not in captured["query"]
 
@@ -239,7 +239,7 @@ def test_mid_run_auth_error_propagates_not_aggregated(registry):
         patch.object(pp, "_get_project_state", side_effect = pp.ProjectsAuthError("scope")),
     ):
         with pytest.raises(pp.ProjectsAuthError):
-            pp.cmd_check(registry, "tok", "Needless2Say", "fitness")
+            pp.cmd_check(registry, "tok", "NeedlessAlloy", "fitness")
 
 
 # ── Diffing ─────────────────────────────────────────────────────────────────────
@@ -272,13 +272,13 @@ def test_diff_board_reports_missing_field_and_option_and_link(registry):
     del state["fields"]["Severity"]
     state["fields"]["Priority"]["options"].remove("P1")
     state["fields"]["Status"]["options"].remove("Triage")
-    state["linked_repos"].discard("Needless2Say/fitness-app-backend")
+    state["linked_repos"].discard("NeedlessAlloy/fitness-app-backend")
     drift  = pp._diff_board(registry, board, state)
     joined = "\n".join(drift)
     assert "field 'Severity' missing" in joined
     assert "field 'Priority' missing option(s): P1" in joined
     assert "Status missing option(s): Triage" in joined
-    assert "Needless2Say/fitness-app-backend" in joined
+    assert "NeedlessAlloy/fitness-app-backend" in joined
     assert len(drift) == 4
 
 
@@ -304,7 +304,7 @@ def test_cmd_check_never_mutates(registry):
         patch.object(pp, "_link_repo") as link,
         patch.object(pp, "_invite_collaborators") as invite,
     ):
-        rc = pp.cmd_check(registry, "tok", "Needless2Say", None)
+        rc = pp.cmd_check(registry, "tok", "NeedlessAlloy", None)
     assert rc == 1  # fitness board missing = drift (infra resolves via its pinned node id)
     create.assert_not_called()
     create_field.assert_not_called()
@@ -328,7 +328,7 @@ def test_cmd_check_converged_returns_zero(registry):
         ),
     ):
         # the pinned infra board resolves by node id, the fitness board by title
-        rc = pp.cmd_check(registry, "tok", "Needless2Say", None)
+        rc = pp.cmd_check(registry, "tok", "NeedlessAlloy", None)
     assert rc == 0
 
 
@@ -337,7 +337,7 @@ def test_cmd_check_aggregates_per_board_errors(registry):
         patch.object(pp, "_list_projects", return_value = {"KDF — Fitness": {"id": "PVT_a"}}),
         patch.object(pp, "_get_project_state", side_effect = RuntimeError("boom")),
     ):
-        rc = pp.cmd_check(registry, "tok", "Needless2Say", "fitness")
+        rc = pp.cmd_check(registry, "tok", "NeedlessAlloy", "fitness")
     assert rc == 1
 
 
@@ -385,7 +385,7 @@ def test_cmd_execute_creates_only_whats_missing(registry):
         patch.object(pp, "_link_repo") as link,
         patch.object(pp, "_invite_collaborators", return_value = []) as invite,
     ):
-        rc = pp.cmd_execute(registry, "tok", "Needless2Say", None)
+        rc = pp.cmd_execute(registry, "tok", "NeedlessAlloy", None)
 
     assert rc == 0
     create.assert_called_once_with("tok", "U_owner", "KDF — Fitness")  # infra never re-created
@@ -414,7 +414,7 @@ def test_cmd_execute_collaborator_failure_is_warning_not_error(registry):
             return_value = ["collaborator 'somefriend' not invited via API (x)"],
         ),
     ):
-        rc = pp.cmd_execute(registry, "tok", "Needless2Say", "infra")
+        rc = pp.cmd_execute(registry, "tok", "NeedlessAlloy", "infra")
     assert rc == 0
 
 
@@ -435,7 +435,7 @@ def test_cmd_execute_repo_link_failure_is_warning_not_error(registry):
         patch.object(pp, "_link_repo") as link,
         patch.object(pp, "_invite_collaborators", return_value = []),
     ):
-        rc = pp.cmd_execute(registry, "tok", "Needless2Say", "infra")
+        rc = pp.cmd_execute(registry, "tok", "NeedlessAlloy", "infra")
     assert rc == 0  # the link failure did not fail the run
     link.assert_not_called()  # _repo_node_id raised before _link_repo was reached
 
@@ -446,7 +446,7 @@ def test_cmd_execute_aggregates_board_failures(registry):
         patch.object(pp, "_list_projects", return_value = {}),
         patch.object(pp, "_create_project", side_effect = RuntimeError("boom")),
     ):
-        rc = pp.cmd_execute(registry, "tok", "Needless2Say", "fitness")
+        rc = pp.cmd_execute(registry, "tok", "NeedlessAlloy", "fitness")
     assert rc == 1
 
 

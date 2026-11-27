@@ -20,10 +20,10 @@
 # CICD_PAT consumer; owner-only and rarely run, so the residual blast radius is minimal.
 #
 # Template repos that must exist before this workflow is useful:
-#   Needless2Say/kriegerdataforge-template-nextjs
-#   Needless2Say/kriegerdataforge-template-fastapi
-#   Needless2Say/kriegerdataforge-template-npm-package
-#   Needless2Say/kriegerdataforge-template-python-package
+#   NeedlessAlloy/kriegerdataforge-template-nextjs
+#   NeedlessAlloy/kriegerdataforge-template-fastapi
+#   NeedlessAlloy/kriegerdataforge-template-npm-package
+#   NeedlessAlloy/kriegerdataforge-template-python-package
 #
 # See the owner's MANUAL_SETUP.md (kriegerdataforge-context/ops/, private), Phase 10 & 11, for setup instructions.
 
@@ -143,13 +143,13 @@ jobs:
           DESCRIPTION: ${{ steps.fields.outputs.description }}
         run: |
           TEMPLATE="kriegerdataforge-template-${REPO_TYPE}"
-          echo "Creating Needless2Say/${REPO_NAME} from template Needless2Say/${TEMPLATE}"
+          echo "Creating NeedlessAlloy/${REPO_NAME} from template NeedlessAlloy/${TEMPLATE}"
           if [[ "$VISIBILITY" == "private" ]]; then PRIVATE="true"; else PRIVATE="false"; fi
           gh api \
             --method POST \
             -H "Accept: application/vnd.github+json" \
-            "/repos/Needless2Say/${TEMPLATE}/generate" \
-            -f owner="Needless2Say" \
+            "/repos/NeedlessAlloy/${TEMPLATE}/generate" \
+            -f owner="NeedlessAlloy" \
             -f name="${REPO_NAME}" \
             -f description="${DESCRIPTION}" \
             -F "private=${PRIVATE}" \
@@ -167,7 +167,7 @@ jobs:
           gh api \
             --method PUT \
             -H "Accept: application/vnd.github+json" \
-            "/repos/Needless2Say/${REPO_NAME}/environments/prod" \
+            "/repos/NeedlessAlloy/${REPO_NAME}/environments/prod" \
             -F "wait_timer=0" \
             --input - <<EOF
           {
@@ -181,7 +181,7 @@ jobs:
           gh api \
             --method POST \
             -H "Accept: application/vnd.github+json" \
-            "/repos/Needless2Say/${REPO_NAME}/environments/prod/deployment-branch-policies" \
+            "/repos/NeedlessAlloy/${REPO_NAME}/environments/prod/deployment-branch-policies" \
             -f name="main" \
             -f type="branch"
 
@@ -194,7 +194,7 @@ jobs:
           gh api \
             --method PUT \
             -H "Accept: application/vnd.github+json" \
-            "/repos/Needless2Say/${REPO_NAME}/environments/dev" \
+            "/repos/NeedlessAlloy/${REPO_NAME}/environments/dev" \
             -F "wait_timer=0" \
             --input - <<EOF
           {
@@ -207,7 +207,7 @@ jobs:
           gh api \
             --method POST \
             -H "Accept: application/vnd.github+json" \
-            "/repos/Needless2Say/${REPO_NAME}/environments/dev/deployment-branch-policies" \
+            "/repos/NeedlessAlloy/${REPO_NAME}/environments/dev/deployment-branch-policies" \
             -f name="main" \
             -f type="branch"
 
@@ -220,7 +220,7 @@ jobs:
           gh api \
             --method PUT \
             -H "Accept: application/vnd.github+json" \
-            "/repos/Needless2Say/${REPO_NAME}/branches/main/protection" \
+            "/repos/NeedlessAlloy/${REPO_NAME}/branches/main/protection" \
             --input - <<'EOF'
           {
             "required_status_checks": null,
@@ -244,9 +244,9 @@ jobs:
           REPO_TYPE: ${{ steps.fields.outputs.repo_type }}
           VISIBILITY: ${{ steps.fields.outputs.visibility }}
         run: |
-          REPO_URL="https://github.com/Needless2Say/${REPO_NAME}"
+          REPO_URL="https://github.com/NeedlessAlloy/${REPO_NAME}"
           gh issue comment ${{ github.event.issue.number }} \
-            --repo Needless2Say/kriegerdataforge-cicd \
+            --repo NeedlessAlloy/kriegerdataforge-cicd \
             --body "## ✅ Repository Created
 
           **Repository:** [${REPO_NAME}](${REPO_URL})
@@ -283,5 +283,5 @@ jobs:
           GH_TOKEN: ${{ secrets.CICD_PAT }}
         run: |
           gh issue close ${{ github.event.issue.number }} \
-            --repo Needless2Say/kriegerdataforge-cicd \
+            --repo NeedlessAlloy/kriegerdataforge-cicd \
             --comment "Closing — automated setup complete. See the checklist above for remaining manual steps."

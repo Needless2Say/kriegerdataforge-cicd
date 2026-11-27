@@ -22,8 +22,8 @@ def registry():
     return {
         "files": ["skills.md", "WORKFLOW.md", "docs/agent/DEFINITION_OF_DONE.md"],
         "repos": [
-            {"repo": "Needless2Say/repo-a", "branch": "main"},
-            {"repo": "Needless2Say/repo-b", "branch": "main"},
+            {"repo": "NeedlessAlloy/repo-a", "branch": "main"},
+            {"repo": "NeedlessAlloy/repo-b", "branch": "main"},
         ],
     }
 
@@ -92,12 +92,12 @@ def test_select_repos_all(registry):
 
 def test_select_repos_filters_subset(registry):
     sel = dk._select_repos(registry, "repo-a")
-    assert [e["repo"] for e in sel] == ["Needless2Say/repo-a"]
+    assert [e["repo"] for e in sel] == ["NeedlessAlloy/repo-a"]
 
 
 def test_select_repos_multiple_tokens(registry):
     sel = dk._select_repos(registry, "repo-a, repo-b")
-    assert [e["repo"] for e in sel] == ["Needless2Say/repo-a", "Needless2Say/repo-b"]
+    assert [e["repo"] for e in sel] == ["NeedlessAlloy/repo-a", "NeedlessAlloy/repo-b"]
 
 
 def test_select_repos_is_exact_not_substring(registry):
@@ -110,8 +110,8 @@ def test_select_repos_is_exact_not_substring(registry):
 
 
 def test_select_repos_full_owner_repo(registry):
-    sel = dk._select_repos(registry, "Needless2Say/repo-b")
-    assert [e["repo"] for e in sel] == ["Needless2Say/repo-b"]
+    sel = dk._select_repos(registry, "NeedlessAlloy/repo-b")
+    assert [e["repo"] for e in sel] == ["NeedlessAlloy/repo-b"]
 
 
 def test_select_repos_case_insensitive(registry):
@@ -226,12 +226,12 @@ def test_cmd_check_respects_repos_filter(registry):
     with patch.object(dk, "compute_drift", side_effect = fake_drift):
         rc = dk.cmd_check(registry, "tok", None, "repo-b")
     assert rc == 0
-    assert checked == ["Needless2Say/repo-b"]
+    assert checked == ["NeedlessAlloy/repo-b"]
 
 
 # ── distribute mode ──────────────────────────────────────────────────────────────
 def test_cmd_distribute_opens_pr_for_drifted_repo():
-    reg = {"files": ["skills.md"], "repos": [{"repo": "Needless2Say/repo-a", "branch": "main"}]}
+    reg = {"files": ["skills.md"], "repos": [{"repo": "NeedlessAlloy/repo-a", "branch": "main"}]}
     with (
         patch.object(dk, "compute_drift", return_value = ["skills.md"]),
         patch.object(dk, "_read_local", return_value = "content"),
@@ -249,7 +249,7 @@ def test_cmd_distribute_opens_pr_for_drifted_repo():
 
 
 def test_cmd_distribute_skips_in_sync_repo():
-    reg = {"files": ["skills.md"], "repos": [{"repo": "Needless2Say/repo-a", "branch": "main"}]}
+    reg = {"files": ["skills.md"], "repos": [{"repo": "NeedlessAlloy/repo-a", "branch": "main"}]}
     with (
         patch.object(dk, "compute_drift", return_value = []),
         patch.object(dk, "_create_pr") as create_pr,
@@ -260,7 +260,7 @@ def test_cmd_distribute_skips_in_sync_repo():
 
 
 def test_cmd_distribute_reports_failure_rc():
-    reg = {"files": ["skills.md"], "repos": [{"repo": "Needless2Say/repo-a", "branch": "main"}]}
+    reg = {"files": ["skills.md"], "repos": [{"repo": "NeedlessAlloy/repo-a", "branch": "main"}]}
     with (
         patch.object(dk, "compute_drift", return_value = ["skills.md"]),
         patch.object(dk, "_read_local", return_value = "content"),
@@ -274,8 +274,8 @@ def test_cmd_distribute_rerun_updates_the_open_pr_and_opens_no_second_one(no_ope
     """
     A second run over the same sync branch brings the branch up to date and does not ask GitHub for the PR again.
     """
-    reg                     = {"files": ["skills.md"], "repos": [{"repo": "Needless2Say/repo-a", "branch": "main"}]}
-    no_open_pr.return_value = "https://github.com/Needless2Say/repo-a/pull/7"
+    reg                     = {"files": ["skills.md"], "repos": [{"repo": "NeedlessAlloy/repo-a", "branch": "main"}]}
+    no_open_pr.return_value = "https://github.com/NeedlessAlloy/repo-a/pull/7"
     with (
         patch.object(dk, "compute_drift", return_value = ["skills.md"]),
         patch.object(dk, "_read_local", return_value = "new"),
@@ -290,7 +290,7 @@ def test_cmd_distribute_rerun_updates_the_open_pr_and_opens_no_second_one(no_ope
     put_file.assert_called_once()
     create_pr.assert_not_called()
     out = capsys.readouterr().out
-    assert "PR already open — https://github.com/Needless2Say/repo-a/pull/7" in out
+    assert "PR already open — https://github.com/NeedlessAlloy/repo-a/pull/7" in out
     assert "1 PR(s) were already open" in out
 
 
@@ -298,7 +298,7 @@ def test_cmd_distribute_skips_a_file_the_sync_branch_already_carries():
     """
     A file whose sync branch copy already matches the kit is not written again, so a re-run adds no commits.
     """
-    reg = {"files": ["skills.md"], "repos": [{"repo": "Needless2Say/repo-a", "branch": "main"}]}
+    reg = {"files": ["skills.md"], "repos": [{"repo": "NeedlessAlloy/repo-a", "branch": "main"}]}
     with (
         patch.object(dk, "compute_drift", return_value = ["skills.md"]),
         patch.object(dk, "_read_local", return_value = "same\r\n"),

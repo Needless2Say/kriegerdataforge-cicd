@@ -23,13 +23,13 @@ ROOT        = Path(__file__).resolve().parents[2]
 WORKFLOWS   = ROOT / ".github" / "workflows"
 CHECK       = "_authorize-owner.yml"
 CALL        = f"./.github/workflows/{CHECK}"
-OWNER       = "Needless2Say"
+OWNER       = "NeedlessAlloy"
 BOTH        = (
     "github.actor == github.repository_owner",
     "github.triggering_actor == github.repository_owner",
 )
 NEWLY_GATED = ("hub-prune-tokens.yml", "trigger-reports-triage.yml", "check-secret-expiry.yml")
-CICD        = "Needless2Say/kriegerdataforge-cicd"
+CICD        = "NeedlessAlloy/kriegerdataforge-cicd"
 # a job's output another job's condition reads, given the value that runs the reader, so the actors alone decide: the
 # deployment token's due job naming a rotation (D-100)
 OUTPUTS   = {"mode": "rotate"}
@@ -95,7 +95,7 @@ def _run_check(tmp_path: Path, actor: str, triggering_actor: str) -> tuple[int, 
 
 @pytest.mark.parametrize(("actor", "triggering_actor"), [
     (OWNER, OWNER),
-    ("needless2say", "NEEDLESS2SAY"),
+    ("needlessalloy", "NEEDLESSALLOY"),
 ])
 def test_the_check_admits_the_owner_as_both_actors(tmp_path, actor, triggering_actor):
     code, output = _run_check(tmp_path, actor, triggering_actor)
@@ -295,7 +295,7 @@ def test_the_owner_reaches_every_job_on_each_event_but_the_schedule(workflow):
 
 
 def test_the_evaluator_reads_the_operators_as_github_does():
-    values = {"github.actor": "Needless2Say", "github.repository_owner": "needless2say"}
+    values = {"github.actor": "NeedlessAlloy", "github.repository_owner": "needlessalloy"}
     assert _evaluate("github.actor == github.repository_owner", values), "a comparison is case blind"
     assert not _evaluate("github.actor != github.repository_owner", values)
     assert _evaluate("${{ always() && (false_name == '' || x == 'y') }}", values)

@@ -116,7 +116,7 @@ resolve() {
 		repo="${ref%:*}"
 		digest="$(cat "$STUB_REG/$repo/tags/${ref##*:}" 2> /dev/null)" || return 1
 	fi
-	if [ -n "$no_creds" ] && [ -n "${STUB_PRIVATE:-}" ] && [[ "$repo" == ghcr.io/needless2say/* ]]; then return 1; fi
+	if [ -n "$no_creds" ] && [ -n "${STUB_PRIVATE:-}" ] && [[ "$repo" == ghcr.io/needlessalloy/* ]]; then return 1; fi
 	[ -f "$STUB_REG/$repo/digests/${digest#sha256:}" ]
 }
 case "$verb" in
@@ -427,7 +427,7 @@ def _copy(found: Fixture, followed: str = "node 24-alpine\npython 3.14-slim\n", 
         "GITHUB_SHA": "a" * 40,
         "GITHUB_RUN_ATTEMPT": "1",
         "GITHUB_SERVER_URL": "https://github.com",
-        "GITHUB_REPOSITORY": "Needless2Say/kriegerdataforge-cicd",
+        "GITHUB_REPOSITORY": "NeedlessAlloy/kriegerdataforge-cicd",
         "STUB_RUN_BLOB": BLOB,
         "STUB_MAIN_BLOB": BLOB,
         "STUB_MAIN_COMMIT": COMMIT,
@@ -506,7 +506,7 @@ def _followed(found: Fixture) -> list[str]:
         (f"  TARGET: {NAMESPACE}\n", f"  TARGET: {NAMESPACE}\n    -elsewhere\n"),
         ('"docker://$TARGET/$name:$tag"', '"docker://ghcr.io/someone/$name:$tag"'),
         # the verify job's service not on the mirror, given credentials, or a second service
-        ("        image: ghcr.io/needless2say/postgres@", "        image: public.ecr.aws/docker/library/postgres@"),
+        ("        image: ghcr.io/needlessalloy/postgres@", "        image: public.ecr.aws/docker/library/postgres@"),
         ("        ports:\n", "        credentials:\n          username: ${{ github.actor }}\n        ports:\n"),
         ("    services:\n", "    services:\n      cache:\n        ports:\n          - 6379:6379\n"),
         # a kept entry without its server_version_num, or its digest, and an escape, which can spell a key

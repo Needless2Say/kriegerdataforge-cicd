@@ -11,12 +11,12 @@
 # and nothing is fetched from Docker Hub (D-065).
 
 # python 3.14.9-slim as cicd's mirror keeps it, the digest its 3.14-slim held on 2026-10-26 (D-077)
-FROM ghcr.io/needless2say/python@sha256:35caba83af2fe6da9a5d922f9b0156f21d1246a48278c58a08bd253303ba42e8 AS fetch
+FROM ghcr.io/needlessalloy/python@sha256:35caba83af2fe6da9a5d922f9b0156f21d1246a48278c58a08bd253303ba42e8 AS fetch
 
 COPY kdf_scan.py scan_build/fetch.py /build/
 RUN python3 -I -S -B /build/fetch.py /build/out
 
-FROM ghcr.io/needless2say/python@sha256:35caba83af2fe6da9a5d922f9b0156f21d1246a48278c58a08bd253303ba42e8
+FROM ghcr.io/needlessalloy/python@sha256:35caba83af2fe6da9a5d922f9b0156f21d1246a48278c58a08bd253303ba42e8
 
 # git from the base's Debian release at a dated snapshot, so a rebuild gets the same packages, its version printed
 ARG DEBIAN_SNAPSHOT=20261022T000000Z
@@ -38,7 +38,7 @@ COPY scan_rules/ /opt/kdf-scan/scan_rules/
 # container's tmpfs replaces at run time
 ARG KDF_SCAN_COMMIT=local
 LABEL org.opencontainers.image.revision="${KDF_SCAN_COMMIT}" \
-      org.opencontainers.image.source="https://github.com/Needless2Say/kriegerdataforge-cicd" \
+      org.opencontainers.image.source="https://github.com/NeedlessAlloy/kriegerdataforge-cicd" \
       org.opencontainers.image.description="The KDF local code scan, Opengrep and zizmor, cicd D-085"
 RUN echo "${KDF_SCAN_COMMIT}" > /opt/kdf-scan/COMMIT \
     && useradd --uid 65532 --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin kdfscan \

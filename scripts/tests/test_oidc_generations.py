@@ -29,10 +29,10 @@ import yaml
 ROOT     = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "oidc-client-secrets.yml"
 REGISTRY = ROOT / "scripts" / "secret_registry.json"
-CICD     = "Needless2Say/kriegerdataforge-cicd"
-HUB      = "Needless2Say/kriegerdataforge"
-TF       = "Needless2Say/kriegerdataforge-terraform"
-APP      = "Needless2Say/fitness-app-frontend"
+CICD     = "NeedlessAlloy/kriegerdataforge-cicd"
+HUB      = "NeedlessAlloy/kriegerdataforge"
+TF       = "NeedlessAlloy/kriegerdataforge-terraform"
+APP      = "NeedlessAlloy/fitness-app-frontend"
 OPS      = f"{CICD}:ops"
 HUB_DEV  = f"{HUB}:dev"
 TF_DEV   = f"{TF}:dev"
@@ -993,7 +993,7 @@ def test_the_registry_holds_each_client_with_its_three_homes_in_dev_and_prod() -
             assert homes.pending == (f"{HUB}:{environment}", f"KDF_OIDC_PENDING_SECRET_{upper}")
             assert homes.active == (f"{TF}:{environment}", entry["name"])
             assert homes.evidence["registered"]["job"] == f"Register the pending secret of {client} ({environment})"
-            assert homes.evidence["deployed"]["repo"] == f"Needless2Say/{frontends[client]}"
+            assert homes.evidence["deployed"]["repo"] == f"NeedlessAlloy/{frontends[client]}"
         assert entry[
             "evidence"
         ]["applied"]["jobs"] == {"dev": "Terraform apply (dev)", "prod": "Terraform deploy (prod)"}

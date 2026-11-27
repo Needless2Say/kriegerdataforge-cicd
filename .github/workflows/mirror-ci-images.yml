@@ -1,5 +1,5 @@
 # Mirror CI images (D-077, D-080). Keeps every image CI pulls on the owner's mirror on GitHub's registry,
-# ghcr.io/needless2say/<name>, so a pull spends no allowance the other tenants of a runner's address share, and the
+# ghcr.io/needlessalloy/<name>, so a pull spends no allowance the other tenants of a runner's address share, and the
 # owner decides how long an image is kept.
 #
 # Four blocks of entries, each in its own text below.
@@ -59,7 +59,7 @@ concurrency:
 
 env:
   # the mirror's namespace, under which each entry's package is the one target a copy writes
-  TARGET: ghcr.io/needless2say
+  TARGET: ghcr.io/needlessalloy
   # this file, whose blob at the run's commit and at main's the copy job compares
   COPIER: .github/workflows/mirror-ci-images.yml
   # each package and its sources in turn, each read by a digest already chosen, so any one of them gives the same bytes
@@ -393,7 +393,7 @@ jobs:
     #   is the proof the package is public
     services:
       postgres:
-        image: ghcr.io/needless2say/postgres@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
+        image: ghcr.io/needlessalloy/postgres@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
         env:
           POSTGRES_USER: kdf
           POSTGRES_PASSWORD: kdf
