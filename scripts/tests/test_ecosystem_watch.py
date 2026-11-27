@@ -317,6 +317,20 @@ def test_find_pins_reads_the_style_lane_ref_and_npm_ranges() -> None:
     assert ew.find_pins("package.json", "{not json") == []
 
 
+def test_find_pins_reads_the_owner_s_name_before_the_rename_as_the_same_repo() -> None:
+    # a repo that has not moved yet keeps its pins in the watch while the repos move (2026-11-26)
+    text = "\n".join([
+        "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@v1.3.0",
+        "kdf-fmt @ git+https://github.com/Needless2Sayx/kriegerdataforge-fmt.git@v1.3.0",
+    ])
+    pins = ew.find_pins("requirements-dev.in", text)
+    assert [(p["package"], p["repo"], p["ref"]) for p in pins] == [("kdf-fmt", "kriegerdataforge-fmt", "v1.3.0")]
+    manifest = json.dumps({"dependencies": {"@needless2say/report-form": "^0.2.3"}})
+    assert [(p["package"], p["repo"]) for p in ew.find_pins("package.json", manifest)] == [
+        ("@needless2say/report-form", "kriegerdataforge-report-form"),
+    ]
+
+
 def test_parse_included_splits_status_headers_and_body() -> None:
     text = "HTTP/2.0 200 OK\r\nContent-Type: application/json\r\n\r\n[1, 2]"
     resp = ew.parse_included(text)

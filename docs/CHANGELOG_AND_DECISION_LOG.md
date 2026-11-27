@@ -6053,4 +6053,8 @@ Distribute and the token rotation run again, the rotation's schedule kept off by
 reads the live record clean. Until the close, a pin, origin or caller under the old name still passes, which is safe
 while the owner holds that name. The guard's two lines that know the context repo by name are the owner's to change,
 and a clone's `origin` moves only after them. The scan image is published from this source after the merge and
-activated by a later pull request with the caller's new hash. VERSION 0.13.1.
+activated by a later pull request with the caller's new hash. Until then the active image knows cicd by the old name
+alone, so its gate reads any cicd pull request that changes the reusable gate as a lookalike and reports
+`gate-named`, this one and the activating one among them. The scan gate is not a required check, the owner merges
+past it on those two, and the activated image ends it. The weekly watch reads a pin or the npm package under the old
+spelling too, so a repo that has not moved keeps its pins in the report. Codex's review raised both. VERSION 0.13.1.
