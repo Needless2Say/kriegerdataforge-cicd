@@ -39,7 +39,7 @@
 # Usage (consumer repo .github/workflows/cd.yml):
 #   jobs:
 #     deploy:
-#       uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/cd-python-vercel.yml@main
+#       uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/cd-python-vercel.yml@main
 #       permissions:
 #         contents: read
 #         actions: read   # the PROD gate lists this repo's PROD Gate runs for the release (D-027)
@@ -263,7 +263,7 @@ jobs:
       # target's stamp carries, checked here before anything is installed or built. A missing stamp refuses it.
       - name: Hold the bot to the live release
         if: needs.authorize.outputs.path == 'bot'
-        uses: Needless2Say/kriegerdataforge-cicd/.github/actions/deploy-stamp@main
+        uses: NeedlessAlloy/kriegerdataforge-cicd/.github/actions/deploy-stamp@main
         with:
           command: bot
           token: ${{ secrets.VERCEL_DEPLOYMENT_TOKEN }}
@@ -316,7 +316,7 @@ jobs:
       # VERCEL_TOKEN_GENERATION and prints its generation and yes or no, never the token, and never fails the
       # deploy, since the deploy's own call to Vercel proves the token works.
       - name: Compare the token with its generation
-        uses: Needless2Say/kriegerdataforge-cicd/.github/actions/token-generation@main
+        uses: NeedlessAlloy/kriegerdataforge-cicd/.github/actions/token-generation@main
         with:
           token: ${{ secrets.VERCEL_DEPLOYMENT_TOKEN }}
           generation: ${{ vars.VERCEL_TOKEN_GENERATION }}
@@ -473,7 +473,7 @@ jobs:
       # between the migration and the promotion.
       - name: Hold the candidate to the live deployment's start
         id: fresh
-        uses: Needless2Say/kriegerdataforge-cicd/.github/actions/deploy-stamp@main
+        uses: NeedlessAlloy/kriegerdataforge-cicd/.github/actions/deploy-stamp@main
         with:
           command: fresh
           token: ${{ secrets.VERCEL_DEPLOYMENT_TOKEN }}

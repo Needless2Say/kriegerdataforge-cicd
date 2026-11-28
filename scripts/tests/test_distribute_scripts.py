@@ -289,7 +289,7 @@ def test_the_repos_scan_image_file_names_cicds_image_by_its_digest_since_the_fir
 
 def test_the_caller_runs_cicds_reusable_gate_at_main_on_dispatch_alone_with_read_permissions():
     caller = ds.caller_text()
-    assert "uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/kdf-scan-gate-reusable.yml@main\n" in caller
+    assert "uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/kdf-scan-gate-reusable.yml@main\n" in caller
     assert "  workflow_dispatch:\n" in caller and "pull_request" not in caller and "push:" not in caller
     assert "  contents: read\n  pull-requests: read\n" in caller and "secrets:" not in caller
 

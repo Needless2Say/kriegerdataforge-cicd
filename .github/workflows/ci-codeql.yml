@@ -18,7 +18,7 @@
 #   jobs:
 #     codeql:
 #       if: ${{ vars.ENABLE_CODEQL == 'true' }}
-#       uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ci-codeql.yml@main
+#       uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/ci-codeql.yml@main
 #       with:
 #         language: python
 #         config_file: ./.github/codeql/codeql-config.yml

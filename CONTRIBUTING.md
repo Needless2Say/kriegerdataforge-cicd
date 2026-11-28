@@ -126,7 +126,7 @@ repos is much higher than the cost of an extra unused input.
    ```yaml
    jobs:
      deploy:
-       uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/cd-*.yml@main
+       uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/cd-*.yml@main
        with:
          environment: ${{ inputs.environment }}
          version: ${{ inputs.version }}

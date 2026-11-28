@@ -35,7 +35,7 @@ jobs:
       fail-fast: false
       matrix:
         language: [python, javascript-typescript]
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ci-codeql.yml@main
+    uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/ci-codeql.yml@main
     with:
       language: ${{ matrix.language }}
       config_file: ./.github/codeql/codeql-config.yml

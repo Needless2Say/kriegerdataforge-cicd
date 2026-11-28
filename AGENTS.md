@@ -25,7 +25,7 @@ that every tenant repo calls instead of maintaining its own pipelines. Where KDF
 its repos and the owner's runbooks live in the private context repo, `kriegerdataforge-context` (ADR
 D-050). This repo is the engine. Deploy behavior, security gates, version
 discipline, and secret handling are defined **once** here and propagate to every consumer at once. A
-tenant's `cd.yml` is a thin caller (`uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/<wf>.yml@main`
+tenant's `cd.yml` is a thin caller (`uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/<wf>.yml@main`
 + `secrets: inherit`). All the real logic lives here.
 
 The owner's vision is **safe, uniform, least privilege automation that one person can run and onboard

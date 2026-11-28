@@ -14,7 +14,7 @@ name: Python · Style (kdf-fmt), a public repo's
 #
 # Usage, the caller's job keeps the check name `style / Style (kdf-fmt)`
 #   style:
-#     uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ci-kdf-fmt-public.yml@main
+#     uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/ci-kdf-fmt-public.yml@main
 #     secrets: inherit
 #
 # The formatter's ref comes from the caller's requirements-dev.in (D-054). A caller with none, this repo, passes

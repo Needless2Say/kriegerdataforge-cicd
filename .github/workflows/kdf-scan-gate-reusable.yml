@@ -31,7 +31,7 @@ env:
   KDF_SCAN_RULES_COMMIT: 17e31e11ebac99fb7dfe1cd288f7a32151b6f3f9
   KDF_SCAN_CONTRACT: 1
   # the canonical caller's SHA-256, a caller change equal to it passing and printed first
-  KDF_SCAN_CALLER_SHA: d816ce5c870b0d821e71587c12507dc58d9d23f09318376b0b067742ff063949
+  KDF_SCAN_CALLER_SHA: 2d7259eb912e7bfaf96ea379a68b0b2c35926e2262d977222d839c68c58b45f2
   RULES_REPO: https://github.com/semgrep/semgrep-rules
   CICD: NeedlessAlloy/kriegerdataforge-cicd
 

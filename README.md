@@ -106,7 +106,7 @@ Consumer repos reference workflows by the full `owner/repo/.github/workflows/fil
 ```yaml
 jobs:
   deploy:
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/cd-python-vercel.yml@main
+    uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/cd-python-vercel.yml@main
     with:
       environment: ${{ inputs.environment }}
       version: ${{ inputs.version }}

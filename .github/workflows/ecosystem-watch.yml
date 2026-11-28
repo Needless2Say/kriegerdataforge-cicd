@@ -31,7 +31,7 @@ name: Ecosystem watch (reusable)
 #     issues: write
 #   jobs:
 #     watch:
-#       uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ecosystem-watch.yml@main
+#       uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/ecosystem-watch.yml@main
 #       with:
 #         environment: watch
 #       secrets:

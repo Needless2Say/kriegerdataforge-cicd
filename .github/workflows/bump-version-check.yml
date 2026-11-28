@@ -22,7 +22,7 @@
 # Usage (consumer repo .github/workflows/ci.yml):
 #   version-check:
 #     if: github.event_name == 'pull_request'
-#     uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/bump-version-check.yml@main
+#     uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/bump-version-check.yml@main
 
 name: Version Bump Check (reusable)
 

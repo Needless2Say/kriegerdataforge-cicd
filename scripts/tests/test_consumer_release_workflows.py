@@ -55,7 +55,7 @@ PULL_REQUEST_ONLY = ("docker-build", "style", "version-check")
 # the tenants call this repo's mutation lane and name their own tables, the hub and the auth UI run their own
 TENANTS = ("fitness-app-backend", "fitness-app-frontend", "tiffanys-space", "tiffanys-space-backend")
 
-CENTRAL  = "\n    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/"
+CENTRAL  = "\n    uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/"
 CHECKOUT = re.compile(r"uses: actions/checkout@[0-9a-f]{40}[^\n]*\n((?: {8}[^\n]*\n)*)")
 PINNED   = re.compile(r"actions/checkout@[0-9a-f]{40} # v[0-9.]+")
 
@@ -468,7 +468,7 @@ def test_every_lane_a_consumer_calls_is_a_lane_this_repo_holds(repo):
     here = Path(__file__).resolve().parents[2] / ".github" / "workflows"
     for name in ("ci.yml", "e2e.yml", "prod-gate.yml"):
         for lane in re.findall(
-            r"uses: Needless2Say/kriegerdataforge-cicd/\.github/workflows/([a-z0-9-]+\.yml)@main",
+            r"uses: NeedlessAlloy/kriegerdataforge-cicd/\.github/workflows/([a-z0-9-]+\.yml)@main",
             _workflow(repo, name),
         ):
             assert (here / lane).is_file(), f"{repo} {name} calls {lane}"

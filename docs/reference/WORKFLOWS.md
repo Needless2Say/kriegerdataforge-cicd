@@ -23,7 +23,7 @@ A consumer repo's workflow references one of these by full path + ref:
 ```yaml
 jobs:
   <job>:
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/<workflow>.yml@main
+    uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/<workflow>.yml@main
     with:      # inputs (only if the workflow declares any)
       ...
     secrets: inherit   # required whenever the workflow reads ${{ secrets.* }}
@@ -279,7 +279,7 @@ on:
       version:     { description: "Version to deploy (e.g. 1.2.0)", required: true, type: string }
 jobs:
   deploy:
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/cd-nextjs-vercel.yml@main
+    uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/cd-nextjs-vercel.yml@main
     with:
       environment: ${{ inputs.environment }}
       version: ${{ inputs.version }}
@@ -325,7 +325,7 @@ failed smoke does, and a bot's redeploy never migrates ([the deploy stamp](#the-
 ```yaml
 jobs:
   deploy:
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/cd-python-vercel.yml@main
+    uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/cd-python-vercel.yml@main
     with:
       environment: ${{ inputs.environment }}   # dev | prod
       run_migrations: ${{ inputs.run_migrations }}   # string 'true' | 'false'
@@ -450,7 +450,7 @@ steps above follow once.
 ```yaml
 jobs:
   terraform:
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/terraform-run.yml@main
+    uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/terraform-run.yml@main
     with:
       mode: apply
       environment: dev
@@ -486,7 +486,7 @@ after it completed count toward the owner's `verified` list for `retire-repo-cop
 ```yaml
 jobs:
   verify:
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/verify-token-generation.yml@main
+    uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/verify-token-generation.yml@main
     with:
       environment: ${{ inputs.environment }}                   # dev | prod
       expected_generation: ${{ inputs.expected_generation }}   # e.g. G1
@@ -551,7 +551,7 @@ jobs:
       contents: read
       actions: read
       issues: write
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/db-backup.yml@main
+    uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/db-backup.yml@main
     with:
       app: fitness
       environment: prod
@@ -589,7 +589,7 @@ jobs:
   restore:
     permissions:
       contents: read
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/db-restore.yml@main
+    uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/db-restore.yml@main
     with:
       app: fitness
       environment: ${{ inputs.environment }}
@@ -616,7 +616,7 @@ format fails.
 jobs:
   version-check:
     if: github.event_name == 'pull_request'
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/bump-version-check.yml@main
+    uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/bump-version-check.yml@main
 ```
 
 #### `create-github-release.yml`
@@ -639,7 +639,7 @@ on:
 jobs:
   release:
     permissions: { contents: write }
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/create-github-release.yml@main
+    uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/create-github-release.yml@main
 ```
 
 ### Next.js / Node CI
@@ -664,7 +664,7 @@ App installation tokens (classic PAT / `GITHUB_TOKEN` only, see `SECRET_ROTATION
 ```yaml
 jobs:
   build:
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ci-nextjs-build.yml@main
+    uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/ci-nextjs-build.yml@main
     with:
       upload_artifact: true          # optional
       artifact_name: static-export   # optional
@@ -798,7 +798,7 @@ stale Vercel artifact).
 # consumer ci.yml — integration lane as a job SEPARATE from the unit lane
 jobs:
   integration:
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ci-python-integration.yml@main
+    uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/ci-python-integration.yml@main
     with:
       needs_sdk_auth: true
       seed_command: psql "$KDF_TEST_DATABASE_URL" -f tests/sql/seed_kdfusers.sql
@@ -828,7 +828,7 @@ jobs:
   codeql:
     if: ${{ vars.ENABLE_CODEQL == 'true' }}
     permissions: { actions: read, contents: read, security-events: write }
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ci-codeql.yml@main
+    uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/ci-codeql.yml@main
     with:
       language: python
       config_file: ./.github/codeql/codeql-config.yml
@@ -860,7 +860,7 @@ Runs **gitleaks** over the consumer's working tree **and** git history to catch 
 ```yaml
 jobs:
   secret-scan:
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/secret-scan.yml@main
+    uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/secret-scan.yml@main
 ```
 
 #### `kdf-scan-gate-reusable.yml`
@@ -893,7 +893,7 @@ its credential may write workflow files, a bootstrap pull request bringing it be
 ```yaml
 jobs:
   kdf-scan-gate:
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/kdf-scan-gate-reusable.yml@main
+    uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/kdf-scan-gate-reusable.yml@main
     with:
       pr: ${{ inputs.pr }}
 ```
@@ -951,7 +951,7 @@ an expression, may report its unexpanded name when skipped, so such a job is lis
 ```yaml
 jobs:
   secret-scan:
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/secret-scan.yml@main
+    uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/secret-scan.yml@main
     with:
       ref: ${{ inputs.ref }}
       not_docs: README.md src/example/prompts/*.md
@@ -959,7 +959,7 @@ jobs:
   lint:
     needs: [secret-scan]
     if: ${{ !cancelled() }}
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ci-python-lint.yml@main
+    uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/ci-python-lint.yml@main
     with:
       ref: ${{ inputs.ref }}
       skip: ${{ needs.secret-scan.result == 'success' && needs.secret-scan.outputs.docs_only == 'true' }}
@@ -1053,7 +1053,7 @@ permissions:
   issues: write
 jobs:
   watch:
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ecosystem-watch.yml@main
+    uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/ecosystem-watch.yml@main
     with:
       environment: watch
     secrets:
@@ -1153,7 +1153,7 @@ jobs:
     steps:
       - uses: actions/checkout@<sha>
         with: { path: <this-repo-name> }   # MUST equal the repo name (sibling layout)
-      - uses: Needless2Say/kriegerdataforge-cicd/.github/actions/run-e2e@main
+      - uses: NeedlessAlloy/kriegerdataforge-cicd/.github/actions/run-e2e@main
         with:
           # journey: fitness              # optional, the manifest names it
           app-id: ${{ secrets.KDF_APP_ID }}

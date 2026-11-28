@@ -290,7 +290,7 @@ jobs:
         with:
           path: ${{ github.event.repository.name }}           # sibling layout
           ref: ${{ inputs.version && format('v{0}', inputs.version) || '' }}   # a release's tag
-      - uses: Needless2Say/kriegerdataforge-cicd/.github/actions/run-e2e@main
+      - uses: NeedlessAlloy/kriegerdataforge-cicd/.github/actions/run-e2e@main
         with:
           # journey: fitness  # optional, the manifest names it; must match when given
           app-id: ${{ secrets.KDF_APP_ID }}

@@ -28,7 +28,7 @@
 #     restore:
 #       permissions:
 #         contents: read
-#       uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/db-restore.yml@main
+#       uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/db-restore.yml@main
 #       with:
 #         app: fitness
 #         environment: ${{ inputs.environment }}

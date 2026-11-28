@@ -15,7 +15,7 @@ ACTION    = ROOT / ".github" / "actions" / "deploy-stamp" / "action.yml"
 PYTHON    = "cd-python-vercel.yml"
 NEXTJS    = "cd-nextjs-vercel.yml"
 DEPLOYS   = (PYTHON, NEXTJS)
-STAMP     = "Needless2Say/kriegerdataforge-cicd/.github/actions/deploy-stamp@main"
+STAMP     = "NeedlessAlloy/kriegerdataforge-cicd/.github/actions/deploy-stamp@main"
 BOT       = "needs.authorize.outputs.path == 'bot'"
 NOT_BOT   = "needs.authorize.outputs.path != 'bot'"
 HUMAN     = "needs.authorize.outputs.path == 'human'"

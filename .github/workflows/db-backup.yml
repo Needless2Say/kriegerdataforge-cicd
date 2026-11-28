@@ -34,7 +34,7 @@
 #         contents: read
 #         actions: read
 #         issues: write
-#       uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/db-backup.yml@main
+#       uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/db-backup.yml@main
 #       with:
 #         app: fitness
 #         environment: prod

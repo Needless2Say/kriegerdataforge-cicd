@@ -6036,10 +6036,12 @@ an empty organization from 2026-11-27, so no one else can take it.
    name alone. That covers the fetch scan's `PIN` and `MENTION`, the formatter's parser, the lanes' and the
    pre-flight's mirror rewrites, the pre-flight's origin parser and its npm scope, read in a lock and in a tarball's
    own `package.json`, and the Codex install's private lines.
-3. **The scanner.** Its exemption of a call of cicd at `main` covers both spellings for the move, and it knows cicd by
-   the new name alone. The callers that spell the old name, cicd's own and the ones it writes, stay as they are until
-   a scanner published from this source is active, since the active one exempts only the old spelling and each
-   caller's pinned hash is of its text.
+3. **The callers and the scanner.** Actions does not resolve a `uses:` under the old name, this pull request's first
+   run failing with `workflow was not found` on cicd's own `ci.yml` and `codeql.yml`, so every call of cicd moves to
+   the new name now, cicd's own, the actions it calls and the scan caller it writes, whose pinned hash moves from
+   `d816ce5c` to `2d7259eb` in the reusable gate and the `Makefile`. The scanner's source exempts a call of cicd at
+   `main` under either spelling for the move and knows cicd by the new name alone. The active image exempts only the
+   old spelling, so it reports the new calls as `unpinned-uses` until the image built from this source is activated.
 4. **The token record.** A record saved before the rename is read under the new name, every id, fingerprint, time,
    token and revocation kept, and the next save writes it so. An owner's verified list that spells the old name names
    the same targets.
@@ -6050,11 +6052,13 @@ an empty organization from 2026-11-27, so no one else can take it.
 
 **Consequences.** Once this merges, CI's images pull again, the deploys and the owner's runs are admitted again, and
 Distribute and the token rotation run again, the rotation's schedule kept off by the owner until a dispatched check
-reads the live record clean. Until the close, a pin, origin or caller under the old name still passes, which is safe
+reads the live record clean. No repo's workflows can start while they call cicd under the old name, so each repo's
+own rename follows this one at once. Until the close, a pin or origin under the old name is still read, which is safe
 while the owner holds that name. The guard's two lines that know the context repo by name are the owner's to change,
 and a clone's `origin` moves only after them. The scan image is published from this source after the merge and
 activated by a later pull request with the caller's new hash. Until then the active image knows cicd by the old name
 alone, so its gate reads any cicd pull request that changes the reusable gate as a lookalike and reports
-`gate-named`, this one and the activating one among them. The scan gate is not a required check, the owner merges
-past it on those two, and the activated image ends it. The weekly watch reads a pin or the npm package under the old
+`gate-named`, this one and the activating one among them, and it reports each new call of cicd as `unpinned-uses`.
+The scan gate is not a required check in cicd or in the repos measured on 2026-11-27, the owner merges past it, and
+the activated image ends both. The weekly watch reads a pin or the npm package under the old
 spelling too, so a repo that has not moved keeps its pins in the report. Codex's review raised both. VERSION 0.13.1.
