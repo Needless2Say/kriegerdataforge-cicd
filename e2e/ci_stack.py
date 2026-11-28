@@ -21,7 +21,7 @@ What it does:
   * sources GH_PACKAGES_PAT (env → fitness-app-backend/.env.kdf → .env.local
     fallback) for the private-SDK image build, and GH_NPM_TOKEN (env → frontend
     .env.kdf → .env.local fallback) for the frontends' `npm ci` of the private
-    @needless2say scope. Never printed.
+    @needlessalloy scope. Never printed.
   * merges the shared identity compose (docker-compose.shared.yml) with each
     active journey's fragment (`-f shared -f <fragment>`), brings them up with
     healthcheck gating, migrates the hub + each journey's backend, seeds the
@@ -422,7 +422,7 @@ def _resolve_gh_pat() -> str:
 
 def _resolve_gh_npm_token() -> str:
     """GH_NPM_TOKEN for the frontend image builds (`npm ci` of the private
-    @needless2say npm scope via each repo's committed .npmrc). Env first (CI
+    @needlessalloy npm scope via each repo's committed .npmrc). Env first (CI
     secret), then the frontend repos' .env.kdf or .env.local as a dev convenience. Never logged."""
     token = os.environ.get("GH_NPM_TOKEN", "").strip()
     if token:
@@ -611,7 +611,7 @@ def cmd_up(raw_journeys: str, regen: bool, target: str = "dev") -> None:
               "image build will fail unless the layer is cached.\033[0m")
     if not env["GH_NPM_TOKEN"]:
         print("\033[1;33m[ci_stack] WARNING: no GH_NPM_TOKEN — frontend image builds "
-              "(npm ci of the private @needless2say scope) will fail unless the layer "
+              "(npm ci of the private @needlessalloy scope) will fail unless the layer "
               "is cached.\033[0m")
     print(f"[ci_stack] journeys: {', '.join(journeys)}  (auth UI image: {target})")
 

@@ -22,7 +22,7 @@ import pytest
 
 
 NOW:   datetime = datetime(2026, 12, 20, 12, 0, tzinfo = timezone.utc)
-REPO:  str = "Needless2Say/fitness-app-backend"
+REPO:  str = "NeedlessAlloy/fitness-app-backend"
 FLOW:  str = f"/repos/{REPO}/actions/workflows/backup.yml"
 ENTRY: dict[str, Any] = {"repo": REPO, "workflow": "backup.yml", "app": "fitness", "environments": ["prod"]}
 

@@ -26,7 +26,7 @@ SCRIPT  = TOOLS / "kdf-codex-install.sh"
 SKILL   = TOOLS / "kdf-codex-start-skill.md"
 BASH    = os.environ.get("KDF_TEST_BASH") or shutil.which("bash")
 REPO    = "kriegerdataforge-sdk"
-PRIVATE = "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@main"
+PRIVATE = "kdf-fmt @ git+https://github.com/NeedlessAlloy/kriegerdataforge-fmt.git@main"
 PYTHONS = ("python3.14", "python3.14.exe")
 
 # the venv's python. Each call is one line of the log, and a pip install that reads a requirements file also logs every
@@ -232,14 +232,27 @@ def test_a_venv_that_runs_is_kept_and_a_broken_one_is_made_again(box: Box) -> No
     assert "python3.14 -m venv --clear .venv" in _log(box)
 
 
-def test_a_private_runtime_package_stops_before_any_install(box: Box) -> None:
+def test_a_development_pin_under_the_old_owner_s_name_is_left_out_too(box: Box) -> None:
+    """
+    A repo whose requirements-dev.in still spells the owner's name before the rename of 2026-11-26 installs without it.
+    """
+    old = PRIVATE.replace("github.com/NeedlessAlloy/", "github.com/Needless2Say/")
+    (box.repo / "requirements-dev.in").write_text(f"pip==26.2.1\nruff==0.16.8\n{old}\n", encoding = "utf-8")
+    done = _install(box)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "kdf-fmt" not in _log(box)
+
+
+# the owner's name, and the name before the rename of 2026-11-26, which a lockfile may still spell
+@pytest.mark.parametrize("owner", ["NeedlessAlloy", "Needless2Say"])
+def test_a_private_runtime_package_stops_before_any_install(box: Box, owner: str) -> None:
     """
     A backend's lockfile names kdf-sdk from a private repo. Its install would need a token, so the script stops with
     exit 1 before it makes a venv.
     """
     lockfile = box.repo / "requirements.txt"
     lockfile.write_text(
-        "kdf-sdk @ git+https://github.com/Needless2Say/kriegerdataforge-sdk.git@v0.12.2\n",
+        f"kdf-sdk @ git+https://github.com/{owner}/kriegerdataforge-sdk.git@v0.12.2\n",
         encoding = "utf-8",
     )
     done = _install(box)

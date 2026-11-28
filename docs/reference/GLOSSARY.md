@@ -58,7 +58,7 @@ and the doc or file where the concept lives.
 | **E2E engine vs journeys** | The Playwright engine lives here, each app repo declares its one journey in `e2e/manifest.json`, run by the `run-e2e` composite action and the `ci_stack.py` driver (ADRs D-006, D-007, D-008). |
 | **Three run modes** | `RUN_E2E_GATE` on PRs, `RUN_E2E_CD` on push to main plus a weekly schedule (the CD / nightly lane), and on demand `workflow_dispatch`. |
 | **`check-oidc-rp-drift.yml`** | The workflow that detects drift of the shared OIDC RP core across the two tenant frontends and files a deduped issue (PL-084). |
-| **Reports standard / certified packages** | The reports contract in `docs/agent/REPORTS_STANDARD.md`, the certified pair is the `kdf_reports` backend package and the `@needless2say/report-form` widget. |
+| **Reports standard / certified packages** | The reports contract in `docs/agent/REPORTS_STANDARD.md`, the certified pair is the `kdf_reports` backend package and the `@needlessalloy/report-form` widget. |
 | **AI triage** | The weekly scheduled pass (ships disarmed) or on demand run that clusters pending reports and files issues and board items, triggered through `trigger_triage.py`. |
 
 ## ID prefixes

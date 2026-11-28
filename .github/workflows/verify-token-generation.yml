@@ -12,7 +12,7 @@ name: Verify Token Generation
 #
 #   jobs:
 #     verify:
-#       uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/verify-token-generation.yml@main
+#       uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/verify-token-generation.yml@main
 #       with:
 #         environment: ${{ inputs.environment }}
 #         expected_generation: ${{ inputs.expected_generation }}
@@ -41,7 +41,7 @@ jobs:
     permissions: {}
     steps:
       - name: Compare the token with its generation
-        uses: Needless2Say/kriegerdataforge-cicd/.github/actions/token-generation@main
+        uses: NeedlessAlloy/kriegerdataforge-cicd/.github/actions/token-generation@main
         with:
           token: ${{ secrets.VERCEL_DEPLOYMENT_TOKEN }}
           generation: ${{ vars.VERCEL_TOKEN_GENERATION }}

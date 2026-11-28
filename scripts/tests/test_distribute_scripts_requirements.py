@@ -15,9 +15,11 @@ import pytest
 from common.repo_sync import PatchError
 
 CANONICAL = [
-    {"name": "kdf-fmt", "spec": "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@v1.1.1"},
+    {"name": "kdf-fmt", "spec": "kdf-fmt @ git+https://github.com/NeedlessAlloy/kriegerdataforge-fmt.git@v1.1.1"},
 ]
 SPEC      = CANONICAL[0]["spec"]
+# the same spec under the owner's name before the rename of 2026-11-26
+OLD_SPEC = SPEC.replace("github.com/NeedlessAlloy/", "github.com/Needless2Say/")
 
 EXISTING_OTHER = ("# dev toolchain\n" "ruff==0.6.9\n" "mypy==1.11.2\n")
 
@@ -80,7 +82,7 @@ def test_name_normalisation_matches_underscore_and_case() -> None:
     """
     kdf_fmt / KDF-FMT are the same distribution and must not be re-appended.
     """
-    already = "KDF_FMT @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@v1.1.1\n"
+    already = "KDF_FMT @ git+https://github.com/NeedlessAlloy/kriegerdataforge-fmt.git@v1.1.1\n"
     with pytest.raises(PatchError):
         # same distribution, different literal spec -> conflict, NOT a silent append
         ds.patch_requirements(already, CANONICAL)
@@ -101,11 +103,40 @@ def test_different_version_raises_rather_than_rewriting() -> None:
     A divergent pin must never be silently moved.
     """
     already = EXISTING_OTHER + \
-        "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@v1.1.0\n"
+        "kdf-fmt @ git+https://github.com/NeedlessAlloy/kriegerdataforge-fmt.git@v1.1.0\n"
     with pytest.raises(PatchError) as excinfo:
         ds.patch_requirements(already, CANONICAL)
     assert "v1.1.0" in str(excinfo.value)
     assert "by hand" in str(excinfo.value)
+
+
+# ── requirements-dev.in: the owner's rename of 2026-11-26 ─────────────────────
+def test_the_old_owner_s_pin_at_the_same_ref_is_rewritten_in_place() -> None:
+    """
+    The one difference the distributor rewrites itself, the same package at the same ref under the old owner's name.
+    """
+    already = EXISTING_OTHER + OLD_SPEC + "\nblack==24.8.0\n"
+    result  = ds.patch_requirements(already, CANONICAL)
+    assert result == EXISTING_OTHER + SPEC + "\nblack==24.8.0\n"
+    assert ds.patch_requirements(result, CANONICAL) == result
+
+
+def test_the_old_owner_s_pin_at_another_ref_still_raises() -> None:
+    """
+    The rename moves no version, so an old owner's pin at another ref is a conflict for a human.
+    """
+    already = EXISTING_OTHER + OLD_SPEC.replace("@v1.1.1", "@v1.1.0") + "\n"
+    with pytest.raises(PatchError, match = "v1.1.0"):
+        ds.patch_requirements(already, CANONICAL)
+
+
+def test_another_owner_s_pin_still_raises() -> None:
+    """
+    Only the owner's old name is read as the new one.
+    """
+    already = EXISTING_OTHER + SPEC.replace("github.com/NeedlessAlloy/", "github.com/someone/") + "\n"
+    with pytest.raises(PatchError):
+        ds.patch_requirements(already, CANONICAL)
 
 
 def test_conflict_leaves_the_file_untouched() -> None:

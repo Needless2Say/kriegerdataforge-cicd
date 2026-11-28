@@ -79,8 +79,12 @@ def sample_registry():
                 ],
                 "check": {"expiry": _future(60), "warn_days_before_expiry": 14},
                 "github_env_secrets": [
-                    {"repo": "Needless2Say/kriegerdataforge", "environment": "prod", "secret_name": "GH_PACKAGES_PAT"},
-                    {"repo": "Needless2Say/fitness-app-backend", "environment": "dev", "secret_name": "GH_PACKAGES_PAT"},
+                    {"repo": "NeedlessAlloy/kriegerdataforge", "environment": "prod", "secret_name": "GH_PACKAGES_PAT"},
+                    {
+                        "repo": "NeedlessAlloy/fitness-app-backend",
+                        "environment": "dev",
+                        "secret_name": "GH_PACKAGES_PAT",
+                    },
                 ],
                 "vercel_env_vars": [
                     {"project_id": "prj_real_1", "project_name": "kdf-prod", "environment": "prod", "env_key": "GH_PACKAGES_PAT"},
@@ -99,8 +103,20 @@ def sample_registry():
                 "generator": "vercel_token",
                 "per_env": True,
                 "github_env_secrets": [
-                    {"app": "auth-backend", "repo": "Needless2Say/kriegerdataforge", "environment": "prod", "secret_name": "VERCEL_TOKEN", "vercel_token_name": "kdf-auth-backend-prod"},
-                    {"app": "fitness-frontend", "repo": "Needless2Say/fitness-app-frontend", "environment": "dev", "secret_name": "VERCEL_TOKEN", "vercel_token_name": "kdf-fitness-frontend-dev"},
+                    {
+                        "app": "auth-backend",
+                        "repo": "NeedlessAlloy/kriegerdataforge",
+                        "environment": "prod",
+                        "secret_name": "VERCEL_TOKEN",
+                        "vercel_token_name": "kdf-auth-backend-prod",
+                    },
+                    {
+                        "app": "fitness-frontend",
+                        "repo": "NeedlessAlloy/fitness-app-frontend",
+                        "environment": "dev",
+                        "secret_name": "VERCEL_TOKEN",
+                        "vercel_token_name": "kdf-fitness-frontend-dev",
+                    },
                 ],
             },
             {
@@ -110,9 +126,9 @@ def sample_registry():
                 "shared": True,
                 "vercel_token_name": "kdf-deploy-shared",
                 "github_env_secrets": [
-                    {"app": "a", "repo": "Needless2Say/r1", "environment": "prod", "secret_name": "VERCEL_TOKEN"},
-                    {"app": "a", "repo": "Needless2Say/r1", "environment": "dev", "secret_name": "VERCEL_TOKEN"},
-                    {"app": "b", "repo": "Needless2Say/r2", "environment": "prod", "secret_name": "VERCEL_TOKEN"},
+                    {"app": "a", "repo": "NeedlessAlloy/r1", "environment": "prod", "secret_name": "VERCEL_TOKEN"},
+                    {"app": "a", "repo": "NeedlessAlloy/r1", "environment": "dev", "secret_name": "VERCEL_TOKEN"},
+                    {"app": "b", "repo": "NeedlessAlloy/r2", "environment": "prod", "secret_name": "VERCEL_TOKEN"},
                 ],
             },
             {
@@ -121,9 +137,9 @@ def sample_registry():
                 "generator": "random_urlsafe",
                 "per_env": True,
                 "github_env_secrets": [
-                    {"repo": "Needless2Say/a", "environment": "prod", "secret_name": "CI_HMAC"},
-                    {"repo": "Needless2Say/b", "environment": "prod", "secret_name": "CI_HMAC"},
-                    {"repo": "Needless2Say/a", "environment": "dev", "secret_name": "CI_HMAC"},
+                    {"repo": "NeedlessAlloy/a", "environment": "prod", "secret_name": "CI_HMAC"},
+                    {"repo": "NeedlessAlloy/b", "environment": "prod", "secret_name": "CI_HMAC"},
+                    {"repo": "NeedlessAlloy/a", "environment": "dev", "secret_name": "CI_HMAC"},
                 ],
             },
             {
@@ -462,10 +478,10 @@ class TestRealRegistry:
         gh_pat       = next(e for e in entries if e["name"] == "GH_PACKAGES_PAT")
         repo_targets = {t["repo"] for t in gh_pat.get("github_repo_secrets", [])}
         assert {
-            "Needless2Say/kriegerdataforge",
-            "Needless2Say/fitness-app-backend",
-            "Needless2Say/tiffanys-space-backend",
-            "Needless2Say/kriegerdataforge-template-fastapi",  # scaffold repo also installs the SDK in CI
+            "NeedlessAlloy/kriegerdataforge",
+            "NeedlessAlloy/fitness-app-backend",
+            "NeedlessAlloy/tiffanys-space-backend",
+            "NeedlessAlloy/kriegerdataforge-template-fastapi",  # scaffold repo also installs the SDK in CI
         } <= repo_targets
         assert not gh_pat.get("github_env_secrets")  # repo-level only now
         # the former env copies were already reaped in the one-time migration -> no retired targets
@@ -517,12 +533,12 @@ class TestRecordedExpiry:
         answers = {"CICD_PAT": ("2026-12-01", "ok"), "VERCEL_MASTER_TOKEN": (None, "rejected")}
         with patch.object(rs, "live_expiry", side_effect = lambda entry, environ = None: answers[entry["name"]]), \
              patch.object(rs, "set_repo_variable") as setter:
-            rc = rs.cmd_record_expiry(self._entries(), "gh", "Needless2Say/kriegerdataforge-cicd", now = NOW)
+            rc = rs.cmd_record_expiry(self._entries(), "gh", "NeedlessAlloy/kriegerdataforge-cicd", now = NOW)
         assert rc == 0
         assert setter.call_args_list == [
-            (("gh", "Needless2Say/kriegerdataforge-cicd", "EXPIRY_CICD_PAT",
+            (("gh", "NeedlessAlloy/kriegerdataforge-cicd", "EXPIRY_CICD_PAT",
               "expires=2026-12-01 status=ok recorded=2026-11-06T12:00:00Z"),),
-            (("gh", "Needless2Say/kriegerdataforge-cicd", "EXPIRY_VERCEL_MASTER_TOKEN",
+            (("gh", "NeedlessAlloy/kriegerdataforge-cicd", "EXPIRY_VERCEL_MASTER_TOKEN",
               "expires=none status=rejected recorded=2026-11-06T12:00:00Z"),),
         ]
         assert "GH_PACKAGES_PAT" not in capsys.readouterr().out.split("Recording")[1].split("\n")[0]
@@ -531,10 +547,10 @@ class TestRecordedExpiry:
     def test_a_failed_write_fails_the_run(self):
         with patch.object(rs, "live_expiry", return_value = ("2026-12-01", "ok")), \
              patch.object(rs, "set_repo_variable", side_effect = RuntimeError("403")):
-            assert rs.cmd_record_expiry(self._entries(), "gh", "Needless2Say/kriegerdataforge-cicd", now = NOW) == 1
+            assert rs.cmd_record_expiry(self._entries(), "gh", "NeedlessAlloy/kriegerdataforge-cicd", now = NOW) == 1
 
 
-    @pytest.mark.parametrize(("token", "repo"), [("", "Needless2Say/kriegerdataforge-cicd"), ("gh", "")])
+    @pytest.mark.parametrize(("token", "repo"), [("", "NeedlessAlloy/kriegerdataforge-cicd"), ("gh", "")])
     def test_record_needs_a_token_and_the_repo(self, token, repo):
         with pytest.raises(SystemExit):
             rs.cmd_record_expiry(self._entries(), token, repo, now = NOW)
@@ -608,7 +624,7 @@ class TestRecordedExpiry:
         session.patch.side_effect = lambda url, **kw: calls.append(("PATCH", url, kw["json"])) or answer(404)
         session.post.side_effect  = lambda url, **kw: calls.append(("POST", url, kw["json"])) or answer(201)
         monkeypatch.setattr(rs, "_SESSION", session)
-        rs.set_repo_variable("gh", "Needless2Say/kriegerdataforge-cicd", "EXPIRY_X", "expires=none")
+        rs.set_repo_variable("gh", "NeedlessAlloy/kriegerdataforge-cicd", "EXPIRY_X", "expires=none")
         assert [call[0] for call in calls] == ["PATCH", "POST"]
         assert calls[1][2] == {"name": "EXPIRY_X", "value": "expires=none"}
 
@@ -811,7 +827,7 @@ class TestGenerateSharedVercelToken:
     def test_missing_entry_token_name_errors_without_minting(self):
         entry = [{
             "name": "BAD_SHARED", "kind": "generate", "generator": "vercel_token", "shared": True,
-            "github_env_secrets": [{"repo": "Needless2Say/x", "environment": "prod", "secret_name": "VERCEL_TOKEN"}],
+            "github_env_secrets": [{"repo": "NeedlessAlloy/x", "environment": "prod", "secret_name": "VERCEL_TOKEN"}],
         }]  # no entry-level vercel_token_name
         with patch.object(rs, "list_vercel_tokens", return_value = []), \
              patch.object(rs, "create_vercel_token") as create, \
@@ -847,12 +863,12 @@ class TestGenerateSharedRepoLevel:
             "shared": True,
             "vercel_token_name": "kdf-deploy",
             "github_repo_secrets": [
-                {"repo": "Needless2Say/a", "secret_name": "VERCEL_DEPLOYMENT_TOKEN"},
-                {"repo": "Needless2Say/b", "secret_name": "VERCEL_DEPLOYMENT_TOKEN"},
+                {"repo": "NeedlessAlloy/a", "secret_name": "VERCEL_DEPLOYMENT_TOKEN"},
+                {"repo": "NeedlessAlloy/b", "secret_name": "VERCEL_DEPLOYMENT_TOKEN"},
             ],
             "retired_github_env_secrets": [
-                {"repo": "Needless2Say/a", "environment": "prod", "secret_name": "VERCEL_DEPLOYMENT_TOKEN"},
-                {"repo": "Needless2Say/a", "environment": "dev", "secret_name": "VERCEL_DEPLOYMENT_TOKEN"},
+                {"repo": "NeedlessAlloy/a", "environment": "prod", "secret_name": "VERCEL_DEPLOYMENT_TOKEN"},
+                {"repo": "NeedlessAlloy/a", "environment": "dev", "secret_name": "VERCEL_DEPLOYMENT_TOKEN"},
             ],
         }
 
@@ -985,7 +1001,7 @@ class TestPaste:
         entry = {
             "name": "GLOBAL_PAT",
             "kind": "paste",
-            "github_repo_secrets": [{"repo": "Needless2Say/a", "secret_name": "GLOBAL_PAT"}],
+            "github_repo_secrets": [{"repo": "NeedlessAlloy/a", "secret_name": "GLOBAL_PAT"}],
             "vercel_env_vars": [{"project_id": "prj_1", "project_name": "p", "environment": "dev", "env_key": "X"}],
         }
         with patch.object(rs, "update_github_repo_secret") as repo, \
@@ -1033,7 +1049,7 @@ class TestPaste:
         with patch.object(rs, "update_github_env_secret") as gh, \
              patch.object(rs, "update_github_repo_secret") as repo:
             assert cmd_paste(entry, frozenset({environment}), "gh", "", "the-value") == 0
-        gh.assert_called_once_with("gh", "Needless2Say/kriegerdataforge-cicd", environment, secret_name, "the-value")
+        gh.assert_called_once_with("gh", "NeedlessAlloy/kriegerdataforge-cicd", environment, secret_name, "the-value")
         repo.assert_not_called()
 
 
@@ -1042,7 +1058,7 @@ class TestPaste:
              patch.object(rs, "upsert_vercel_env_var"):
             cmd_paste(self._entry(sample_registry), frozenset({"prod"}), "gh", "master", "v")
         assert gh.call_count == 1
-        assert gh.call_args[0][1] == "Needless2Say/kriegerdataforge"
+        assert gh.call_args[0][1] == "NeedlessAlloy/kriegerdataforge"
 
 
     def _entry_with_repo_secrets(self):
@@ -1052,12 +1068,12 @@ class TestPaste:
             "kind": "paste",
             "per_env": False,
             "github_env_secrets": [
-                {"repo": "Needless2Say/a", "environment": "prod", "secret_name": "GH_PACKAGES_PAT"},
-                {"repo": "Needless2Say/a", "environment": "dev", "secret_name": "GH_PACKAGES_PAT"},
+                {"repo": "NeedlessAlloy/a", "environment": "prod", "secret_name": "GH_PACKAGES_PAT"},
+                {"repo": "NeedlessAlloy/a", "environment": "dev", "secret_name": "GH_PACKAGES_PAT"},
             ],
             "github_repo_secrets": [
-                {"repo": "Needless2Say/a", "secret_name": "GH_PACKAGES_PAT"},
-                {"repo": "Needless2Say/b", "secret_name": "GH_PACKAGES_PAT"},
+                {"repo": "NeedlessAlloy/a", "secret_name": "GH_PACKAGES_PAT"},
+                {"repo": "NeedlessAlloy/b", "secret_name": "GH_PACKAGES_PAT"},
             ],
         }
 
@@ -1071,7 +1087,7 @@ class TestPaste:
         assert env.call_count == 1  # the named environment's secret (deploy) written
         assert repo.call_count == 2  # BOTH repository-level CI secrets written
         # signature: update_github_repo_secret(gh_token, owner_repo, secret_name, value)
-        assert {c[0][1] for c in repo.call_args_list} == {"Needless2Say/a", "Needless2Say/b"}
+        assert {c[0][1] for c in repo.call_args_list} == {"NeedlessAlloy/a", "NeedlessAlloy/b"}
         assert all(c[0][3] == "the-value" for c in repo.call_args_list)
 
 
@@ -1111,11 +1127,11 @@ class TestPaste:
             "kind": "paste",
             "per_env": False,
             "github_repo_secrets": [
-                {"repo": "Needless2Say/a", "secret_name": "GH_PACKAGES_PAT"},
+                {"repo": "NeedlessAlloy/a", "secret_name": "GH_PACKAGES_PAT"},
             ],
             "retired_github_env_secrets": [
-                {"repo": "Needless2Say/a", "environment": "prod", "secret_name": "GH_PACKAGES_PAT"},
-                {"repo": "Needless2Say/a", "environment": "dev", "secret_name": "GH_PACKAGES_PAT"},
+                {"repo": "NeedlessAlloy/a", "environment": "prod", "secret_name": "GH_PACKAGES_PAT"},
+                {"repo": "NeedlessAlloy/a", "environment": "dev", "secret_name": "GH_PACKAGES_PAT"},
             ],
         }
 
@@ -1172,8 +1188,8 @@ class TestPaste:
             "name": "TWO_REPOS",
             "kind": "paste",
             "github_env_secrets": [
-                {"repo": "Needless2Say/a", "environment": "prod", "secret_name": "TWO_REPOS"},
-                {"repo": "Needless2Say/b", "environment": "prod", "secret_name": "TWO_REPOS"},
+                {"repo": "NeedlessAlloy/a", "environment": "prod", "secret_name": "TWO_REPOS"},
+                {"repo": "NeedlessAlloy/b", "environment": "prod", "secret_name": "TWO_REPOS"},
             ],
         }
         with patch.object(rs, "update_github_env_secret", side_effect = flaky), \
@@ -1193,7 +1209,7 @@ class TestPasteStaged:
     """
     The staged slots' run, each slot checked before any write, deleted once written, kept when it failed.
     """
-    CICD  = "Needless2Say/kriegerdataforge-cicd"
+    CICD  = "NeedlessAlloy/kriegerdataforge-cicd"
     FRESH = "2026-11-06T09:00:00Z"
     STALE = "2026-10-29T11:59:00Z"
     VALUE = "the-staged-value-never-printed"
@@ -1531,12 +1547,12 @@ class TestMain:
     def test_record_expiry_dispatch(self, monkeypatch, mock_registry_file):
         monkeypatch.setattr(sys, "argv", ["x", "--mode", "record-expiry", "--secrets", "VERCEL_TOKEN"])
         monkeypatch.setenv("GH_TOKEN", "gh")
-        monkeypatch.setenv("GITHUB_REPOSITORY", "Needless2Say/kriegerdataforge-cicd")
+        monkeypatch.setenv("GITHUB_REPOSITORY", "NeedlessAlloy/kriegerdataforge-cicd")
         with patch.object(rs, "cmd_record_expiry", return_value = 0) as r:
             with pytest.raises(SystemExit) as e:
                 rs.main()
         assert e.value.code == 0 and r.called
-        assert r.call_args[0][1:3] == ("gh", "Needless2Say/kriegerdataforge-cicd")
+        assert r.call_args[0][1:3] == ("gh", "NeedlessAlloy/kriegerdataforge-cicd")
 
 
     def test_prove_master_dispatch(self, monkeypatch, mock_registry_file):

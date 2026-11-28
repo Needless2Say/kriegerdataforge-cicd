@@ -46,7 +46,7 @@ PAGE = "\n".join([
     "",
 ])
 
-ONE_REPO = {"files": ["skills.md"], "repos": [{"repo": "Needless2Say/repo-a", "branch": "main"}]}
+ONE_REPO = {"files": ["skills.md"], "repos": [{"repo": "NeedlessAlloy/repo-a", "branch": "main"}]}
 
 
 def _limits(page: str) -> list[str]:

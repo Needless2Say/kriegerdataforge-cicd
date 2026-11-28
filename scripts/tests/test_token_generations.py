@@ -28,9 +28,18 @@ ROOT      = Path(__file__).resolve().parents[2]
 WORKFLOWS = ROOT / ".github" / "workflows"
 CHECK     = ROOT / ".github" / "actions" / "token-generation" / "check.sh"
 NAME      = "VERCEL_DEPLOYMENT_TOKEN"
-TARGETS   = ["Needless2Say/app-a:dev", "Needless2Say/app-a:prod", "Needless2Say/app-b:dev", "Needless2Say/app-b:prod"]
-COPIES    = ["Needless2Say/app-a", "Needless2Say/app-b"]
+TARGETS   = [
+    "NeedlessAlloy/app-a:dev",
+    "NeedlessAlloy/app-a:prod",
+    "NeedlessAlloy/app-b:dev",
+    "NeedlessAlloy/app-b:prod",
+]
+COPIES    = ["NeedlessAlloy/app-a", "NeedlessAlloy/app-b"]
 START     = datetime(2026, 12, 1, 9, 0, tzinfo = timezone.utc)
+
+# the same targets and copies under the owner's name before the rename of 2026-11-26, as a record saved then holds them
+OLD_TARGETS = [target.replace("NeedlessAlloy/", "Needless2Say/") for target in TARGETS]
+OLD_COPIES  = [repo.replace("NeedlessAlloy/", "Needless2Say/") for repo in COPIES]
 
 # ======================================================================================================================
 # The fakes
@@ -548,7 +557,7 @@ class TestRetireRepoCopies:
     def test_a_changed_target_inventory_is_refused(self, world: tuple) -> None:
         github, vercel, clock = world
         engine(github, vercel, clock).rotate()
-        grown = TARGETS + ["Needless2Say/app-c:dev"]
+        grown = TARGETS + ["NeedlessAlloy/app-c:dev"]
         with pytest.raises(tg.Refused, match = "app-c:dev"):
             engine(github, vercel, clock, grown).retire_repo_copies("G1", self.verified())
 
@@ -566,6 +575,98 @@ class TestRetireRepoCopies:
         engine(github, vercel, clock).rotate()
         with pytest.raises(tg.Refused, match = "app-z:dev"):
             engine(github, vercel, clock).retire_repo_copies("G1", self.verified() + ",app-z:dev")
+
+# ======================================================================================================================
+# A record saved before the owner's rename of 2026-11-26
+# ======================================================================================================================
+
+class TestRename:
+    """
+    A record saved under the owner's name before the rename holds it in each generation's targets and writes and in
+    each retired repository copy. It is read under the new name, every id, fingerprint, time, token and revocation kept,
+    and the next save writes the new name.
+    """
+    def saved_before(self, world: tuple, fail: set[str] | None = None) -> dict:
+        github, vercel, clock = world
+        github.repo_copies = {repo: "value-era" for repo in OLD_COPIES}
+        github.fail_write  = set(fail or ())
+        tg.Engine(github, vercel, OLD_TARGETS, OLD_COPIES, NAME, NAME, clock).rotate()
+        github.fail_write  = set()
+        github.repo_copies = {repo: "value-era" for repo in COPIES}
+        return record(github)
+
+
+    def test_a_complete_generation_reads_under_the_new_name_with_everything_else_kept(self, world: tuple) -> None:
+        github, vercel, clock = world
+        before = self.saved_before(world)
+        assert before["generations"][0]["targets"] == OLD_TARGETS
+        loaded = engine(github, vercel, clock).load()
+        gen, was = loaded["generations"][0], before["generations"][0]
+        assert gen["targets"] == TARGETS
+        assert set(gen["written"]) == set(TARGETS)
+        assert sorted(gen["written"].values()) == sorted(was["written"].values())
+        for key in ("id", "token_id", "fingerprint", "minted_at", "completed_at"):
+            assert gen[key] == was[key]
+        assert loaded["tokens"] == before["tokens"]
+        assert loaded["next"] == before["next"]
+
+
+    def test_its_repository_copies_retire_under_the_new_name(self, world: tuple) -> None:
+        github, vercel, clock = world
+        self.saved_before(world)
+        verified = ",".join(target.split("/", 1)[1] for target in TARGETS)
+        assert engine(github, vercel, clock).retire_repo_copies("G1", verified) == []
+        saved = record(github)
+        assert github.repo_copies == {}
+        assert set(saved["retired_repo_copies"]) == set(COPIES)
+        assert saved["generations"][0]["targets"] == TARGETS
+
+
+    def test_a_verified_list_in_the_old_name_names_the_same_targets(self, world: tuple) -> None:
+        github, vercel, clock = world
+        self.saved_before(world)
+        assert engine(github, vercel, clock).retire_repo_copies("G1", ",".join(OLD_TARGETS)) == []
+        assert set(record(github)["retired_repo_copies"]) == set(COPIES)
+
+
+    def test_copies_retired_before_the_rename_stay_retired(self, world: tuple) -> None:
+        github, vercel, clock = world
+        saved = self.saved_before(world)
+        # each copy's retirement as the engine before the rename wrote it, under the old name
+        saved["retired_repo_copies"] = {repo: {"generation": "G1", "at": "2026-12-01T09:30:00Z"} for repo in OLD_COPIES}
+        github.record = json.dumps(saved, sort_keys = True, separators = (",", ":"))
+        loaded        = engine(github, vercel, clock).load()
+        assert loaded["retired_repo_copies"][COPIES[0]] == {"generation": "G1", "at": "2026-12-01T09:30:00Z"}
+        assert set(loaded["retired_repo_copies"]) == set(COPIES)
+        assert tg.copies_retired(loaded, COPIES)
+
+
+    def test_an_incomplete_generation_names_its_repairs_under_the_new_name(self, world: tuple) -> None:
+        github, vercel, clock = world
+        before = self.saved_before(world, fail = {OLD_TARGETS[0]})
+        assert before["generations"][0]["completed_at"] is None
+        repair = engine(github, vercel, clock).revoke_now("G1")
+        assert repair == [TARGETS[0]]
+        assert record(github)["generations"][0]["id"] == before["generations"][0]["id"]
+
+
+    def test_a_record_on_the_new_name_comes_back_as_it_was(self, world: tuple) -> None:
+        github, vercel, clock = world
+        engine(github, vercel, clock).rotate()
+        saved = record(github)
+        assert engine(github, vercel, clock).load() == saved
+
+
+    @pytest.mark.parametrize(("name", "read"), [
+        ("Needless2Say/app-a:dev", "NeedlessAlloy/app-a:dev"),
+        ("needless2say/app-a", "NeedlessAlloy/app-a"),
+        ("NeedlessAlloy/app-a", "NeedlessAlloy/app-a"),
+        ("someone/app-a:dev", "someone/app-a:dev"),
+        ("Needless2Sayx/app-a", "Needless2Sayx/app-a"),
+        ("app-a:dev", "app-a:dev"),
+    ])
+    def test_renamed_moves_the_old_owner_alone(self, name: str, read: str) -> None:
+        assert tg.renamed(name) == read
 
 # ======================================================================================================================
 # The current generation's token, for the expiry fact

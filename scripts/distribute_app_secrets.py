@@ -62,7 +62,7 @@ from common.http import build_session
 from rotate_secret import GITHUB_API, _github_headers, update_github_repo_secret
 
 REGISTRY_FILE = Path(__file__).parent / "secret_registry.json"
-CICD          = "Needless2Say/kriegerdataforge-cicd"
+CICD          = "NeedlessAlloy/kriegerdataforge-cicd"
 # the environment variable beside a source that holds the value cicd held before the run, where it is known
 PREVIOUS_SUFFIX = "_PREVIOUS"
 # one PEM private key block, and the shortest body a GitHub App's RSA key has, 2048 bits being about 1600 characters

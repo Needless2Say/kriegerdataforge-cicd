@@ -33,7 +33,7 @@ environment. What it may deploy is the deploy job's own check (scripts/deploy_st
 `human`, is written to GITHUB_OUTPUT as `path` when the check allows.
 
 Inputs (CLI flags take precedence over environment variables):
-  --repo         / DEPLOY_REPO        / GITHUB_REPOSITORY            e.g. "Needless2Say/fitness-app-frontend"
+  --repo         / DEPLOY_REPO        / GITHUB_REPOSITORY            e.g. "NeedlessAlloy/fitness-app-frontend"
   --actor        / DEPLOY_ACTOR       / GITHUB_TRIGGERING_ACTOR / GITHUB_ACTOR, who triggered or reran the run
   --started-by   / DEPLOY_STARTED_BY  / GITHUB_ACTOR                 who started the run
   --environment  / DEPLOY_ENVIRONMENT                                e.g. "dev", "prod", "github-pages"
@@ -45,7 +45,7 @@ Inputs (CLI flags take precedence over environment variables):
 
 Usage:
     python3 check_deployer.py
-    python3 check_deployer.py --repo Needless2Say/tiffanys-space --actor someone --environment dev
+    python3 check_deployer.py --repo NeedlessAlloy/tiffanys-space --actor someone --environment dev
 
 Requirements: standard library only (no pip install).
 """
@@ -238,7 +238,7 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
             "  --run-attempt  <- DEPLOY_RUN_ATTEMPT / GITHUB_RUN_ATTEMPT",
         )),
     )
-    parser.add_argument("--repo", default = None, help = "owner/repo, e.g. Needless2Say/tiffanys-space")
+    parser.add_argument("--repo", default = None, help = "owner/repo, e.g. NeedlessAlloy/tiffanys-space")
     parser.add_argument("--actor", default = None, help = "GitHub username that triggered or reran the deploy")
     parser.add_argument("--started-by", default = None, help = "GitHub username that started the deploy's run")
     parser.add_argument("--environment", default = None, help = "target environment, e.g. dev / prod / github-pages")

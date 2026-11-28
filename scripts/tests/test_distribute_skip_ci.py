@@ -26,8 +26,8 @@ from common import check_version as cv
 SCRIPTS          = Path(__file__).resolve().parents[1]
 KIT_REGISTRY     = json.loads((SCRIPTS / "kit_registry.json").read_text(encoding = "utf-8"))
 SCRIPTS_REGISTRY = json.loads((SCRIPTS / "scripts_registry.json").read_text(encoding = "utf-8"))
-HUB              = {"repo": "Needless2Say/kriegerdataforge", "branch": "main"}
-TEMPLATE         = {"repo": "Needless2Say/kriegerdataforge-template-nextjs", "branch": "main"}
+HUB              = {"repo": "NeedlessAlloy/kriegerdataforge", "branch": "main"}
+TEMPLATE         = {"repo": "NeedlessAlloy/kriegerdataforge-template-nextjs", "branch": "main"}
 VERSION_SCRIPTS  = {
     "scripts/kdf_scripts/check_version.py",
     "scripts/kdf_scripts/bump_version.py",
@@ -228,7 +228,7 @@ def test_without_an_allowlist_the_engine_marks_nothing_and_adds_no_note():
 # ======================================================================================================================
 
 def test_the_kit_sync_marks_every_commit(monkeypatch):
-    registry = {"files": ["skills.md"], "repos": [{"repo": "Needless2Say/repo-a", "branch": "main"}]}
+    registry = {"files": ["skills.md"], "repos": [{"repo": "NeedlessAlloy/repo-a", "branch": "main"}]}
     pages    = {"AGENTS.md": "# repo-a\n\n> [`docs/agent/AGENT_ROLES.md`](docs/agent/AGENT_ROLES.md)\n"}
     with (
         patch.object(dk, "compute_drift", return_value = ["skills.md"]),
@@ -271,8 +271,8 @@ def _combined_run(monkeypatch, scripts_files, eligible = None):
     Run distribute_all.py's distribute for one repo whose kit file and scripts are all missing, and return the
     commit messages, the PR calls and the exit code.
     """
-    kit_registry     = {"files": ["skills.md"], "repos": [{"repo": "Needless2Say/repo-a", "branch": "main"}]}
-    scripts_registry = {"files": scripts_files, "repos": [{"repo": "Needless2Say/repo-a", "branch": "main"}]}
+    kit_registry     = {"files": ["skills.md"], "repos": [{"repo": "NeedlessAlloy/repo-a", "branch": "main"}]}
+    scripts_registry = {"files": scripts_files, "repos": [{"repo": "NeedlessAlloy/repo-a", "branch": "main"}]}
     monkeypatch.setattr(sys, "argv", ["distribute_all.py", "distribute"])
     monkeypatch.setenv("GH_TOKEN", "tok")
     patches = [

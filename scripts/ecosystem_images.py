@@ -41,7 +41,7 @@ from typing import Any, Protocol
 # Configuration
 # ======================================================================================================================
 
-OWNER          = "Needless2Say"
+OWNER          = "NeedlessAlloy"
 CICD_REPO      = f"{OWNER}/kriegerdataforge-cicd"
 COPIER_PATH    = ".github/workflows/mirror-ci-images.yml"
 COPIER_FILE    = "mirror-ci-images.yml"

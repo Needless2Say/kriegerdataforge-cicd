@@ -26,7 +26,7 @@ from distribute_app_secrets import (
     list_repo_secret_meta,
 )
 
-CICD = "Needless2Say/kriegerdataforge-cicd"
+CICD = "NeedlessAlloy/kriegerdataforge-cicd"
 
 # a key shaped as an RSA key is, one DER sequence whose declared length, 1190 bytes, is the bytes that follow, its body
 # a fake, so the shape check sees whole key material, and the same key with interior lines removed
@@ -52,7 +52,7 @@ def sample_registry():
                 "name": "VERCEL_DEPLOYMENT_TOKEN",
                 "kind": "generate",
                 "github_repo_secrets": [
-                    {"repo": "Needless2Say/r1", "secret_name": "VERCEL_DEPLOYMENT_TOKEN"},
+                    {"repo": "NeedlessAlloy/r1", "secret_name": "VERCEL_DEPLOYMENT_TOKEN"},
                 ],
             },
             {
@@ -61,8 +61,8 @@ def sample_registry():
                 "distribute_source_env": "KDF_APP_ID",
                 "value_format": "numeric",
                 "github_repo_secrets": [
-                    {"repo": "Needless2Say/r1", "secret_name": "KDF_APP_ID"},
-                    {"repo": "Needless2Say/r2", "secret_name": "KDF_APP_ID"},
+                    {"repo": "NeedlessAlloy/r1", "secret_name": "KDF_APP_ID"},
+                    {"repo": "NeedlessAlloy/r2", "secret_name": "KDF_APP_ID"},
                 ],
             },
             {
@@ -71,7 +71,7 @@ def sample_registry():
                 "distribute_source_env": "KDF_APP_PRIVATE_KEY",
                 "value_format": "pem",
                 "github_repo_secrets": [
-                    {"repo": "Needless2Say/r1", "secret_name": "KDF_APP_PRIVATE_KEY"},
+                    {"repo": "NeedlessAlloy/r1", "secret_name": "KDF_APP_PRIVATE_KEY"},
                 ],
             },
         ]
@@ -119,7 +119,7 @@ def test_select_entries_refuses_rotation_engine_secrets(sample_registry):
 
 
 def test_target_repos_is_the_sorted_union(entries):
-    assert _target_repos(entries) == ["Needless2Say/r1", "Needless2Say/r2"]
+    assert _target_repos(entries) == ["NeedlessAlloy/r1", "NeedlessAlloy/r2"]
 
 
 # ── value shape checks ──────────────────────────────────────────────────────────
@@ -193,9 +193,9 @@ def test_cmd_check_reports_present_and_missing(entries, capsys, monkeypatch):
         _session_returning(
             {
                 # r1 holds only the id — the key is missing.
-                "Needless2Say/r1": [{"name": "KDF_APP_ID", "updated_at": "2026-07-01T00:00:00Z"}],
+                "NeedlessAlloy/r1": [{"name": "KDF_APP_ID", "updated_at": "2026-07-01T00:00:00Z"}],
                 # r2 is only a KDF_APP_ID target and holds it.
-                "Needless2Say/r2": [{"name": "KDF_APP_ID", "updated_at": "2026-07-02T00:00:00Z"}],
+                "NeedlessAlloy/r2": [{"name": "KDF_APP_ID", "updated_at": "2026-07-02T00:00:00Z"}],
             }
         ),
     )
@@ -205,7 +205,7 @@ def test_cmd_check_reports_present_and_missing(entries, capsys, monkeypatch):
     assert "KDF_APP_PRIVATE_KEY: MISSING" in out
     assert "MISSING: 1" in out
     # r2 is not a KDF_APP_PRIVATE_KEY target, so no PRIVATE_KEY line may appear for it.
-    r2_block = out.split("Needless2Say/r2:", 1)[1]
+    r2_block = out.split("NeedlessAlloy/r2:", 1)[1]
     assert "KDF_APP_PRIVATE_KEY" not in r2_block.split("MISSING:")[0]
 
 
@@ -215,8 +215,8 @@ def test_cmd_check_api_error_is_a_failure(entries, capsys, monkeypatch):
         "_SESSION",
         _session_returning(
             {
-                "Needless2Say/r1": RuntimeError("403 forbidden"),
-                "Needless2Say/r2": [{"name": "KDF_APP_ID", "updated_at": "x"}],
+                "NeedlessAlloy/r1": RuntimeError("403 forbidden"),
+                "NeedlessAlloy/r2": [{"name": "KDF_APP_ID", "updated_at": "x"}],
             }
         ),
     )
@@ -236,9 +236,9 @@ def test_list_repo_secret_meta_maps_names(monkeypatch):
     monkeypatch.setattr(
         das,
         "_SESSION",
-        _session_returning({"Needless2Say/r1": [{"name": "A", "updated_at": "t1"}, {"name": "B"}]}),
+        _session_returning({"NeedlessAlloy/r1": [{"name": "A", "updated_at": "t1"}, {"name": "B"}]}),
     )
-    assert list_repo_secret_meta("tok", "Needless2Say/r1") == {"A": "t1", "B": "?"}
+    assert list_repo_secret_meta("tok", "NeedlessAlloy/r1") == {"A": "t1", "B": "?"}
 
 
 # ── execute mode ────────────────────────────────────────────────────────────────
@@ -250,9 +250,9 @@ def test_cmd_execute_writes_every_target(entries, source_env, capsys, monkeypatc
         lambda tok, repo, name, value: calls.append((tok, repo, name, value)),
     )
     assert cmd_execute(entries, "tok") == 0
-    assert ("tok", "Needless2Say/r1", "KDF_APP_ID", "123456") in calls
-    assert ("tok", "Needless2Say/r2", "KDF_APP_ID", "123456") in calls
-    assert ("tok", "Needless2Say/r1", "KDF_APP_PRIVATE_KEY", PEM) in calls
+    assert ("tok", "NeedlessAlloy/r1", "KDF_APP_ID", "123456") in calls
+    assert ("tok", "NeedlessAlloy/r2", "KDF_APP_ID", "123456") in calls
+    assert ("tok", "NeedlessAlloy/r1", "KDF_APP_PRIVATE_KEY", PEM) in calls
     assert len(calls) == 3
     assert "All targets updated successfully." in capsys.readouterr().out
 
@@ -289,7 +289,7 @@ def test_cmd_execute_swapped_values_refused_and_value_never_leaks(entries, capsy
 
 def test_cmd_execute_partial_failure_aggregates_and_continues(entries, source_env, capsys, monkeypatch):
     def _update(tok, repo, name, value):
-        if repo == "Needless2Say/r1" and name == "KDF_APP_ID":
+        if repo == "NeedlessAlloy/r1" and name == "KDF_APP_ID":
             raise RuntimeError("boom")
 
 
@@ -322,7 +322,7 @@ def fleet():
     """
     Both distributable entries over the same three repos, cicd among them, as the real registry holds them.
     """
-    repos = [CICD, "Needless2Say/r1", "Needless2Say/r2"]
+    repos = [CICD, "NeedlessAlloy/r1", "NeedlessAlloy/r2"]
     return [
         {
             "name": "KDF_APP_ID",
@@ -350,23 +350,23 @@ def test_every_repo_gets_both_values_before_the_next_and_cicds_own_pair_comes_la
     calls = _recording(monkeypatch)
     assert cmd_execute(fleet, "tok") == 0
     assert calls == [
-        ("Needless2Say/r1", "KDF_APP_ID"),
-        ("Needless2Say/r1", "KDF_APP_PRIVATE_KEY"),
-        ("Needless2Say/r2", "KDF_APP_ID"),
-        ("Needless2Say/r2", "KDF_APP_PRIVATE_KEY"),
+        ("NeedlessAlloy/r1", "KDF_APP_ID"),
+        ("NeedlessAlloy/r1", "KDF_APP_PRIVATE_KEY"),
+        ("NeedlessAlloy/r2", "KDF_APP_ID"),
+        ("NeedlessAlloy/r2", "KDF_APP_PRIVATE_KEY"),
         (CICD, "KDF_APP_ID"),
         (CICD, "KDF_APP_PRIVATE_KEY"),
     ]
 
 
-@pytest.mark.parametrize("raw", ["r2", "Needless2Say/r2", " R2 "])
+@pytest.mark.parametrize("raw", ["r2", "NeedlessAlloy/r2", " R2 "])
 def test_a_selected_run_touches_exactly_one_repo_and_both_names(fleet, source_env, monkeypatch, raw):
     calls = _recording(monkeypatch)
     assert cmd_execute(fleet, "tok", das._select_repos(fleet, raw)) == 0
-    assert calls == [("Needless2Say/r2", "KDF_APP_ID"), ("Needless2Say/r2", "KDF_APP_PRIVATE_KEY")]
+    assert calls == [("NeedlessAlloy/r2", "KDF_APP_ID"), ("NeedlessAlloy/r2", "KDF_APP_PRIVATE_KEY")]
 
 
-@pytest.mark.parametrize("raw", ["r3", "Needless2Say/r1,someone-else/r1", "r1,,../r2"])
+@pytest.mark.parametrize("raw", ["r3", "NeedlessAlloy/r1,someone-else/r1", "r1,,../r2"])
 def test_a_repo_off_the_registry_is_refused_before_any_write(fleet, raw):
     with pytest.raises(SystemExit, match = "not a distribution target"):
         das._select_repos(fleet, raw)
@@ -456,7 +456,7 @@ def test_a_retry_never_puts_cicds_old_id_into_a_repo_already_on_the_new_pair(fle
     # new one by then, not cicd's old one, so no other repo gets an id put back (Codex's third read of step 6)
     monkeypatch.setenv("KDF_APP_ID_PREVIOUS", "111")
     calls: list[tuple[str, str, str]] = []
-    failing = {("Needless2Say/r2", "KDF_APP_PRIVATE_KEY")}
+    failing = {("NeedlessAlloy/r2", "KDF_APP_PRIVATE_KEY")}
 
 
     def update(tok, owner_repo, name, value):
@@ -467,7 +467,7 @@ def test_a_retry_never_puts_cicds_old_id_into_a_repo_already_on_the_new_pair(fle
 
     monkeypatch.setattr(das, "update_github_repo_secret", update)
     assert cmd_execute(fleet, "tok") == 1
-    failing = {("Needless2Say/r1", "KDF_APP_PRIVATE_KEY")}
+    failing = {("NeedlessAlloy/r1", "KDF_APP_PRIVATE_KEY")}
     calls.clear()
     assert cmd_execute(fleet, "tok") == 1
     assert not [call for call in calls if call[2] == "111"], "an old id was put back into a repo on the new pair"
@@ -484,14 +484,14 @@ def test_with_no_previous_id_a_split_pair_is_said_plainly(fleet, source_env, cap
 
 
     monkeypatch.setattr(das, "update_github_repo_secret", update)
-    assert cmd_execute(fleet, "tok", ["Needless2Say/r1"]) == 1
+    assert cmd_execute(fleet, "tok", ["NeedlessAlloy/r1"]) == 1
     assert "may hold half a pair" in capsys.readouterr().out
 
 
 def test_the_writes_that_can_be_put_back_go_first(fleet, source_env, monkeypatch):
     monkeypatch.setenv("KDF_APP_ID_PREVIOUS", "111")
     calls = _recording(monkeypatch)
-    assert cmd_execute(list(reversed(fleet)), "tok", ["Needless2Say/r1"]) == 0
+    assert cmd_execute(list(reversed(fleet)), "tok", ["NeedlessAlloy/r1"]) == 0
     assert [name for _, name in calls] == ["KDF_APP_ID", "KDF_APP_PRIVATE_KEY"]
 
 
@@ -503,20 +503,20 @@ def test_a_failed_write_stops_its_repo_and_leaves_cicds_own_pair_unwritten(fleet
 
     def update(tok, repo, name, value):
         calls.append((repo, name))
-        if repo == "Needless2Say/r1" and name == "KDF_APP_ID":
+        if repo == "NeedlessAlloy/r1" and name == "KDF_APP_ID":
             raise RuntimeError("boom")
 
 
     monkeypatch.setattr(das, "update_github_repo_secret", update)
     assert cmd_execute(fleet, "tok") == 1
-    assert ("Needless2Say/r1", "KDF_APP_PRIVATE_KEY") not in calls, "half a pair is never written past a failure"
-    assert ("Needless2Say/r2", "KDF_APP_ID") in calls and ("Needless2Say/r2", "KDF_APP_PRIVATE_KEY") in calls
+    assert ("NeedlessAlloy/r1", "KDF_APP_PRIVATE_KEY") not in calls, "half a pair is never written past a failure"
+    assert ("NeedlessAlloy/r2", "KDF_APP_ID") in calls and ("NeedlessAlloy/r2", "KDF_APP_PRIVATE_KEY") in calls
     assert not [call for call in calls if call[0] == CICD]
     assert "cicd's own pair is left as it is" in capsys.readouterr().out
 
 
 def test_the_selector_names_every_target_when_it_is_all(fleet):
-    assert das._select_repos(fleet, "all") == ["Needless2Say/r1", "Needless2Say/r2", CICD]
+    assert das._select_repos(fleet, "all") == ["NeedlessAlloy/r1", "NeedlessAlloy/r2", CICD]
     assert das._select_repos(fleet, "") == das._select_repos(fleet, "ALL")
 
 
@@ -531,11 +531,11 @@ def test_check_audits_the_selected_repo_alone(fleet, capsys, monkeypatch):
     monkeypatch.setattr(
         das,
         "_SESSION",
-        _session_returning({"Needless2Say/r1": [{"name": "KDF_APP_ID", "updated_at": "t"}]}),
+        _session_returning({"NeedlessAlloy/r1": [{"name": "KDF_APP_ID", "updated_at": "t"}]}),
     )
-    assert cmd_check(fleet, "tok", ["Needless2Say/r1"]) == 0
+    assert cmd_check(fleet, "tok", ["NeedlessAlloy/r1"]) == 0
     out = capsys.readouterr().out
-    assert "Needless2Say/r1:" in out and "Needless2Say/r2" not in out and CICD not in out
+    assert "NeedlessAlloy/r1:" in out and "NeedlessAlloy/r2" not in out and CICD not in out
 
 
 def test_the_cli_passes_the_selector_to_execute(source_env, monkeypatch):
@@ -544,7 +544,7 @@ def test_the_cli_passes_the_selector_to_execute(source_env, monkeypatch):
     monkeypatch.setattr(das, "cmd_execute", lambda entries, token, repos: seen.update(repos = repos) or 0)
     with pytest.raises(SystemExit):
         das.main(["execute", "--repos", "kriegerdataforge"])
-    assert seen["repos"] == ["Needless2Say/kriegerdataforge"]
+    assert seen["repos"] == ["NeedlessAlloy/kriegerdataforge"]
 
 
 # ── the real registry (drift guards binding data <-> engine expectations) ────────
@@ -562,7 +562,7 @@ def test_real_registry_carries_both_app_secret_entries():
     key_targets = {t["repo"] for t in by_name["KDF_APP_PRIVATE_KEY"]["github_repo_secrets"]}
     assert id_targets == key_targets
     # the source is the reader's pair in cicd's ops environment, so cicd's own repository pair is a target too
-    assert "Needless2Say/kriegerdataforge-cicd" in id_targets
+    assert "NeedlessAlloy/kriegerdataforge-cicd" in id_targets
     # every target writes the same-named secret (consumers read KDF_APP_ID/KDF_APP_PRIVATE_KEY)
     for entry in by_name.values():
         assert all(t["secret_name"] == entry["name"] for t in entry["github_repo_secrets"])
@@ -578,20 +578,20 @@ def test_real_registry_covers_the_epic_consumers():
     """
     targets  = {t["repo"] for e in _distributable(_real_registry()) for t in e["github_repo_secrets"]}
     expected = {
-        "Needless2Say/kriegerdataforge",
-        "Needless2Say/kriegerdataforge-auth-ui",
-        "Needless2Say/fitness-app-frontend",
-        "Needless2Say/fitness-app-backend",
-        "Needless2Say/tiffanys-space",
-        "Needless2Say/tiffanys-space-backend",
-        "Needless2Say/kriegerdataforge-reports-sdk",
-        "Needless2Say/kriegerdataforge-report-form",
-        "Needless2Say/kriegerdataforge-template-fastapi",
-        "Needless2Say/kriegerdataforge-template-nextjs",
-        "Needless2Say/kriegerdataforge-template-npm-package",
-        "Needless2Say/kriegerdataforge-template-python-package",
-        "Needless2Say/kriegerdataforge-sdk",
-        "Needless2Say/kriegerdataforge-cicd",
+        "NeedlessAlloy/kriegerdataforge",
+        "NeedlessAlloy/kriegerdataforge-auth-ui",
+        "NeedlessAlloy/fitness-app-frontend",
+        "NeedlessAlloy/fitness-app-backend",
+        "NeedlessAlloy/tiffanys-space",
+        "NeedlessAlloy/tiffanys-space-backend",
+        "NeedlessAlloy/kriegerdataforge-reports-sdk",
+        "NeedlessAlloy/kriegerdataforge-report-form",
+        "NeedlessAlloy/kriegerdataforge-template-fastapi",
+        "NeedlessAlloy/kriegerdataforge-template-nextjs",
+        "NeedlessAlloy/kriegerdataforge-template-npm-package",
+        "NeedlessAlloy/kriegerdataforge-template-python-package",
+        "NeedlessAlloy/kriegerdataforge-sdk",
+        "NeedlessAlloy/kriegerdataforge-cicd",
     }
     assert targets == expected
 
@@ -604,4 +604,4 @@ def test_real_registry_gh_packages_pat_covers_the_reports_sdk_repo():
     registry = _real_registry()
     pat      = next(e for e in registry["secrets"] if e["name"] == "GH_PACKAGES_PAT")
     repos    = {t["repo"] for t in pat["github_repo_secrets"]}
-    assert "Needless2Say/kriegerdataforge-reports-sdk" in repos
+    assert "NeedlessAlloy/kriegerdataforge-reports-sdk" in repos

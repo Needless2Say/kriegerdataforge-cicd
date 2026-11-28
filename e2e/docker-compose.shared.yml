@@ -41,7 +41,7 @@ services:
   # official gallery on ECR Public or mailpit's own GitHub registry, by the same digest, with the image test's mode
   kdf-db:
     # postgres 16.15-alpine
-    image: ghcr.io/needless2say/postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+    image: ghcr.io/needlessalloy/postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
     environment:
       POSTGRES_DB: kdf_db
       POSTGRES_USER: postgres
@@ -160,7 +160,7 @@ services:
   # authority ci_stack.py wrote to ${E2E_CERTS}. Config: e2e/edge/Caddyfile.
   edge:
     # caddy 2.10.2-alpine, D-065 and D-080
-    image: ghcr.io/needless2say/caddy@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    image: ghcr.io/needlessalloy/caddy@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
     ports:
       # Loopback alone. A bare "3002:3002" binds every interface, and the stack, with the
       # hub's OIDC endpoints behind the auth UI's proxy, would answer the whole LAN.
@@ -191,7 +191,7 @@ services:
   # runner`), which refuses an http hub (auth UI D-001). Config: e2e/edge/Caddyfile.hub.
   kdf-api-tls:
     # caddy 2.10.2-alpine, D-065 and D-080
-    image: ghcr.io/needless2say/caddy@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    image: ghcr.io/needlessalloy/caddy@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
     profiles: [runner]
     volumes:
       - type: bind
@@ -221,7 +221,7 @@ services:
   # D-080.
   mail:
     # mailpit v1.31.2
-    image: ghcr.io/needless2say/mailpit@sha256:74d609a42ec279aa63c6b4622a6fa9b5408d1ad5b1d76a1c4be40a265ce0863d
+    image: ghcr.io/needlessalloy/mailpit@sha256:74d609a42ec279aa63c6b4622a6fa9b5408d1ad5b1d76a1c4be40a265ce0863d
     command:
       - --smtp=0.0.0.0:1025
       - --listen=0.0.0.0:8025
@@ -251,10 +251,10 @@ secrets:
   gh_packages_pat:
     environment: GH_PACKAGES_PAT
   # Private-npm token for the frontend image builds (`npm ci` of the private
-  # @needless2say scope through each repo's committed .npmrc), sourced from the
+  # @needlessalloy scope through each repo's committed .npmrc), sourced from the
   # GH_NPM_TOKEN env var (ci_stack.py sets it) and mounted (tmpfs) into the
   # build — never an image layer or a build-log line. Tenant fragments whose
-  # frontend consumes @needless2say/* reference this same secret id.
+  # frontend consumes @needlessalloy/* reference this same secret id.
   gh_npm_token:
     environment: GH_NPM_TOKEN
 

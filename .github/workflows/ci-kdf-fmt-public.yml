@@ -14,7 +14,7 @@ name: Python · Style (kdf-fmt), a public repo's
 #
 # Usage, the caller's job keeps the check name `style / Style (kdf-fmt)`
 #   style:
-#     uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/ci-kdf-fmt-public.yml@main
+#     uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/ci-kdf-fmt-public.yml@main
 #     secrets: inherit
 #
 # The formatter's ref comes from the caller's requirements-dev.in (D-054). A caller with none, this repo, passes
@@ -80,11 +80,13 @@ jobs:
                   sys.exit("::error::requirements-dev.in is missing. It declares kdf-fmt, or the caller passes kdf_fmt_ref")
               # any name pip reads as kdf-fmt, a run of - _ or . between its parts, in any case
               named = [line for line in lines if re.match(r"kdf[-_.]+fmt(?![A-Za-z0-9_.-])", line, re.IGNORECASE)]
-              url = r"kdf-fmt\s*@\s*git\+https://github\.com/Needless2Say/kriegerdataforge-fmt\.git@"
+              # the owner's name before the rename of 2026-11-26 read as the same repo, to the close, the install
+              # below fetching from the new name alone
+              url = r"kdf-fmt\s*@\s*git\+https://github\.com/(?:NeedlessAlloy|Needless2Say)/kriegerdataforge-fmt\.git@"
               found = re.fullmatch(url + f"({REF})", named[0]) if len(named) == 1 else None
               if found is None:
                   sys.exit("::error::requirements-dev.in names kdf-fmt once, as kdf-fmt @ "
-                           "git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@<ref>")
+                           "git+https://github.com/NeedlessAlloy/kriegerdataforge-fmt.git@<ref>")
               ref = found.group(1)
           elif not re.fullmatch(REF, ref):
               sys.exit("::error::kdf_fmt_ref is not a git ref")
@@ -137,7 +139,7 @@ jobs:
           GIT_CONFIG_KEY_0: ${{ format('url.https://__token__:{0}@github.com/.insteadOf', steps.pkg-token.outputs.token || secrets.GH_PACKAGES_PAT) }}
           GIT_CONFIG_VALUE_0: https://github.com/
           KDF_FMT_REF: ${{ steps.formatter.outputs.ref }}
-        run: python -I -m pip install --quiet "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@$KDF_FMT_REF"
+        run: python -I -m pip install --quiet "kdf-fmt @ git+https://github.com/NeedlessAlloy/kriegerdataforge-fmt.git@$KDF_FMT_REF"
 
       # The command is fixed here and isolated so the checkout cannot stand in for kdf_fmt. A caller names only the
       #   baseline file, which kdf-fmt reads as data

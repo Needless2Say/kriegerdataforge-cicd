@@ -135,7 +135,7 @@ jobs:
         run: python scripts/common/mutation_runner.py --lane engine --worktree "$RUNNER_TEMP/kdf-mutation/engine"
 
   version-check:
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/bump-version-check.yml@main
+    uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/bump-version-check.yml@main
 
   # The secret scan every other repo calls, now run on this public repo too. A local reference, like style, so a change
   # to secret-scan.yml is exercised by the pull request that makes it. It uses the default gitleaks rules, since this
@@ -247,7 +247,7 @@ jobs:
       requirement_files: tests/fixtures/secretless/requirements.txt
       extra_repos: kriegerdataforge-cicd@${{ github.head_ref }}
       install_command: >-
-        pip install "kdf-secretless-probe @ git+https://github.com/Needless2Say/kriegerdataforge-cicd.git@${{ github.head_ref }}#subdirectory=tests/fixtures/secretless/probe"
+        pip install "kdf-secretless-probe @ git+https://github.com/NeedlessAlloy/kriegerdataforge-cicd.git@${{ github.head_ref }}#subdirectory=tests/fixtures/secretless/probe"
       test_command: python tests/fixtures/secretless/hunt.py absent
     secrets: inherit
 

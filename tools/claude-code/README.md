@@ -519,12 +519,12 @@ while `actionlint` still runs, and the run reads 1 with setup's excerpt.
 
 **The owner's private Python packages (D-078).** When a make lane is named, the seven files CI's fetch plan reads,
 `requirements.txt`, `requirements.in`, `requirements-dev.txt`, `requirements-dev.in`, `requirements-test.txt`,
-`requirements-test.in` and `pyproject.toml`, are read at the commit for each `git+https://github.com/Needless2Say/`
+`requirements-test.in` and `pyproject.toml`, are read at the commit for each `git+https://github.com/NeedlessAlloy/`
 pin, by CI's own pattern, a comment skipped, and each repo must be on CI's allowlist, read from
 `scripts/fetch_private_packages.py` beside this tool, else the run is refused. The scan is a convenience and not the
 fence. A pin it does not read, in the `Makefile`, behind an `-r` include or in another file, fails at once in the
 container, which asks for no login. Nothing is mirrored unless GitHub says the repo under test is private,
-`gh api repos/Needless2Say/<name> --jq .private`, the repo named by the clone's one `origin` in its https or ssh
+`gh api repos/NeedlessAlloy/<name> --jq .private`, the repo named by the clone's one `origin` in its https or ssh
 form, or by `--github <name>` for a fresh repo with no `origin`, and unless GitHub holds the commit's base in that
 repo's network, its merge base with `origin/main`, or the commit itself with `--github`, gh's HTTP 422 alone reading
 as not held and any other failure as 3. A commit names its parent by its id alone, so a base shows what a commit is
@@ -557,7 +557,7 @@ version 2 or 3, is read by node, and each entry whose `resolved` URL starts with
 private package, its name the entry's `name` else the path after its last `node_modules/`. Such an entry brings the
 same fence as a pin, so nothing is served unless GitHub says the repo is private and holds the commit's base, and in
 a clone the base's own lock must lock each package the commit's does, any version, else the run is refused. Once
-GitHub says the repo is private, an entry outside the scope `@needless2say/`, one with no `sha512-` hash in its
+GitHub says the repo is private, an entry outside the scope `@needlessalloy/`, one with no `sha512-` hash in its
 `integrity` or two different ones, and a lock that is not JSON each refuse the run, another hash beside the one
 `sha512-`, such as a sha1, changing nothing, while a public repo serves nothing and runs as before. An entry of the
 scope that resolves elsewhere or not at all is left alone. Each tarball is read from this machine's npm cache, where
@@ -644,7 +644,7 @@ given, bounds the whole run, each build running under what remains of it.
 | --- | --- |
 | 0 | Setup passed, where it was due, and every lane passed. The run's folder is removed unless `--keep` is given |
 | 1 | Setup or a lane failed, each named with its exit status and the excerpt of its own output, each make lane after a red setup said not run. The folder and its `build.log` are kept |
-| 2 | A refusal before anything was built. Bad arguments, the reviewer role, a docker pointed elsewhere, a folder that is no repo, a commit it lacks, a dirty tree with no `--at`, a lane or a setup target that is not the session's to run or not in the `Makefile`, `actionlint` with no workflows, a tracked secret file, a pin off CI's allowlist, a repo with a pin GitHub cannot be asked about, a commit on no base GitHub holds, a commit that pins a private repo its base does not pin, a host git setting that would send a fetch elsewhere or weaken TLS, a mirror ref that names no commit, or a secret file's name in a mirror's history. In a repo GitHub calls private, a lock entry from `npm.pkg.github.com` outside `@needless2say/` or with no single sha512, a lock that is not JSON, a package the commit locks and its base does not, a tarball this machine's npm cache does not hold, with the fresh install that fills it, or a tarball whose hash, top folder, member names or `package.json` do not match its lock entry. Nothing is kept |
+| 2 | A refusal before anything was built. Bad arguments, the reviewer role, a docker pointed elsewhere, a folder that is no repo, a commit it lacks, a dirty tree with no `--at`, a lane or a setup target that is not the session's to run or not in the `Makefile`, `actionlint` with no workflows, a tracked secret file, a pin off CI's allowlist, a repo with a pin GitHub cannot be asked about, a commit on no base GitHub holds, a commit that pins a private repo its base does not pin, a host git setting that would send a fetch elsewhere or weaken TLS, a mirror ref that names no commit, or a secret file's name in a mirror's history. In a repo GitHub calls private, a lock entry from `npm.pkg.github.com` outside `@needlessalloy/` or with no single sha512, a lock that is not JSON, a package the commit locks and its base does not, a tarball this machine's npm cache does not hold, with the fresh install that fills it, or a tarball whose hash, top folder, member names or `package.json` do not match its lock entry. Nothing is kept |
 | 3 | The run could not complete. A base that would not build, docker unreachable, the run past its timeout, an allowlist that cannot be read, a visibility or a base GitHub cannot answer for, a fetch git cannot finish, node failing as it reads a lock, `tar` or `sha512sum` that cannot run, or marker lines that are not one whole and consistent set, with the log's tail printed. The folder is kept, its mirrors and npm packages removed, once the run has made it. An allowlist that cannot be read, a lock node cannot read and a visibility or a base GitHub cannot answer for come before it, so they leave no folder |
 
 `KDF_DOCKER_BIN`, `KDF_GH_BIN`, `KDF_PREFLIGHT_DIR`, `KDF_PREFLIGHT_GIT_BASE` and `KDF_NPM_CACHE` override the docker

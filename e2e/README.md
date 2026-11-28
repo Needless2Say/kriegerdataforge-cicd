@@ -83,7 +83,7 @@ exactly it. No `--grep`. See
   repo's `.env.local.example` and `.env.kdf.example`, the env standard of ADR D-030.
 - For the **browser journeys** (`fitness`, `tiffanys`). `GH_NPM_TOKEN` in the
   frontend repo's `.env.kdf` (or exported). The frontend images `npm ci` the
-  private `@needless2say/report-form` package and fail closed (npm E401) without it.
+  private `@needlessalloy/report-form` package and fail closed (npm E401) without it.
 
 ## Run it locally
 
@@ -290,7 +290,7 @@ jobs:
         with:
           path: ${{ github.event.repository.name }}           # sibling layout
           ref: ${{ inputs.version && format('v{0}', inputs.version) || '' }}   # a release's tag
-      - uses: Needless2Say/kriegerdataforge-cicd/.github/actions/run-e2e@main
+      - uses: NeedlessAlloy/kriegerdataforge-cicd/.github/actions/run-e2e@main
         with:
           # journey: fitness  # optional, the manifest names it; must match when given
           app-id: ${{ secrets.KDF_APP_ID }}
@@ -300,7 +300,7 @@ jobs:
 **Secrets (needed for any mode that actually runs).** `KDF_APP_ID`,
 `KDF_APP_PRIVATE_KEY`. The action mints its App token from these (they live only on
 the cicd repo today, an org move would make them org level and skip this per repo
-step). Browser journeys whose frontend consumes `@needless2say/*` npm packages also
+step). Browser journeys whose frontend consumes `@needlessalloy/*` npm packages also
 pass `gh-npm-token: <the repo's GH_NPM_TOKEN secret>` (classic PAT, `read:packages`).
 The App token cannot authenticate to GH Packages npm. The `ops-setup-e2e` issue flow copies the secrets and sets `RUN_E2E_GATE=false`.
 Set `RUN_E2E_GATE`/`RUN_E2E_CD=true` when ready. For the CI gate mode, also add the

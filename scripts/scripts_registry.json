@@ -23,10 +23,10 @@
       "src": "scripts/common/mutation_runner.py",
       "dest": "scripts/kdf_scripts/mutation_runner.py",
       "repos": [
-        "Needless2Say/kriegerdataforge",
-        "Needless2Say/kriegerdataforge-sdk",
-        "Needless2Say/fitness-app-backend",
-        "Needless2Say/tiffanys-space-backend"
+        "NeedlessAlloy/kriegerdataforge",
+        "NeedlessAlloy/kriegerdataforge-sdk",
+        "NeedlessAlloy/fitness-app-backend",
+        "NeedlessAlloy/tiffanys-space-backend"
       ]
     }
   ],
@@ -46,92 +46,92 @@
     "packages": [
       {
         "name": "kdf-fmt",
-        "spec": "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@main"
+        "spec": "kdf-fmt @ git+https://github.com/NeedlessAlloy/kriegerdataforge-fmt.git@main"
       }
     ]
   },
   "repos": [
     {
-      "repo": "Needless2Say/kriegerdataforge",
+      "repo": "NeedlessAlloy/kriegerdataforge",
       "branch": "main",
       "ruff_config": "ruff.toml"
     },
     {
-      "repo": "Needless2Say/kriegerdataforge-sdk",
+      "repo": "NeedlessAlloy/kriegerdataforge-sdk",
       "branch": "main",
       "ruff_config": "pyproject.toml"
     },
     {
-      "repo": "Needless2Say/kriegerdataforge-reports-sdk",
+      "repo": "NeedlessAlloy/kriegerdataforge-reports-sdk",
       "branch": "main",
       "ruff_config": "pyproject.toml"
     },
     {
-      "repo": "Needless2Say/kriegerdataforge-report-form",
+      "repo": "NeedlessAlloy/kriegerdataforge-report-form",
       "branch": "main"
     },
     {
-      "repo": "Needless2Say/kriegerdataforge-terraform",
+      "repo": "NeedlessAlloy/kriegerdataforge-terraform",
       "branch": "main",
       "skip_kdf_fmt": true,
       "skip_requirements": true,
       "_skip_reason": "The terraform repo runs no kdf-fmt lane (its ADR D-010). Its only Python is the three vendored scripts, which its kdf-fmt.toml excluded, so the lane checked zero files, and keeping it meant adding a package token to the repo that holds the Vercel token. It carries no kdf-fmt.toml to patch and needs no requirements-dev.in pinning a formatter it never runs."
     },
     {
-      "repo": "Needless2Say/kriegerdataforge-auth-ui",
+      "repo": "NeedlessAlloy/kriegerdataforge-auth-ui",
       "branch": "main",
       "skip_kdf_fmt": true,
       "skip_requirements": true,
       "_skip_reason": "The auth UI runs no kdf-fmt lane (its ADR D-008). Its only Python is the three vendored scripts, which its kdf-fmt.toml excluded, so the lane checked zero files. It carries no kdf-fmt.toml to patch and needs no requirements-dev.in pinning a formatter it never runs."
     },
     {
-      "repo": "Needless2Say/kriegerdataforge-fmt",
+      "repo": "NeedlessAlloy/kriegerdataforge-fmt",
       "branch": "main",
       "ruff_config": "pyproject.toml",
       "skip_requirements": true,
       "_skip_reason": "kdf-fmt is the package this pin POINTS AT; pinning it here would make the repo depend on itself, and it has no kdf_fmt_ref in ci.yml because it is the formatter, not a consumer of one."
     },
     {
-      "repo": "Needless2Say/fitness-app-frontend",
+      "repo": "NeedlessAlloy/fitness-app-frontend",
       "branch": "main"
     },
     {
-      "repo": "Needless2Say/fitness-app-backend",
+      "repo": "NeedlessAlloy/fitness-app-backend",
       "branch": "main",
       "ruff_config": "ruff.toml"
     },
     {
-      "repo": "Needless2Say/tiffanys-space",
+      "repo": "NeedlessAlloy/tiffanys-space",
       "branch": "main"
     },
     {
-      "repo": "Needless2Say/tiffanys-space-backend",
+      "repo": "NeedlessAlloy/tiffanys-space-backend",
       "branch": "main",
       "ruff_config": "ruff.toml"
     },
     {
-      "repo": "Needless2Say/arthurs-portfolio",
+      "repo": "NeedlessAlloy/arthurs-portfolio",
       "branch": "main"
     },
     {
-      "repo": "Needless2Say/kriegerdataforge-portfolio",
+      "repo": "NeedlessAlloy/kriegerdataforge-portfolio",
       "branch": "main"
     },
     {
-      "repo": "Needless2Say/kriegerdataforge-template-nextjs",
+      "repo": "NeedlessAlloy/kriegerdataforge-template-nextjs",
       "branch": "main"
     },
     {
-      "repo": "Needless2Say/kriegerdataforge-template-fastapi",
+      "repo": "NeedlessAlloy/kriegerdataforge-template-fastapi",
       "branch": "main",
       "ruff_config": "ruff.toml"
     },
     {
-      "repo": "Needless2Say/kriegerdataforge-template-npm-package",
+      "repo": "NeedlessAlloy/kriegerdataforge-template-npm-package",
       "branch": "main"
     },
     {
-      "repo": "Needless2Say/kriegerdataforge-template-python-package",
+      "repo": "NeedlessAlloy/kriegerdataforge-template-python-package",
       "branch": "main",
       "ruff_config": "pyproject.toml"
     }

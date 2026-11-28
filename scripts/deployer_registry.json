@@ -1,47 +1,47 @@
 {
 	"_comment": "Approved-deployer allow-list for every KriegerDataForge repo with a CD deploy workflow. Maps repo -> environment -> list of GitHub usernames permitted to dispatch that deploy. Enforced by the 'authorize' job in each reusable CD workflow (cd-nextjs-vercel.yml, cd-python-vercel.yml, terraform-run.yml) and in the self-contained cd.yml of arthurs-portfolio and kriegerdataforge-portfolio, which run scripts/check_deployer.py BEFORE the deploy job and BEFORE the GitHub Environment approval gate. Both of the run's users are checked, github.actor (who started the run and chose its inputs, kept on a rerun) and github.triggering_actor (who clicked 'Run workflow' or reran it), and both must be listed; matching is case-insensitive. A repo OR environment not listed here is DENIED (fail closed) — when a new repo is provisioned, add it here before its first deploy. Environment keys must match the value the caller passes to the reusable workflow's 'environment' input: 'dev'/'prod' for the Vercel + Terraform workflows, and 'github-pages' for arthurs-portfolio and kriegerdataforge-portfolio (which deploy to GitHub Pages and have no dev/prod).",
 	"deployers": {
-		"Needless2Say/kriegerdataforge": {
-			"dev": ["Needless2Say"],
-			"prod": ["Needless2Say"]
+		"NeedlessAlloy/kriegerdataforge": {
+			"dev": ["NeedlessAlloy"],
+			"prod": ["NeedlessAlloy"]
 		},
-		"Needless2Say/kriegerdataforge-auth-ui": {
-			"dev": ["Needless2Say"],
-			"prod": ["Needless2Say"]
+		"NeedlessAlloy/kriegerdataforge-auth-ui": {
+			"dev": ["NeedlessAlloy"],
+			"prod": ["NeedlessAlloy"]
 		},
-		"Needless2Say/fitness-app-backend": {
-			"dev": ["Needless2Say"],
-			"prod": ["Needless2Say"]
+		"NeedlessAlloy/fitness-app-backend": {
+			"dev": ["NeedlessAlloy"],
+			"prod": ["NeedlessAlloy"]
 		},
-		"Needless2Say/fitness-app-frontend": {
-			"dev": ["Needless2Say"],
-			"prod": ["Needless2Say"]
+		"NeedlessAlloy/fitness-app-frontend": {
+			"dev": ["NeedlessAlloy"],
+			"prod": ["NeedlessAlloy"]
 		},
-		"Needless2Say/tiffanys-space-backend": {
-			"dev": ["Needless2Say"],
-			"prod": ["Needless2Say"]
+		"NeedlessAlloy/tiffanys-space-backend": {
+			"dev": ["NeedlessAlloy"],
+			"prod": ["NeedlessAlloy"]
 		},
-		"Needless2Say/tiffanys-space": {
-			"dev": ["Needless2Say"],
-			"prod": ["Needless2Say"]
+		"NeedlessAlloy/tiffanys-space": {
+			"dev": ["NeedlessAlloy"],
+			"prod": ["NeedlessAlloy"]
 		},
-		"Needless2Say/kriegerdataforge-terraform": {
-			"dev": ["Needless2Say"],
-			"prod": ["Needless2Say"]
+		"NeedlessAlloy/kriegerdataforge-terraform": {
+			"dev": ["NeedlessAlloy"],
+			"prod": ["NeedlessAlloy"]
 		},
-		"Needless2Say/arthurs-portfolio": {
-			"github-pages": ["Needless2Say"]
+		"NeedlessAlloy/arthurs-portfolio": {
+			"github-pages": ["NeedlessAlloy"]
 		},
-		"Needless2Say/kriegerdataforge-portfolio": {
-			"github-pages": ["Needless2Say"]
+		"NeedlessAlloy/kriegerdataforge-portfolio": {
+			"github-pages": ["NeedlessAlloy"]
 		},
-		"Needless2Say/kriegerdataforge-template-fastapi": {
-			"dev": ["Needless2Say"],
-			"prod": ["Needless2Say"]
+		"NeedlessAlloy/kriegerdataforge-template-fastapi": {
+			"dev": ["NeedlessAlloy"],
+			"prod": ["NeedlessAlloy"]
 		},
-		"Needless2Say/kriegerdataforge-template-nextjs": {
-			"dev": ["Needless2Say"],
-			"prod": ["Needless2Say"]
+		"NeedlessAlloy/kriegerdataforge-template-nextjs": {
+			"dev": ["NeedlessAlloy"],
+			"prod": ["NeedlessAlloy"]
 		}
 	},
 	"automation": {

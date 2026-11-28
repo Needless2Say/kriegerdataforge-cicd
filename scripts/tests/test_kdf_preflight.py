@@ -69,12 +69,14 @@ MAKEFILE = (
 FMT        = "kriegerdataforge-fmt"
 SDK        = "kriegerdataforge-sdk"
 UNDER_TEST = "kriegerdataforge-product"
-FMT_PIN    = {"requirements-dev.in": f"kdf-fmt @ git+https://github.com/Needless2Say/{FMT}.git@main\n"}
+FMT_PIN    = {"requirements-dev.in": f"kdf-fmt @ git+https://github.com/NeedlessAlloy/{FMT}.git@main\n"}
 
 # the registry GitHub serves npm packages from, and a private npm package of the owner's scope the npm tests lock
 # (D-087)
 NPM_HOST = "https://npm.pkg.github.com/"
-WIDGET   = "@needless2say/widget"
+WIDGET   = "@needlessalloy/widget"
+# the same package under the owner's npm scope before the rename of 2026-11-26
+OLD_WIDGET = "@needless2say/widget"
 
 # a tarball member whose top folder GNU tar would read as an option that runs a command, and the file it would make
 DASH_MARKER = "kdf-preflight-dash-probe"
@@ -110,17 +112,21 @@ BROKEN_ALLOWLISTS = [
 
 # lines CI's PIN reads, and the wrapper's pattern must read alike
 PIN_SAMPLES = [
+    "kdf-fmt @ git+https://github.com/NeedlessAlloy/kriegerdataforge-fmt.git@main",
+    "x @ git+https://github.com/NeedlessAlloy/kriegerdataforge-sdk.git@v0.14.0#egg=x",
+    "x @ git+https://github.com/NeedlessAlloy/kriegerdataforge-sdk.git@" + "a" * 40 + " ; python_version > '3'",
+    '"kdf @ git+https://github.com/NeedlessAlloy/kriegerdataforge-reports-sdk.git@v1.2.3",',
+    "[git+https://github.com/NeedlessAlloy/a.b.git@x.y]",
+    "x@git+https://github.com/NeedlessAlloy/kriegerdataforge.git@main,y",
+    "'git+https://github.com/NeedlessAlloy/fitness-app-backend.git@v1'",
+    "git+https://github.com/needlessalloy/kriegerdataforge-fmt.git@main",
+    "git+ssh://git@github.com/NeedlessAlloy/kriegerdataforge-fmt.git@main",
+    "https://github.com/NeedlessAlloy/kriegerdataforge-fmt",
+    "two git+https://github.com/NeedlessAlloy/a.git@1 git+https://github.com/NeedlessAlloy/b.git@2",
+    # the owner's name before the rename of 2026-11-26, read alike, and a lower case one and a lookalike read by neither
     "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@main",
-    "x @ git+https://github.com/Needless2Say/kriegerdataforge-sdk.git@v0.14.0#egg=x",
-    "x @ git+https://github.com/Needless2Say/kriegerdataforge-sdk.git@" + "a" * 40 + " ; python_version > '3'",
-    '"kdf @ git+https://github.com/Needless2Say/kriegerdataforge-reports-sdk.git@v1.2.3",',
-    "[git+https://github.com/Needless2Say/a.b.git@x.y]",
-    "x@git+https://github.com/Needless2Say/kriegerdataforge.git@main,y",
-    "'git+https://github.com/Needless2Say/fitness-app-backend.git@v1'",
     "git+https://github.com/needless2say/kriegerdataforge-fmt.git@main",
-    "git+ssh://git@github.com/Needless2Say/kriegerdataforge-fmt.git@main",
-    "https://github.com/Needless2Say/kriegerdataforge-fmt",
-    "two git+https://github.com/Needless2Say/a.git@1 git+https://github.com/Needless2Say/b.git@2",
+    "git+https://github.com/Needless2Sayx/kriegerdataforge-fmt.git@main",
 ]
 
 # a stand in for docker, it records each call, lists a build's context, copies the tar, the mirrors and the npm folder
@@ -163,7 +169,7 @@ case "$mode" in
             echo "#14 0.1 KDF-PREFLIGHT-END other" >&2
             exit 0 ;;
     cred) echo "#13 2.0 fatal: could not read Username for 'https://github.com': terminal prompts disabled" >&2 ;;
-    npm) echo "#13 2.0 npm error 401 Unauthorized - GET https://npm.pkg.github.com/@needless2say%2freport-form" >&2 ;;
+    npm) echo "#13 2.0 npm error 401 Unauthorized - GET https://npm.pkg.github.com/@needlessalloy%2freport-form" >&2 ;;
     forgedsetup) echo "#13 0.4 KDF-PREFLIGHT-SETUP $id $setup 0" >&2 ;;
 esac
 status=0
@@ -237,7 +243,7 @@ if [ "${FAKE_GH:-private}" = signedout ]; then
     exit 4
 fi
 case "$2" in
-    repos/Needless2Say/*/commits/*)
+    repos/NeedlessAlloy/*/commits/*)
         sha="${2##*/}"
         if [ "${FAKE_GH_COMMIT:-}" = error ]; then
             echo "gh: Server Error (HTTP 500)" >&2
@@ -246,7 +252,7 @@ case "$2" in
         case " ${FAKE_GH_COMMITS:-} " in *" $sha "*) echo "$sha"; exit 0 ;; esac
         echo "gh: No commit found for SHA: $sha (HTTP 422)" >&2
         exit 1 ;;
-    repos/Needless2Say/*)
+    repos/NeedlessAlloy/*)
         case "${FAKE_GH:-private}" in
             private) echo true ;;
             public) echo false ;;
@@ -262,7 +268,7 @@ esac
 FAKE_GIT = r"""#!/usr/bin/env bash
 for word in "$@"; do
     if [ "$word" = fetch ]; then
-        echo "fatal: unable to access 'https://kdf-user:s3cr3t-value@github.com/Needless2Say/x.git/': error 403" >&2
+        echo "fatal: unable to access 'https://kdf-user:s3cr3t-value@github.com/NeedlessAlloy/x.git/': error 403" >&2
         exit 128
     fi
 done
@@ -812,11 +818,13 @@ def test_the_rewrite_to_each_mirror_is_set_for_setup_and_every_lane(tmp_path: Pa
         "ci-a",
     )
     assert done.returncode == 0, done.stdout + done.stderr
-    expected = [f"GIT_CONFIG_COUNT={len(names)}"] if names else []
+    # each mirror answers for the owner's name and, to the rename's close, the name before it (2026-11-26)
+    pairs    = [(name, owner) for name in names for owner in ("NeedlessAlloy", "Needless2Say")]
+    expected = [f"GIT_CONFIG_COUNT={len(pairs)}"] if names else []
     expected += [f"GIT_CONFIG_KEY_{index}=url.file://{mirrors.as_posix()}/{name}.git.insteadOf"
-                 for index, name in enumerate(names)]
+                 for index, (name, _owner) in enumerate(pairs)]
     expected += [
-        f"GIT_CONFIG_VALUE_{index}=https://github.com/Needless2Say/{name}.git" for index, name in enumerate(names)
+        f"GIT_CONFIG_VALUE_{index}=https://github.com/{owner}/{name}.git" for index, (name, owner) in enumerate(pairs)
     ]
     assert _lines(tmp_path / "setup-env.txt") == sorted(expected)
     assert _lines(tmp_path / "lane-env.txt") == sorted(expected)
@@ -1401,7 +1409,7 @@ def _setup_arg(rig: Rig) -> str:
 
 
 def _pin(repo: str, ref: str) -> str:
-    return f"git+https://github.com/Needless2Say/{repo}.git@{ref}"
+    return f"git+https://github.com/NeedlessAlloy/{repo}.git@{ref}"
 
 
 def _gh_calls(rig: Rig) -> list[str]:
@@ -1420,7 +1428,7 @@ def _private(rig: Rig, files: dict[str, str], origin: str | None = None) -> dict
     The rig as a clone of a private repo of the owner's, its origin on GitHub and origin/main at the commit that holds
     the files, and the variables that make the stand in for gh confirm both.
     """
-    _git(rig.repo, "remote", "add", "origin", origin or f"https://github.com/Needless2Say/{UNDER_TEST}.git")
+    _git(rig.repo, "remote", "add", "origin", origin or f"https://github.com/NeedlessAlloy/{UNDER_TEST}.git")
     _commit(rig.repo, files, "pins")
     head = _git(rig.repo, "rev-parse", "HEAD")
     _git(rig.repo, "update-ref", "refs/remotes/origin/main", head)
@@ -1663,7 +1671,7 @@ def test_the_allowlist_is_read_as_cis_and_a_repo_off_it_is_refused(rig: Rig) -> 
         assert "not on CI's allowlist" not in done.stderr, done.stderr
     for repo in ("not-a-repo", "kriegerdataforge-fmt-x", "Kriegerdataforge-fmt"):
         _commit(rig.repo, {"requirements.txt": f"x @ {_pin(repo, 'main')}\n"}, repo)
-        _refused(_preflight(rig, "ci-lint"), rig, f"pins Needless2Say/{repo}, which is not on CI's allowlist")
+        _refused(_preflight(rig, "ci-lint"), rig, f"pins NeedlessAlloy/{repo}, which is not on CI's allowlist")
 
 
 @pytest.mark.parametrize("script", BROKEN_ALLOWLISTS)
@@ -1713,7 +1721,7 @@ def test_the_wrappers_pin_pattern_finds_what_cis_pin_finds(tmp_path: Path) -> No
         text = True,
     ).stdout.splitlines()
     assert found == [match.group(0) for line in PIN_SAMPLES for match in fpp.PIN.finditer(line)]
-    assert len(found) == 9
+    assert len(found) == 10
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -1727,16 +1735,18 @@ def test_a_repo_github_calls_public_mirrors_nothing_and_says_so(rig: Rig) -> Non
     assert done.returncode == 0, done.stderr
     assert _handed(rig) == [] and "mirroring" not in done.stdout
     assert f"kdf-preflight: {UNDER_TEST} is public on GitHub, so nothing private is served" in done.stdout
-    assert _gh_calls(rig) == [f"gh api repos/Needless2Say/{UNDER_TEST} --jq .private"]
+    assert _gh_calls(rig) == [f"gh api repos/NeedlessAlloy/{UNDER_TEST} --jq .private"]
 
 
 @pytest.mark.parametrize("origins", [
     [],
-    [f"https://github.com/Needless2Say/{UNDER_TEST}.git", f"https://github.com/Needless2Say/{FMT}.git"],
+    [f"https://github.com/NeedlessAlloy/{UNDER_TEST}.git", f"https://github.com/NeedlessAlloy/{FMT}.git"],
     [f"https://github.com/someone/{UNDER_TEST}.git"],
-    [f"https://gitlab.com/Needless2Say/{UNDER_TEST}.git"],
-    [f"https://github.com/Needless2Say/{UNDER_TEST}/"],
+    [f"https://gitlab.com/NeedlessAlloy/{UNDER_TEST}.git"],
+    [f"https://github.com/NeedlessAlloy/{UNDER_TEST}/"],
+    [f"git@github.com:needlessalloy/{UNDER_TEST}.git"],
     [f"git@github.com:needless2say/{UNDER_TEST}.git"],
+    [f"https://github.com/Needless2Sayx/{UNDER_TEST}.git"],
 ])
 def test_a_repo_whose_origin_cannot_name_it_on_github_is_refused_before_any_fetch(rig: Rig, origins: list[str]) -> None:
     _remote(rig, FMT)
@@ -1752,16 +1762,29 @@ def test_a_repo_whose_origin_cannot_name_it_on_github_is_refused_before_any_fetc
 
 
 @pytest.mark.parametrize("origin", [
+    f"git@github.com:NeedlessAlloy/{UNDER_TEST}.git",
+    f"ssh://git@github.com/NeedlessAlloy/{UNDER_TEST}",
+    f"https://github.com/NeedlessAlloy/{UNDER_TEST}",
+    # a clone made before the owner's rename of 2026-11-26, the same repo, asked about under the new name
+    f"https://github.com/Needless2Say/{UNDER_TEST}.git",
     f"git@github.com:Needless2Say/{UNDER_TEST}.git",
     f"ssh://git@github.com/Needless2Say/{UNDER_TEST}",
-    f"https://github.com/Needless2Say/{UNDER_TEST}",
 ])
 def test_an_ssh_or_bare_origin_names_the_same_repo(rig: Rig, origin: str) -> None:
     _remote(rig, FMT)
     done = _preflight(rig, "ci-lint", env = _private(rig, FMT_PIN, origin = origin))
     assert done.returncode == 0, done.stderr
     assert _handed(rig) == [f"{FMT}.git"]
-    assert _gh_calls(rig)[0] == f"gh api repos/Needless2Say/{UNDER_TEST} --jq .private"
+    assert _gh_calls(rig)[0] == f"gh api repos/NeedlessAlloy/{UNDER_TEST} --jq .private"
+
+
+def test_a_pin_under_the_old_owner_s_name_is_mirrored_as_the_same_repo(rig: Rig) -> None:
+    _remote(rig, FMT)
+    old  = {"requirements-dev.in": FMT_PIN["requirements-dev.in"].replace("/NeedlessAlloy/", "/Needless2Say/")}
+    done = _preflight(rig, "ci-lint", env = _private(rig, old))
+    assert done.returncode == 0, done.stderr
+    assert _handed(rig) == [f"{FMT}.git"]
+    assert all("Needless2Say" not in call for call in _gh_calls(rig)), _gh_calls(rig)
 
 
 def test_an_unpushed_commit_on_mains_history_is_mirrored_by_the_base_github_holds(rig: Rig) -> None:
@@ -1772,7 +1795,7 @@ def test_an_unpushed_commit_on_mains_history_is_mirrored_by_the_base_github_hold
     done = _preflight(rig, "ci-lint", env = env)
     assert done.returncode == 0, done.stderr
     assert _handed(rig) == [f"{FMT}.git"]
-    assert f"gh api repos/Needless2Say/{UNDER_TEST}/commits/{base} --jq .sha" in _gh_calls(rig)
+    assert f"gh api repos/NeedlessAlloy/{UNDER_TEST}/commits/{base} --jq .sha" in _gh_calls(rig)
 
 
 def test_a_foreign_commit_with_no_shared_history_is_refused_before_any_fetch(rig: Rig) -> None:
@@ -1802,7 +1825,7 @@ def test_github_names_a_fresh_repo_and_its_commit_must_be_githubs(rig: Rig) -> N
     done = _preflight(rig, "ci-lint", extra = ("--github", UNDER_TEST), env = {"FAKE_GH_COMMITS": head})
     assert done.returncode == 0, done.stderr
     assert _handed(rig) == [f"{FMT}.git"]
-    assert f"gh api repos/Needless2Say/{UNDER_TEST}/commits/{head} --jq .sha" in _gh_calls(rig)
+    assert f"gh api repos/NeedlessAlloy/{UNDER_TEST}/commits/{head} --jq .sha" in _gh_calls(rig)
     rig.log.unlink()
     _refused(_preflight(rig, "ci-lint", extra = ("--github", UNDER_TEST)), rig, "GitHub does not hold")
 
@@ -1850,7 +1873,7 @@ def test_no_pin_with_a_public_origin_says_public_and_a_credential_failure_gets_t
     assert done.returncode == 1, done.stderr
     assert f"kdf-preflight: {UNDER_TEST} is public on GitHub, so nothing private is served" in done.stdout
     assert "runs on the host" in done.stdout and "the run failed" not in done.stdout
-    assert _gh_calls(rig) == [f"gh api repos/Needless2Say/{UNDER_TEST} --jq .private"], "no base is asked"
+    assert _gh_calls(rig) == [f"gh api repos/NeedlessAlloy/{UNDER_TEST} --jq .private"], "no base is asked"
 
 
 def test_no_pin_and_a_visibility_github_cannot_give_is_said_and_the_run_goes_on(rig: Rig) -> None:
@@ -1867,7 +1890,7 @@ def _clone_as_pip(mirror: Path, repo: str, destination: Path) -> None:
     """
     Clone a mirror through CI's rewrite of the repo's https URL, as pip clones, with a filter and no login.
     """
-    url = f"https://github.com/Needless2Say/{repo}.git"
+    url = f"https://github.com/NeedlessAlloy/{repo}.git"
     env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     env.update({
         "GIT_CONFIG_COUNT": "1",
@@ -2053,7 +2076,7 @@ def test_a_commit_that_pins_a_private_repo_its_base_does_not_is_refused_before_a
     _commit(rig.repo, {"requirements.txt": hub}, "a hub pin its base does not hold")
     base = env["FAKE_GH_COMMITS"]
     done = _preflight(rig, "ci-lint", env = env)
-    _refused(done, rig, f"pins Needless2Say/kriegerdataforge, which its base {base}")
+    _refused(done, rig, f"pins NeedlessAlloy/kriegerdataforge, which its base {base}")
     assert _handed(rig) == [] and not done.stdout, "refused before the run's folder, so before any fetch"
 
 
@@ -2061,11 +2084,11 @@ def test_the_base_is_held_to_the_repos_it_pins_and_not_to_its_pins_text(rig: Rig
     # a ref may hold any text a pin's ref allows, another repo's URL among it, so the base's pins are read as repos,
     # as the commit's are (D-078)
     _remote(rig, FMT)
-    odd = f"kdf-fmt @ {_pin(FMT, 'x/github.com/Needless2Say/kriegerdataforge.git@main')}\n"
+    odd = f"kdf-fmt @ {_pin(FMT, 'x/github.com/NeedlessAlloy/kriegerdataforge.git@main')}\n"
     env = _private(rig, {"requirements-dev.in": odd})
     _commit(rig.repo, {"requirements.txt": f"hub @ {_pin('kriegerdataforge', 'main')}\n"}, "a hub pin")
     done = _preflight(rig, "ci-lint", env = env)
-    _refused(done, rig, "pins Needless2Say/kriegerdataforge, which its base")
+    _refused(done, rig, "pins NeedlessAlloy/kriegerdataforge, which its base")
     assert not done.stdout
 
 
@@ -2407,7 +2430,7 @@ def test_a_refused_admission_reads_no_cache_file_and_hands_nothing_to_docker(
     if case in ("no origin", "two origins"):
         if case == "two origins":
             for name in (UNDER_TEST, FMT):
-                _git(rig.repo, "config", "--add", "remote.origin.url", f"https://github.com/Needless2Say/{name}.git")
+                _git(rig.repo, "config", "--add", "remote.origin.url", f"https://github.com/NeedlessAlloy/{name}.git")
         _commit(rig.repo, files, "files")
         env = {"FAKE_GH_COMMITS": _git(rig.repo, "rev-parse", "HEAD")}
     else:
@@ -2441,7 +2464,7 @@ def test_github_admits_a_fresh_repos_commit_itself_for_pins_lock_entries_and_bot
     assert done.returncode == 0, done.stderr
     assert _handed(rig) == ([] if what == "npm" else [f"{FMT}.git"])
     assert _served(rig) == ([] if what == "pins" else [_digest_path(tarball.hex)])
-    assert f"gh api repos/Needless2Say/{UNDER_TEST}/commits/{head} --jq .sha" in _gh_calls(rig)
+    assert f"gh api repos/NeedlessAlloy/{UNDER_TEST}/commits/{head} --jq .sha" in _gh_calls(rig)
 
 
 def test_a_clones_commit_locking_a_package_its_base_does_not_is_refused_before_any_cache_read(rig: Rig) -> None:
@@ -2466,10 +2489,49 @@ def test_a_clones_commit_moving_a_package_its_base_locks_to_another_version_is_s
 
 
 # ----------------------------------------------------------------------------------------------------------------------
+# the owner's npm scope before the rename of 2026-11-26, read as the same package under the new one
+# ----------------------------------------------------------------------------------------------------------------------
+def _old_widget_lock(tarball: Tarball) -> dict[str, str]:
+    return _lock({f"node_modules/{OLD_WIDGET}": _entry(tarball, package = OLD_WIDGET)})
+
+
+def test_a_commit_moving_its_lock_to_the_new_scope_on_a_base_of_the_old_is_served(rig: Rig) -> None:
+    # a tarball published before the rename names the old scope in its own package.json, the same bytes either way
+    tarball = _tarball(name = OLD_WIDGET)
+    _cached(rig.npm_cache, tarball)
+    env = _private(rig, _old_widget_lock(tarball))
+    _commit(rig.repo, _widget_lock(tarball), "the lock under the new scope")
+    done = _preflight(rig, "ci-lint", env = env)
+    assert done.returncode == 0, done.stderr
+    assert _served(rig) == [_digest_path(tarball.hex)]
+    assert f"serving {WIDGET} 1.2.3 " in done.stdout
+
+
+def test_a_lock_still_on_the_old_scope_is_served_as_the_same_package(rig: Rig) -> None:
+    tarball = _tarball(name = OLD_WIDGET)
+    _cached(rig.npm_cache, tarball)
+    done = _preflight(rig, "ci-lint", env = _private(rig, _old_widget_lock(tarball)))
+    assert done.returncode == 0, done.stderr
+    assert _served(rig) == [_digest_path(tarball.hex)]
+
+
+def test_a_base_locking_another_package_under_the_old_scope_admits_nothing_new(rig: Rig) -> None:
+    other   = "@needless2say/other"
+    tarball = _tarball()
+    _cached(rig.npm_cache, tarball)
+    env  = _private(rig, _lock({f"node_modules/{other}": _entry(_tarball(name = other), package = other)}))
+    base = env["FAKE_GH_COMMITS"]
+    _commit(rig.repo, _widget_lock(tarball), "a package its base does not lock under either scope")
+    done = _preflight(rig, "ci-lint", env = env)
+    _refused(done, rig, f"locks {WIDGET} from npm.pkg.github.com, which its base {base} on GitHub does not lock")
+    assert _served(rig) == []
+
+
+# ----------------------------------------------------------------------------------------------------------------------
 # the scan's refusals, once GitHub says the repo is private, and nothing served in a public one (Round Table 64's L10)
 # ----------------------------------------------------------------------------------------------------------------------
 @pytest.mark.parametrize("case, says", [
-    ("scope", "@someone/widget from npm.pkg.github.com, outside the owner's scope @needless2say/"),
+    ("scope", "@someone/widget from npm.pkg.github.com, outside the owner's scope @needlessalloy/"),
     ("no sha512", f"{WIDGET} 1.2.3 with no sha512 in its integrity"),
     ("two sha512", f"{WIDGET} 1.2.3 with two different sha512 values in its integrity"),
     ("not json", "is not JSON"),
@@ -2532,7 +2594,7 @@ def test_the_cache_is_npms_default_folder_when_no_test_names_one(rig: Rig, where
 # ----------------------------------------------------------------------------------------------------------------------
 @pytest.mark.parametrize("case, says", [
     ("hash", f"the tarball of {WIDGET} 1.2.3 in this machine's npm cache does not hash to the sha512 its lock names"),
-    ("name", f"a package.json naming @needless2say/other 1.2.3, not {WIDGET} 1.2.3"),
+    ("name", f"a package.json naming @needlessalloy/other 1.2.3, not {WIDGET} 1.2.3"),
     ("version", f"a package.json naming {WIDGET} 9.9.9, not {WIDGET} 1.2.3"),
     ("env", f"the tarball of {WIDGET} 1.2.3 holds package/.env.kdf, named like a secret file"),
     ("keys", f"the tarball of {WIDGET} 1.2.3 holds package/keys/notes.txt, named like a secret file"),
@@ -2545,7 +2607,7 @@ def test_the_cache_is_npms_default_folder_when_no_test_names_one(rig: Rig, where
 def test_bytes_that_do_not_match_their_lock_entry_are_refused_before_docker(rig: Rig, case: str, says: str) -> None:
     manifest = {"package/package.json": _manifest(WIDGET, "1.2.3")}
     if case == "name":
-        tarball = _tarball(name = "@needless2say/other")
+        tarball = _tarball(name = "@needlessalloy/other")
     elif case == "version":
         tarball = _tarball(version = "9.9.9")
     elif case in ("env", "keys", "tops", "loose", "doubled"):
@@ -2605,7 +2667,7 @@ def test_the_served_packages_are_removed_whatever_the_run_ends_with(
     entries = {f"node_modules/{WIDGET}": _entry(tarball)}
     if code == 2:
         # a second package after the first, its tarball missing, so the run is refused once the first was placed
-        later = "@needless2say/zz-later"
+        later = "@needlessalloy/zz-later"
         entries[f"node_modules/{later}"] = _entry(_tarball(name = later), package = later)
     done = _preflight(rig, "ci-lint", extra = extra, mode = mode, env = _private(rig, _lock(entries)))
     assert done.returncode == code, done.stderr

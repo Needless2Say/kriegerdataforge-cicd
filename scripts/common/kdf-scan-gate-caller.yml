@@ -18,6 +18,6 @@ permissions:
 
 jobs:
   kdf-scan-gate:
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/kdf-scan-gate-reusable.yml@main
+    uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/kdf-scan-gate-reusable.yml@main
     with:
       pr: ${{ inputs.pr }}

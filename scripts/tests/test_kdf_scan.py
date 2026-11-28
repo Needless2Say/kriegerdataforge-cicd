@@ -391,12 +391,22 @@ def test_two_managed_blocks_are_refused(tmp_path: Path) -> None:
 # the workflow policy
 # ======================================================================================================================
 
-def test_a_call_of_cicd_at_a_feature_branch_fails_where_main_passes(tmp_path: Path) -> None:
-    calls = "Needless2Say/kriegerdataforge-cicd/.github/workflows/ci-python-lint.yml"
+# the owner's name, and the name before the rename of 2026-11-26, exempt with it while the callers move
+@pytest.mark.parametrize("owner", ["NeedlessAlloy", "Needless2Say"])
+def test_a_call_of_cicd_at_a_feature_branch_fails_where_main_passes(tmp_path: Path, owner: str) -> None:
+    calls = f"{owner}/kriegerdataforge-cicd/.github/workflows/ci-python-lint.yml"
     rig   = make_rig(tmp_path, SCAN, {".github/workflows/ci.yml": f"jobs:\n  lint:\n    uses: {calls}@main\n"})
     code, text = run(rig)
     assert code == 0, text
     commit(rig.repo, {".github/workflows/ci.yml": f"jobs:\n  lint:\n    uses: {calls}@feature\n"})
+    code, text = run(rig)
+    assert code == 1, text
+    assert re.search(r"FAIL\s+\.github/workflows/ci\.yml:3\s+unpinned-uses", text)
+
+
+def test_another_owner_s_cicd_at_main_is_not_exempt(tmp_path: Path) -> None:
+    calls = "someone/kriegerdataforge-cicd/.github/workflows/ci-python-lint.yml"
+    rig   = make_rig(tmp_path, SCAN, {".github/workflows/ci.yml": f"jobs:\n  lint:\n    uses: {calls}@main\n"})
     code, text = run(rig)
     assert code == 1, text
     assert re.search(r"FAIL\s+\.github/workflows/ci\.yml:3\s+unpinned-uses", text)
@@ -823,7 +833,7 @@ def test_a_bad_note_fails_the_scan_and_marks_the_last_line(tmp_path: Path) -> No
 
 def test_cicds_scan_image_set_parses_whole_or_as_the_unpinned_marker_and_refuses_anything_else() -> None:
     good = (
-        "# a comment\nimage=ghcr.io/needless2say/kdf-scan\ndigest=sha256:" + "d" * 64 + "\ncommit=" + "c" * 40
+        "# a comment\nimage=ghcr.io/needlessalloy/kdf-scan\ndigest=sha256:" + "d" * 64 + "\ncommit=" + "c" * 40
         + "\nrules_commit=" + "1" * 40 + "\nrules_digest=" + "e" * 64 + "\ncontract=1\n"
     )
     assert SCAN.parse_scan_image(good)["digest"] == "sha256:" + "d" * 64

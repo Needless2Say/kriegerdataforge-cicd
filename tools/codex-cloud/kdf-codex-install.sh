@@ -4,7 +4,7 @@
 # the file whole into the environment's Install script field.
 #
 # It needs no token and no secret. A development package installed from one of the owner's private repos, a line
-# `name @ git+https://github.com/Needless2Say/...` in requirements-dev.in, is left out, since only the style lane uses
+# `name @ git+https://github.com/NeedlessAlloy/...` in requirements-dev.in, is left out, since only the style lane uses
 # one, kdf-fmt, and a review read does not run it. A repo whose runtime lockfile names a private package, a backend
 # that installs kdf-sdk, stops here, since its install would need a token and this script never holds one.
 #
@@ -22,13 +22,15 @@ repo=kriegerdataforge-sdk
 say() { printf 'kdf-codex-install: %s\n' "$*" >&2; }
 
 workspace="${KDF_CODEX_WORKSPACE:-/workspace}"
-private='@ git+https://github.com/Needless2Say/'
+private='@ git+https://github.com/NeedlessAlloy/'
+# the owner's name before the account's rename of 2026-11-26, which a repo's files may still spell, to the close
+old_private='@ git+https://github.com/Needless2Say/'
 
 cd "$workspace/$repo"
 for file in requirements.txt requirements-dev.in; do
 	[ -f "$file" ] || { say "no $file in $repo, so this script cannot install it"; exit 1; }
 done
-if grep -qF "$private" requirements.txt; then
+if grep -qF -e "$private" -e "$old_private" requirements.txt; then
 	say "requirements.txt installs a private package, which needs a token. Section 11 covers only a repo without one"
 	exit 1
 fi
@@ -39,7 +41,7 @@ python="$(command -v python3.14 || uv python find 3.14)"
 .venv/bin/python -c '' 2>/dev/null || "$python" -m venv --clear .venv
 
 .venv/bin/python -m pip install -r requirements.txt
-grep -vF "$private" requirements-dev.in | .venv/bin/python -m pip install -r /dev/stdin
+grep -vF -e "$private" -e "$old_private" requirements-dev.in | .venv/bin/python -m pip install -r /dev/stdin
 .venv/bin/python -m pip install -e . --no-deps
 .venv/bin/python -m pip check
 say "installed $repo without its private development packages"

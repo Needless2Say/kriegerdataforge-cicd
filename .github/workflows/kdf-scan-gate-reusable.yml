@@ -26,14 +26,14 @@ permissions: {}
 
 env:
   # the active set, scripts/common/SCAN_IMAGE's, the image published from 245c1ad and its provenance verified
-  KDF_SCAN_IMAGE: ghcr.io/needless2say/kdf-scan
+  KDF_SCAN_IMAGE: ghcr.io/needlessalloy/kdf-scan
   KDF_SCAN_DIGEST: sha256:7aeaa2051ce7259a30b761ccbfc89d14f3f71aaeb8ed15fc9898f139abe14f20
   KDF_SCAN_RULES_COMMIT: 17e31e11ebac99fb7dfe1cd288f7a32151b6f3f9
   KDF_SCAN_CONTRACT: 1
   # the canonical caller's SHA-256, a caller change equal to it passing and printed first
-  KDF_SCAN_CALLER_SHA: d816ce5c870b0d821e71587c12507dc58d9d23f09318376b0b067742ff063949
+  KDF_SCAN_CALLER_SHA: 2d7259eb912e7bfaf96ea379a68b0b2c35926e2262d977222d839c68c58b45f2
   RULES_REPO: https://github.com/semgrep/semgrep-rules
-  CICD: Needless2Say/kriegerdataforge-cicd
+  CICD: NeedlessAlloy/kriegerdataforge-cicd
 
 jobs:
   kdf-scan-gate:

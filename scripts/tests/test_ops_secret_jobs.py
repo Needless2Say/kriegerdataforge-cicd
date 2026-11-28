@@ -69,7 +69,7 @@ def test_every_secret_the_hub_prune_reads_has_a_registry_entry_for_each_environm
             entries = [
                 entry
                 for entry in _registry()
-                if {"repo": "Needless2Say/kriegerdataforge-cicd", "environment": environment, "secret_name": name}
+                if {"repo": "NeedlessAlloy/kriegerdataforge-cicd", "environment": environment, "secret_name": name}
                 in entry.get("github_env_secrets", [])
             ]
             assert len(entries) == 1, f"{name} in {environment}"

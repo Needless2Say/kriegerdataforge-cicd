@@ -24,14 +24,14 @@ from check_deployer import (
 # a scratch bot for the bot's rule, its numeric id, its login and the one caller its grant names
 BOT_ID    = "100000001"
 BOT_LOGIN = "kdf-dispatcher[bot]"
-CALLER    = "Needless2Say/kriegerdataforge/.github/workflows/cd.yml@refs/heads/main"
+CALLER    = "NeedlessAlloy/kriegerdataforge/.github/workflows/cd.yml@refs/heads/main"
 
 
 # ── Shared fixtures ────────────────────────────────────────────────────────────
 @pytest.fixture(autouse = True)
 def _the_runner_names_the_owner_as_the_starter(monkeypatch):
     # the runner sets GITHUB_ACTOR, who started the run, in every job. a test that is about the starter sets its own
-    monkeypatch.setenv("GITHUB_ACTOR", "Needless2Say")
+    monkeypatch.setenv("GITHUB_ACTOR", "NeedlessAlloy")
     monkeypatch.delenv("DEPLOY_STARTED_BY", raising = False)
 
 
@@ -39,16 +39,16 @@ def _the_runner_names_the_owner_as_the_starter(monkeypatch):
 def sample_registry():
     return {
         "deployers": {
-            "Needless2Say/fitness-app-frontend": {
-                "dev": ["Needless2Say", "Ascensionn"],
-                "prod": ["Needless2Say"],
+            "NeedlessAlloy/fitness-app-frontend": {
+                "dev": ["NeedlessAlloy", "Ascensionn"],
+                "prod": ["NeedlessAlloy"],
             },
-            "Needless2Say/kriegerdataforge": {
-                "dev": ["Needless2Say"],
-                "prod": ["Needless2Say"],
+            "NeedlessAlloy/kriegerdataforge": {
+                "dev": ["NeedlessAlloy"],
+                "prod": ["NeedlessAlloy"],
             },
-            "Needless2Say/arthurs-portfolio": {
-                "github-pages": ["Needless2Say"],
+            "NeedlessAlloy/arthurs-portfolio": {
+                "github-pages": ["NeedlessAlloy"],
             },
         }
     }
@@ -57,66 +57,66 @@ def sample_registry():
 # ── is_authorized ──────────────────────────────────────────────────────────────
 class TestIsAuthorized:
     def test_owner_allowed_on_prod(self, sample_registry):
-        ok, _ = is_authorized(sample_registry, "Needless2Say/kriegerdataforge", "prod", "Needless2Say")
+        ok, _ = is_authorized(sample_registry, "NeedlessAlloy/kriegerdataforge", "prod", "NeedlessAlloy")
         assert ok is True
 
 
     def test_collaborator_allowed_on_dev(self, sample_registry):
-        ok, _ = is_authorized(sample_registry, "Needless2Say/fitness-app-frontend", "dev", "Ascensionn")
+        ok, _ = is_authorized(sample_registry, "NeedlessAlloy/fitness-app-frontend", "dev", "Ascensionn")
         assert ok is True
 
 
     def test_collaborator_denied_on_prod(self, sample_registry):
-        ok, reason = is_authorized(sample_registry, "Needless2Say/fitness-app-frontend", "prod", "Ascensionn")
+        ok, reason = is_authorized(sample_registry, "NeedlessAlloy/fitness-app-frontend", "prod", "Ascensionn")
         assert ok is False
         assert "NOT an approved deployer" in reason
 
 
     def test_matching_is_case_insensitive(self, sample_registry):
-        ok, _ = is_authorized(sample_registry, "Needless2Say/fitness-app-frontend", "dev", "ASCENSIONN")
+        ok, _ = is_authorized(sample_registry, "NeedlessAlloy/fitness-app-frontend", "dev", "ASCENSIONN")
         assert ok is True
 
 
     def test_actor_surrounding_whitespace_ignored(self, sample_registry):
-        ok, _ = is_authorized(sample_registry, "Needless2Say/kriegerdataforge", "dev", "  Needless2Say  ")
+        ok, _ = is_authorized(sample_registry, "NeedlessAlloy/kriegerdataforge", "dev", "  NeedlessAlloy  ")
         assert ok is True
 
 
     def test_unknown_repo_denied_fail_closed(self, sample_registry):
-        ok, reason = is_authorized(sample_registry, "Needless2Say/not-registered", "dev", "Needless2Say")
+        ok, reason = is_authorized(sample_registry, "NeedlessAlloy/not-registered", "dev", "NeedlessAlloy")
         assert ok is False
         assert "not in the deployer registry" in reason
 
 
     def test_unknown_environment_denied_fail_closed(self, sample_registry):
-        ok, reason = is_authorized(sample_registry, "Needless2Say/kriegerdataforge", "staging", "Needless2Say")
+        ok, reason = is_authorized(sample_registry, "NeedlessAlloy/kriegerdataforge", "staging", "NeedlessAlloy")
         assert ok is False
         assert "not configured" in reason
 
 
     def test_unknown_environment_message_lists_known_envs(self, sample_registry):
-        _, reason = is_authorized(sample_registry, "Needless2Say/kriegerdataforge", "staging", "Needless2Say")
+        _, reason = is_authorized(sample_registry, "NeedlessAlloy/kriegerdataforge", "staging", "NeedlessAlloy")
         assert "dev" in reason and "prod" in reason
 
 
     def test_unknown_actor_denied(self, sample_registry):
-        ok, reason = is_authorized(sample_registry, "Needless2Say/kriegerdataforge", "dev", "randomperson")
+        ok, reason = is_authorized(sample_registry, "NeedlessAlloy/kriegerdataforge", "dev", "randomperson")
         assert ok is False
         assert "randomperson" in reason
 
 
     def test_github_pages_environment(self, sample_registry):
-        ok, _ = is_authorized(sample_registry, "Needless2Say/arthurs-portfolio", "github-pages", "Needless2Say")
+        ok, _ = is_authorized(sample_registry, "NeedlessAlloy/arthurs-portfolio", "github-pages", "NeedlessAlloy")
         assert ok is True
 
 
     def test_empty_actor_denied(self, sample_registry):
-        ok, _ = is_authorized(sample_registry, "Needless2Say/kriegerdataforge", "dev", "")
+        ok, _ = is_authorized(sample_registry, "NeedlessAlloy/kriegerdataforge", "dev", "")
         assert ok is False
 
 
     def test_empty_deployers_registry_denies(self):
-        ok, reason = is_authorized({"deployers": {}}, "Needless2Say/kriegerdataforge", "dev", "Needless2Say")
+        ok, reason = is_authorized({"deployers": {}}, "NeedlessAlloy/kriegerdataforge", "dev", "NeedlessAlloy")
         assert ok is False
         assert "not in the deployer registry" in reason
 
@@ -189,7 +189,7 @@ class TestLoadRegistry:
         deployers = _load_registry()["deployers"]
         for repo, envs in deployers.items():
             for env, users in envs.items():
-                assert users == ["Needless2Say"], f"{repo}[{env}] lists {users}"
+                assert users == ["NeedlessAlloy"], f"{repo}[{env}] lists {users}"
 
 
 # ── parse_cli_args ─────────────────────────────────────────────────────────────
@@ -209,7 +209,7 @@ class TestTheRealRegistry:
     """
     The registry this repo ships, read as the gate reads it.
     """
-    @pytest.mark.parametrize("repo", ["Needless2Say/fitness-app-backend", "Needless2Say/fitness-app-frontend"])
+    @pytest.mark.parametrize("repo", ["NeedlessAlloy/fitness-app-backend", "NeedlessAlloy/fitness-app-frontend"])
     def test_a_login_no_longer_listed_is_refused_on_dev(self, repo):
         ok, _ = is_authorized(_load_registry(), repo, "dev", "Ascensionn")
         assert ok is False
@@ -228,19 +228,20 @@ class TestMain:
 
     def test_returns_0_for_approved_actor(self, sample_registry):
         with self._patch_registry(sample_registry):
-            rc = main(["--repo", "Needless2Say/kriegerdataforge", "--actor", "Needless2Say", "--environment", "prod"])
+            rc = main(["--repo", "NeedlessAlloy/kriegerdataforge", "--actor", "NeedlessAlloy", "--environment", "prod"])
         assert rc == 0
 
 
     def test_returns_1_for_unapproved_actor(self, sample_registry):
         with self._patch_registry(sample_registry):
-            rc = main(["--repo", "Needless2Say/fitness-app-frontend", "--actor", "Ascensionn", "--environment", "prod"])
+            repo = "NeedlessAlloy/fitness-app-frontend"
+            rc   = main(["--repo", repo, "--actor", "Ascensionn", "--environment", "prod"])
         assert rc == 1
 
 
     def test_returns_1_for_unknown_repo(self, sample_registry):
         with self._patch_registry(sample_registry):
-            rc = main(["--repo", "Needless2Say/ghost", "--actor", "Needless2Say", "--environment", "dev"])
+            rc = main(["--repo", "NeedlessAlloy/ghost", "--actor", "NeedlessAlloy", "--environment", "dev"])
         assert rc == 1
 
 
@@ -256,13 +257,13 @@ class TestMain:
         ):
             monkeypatch.delenv(var, raising = False)
         with self._patch_registry(sample_registry):
-            rc = main(["--repo", "Needless2Say/kriegerdataforge", "--actor", "Needless2Say"])
+            rc = main(["--repo", "NeedlessAlloy/kriegerdataforge", "--actor", "NeedlessAlloy"])
         assert rc == 1
 
 
     def test_reads_values_from_environment(self, sample_registry, monkeypatch):
-        monkeypatch.setenv("DEPLOY_REPO", "Needless2Say/kriegerdataforge")
-        monkeypatch.setenv("DEPLOY_ACTOR", "Needless2Say")
+        monkeypatch.setenv("DEPLOY_REPO", "NeedlessAlloy/kriegerdataforge")
+        monkeypatch.setenv("DEPLOY_ACTOR", "NeedlessAlloy")
         monkeypatch.setenv("DEPLOY_ENVIRONMENT", "dev")
         with self._patch_registry(sample_registry):
             rc = main([])
@@ -272,7 +273,7 @@ class TestMain:
     def test_an_approved_rerun_of_a_run_another_started_is_denied(self, sample_registry, monkeypatch):
         # a rerun keeps github.actor, who started the run, and sets the triggering actor to whoever reran it, so an
         # approved deployer's rerun of a deploy a stranger started stays denied
-        monkeypatch.setenv("DEPLOY_REPO", "Needless2Say/fitness-app-frontend")
+        monkeypatch.setenv("DEPLOY_REPO", "NeedlessAlloy/fitness-app-frontend")
         monkeypatch.setenv("DEPLOY_ENVIRONMENT", "dev")
         monkeypatch.delenv("DEPLOY_ACTOR", raising = False)
         monkeypatch.delenv("DEPLOY_STARTED_BY", raising = False)
@@ -287,7 +288,7 @@ class TestMain:
         monkeypatch.setenv("GITHUB_ACTOR", "github-actions[bot]")
         monkeypatch.delenv("DEPLOY_STARTED_BY", raising = False)
         with self._patch_registry(sample_registry):
-            rc = main(["--repo", "Needless2Say/kriegerdataforge", "--actor", "Needless2Say", "--environment", "prod"])
+            rc = main(["--repo", "NeedlessAlloy/kriegerdataforge", "--actor", "NeedlessAlloy", "--environment", "prod"])
         assert rc == 1
 
 
@@ -295,7 +296,7 @@ class TestMain:
         monkeypatch.setenv("GITHUB_ACTOR", "github-actions[bot]")
         with self._patch_registry(sample_registry):
             rc = main([
-                "--repo", "Needless2Say/kriegerdataforge", "--actor", "Needless2Say", "--started-by", "needless2say",
+                "--repo", "NeedlessAlloy/kriegerdataforge", "--actor", "NeedlessAlloy", "--started-by", "needlessalloy",
                 "--environment", "prod",
             ])
         assert rc == 0
@@ -305,20 +306,20 @@ class TestMain:
         for var in ("DEPLOY_STARTED_BY", "GITHUB_ACTOR"):
             monkeypatch.delenv(var, raising = False)
         with self._patch_registry(sample_registry):
-            rc = main(["--repo", "Needless2Say/kriegerdataforge", "--actor", "Needless2Say", "--environment", "prod"])
+            rc = main(["--repo", "NeedlessAlloy/kriegerdataforge", "--actor", "NeedlessAlloy", "--environment", "prod"])
         assert rc == 1
         assert "started_by" in capsys.readouterr().out
 
 
     def test_denied_message_printed(self, sample_registry, capsys):
         with self._patch_registry(sample_registry):
-            main(["--repo", "Needless2Say/ghost", "--actor", "x", "--environment", "dev"])
+            main(["--repo", "NeedlessAlloy/ghost", "--actor", "x", "--environment", "dev"])
         assert "DENIED:" in capsys.readouterr().out
 
 
     def test_approved_message_printed(self, sample_registry, capsys):
         with self._patch_registry(sample_registry):
-            main(["--repo", "Needless2Say/kriegerdataforge", "--actor", "Needless2Say", "--environment", "dev"])
+            main(["--repo", "NeedlessAlloy/kriegerdataforge", "--actor", "NeedlessAlloy", "--environment", "dev"])
         assert "OK:" in capsys.readouterr().out
 
 
@@ -326,7 +327,7 @@ class TestMain:
         summary = tmp_path / "summary.md"
         monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
         with self._patch_registry(sample_registry):
-            main(["--repo", "Needless2Say/kriegerdataforge", "--actor", "Needless2Say", "--environment", "dev"])
+            main(["--repo", "NeedlessAlloy/kriegerdataforge", "--actor", "NeedlessAlloy", "--environment", "dev"])
         assert "Deployer authorization" in summary.read_text(encoding = "utf-8")
 
 
@@ -337,7 +338,7 @@ def bot_registry(sample_registry):
     registry["automation"] = {
         "bots": {
             BOT_ID: {
-                "Needless2Say/kriegerdataforge": {
+                "NeedlessAlloy/kriegerdataforge": {
                     "prod": {"workflow": ".github/workflows/cd.yml", "ref": "refs/heads/main"},
                 },
             },
@@ -351,7 +352,7 @@ def _bot_run(**overrides: str) -> list[str]:
     The flags of a run the bot started and dispatched, its first attempt, from the deploy job, each one overridable.
     """
     flags = {
-        "repo": "Needless2Say/kriegerdataforge",
+        "repo": "NeedlessAlloy/kriegerdataforge",
         "environment": "prod",
         "actor": BOT_LOGIN,
         "started-by": BOT_LOGIN,
@@ -392,12 +393,12 @@ class TestTheBotRule:
         {"run_attempt": "2"},
         {"event": "schedule"},
         {"event": "push"},
-        {"workflow_ref": "Needless2Say/kriegerdataforge/.github/workflows/other.yml@refs/heads/main"},
-        {"workflow_ref": "Needless2Say/kriegerdataforge/.github/workflows/cd.yml@refs/heads/feature"},
-        {"workflow_ref": "Needless2Say/kriegerdataforge/.github/workflows/cd.yml@refs/tags/v1.0.0"},
+        {"workflow_ref": "NeedlessAlloy/kriegerdataforge/.github/workflows/other.yml@refs/heads/main"},
+        {"workflow_ref": "NeedlessAlloy/kriegerdataforge/.github/workflows/cd.yml@refs/heads/feature"},
+        {"workflow_ref": "NeedlessAlloy/kriegerdataforge/.github/workflows/cd.yml@refs/tags/v1.0.0"},
         {"environment": "dev"},
-        {"repo": "Needless2Say/fitness-app-frontend"},
-        {"actor": "Needless2Say"},
+        {"repo": "NeedlessAlloy/fitness-app-frontend"},
+        {"actor": "NeedlessAlloy"},
     ], ids = [
         "no-profile", "another-profile", "a-rerun", "a-schedule", "a-push", "another-caller", "another-branch",
         "a-tag", "an-environment-not-granted", "a-repo-not-granted", "the-owner-reran-it",
@@ -416,14 +417,15 @@ class TestTheBotRule:
 
 
     def test_the_owners_run_takes_the_human_rule_and_says_so(self, bot_registry, monkeypatch, tmp_path):
-        argv = _bot_run(actor = "Needless2Say", started_by = "Needless2Say", actor_id = "200000002", profile = "")
+        argv = _bot_run(actor = "NeedlessAlloy", started_by = "NeedlessAlloy", actor_id = "200000002", profile = "")
         rc, output = self._run(bot_registry, argv, monkeypatch, tmp_path)
         assert rc == 0
         assert "path=human" in output
 
 
     def test_the_owners_rerun_is_the_human_rule_as_before(self, bot_registry, monkeypatch, tmp_path):
-        argv = _bot_run(actor = "Needless2Say", started_by = "Needless2Say", actor_id = "200000002", run_attempt = "3")
+        owner = "NeedlessAlloy"
+        argv  = _bot_run(actor = owner, started_by = owner, actor_id = "200000002", run_attempt = "3")
         rc, output = self._run(bot_registry, argv, monkeypatch, tmp_path)
         assert rc == 0
         assert "path=human" in output
@@ -431,7 +433,7 @@ class TestTheBotRule:
 
     def test_the_bots_login_alone_never_admits_it(self, bot_registry, monkeypatch, tmp_path):
         # a login is not an identity the registry trusts for a bot, so a run whose id is no bot's is the human rule's
-        bot_registry["deployers"]["Needless2Say/kriegerdataforge"]["prod"].append(BOT_LOGIN)
+        bot_registry["deployers"]["NeedlessAlloy/kriegerdataforge"]["prod"].append(BOT_LOGIN)
         rc, output = self._run(bot_registry, _bot_run(actor_id = "200000002"), monkeypatch, tmp_path)
         assert rc == 0
         assert "path=human" in output
@@ -474,8 +476,8 @@ class TestTheBotRule:
 class TestEntryGuard:
     def test_main_callable_with_argv(self, sample_registry, monkeypatch):
         monkeypatch.setattr(sys, "argv", ["check_deployer.py"])
-        monkeypatch.setenv("DEPLOY_REPO", "Needless2Say/kriegerdataforge")
-        monkeypatch.setenv("DEPLOY_ACTOR", "Needless2Say")
+        monkeypatch.setenv("DEPLOY_REPO", "NeedlessAlloy/kriegerdataforge")
+        monkeypatch.setenv("DEPLOY_ACTOR", "NeedlessAlloy")
         monkeypatch.setenv("DEPLOY_ENVIRONMENT", "prod")
         with patch.object(cd, "_load_registry", return_value = sample_registry):
             assert main() == 0

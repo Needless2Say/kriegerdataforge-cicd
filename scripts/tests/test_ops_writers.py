@@ -53,8 +53,8 @@ CRON       = {
     "KDF_HUB_CRON_SECRET_PROD": ("prod", "KDF_HUB_CRON_SECRET"),
 }
 REPORTS    = ("REPORTS_CRON_SECRET_FITNESS_APP", "REPORTS_CRON_SECRET_TIFFANYS_SPACE")
-CICD       = "Needless2Say/kriegerdataforge-cicd"
-CONTEXT    = "Needless2Say/kriegerdataforge-context"
+CICD       = "NeedlessAlloy/kriegerdataforge-cicd"
+CONTEXT    = "NeedlessAlloy/kriegerdataforge-context"
 BOOTSTRAP  = ("ops-distribute-app-secrets.yml", "run", "bootstrap-token")
 ARM        = "vars.ARM_OPS_SCHEDULE"
 # a mint whose token writes Actions variables, its workflow, job, step id and the one repository it is held to
@@ -326,7 +326,7 @@ def _schedule_values(armed: str) -> dict[str, str]:
         "github.event_name": "schedule",
         "github.run_attempt": "1",
         "github.repository": CICD,
-        "github.repository_owner": "Needless2Say",
+        "github.repository_owner": "NeedlessAlloy",
         "github.actor": "github-actions[bot]",
         "github.triggering_actor": "github-actions[bot]",
         ARM: armed,

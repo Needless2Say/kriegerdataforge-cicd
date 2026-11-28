@@ -56,7 +56,7 @@ def names(repos: list[str]) -> set[str]:
 # ======================================================================================================================
 
 @pytest.mark.parametrize(("kind", "file"), [("kit", "kit_registry.json"), ("scripts", "scripts_registry.json")])
-@pytest.mark.parametrize("repos", [None, "fitness-app-frontend,Needless2Say/tiffanys-space"])
+@pytest.mark.parametrize("repos", [None, "fitness-app-frontend,NeedlessAlloy/tiffanys-space"])
 def test_a_distributes_list_is_its_registrys_filtered_as_repo_sync_filters(capsys, kind, file, repos):
     expected = names([entry["repo"] for entry in _select_repos(registry(file), repos)])
     assert listed(capsys, kind, f"--names={repos or ''}") == expected

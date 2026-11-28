@@ -107,9 +107,12 @@ if [ -n "$mirrors" ]; then
 	for mirror in "$mirrors"/*.git; do
 		[ -d "$mirror" ] || continue
 		repo="$(basename "$mirror" .git)"
-		export "GIT_CONFIG_KEY_$count=url.file://$mirror.insteadOf"
-		export "GIT_CONFIG_VALUE_$count=https://github.com/Needless2Say/$repo.git"
-		count=$((count + 1))
+		# one mirror answers for the owner's name and, to the rename's close, the name before it (2026-11-26)
+		for owner in NeedlessAlloy Needless2Say; do
+			export "GIT_CONFIG_KEY_$count=url.file://$mirror.insteadOf"
+			export "GIT_CONFIG_VALUE_$count=https://github.com/$owner/$repo.git"
+			count=$((count + 1))
+		done
 	done
 fi
 [ "$count" -eq 0 ] || export GIT_CONFIG_COUNT="$count"

@@ -125,7 +125,7 @@ name: Fetch private packages
 # D-035. The fetch half of a lane that runs code it does not trust in a job that names no secret, for a caller that
 # runs its own install and test job, the kdf-sdk canary. The caller's job downloads the artifact this returns, untars it
 # under $RUNNER_TEMP, and hands git one rewrite per mirror, `url.file://<mirrors>/<repo>.git.insteadOf` for
-# `https://github.com/Needless2Say/<repo>.git`, through GIT_CONFIG_COUNT, KEY_n and VALUE_n, as the lanes do. Callers
+# `https://github.com/NeedlessAlloy/<repo>.git`, through GIT_CONFIG_COUNT, KEY_n and VALUE_n, as the lanes do. Callers
 # pass `secrets: inherit`. Written by scripts/render_fetch_job.py, edit the template there and run it.
 permissions:
   contents: read

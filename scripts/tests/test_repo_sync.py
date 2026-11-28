@@ -12,8 +12,8 @@ from unittest.mock import MagicMock, patch
 import common.repo_sync as rs
 
 REPOS = [
-    {"repo": "Needless2Say/repo-a", "branch": "main"},
-    {"repo": "Needless2Say/repo-b", "branch": "main"},
+    {"repo": "NeedlessAlloy/repo-a", "branch": "main"},
+    {"repo": "NeedlessAlloy/repo-b", "branch": "main"},
 ]
 
 
@@ -82,7 +82,7 @@ def test_callable_items_resolved_per_repo():
     with patch.object(rs, "_get_remote_file", return_value = ("x", "sha")):
         rc = rs.run_check("tok", REPOS, items_for, "banner")
     assert rc == 0
-    assert built == ["Needless2Say/repo-a", "Needless2Say/repo-b"]
+    assert built == ["NeedlessAlloy/repo-a", "NeedlessAlloy/repo-b"]
 
 
 # ── run_check ────────────────────────────────────────────────────────────────
@@ -110,7 +110,7 @@ def test_run_check_patch_error_flags_repo_but_continues(capsys):
     with patch.object(rs, "compute_item_drift", side_effect = fake_drift):
         rc = rs.run_check("tok", REPOS, [_patch_item("Makefile")], "banner")
     assert rc == 1
-    assert checked == ["Needless2Say/repo-a", "Needless2Say/repo-b"]   # fan-out continued
+    assert checked == ["NeedlessAlloy/repo-a", "NeedlessAlloy/repo-b"]   # fan-out continued
     assert "NEEDS MANUAL ATTENTION" in capsys.readouterr().out
 
 

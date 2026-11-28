@@ -7,7 +7,7 @@ labels:
   - new-repo
 
 assignees:
-  - Needless2Say
+  - NeedlessAlloy
 
 body:
   - type: markdown

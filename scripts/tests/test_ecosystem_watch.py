@@ -44,7 +44,7 @@ ENGINE_DEST = "scripts/kdf_scripts/mutation_runner.py"
 UBUNTU = "The ubuntu-latest label will migrate to Ubuntu 26."
 
 # a pin of an owned repo outside RELEASE_REPOS, and a cursor as GitHub's `Link` header carries one
-EXTRA_PIN = "extra @ git+https://github.com/Needless2Say/kriegerdataforge-extra.git@v2.0.0\n"
+EXTRA_PIN = "extra @ git+https://github.com/NeedlessAlloy/kriegerdataforge-extra.git@v2.0.0\n"
 CURSOR    = "Y3Vyc29yOnYyOpK0"
 
 
@@ -288,11 +288,12 @@ def test_releases_compare_a_commit_with_the_latest_tag_once_each() -> None:
 
 def test_find_pins_reads_every_shape_and_skips_comments_and_other_owners() -> None:
     text = "\n".join([
-        "kriegerdataforge-sdk[fastapi,database] @ git+https://github.com/Needless2Say/kriegerdataforge-sdk.git@v0.12.2",
-        "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt@v1.3.0",
-        "# kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@v1.0.0",
+        "kriegerdataforge-sdk[fastapi,database] @ "
+        "git+https://github.com/NeedlessAlloy/kriegerdataforge-sdk.git@v0.12.2",
+        "kdf-fmt @ git+https://github.com/NeedlessAlloy/kriegerdataforge-fmt@v1.3.0",
+        "# kdf-fmt @ git+https://github.com/NeedlessAlloy/kriegerdataforge-fmt.git@v1.0.0",
         "other @ git+https://github.com/someone/other.git@v9.9.9",
-        "  \"kriegerdataforge-reports-sdk @ git+https://github.com/Needless2Say/kriegerdataforge-reports-sdk.git@"
+        "  \"kriegerdataforge-reports-sdk @ git+https://github.com/NeedlessAlloy/kriegerdataforge-reports-sdk.git@"
         + "1" * 40 + "\",",
         "requests==2.32.0",
     ])
@@ -307,13 +308,27 @@ def test_find_pins_reads_every_shape_and_skips_comments_and_other_owners() -> No
 def test_find_pins_reads_the_style_lane_ref_and_npm_ranges() -> None:
     ci = "jobs:\n  style:\n    with:\n      kdf_fmt_ref: v1.3.0\n#      kdf_fmt_ref: v1.0.0\n"
     assert [p["ref"] for p in ew.find_pins(".github/workflows/ci.yml", ci)] == ["v1.3.0"]
-    manifest = json.dumps({"dependencies": {"@needless2say/report-form": "^0.2.3", "@other/x": "^1.0.0"},
+    manifest = json.dumps({"dependencies": {"@needlessalloy/report-form": "^0.2.3", "@other/x": "^1.0.0"},
                            "devDependencies": {"next": "16.0.0"}})
     pins     = ew.find_pins("package.json", manifest)
     assert [(p["package"], p["repo"], p["ref"]) for p in pins] == [
-        ("@needless2say/report-form", "kriegerdataforge-report-form", "^0.2.3"),
+        ("@needlessalloy/report-form", "kriegerdataforge-report-form", "^0.2.3"),
     ]
     assert ew.find_pins("package.json", "{not json") == []
+
+
+def test_find_pins_reads_the_owner_s_name_before_the_rename_as_the_same_repo() -> None:
+    # a repo that has not moved yet keeps its pins in the watch while the repos move (2026-11-26)
+    text = "\n".join([
+        "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@v1.3.0",
+        "kdf-fmt @ git+https://github.com/Needless2Sayx/kriegerdataforge-fmt.git@v1.3.0",
+    ])
+    pins = ew.find_pins("requirements-dev.in", text)
+    assert [(p["package"], p["repo"], p["ref"]) for p in pins] == [("kdf-fmt", "kriegerdataforge-fmt", "v1.3.0")]
+    manifest = json.dumps({"dependencies": {"@needless2say/report-form": "^0.2.3"}})
+    assert [(p["package"], p["repo"]) for p in ew.find_pins("package.json", manifest)] == [
+        ("@needless2say/report-form", "kriegerdataforge-report-form"),
+    ]
 
 
 def test_parse_included_splits_status_headers_and_body() -> None:
@@ -429,13 +444,13 @@ def test_alerts_are_read_and_an_unreadable_repo_is_an_error_not_a_crash(registri
 def test_pins_are_judged_against_each_source_repos_latest_release(registries: None) -> None:
     table = base_table()
     table[f"/repos/{A}/contents/requirements.in"] = ok(
-        "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@v1.2.0\n"
-        "kriegerdataforge-sdk @ git+https://github.com/Needless2Say/kriegerdataforge-sdk.git@v0.12.2\n")
+        "kdf-fmt @ git+https://github.com/NeedlessAlloy/kriegerdataforge-fmt.git@v1.2.0\n"
+        "kriegerdataforge-sdk @ git+https://github.com/NeedlessAlloy/kriegerdataforge-sdk.git@v0.12.2\n")
     table[f"/repos/{A}/contents/requirements.txt"] = ok(
-        f"kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@{SHA_LATEST}\n",
+        f"kdf-fmt @ git+https://github.com/NeedlessAlloy/kriegerdataforge-fmt.git@{SHA_LATEST}\n",
     )
     table[f"/repos/{A}/contents/package.json"] = ok(
-        json.dumps( {"dependencies": {"@needless2say/report-form": "^0.1.0"}}),
+        json.dumps( {"dependencies": {"@needlessalloy/report-form": "^0.1.0"}}),
     )
     table[f"/repos/{B}/contents/.github/workflows/ci.yml"] = ok("      kdf_fmt_ref: v1.3.0\n")
     table[f"/repos/{B}/contents/pyproject.toml"] = ew.Response(500, {"message": "Server Error"})
@@ -444,7 +459,7 @@ def test_pins_are_judged_against_each_source_repos_latest_release(registries: No
     assert pins[(A, "requirements.in", "kdf-fmt")]["behind"] is True
     assert pins[(A, "requirements.in", "kriegerdataforge-sdk")]["behind"] is False
     assert pins[(A, "requirements.txt", "kdf-fmt")]["note"] == "commit of v1.3.0"
-    assert pins[(A, "package.json", "@needless2say/report-form")]["behind"] is True
+    assert pins[(A, "package.json", "@needlessalloy/report-form")]["behind"] is True
     assert pins[(B, ".github/workflows/ci.yml", "kdf-fmt (kdf_fmt_ref)")]["behind"] is False
     assert snapshot["summary"]["pins_behind"] == 2
     repo_b = next(r for r in snapshot["repos"] if r["repo"] == B)
@@ -484,7 +499,7 @@ def test_a_slow_compare_never_holds_up_a_release_lookup() -> None:
 
 
 def test_a_pin_of_main_and_its_lock_after_the_latest_tag_are_current(registries: None) -> None:
-    sdk   = "kriegerdataforge-sdk[fastapi] @ git+https://github.com/Needless2Say/kriegerdataforge-sdk.git"
+    sdk   = "kriegerdataforge-sdk[fastapi] @ git+https://github.com/NeedlessAlloy/kriegerdataforge-sdk.git"
     table = base_table()
     table[f"/repos/{A}/contents/requirements.in"] = ok(f"{sdk}@main\n")
     table[f"/repos/{A}/contents/requirements.txt"] = ok(f"{sdk}@{'7' * 40}\n")
@@ -508,7 +523,7 @@ def test_a_pin_of_main_and_its_lock_after_the_latest_tag_are_current(registries:
 def test_a_pin_of_another_owned_repo_reads_that_repos_tags_once(registries: None) -> None:
     table = base_table()
     table[f"/repos/{A}/contents/requirements.in"] = ok(
-        "extra @ git+https://github.com/Needless2Say/kriegerdataforge-extra.git@v2.0.0\n",
+        "extra @ git+https://github.com/NeedlessAlloy/kriegerdataforge-extra.git@v2.0.0\n",
     )
     table[f"/repos/{OWNER}/kriegerdataforge-extra/tags"] = tags(("v2.1.0", "4" * 40))
     transport = FakeTransport(table)
@@ -577,7 +592,7 @@ def snapshot_with_findings(registries: None) -> dict[str, Any]:
     table = notice_table(base_table())
     table[f"/repos/{A}/dependabot/alerts"] = ok([alert(1, "high"), alert(2, "critical", "jinja2")])
     table[f"/repos/{A}/contents/requirements.in"] = ok(
-        "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@v1.2.0\n",
+        "kdf-fmt @ git+https://github.com/NeedlessAlloy/kriegerdataforge-fmt.git@v1.2.0\n",
     )
     return ew.collect(FakeTransport(table), workers = 1)
 
@@ -737,7 +752,7 @@ def test_an_unreadable_tag_list_is_a_blind_spot_that_keeps_the_issue_open(regist
     table = base_table()
     table[f"/repos/{OWNER}/kriegerdataforge-fmt/tags"] = ew.Response(403, {"message": "Not accessible by integration"})
     table[f"/repos/{A}/contents/requirements-dev.in"] = ok(
-        "kdf-fmt @ git+https://github.com/Needless2Say/kriegerdataforge-fmt.git@v1.3.0\n",
+        "kdf-fmt @ git+https://github.com/NeedlessAlloy/kriegerdataforge-fmt.git@v1.3.0\n",
     )
     snapshot = ew.collect(FakeTransport(table), workers = 1)
     assert snapshot["summary"]["errors"] == 1
@@ -987,7 +1002,7 @@ def test_a_source_with_no_plain_release_keeps_its_pins_open(registries: None, an
 
 def test_an_npm_range_the_watch_cannot_read_is_a_finding(registries: None) -> None:
     table = base_table()
-    table[f"/repos/{A}/contents/package.json"] = ok(json.dumps({"dependencies": {"@needless2say/report-form": "*"}}))
+    table[f"/repos/{A}/contents/package.json"] = ok(json.dumps({"dependencies": {"@needlessalloy/report-form": "*"}}))
     snapshot = ew.collect(FakeTransport(table), workers = 1)
     assert snapshot["summary"]["pins_unjudged"] == 1
     assert ew.render(snapshot)[2] == "open"

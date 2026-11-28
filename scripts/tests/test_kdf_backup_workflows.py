@@ -83,7 +83,7 @@ def test_the_verify_and_store_jobs_run_cicds_code_alone(job: str) -> None:
     checkouts = [step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")]
 
     assert not any(CALLER.search(str(step.get("run", ""))) for step in steps)
-    assert [step["with"]["repository"] for step in checkouts] == ["Needless2Say/kriegerdataforge-cicd"]
+    assert [step["with"]["repository"] for step in checkouts] == ["NeedlessAlloy/kriegerdataforge-cicd"]
 
 
 def test_the_store_signs_only_the_archive_the_verify_job_opened() -> None:

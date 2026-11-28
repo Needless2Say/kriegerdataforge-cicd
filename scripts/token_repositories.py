@@ -37,7 +37,7 @@ from common.repo_sync import _select_repos
 # ======================================================================================================================
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
-CICD_REPO   = "Needless2Say/kriegerdataforge-cicd"
+CICD_REPO   = "NeedlessAlloy/kriegerdataforge-cicd"
 
 # ======================================================================================================================
 # The lists

@@ -149,7 +149,7 @@ def test_every_action_of_the_watch_is_pinned_to_a_commit() -> None:
 
 def test_the_watch_runs_cicds_own_scripts_and_keeps_the_snapshot() -> None:
     checkout = _step(WATCH, "Check out cicd's scripts")
-    assert "repository: Needless2Say/kriegerdataforge-cicd" in checkout
+    assert "repository: NeedlessAlloy/kriegerdataforge-cicd" in checkout
     assert "persist-credentials: false" in checkout
     assert "/scripts/" in checkout and "/kit/KIT_VERSION" in checkout
     assert "_kdf_cicd/scripts/ecosystem_watch.py collect" in _step(WATCH, "Collect the snapshot")
@@ -335,7 +335,7 @@ def watch(tmp_path: Path) -> Callable[..., subprocess.CompletedProcess[str]]:
             "FAKE_GH_STATE": state.as_posix(),
             "FAKE_GH_FAIL": fail,
             "LABEL": "ops:ecosystem-watch",
-            "REPO": "Needless2Say/kriegerdataforge-context",
+            "REPO": "NeedlessAlloy/kriegerdataforge-context",
             "RUN_URL": "https://github.com/run/1",
             "RUNNER_TEMP": runner.as_posix(),
         }

@@ -3,13 +3,13 @@
   "max_age_days": 8,
   "backups": [
     {
-      "repo": "Needless2Say/fitness-app-backend",
+      "repo": "NeedlessAlloy/fitness-app-backend",
       "workflow": "backup.yml",
       "app": "fitness",
       "environments": ["prod"]
     },
     {
-      "repo": "Needless2Say/kriegerdataforge",
+      "repo": "NeedlessAlloy/kriegerdataforge",
       "workflow": "backup.yml",
       "app": "hub",
       "environments": ["prod"]

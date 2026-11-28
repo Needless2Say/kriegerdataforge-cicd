@@ -21,7 +21,7 @@ implements it (`file:line`), and states the **fail mode**. It is a reference, no
 `kriegerdataforge-cicd` is the **centralized, public CI/CD platform library** for the KDF
 ecosystem. Deploy behavior, security gates, version discipline, and secret handling are defined
 **once** here and every tenant repo's `cd.yml` is a thin caller
-(`uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/<wf>.yml@main` + `secrets: inherit`)
+(`uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/<wf>.yml@main` + `secrets: inherit`)
 (`AGENTS.md:16-18`). Consumers. `kriegerdataforge` (hub), `kriegerdataforge-auth-ui`,
 `fitness-app-{frontend,backend}`, `tiffanys-space{,-backend}`, `kriegerdataforge-terraform`,
 `arthurs-portfolio`, and the `kriegerdataforge-template-{fastapi,nextjs}` scaffold repos

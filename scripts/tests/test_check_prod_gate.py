@@ -13,7 +13,7 @@ import pytest
 from check_prod_gate import ApiError, decide, main
 
 API   = "https://api.github.com"
-REPO  = "Needless2Say/tiffanys-space"
+REPO  = "NeedlessAlloy/tiffanys-space"
 SHA   = "0123456789abcdef0123456789abcdef01234567"
 OTHER = "fedcba9876543210fedcba9876543210fedcba98"
 
@@ -508,15 +508,15 @@ class TestRulesetDates:
     ])
     def test_each_repo_that_runs_a_prod_gate_holds_its_date_from_the_settings_read_back(self, repo):
         # the secrets fence's step 4 set both rulesets and read them back, 2026-11-06 from 14:15:40 UTC
-        when = gate.parse_time(gate.load_ruleset_dates()[f"Needless2Say/{repo}"])
+        when = gate.parse_time(gate.load_ruleset_dates()[f"NeedlessAlloy/{repo}"])
         assert when is not None and when >= gate.parse_time("2026-11-06T14:15:40+00:00")
 
 
     def test_a_repo_with_no_date_reads_none(self, tmp_path):
         path = tmp_path / "dates.json"
-        path.write_text('{"dates": {"Needless2Say/other": "' + RULESET_DATE + '"}}', encoding = "utf-8")
+        path.write_text('{"dates": {"NeedlessAlloy/other": "' + RULESET_DATE + '"}}', encoding = "utf-8")
         assert gate.load_ruleset_dates(path).get(REPO) is None
-        assert gate.load_ruleset_dates(path)["Needless2Say/other"] == RULESET_DATE
+        assert gate.load_ruleset_dates(path)["NeedlessAlloy/other"] == RULESET_DATE
 
 
     def test_main_reads_the_expected_commit_and_the_repos_date(self, monkeypatch, tmp_path):

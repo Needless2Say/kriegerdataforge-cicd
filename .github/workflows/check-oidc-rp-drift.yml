@@ -111,7 +111,7 @@ jobs:
             else
               gh issue create --repo "$REPO" \
                 --title "[Ops] OIDC-RP core has drifted between the tenant frontends (${COUNT} file(s))" \
-                --label "$LABEL" --label ops --assignee Needless2Say \
+                --label "$LABEL" --label ops --assignee NeedlessAlloy \
                 --body-file issue.md
             fi
           else

@@ -3,7 +3,7 @@
 Welcome. This is the **centralized CI/CD platform library** for the KriegerDataForge (KDF)
 ecosystem. A single, **public** home for reusable GitHub Actions workflows and the cross repo
 automation that every tenant repo calls instead of maintaining its own pipelines. A tenant's
-`cd.yml` is a thin caller (`uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/<wf>.yml@main`
+`cd.yml` is a thin caller (`uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/<wf>.yml@main`
 + `secrets: inherit`). All the real logic lives here.
 
 Unfamiliar term or acronym anywhere in these docs? It is defined in
@@ -48,7 +48,7 @@ Notes:
 ## 2. Clone & install
 
 ```bash
-git clone https://github.com/Needless2Say/kriegerdataforge-cicd.git
+git clone https://github.com/NeedlessAlloy/kriegerdataforge-cicd.git
 cd kriegerdataforge-cicd
 
 # one-time: install the pre-commit secret-scan hook (PL-027)
@@ -149,7 +149,7 @@ that passes inputs and inherits secrets:
 ```yaml
 jobs:
   deploy:
-    uses: Needless2Say/kriegerdataforge-cicd/.github/workflows/cd-python-vercel.yml@main
+    uses: NeedlessAlloy/kriegerdataforge-cicd/.github/workflows/cd-python-vercel.yml@main
     with:
       environment: ${{ inputs.environment }}
       version: ${{ inputs.version }}

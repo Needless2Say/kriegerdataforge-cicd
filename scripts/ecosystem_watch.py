@@ -61,7 +61,7 @@ import ecosystem_images
 # Configuration
 # ======================================================================================================================
 
-OWNER        = "Needless2Say"
+OWNER        = "NeedlessAlloy"
 SCHEMA       = "kdf-ecosystem-watch/1"
 GITHUB_API   = "https://api.github.com"
 SCRIPTS_DIR  = Path(__file__).resolve().parent
@@ -70,6 +70,10 @@ CICD_REPO    = f"{OWNER}/kriegerdataforge-cicd"
 KIT_REGISTRY = SCRIPTS_DIR / "kit_registry.json"
 SCR_REGISTRY = SCRIPTS_DIR / "scripts_registry.json"
 KIT_VERSION  = CICD_ROOT / "kit" / "KIT_VERSION"
+
+# the owner's name before the account's rename of 2026-11-26. A pin or a package that still spells it is read as the
+# same repo while the repos move, every request going to OWNER alone, and the rename's close removes it
+OLD_OWNER = "Needless2Say"
 
 # the files a repo pins a package of the owner's in, read when present
 PIN_FILES = (
@@ -94,14 +98,18 @@ RELEASE_REPOS = (
 # never in a comment
 _PIN_HEAD = r"""^[ \t]*["']?(?P<name>[A-Za-z0-9_.-]+)(?:\[[^\]\n]*\])?[ \t]*@[ \t]*git\+https://github\.com/"""
 _PIN_TAIL = r"""/(?P<repo>[A-Za-z0-9_.-]+?)(?:\.git)?@(?P<ref>[A-Za-z0-9_.-]+)"""
-GIT_PIN   = re.compile(_PIN_HEAD + re.escape(OWNER) + _PIN_TAIL, re.MULTILINE)
+GIT_PIN   = re.compile(_PIN_HEAD + f"(?:{re.escape(OWNER)}|{re.escape(OLD_OWNER)})" + _PIN_TAIL, re.MULTILINE)
 
 # the style lane's input in a repo's ci.yml, `kdf_fmt_ref: v1.3.0` or `main`, never in a comment. Since D-054 a repo
 # passes it only as an override, and requirements-dev.in names the formatter
 KDF_FMT_REF = re.compile(r"""^[ \t]*kdf_fmt_ref:[ \t]*["']?(?P<ref>v?\d+\.\d+\.\d+|main)["']?[ \t]*$""", re.MULTILINE)
 
 # an npm package of the owner's, by its name, and the repo whose tags are its releases
-NPM_SOURCES = {"@needless2say/report-form": "kriegerdataforge-report-form"}
+NPM_SOURCES = {
+    "@needlessalloy/report-form": "kriegerdataforge-report-form",
+    # the same package under the owner's scope before the rename of 2026-11-26, to the rename's close
+    "@needless2say/report-form": "kriegerdataforge-report-form",
+}
 
 SEMVER    = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
 FULL_SHA  = re.compile(r"^[0-9a-f]{40}$")
